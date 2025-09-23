@@ -1,0 +1,292 @@
+/*
+    Refactored CSS
+    - единообразные отступы (4 пробела)
+    - сохранил визуальную структуру оригинала
+*/
+:root {
+    --bg: #fff;
+    --ink: #111;
+    --muted: #667;
+    --border: #e5e7eb;
+    --accent: #0b57d0;
+    --appbarH: 48px;
+    --sideW: 460px;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+}
+
+/* <!-- --------------------------- -->
+<!--      DEBUG SHADDOW PANNEL      -->
+<!-- --------------------------- --> */
+
+/* Shadows debug panel */
+    .debug-panel{
+    position: fixed;
+    top: calc(var(--appbarH) + 8px);
+    left: 8px;
+    z-index: 20;
+    width: 320px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.12);
+    padding: 10px;
+    display: none;
+    }
+    .debug-panel.show{ display:block; }
+    .debug-panel h4{ margin:0; font-size:13px; font-weight:600; }
+    .debug-panel .hdr{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    .debug-panel .row{ display:flex; align-items:center; gap:8px; margin:6px 0; }
+    .debug-panel label{ font-size:12px; display:flex; justify-content:space-between; width:100%; gap:8px; }
+    .debug-panel input[type="number"]{ width:120px; }
+    .debug-panel select{ width:120px; }
+
+
+/* <!-- ------------------------------- -->
+<!--    END OF DEBUG SHADDOW PANNEL     -->
+<!-- ----------------------------------> */
+
+
+/* GeoJSON tab inside the side panel */
+.doc {
+    margin-left: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+}
+.doc:hover { opacity: .75; }
+
+
+.collapsible {
+    position: relative;
+    margin: 8px 0;
+}
+
+.collapsible > details {
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+    background: #fff;
+}
+
+.collapsible > details > summary {
+    display: flex;
+    align-items: center;
+    padding-right: 0;
+}
+
+.collapsible > details > summary .sumline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.collapsible-controls {
+    position: absolute;
+    top: 12px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.collapsible-controls .eye,
+.collapsible-controls .doc {
+    margin: 0;
+}
+
+.glass-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.glass-controls label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.glass-controls input[type="range"] {
+    width: 110px;
+}
+
+.glass-value {
+    min-width: 34px;
+    text-align: right;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.glass-source {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+
+
+.appbar {
+    position: fixed;
+    inset: 0 0 auto 0; /* верхняя панель */
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 0 10px;
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    z-index: 5;
+    min-height: 48px;
+}
+
+.appbar .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.appbar .row label {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.btn {
+    border: 1px solid var(--border);
+    background: #fff;
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn:hover { border-color: #d0d7de; }
+
+.muted { color: var(--muted); }
+
+#viewer {
+    position: fixed;
+    top: var(--appbarH);
+    right: var(--sideW);
+    bottom: 0;
+    left: 0;
+    background: #fafafa;
+}
+
+.side {
+    position: fixed;
+    top: var(--appbarH);
+    right: 0;
+    bottom: 0;
+    width: var(--sideW);
+    border-left: 1px solid var(--border);
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    overflow:auto;
+    font-size: 13px;
+}
+
+
+
+/* строка внутри summary, чтобы не трогать сам summary и его маркер */
+.sumline{ display:flex; align-items:center; gap:8px; }
+
+/* бейдж протокола */
+.badge{
+display:inline-block;
+padding:2px 10px;
+border:1px solid var(--border);
+border-radius:999px;
+line-height:1.2;
+font-size:12px;
+font-weight:700;
+background:#fff;
+/* важное: убираем любые тени/аутлайны */
+box-shadow:none; outline:0;
+}
+
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.list { padding: 8px; overflow: auto; flex: 1; }
+
+details { border: 1px solid var(--border); border-radius: 10px; padding: 8px; margin: 8px 0; background: #fff; }
+summary { cursor: pointer; font-weight: 600; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13px; }
+td { padding: 4px 6px; border-top: 1px dashed var(--border); vertical-align: top; }
+td.k { width: 140px; color: #334; }
+
+.chip { display: inline-block; border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; font-size: 11px; }
+.tag  { display: inline-block; padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; margin: 2px 4px 0 0; font-size: 12px; }
+
+select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+input[type="range"] { width: 120px; }
+
+#gallery{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(96px, 1fr));
+    gap:8px;
+    padding:8px;
+
+    /* прокрутка */
+    overflow:auto;
+    max-height:calc(100vh - var(--appbarH) - 260px); /* при желании подстройте 260px */
+    scrollbar-gutter:stable both-edges;
+    overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+}
+.thumb { border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: #fff; display:flex; flex-direction:column; gap:4px; cursor:pointer; overflow:hidden; }
+.thumb img, .thumb .ph { width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:6px; display:block }
+.thumb .ph { display:grid; place-items:center; font-size:11px; color:#666; background:#f4f4f5 }
+.thumb.broken { border-color:#f5c2c7; background:#fff5f6 }
+.thumb .nm { display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.pill { align-self:flex-start; font-size:10px; padding:1px 6px; border:1px solid var(--border); border-radius:999px }
+
+.gallery-spacer { grid-column: 1 / -1; height: 1px; }
+
+.drop { position: fixed; inset: var(--appbarH) 0 0 0; display:none; place-items:center; background:rgba(0,0,0,.04); border:3px dashed rgba(0,0,0,.2); font-size:18px; z-index:4 }
+.drop.show { display: grid; }
+
+.modal { position: fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.45); z-index:50 }
+.modal.show { display:grid }
+.sheet { background:#fff; width:min(900px, calc(100vw - 40px)); border-radius:12px; border:1px solid var(--border); overflow:hidden; box-shadow:0 30px 100px rgba(0,0,0,.25) }
+.sheet .head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--border) }
+.sheet .body { display:grid; grid-template-columns: 1fr 320px; gap:0 }
+.sheet .imgwrap { background:#111; display:grid; place-items:center; min-height:320px }
+.sheet .imgwrap img { max-width:100%; max-height:70vh }
+.sheet .side { padding:10px; display:flex; flex-direction:column; gap:8px }
+.sheet .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.sheet .btn.primary { background: var(--accent); color:#fff; border-color:var(--accent) }
+.eye {
+    font-size: 14px;
+    user-select: none;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+.eye:hover { opacity: .75; }
+
+body.side-hidden { --sideW: 0px; }
