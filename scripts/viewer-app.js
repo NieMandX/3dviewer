@@ -62,6 +62,8 @@ class ViewerApp {
         const bgAlphaEl       = document.getElementById('bgAlpha');
         bgAlphaEl.addEventListener('input', updateBgVisibility);
 
+        const sampleSelect    = document.getElementById('sampleSelect');
+
 
         let didInitialRebase = false;
         let currentShadingMode = 'pbr';
@@ -92,6 +94,7 @@ class ViewerApp {
             matSelect,
             bindLogEl,
             bgAlphaEl,
+            sampleSelect,
         };
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
 
@@ -163,9 +166,9 @@ class ViewerApp {
 
 
 
-        // ----------------------------
-        // DEBUG SHADDOW PANNEL'S LOGIC
-        // ----------------------------
+        // =====================================================================
+        // Lighting & Shadows · Sun control / debug panel
+        // =====================================================================
 
         // --- Shadows debug panel (после создания dirLight!) ---
                 const $ = (id) => document.getElementById(id);
@@ -184,7 +187,9 @@ class ViewerApp {
                 const inAuto   = $('shadowAuto');
                 const inScale  = $('shadowFrustumScale');
 
+                /** Открывает панель отладки теней и синхронизирует значения. */
                 function openShadowDbg(){ if (shadowDbg) { syncShadowUIFromLight(); shadowDbg.classList.add('show'); } }
+                /** Закрывает панель отладки теней. */
                 function closeShadowDbg(){ shadowDbg?.classList.remove('show'); }
 
                 document.getElementById('shadowHelpersBtn').addEventListener('click', () => {
@@ -196,6 +201,7 @@ class ViewerApp {
                 shadowDbgBtn?.addEventListener('click', openShadowDbg);
                 shadowDbgClose?.addEventListener('click', closeShadowDbg);
 
+                /** Передаёт текущие настройки directional light в UI-поля панели. */
                 function syncShadowUIFromLight(){
                 if (!dirLight) return;
                 const s = dirLight.shadow;
@@ -214,6 +220,7 @@ class ViewerApp {
                 inScale.value  = String(shadowFrustumScale);
                 }
 
+                /** Применяет значения из UI к источнику света и обновляет сцену. */
                 function applyShadowUIToLight(){
                 if (!dirLight) return;
 
@@ -288,6 +295,7 @@ class ViewerApp {
         }
 
         // функции монтажа/демонтажа
+        /** Возвращает элементы управления солнцем назад в тулбар. */
         function mountSunControls() {
             if (!sunControlsEl || !sunAnchor) return;
             if (sunControlsEl.isConnected) return;         // уже на месте
@@ -295,6 +303,7 @@ class ViewerApp {
             try { layout(); } catch(_) {}
         }
 
+        /** Удаляет элементы управления солнцем из тулбара. */
         function unmountSunControls() {
             if (!sunControlsEl || !sunControlsEl.isConnected) return;
             if (!sunAnchor) return;
@@ -305,6 +314,7 @@ class ViewerApp {
         }
 
         // главный переключатель солнца+теней
+        /** Переключает directional light и блок управления солнцем. */
         function setSunEnabled(on){
             on = !!on;
             sunEnabled = on;
@@ -350,12 +360,57 @@ class ViewerApp {
         let currentBg    = app.currentBg    = null;      // shifted equirect (for background sphere)
         let currentRotDeg = app.currentRotDeg = 0;        // rotation slider value
 
-        // =====================
-        // State
-        // =====================
-        const loadedModels = app.loadedModels = []; // { obj, name }
-        const allEmbedded  = app.allEmbedded  = []; // embedded images across all models
+        // =====================================================================
+        // Asset Loading · Shared State
+        // =====================================================================
+        /**
+         * Все загруженные модели (FBX) в рамках текущей сессии.
+         * Храним объект сцены, имя файла и дополнительную мета-информацию.
+         * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson? }
+         */
+        const loadedModels = app.loadedModels = [];
+
+        /**
+         * Список всех изображений, извлечённых из FBX или ZIP (включая embedded).
+         * Используется для автопривязки материалов и галереи текстур.
+         */
+        const allEmbedded  = app.allEmbedded  = [];
+
+        /**
+         * Стек для операций «отмены» при ручной привязке текстур.
+         * Пока используется только для логирования, но оставляем для будущего undo.
+         */
         const undoStack    = app.undoStack    = [];
+
+        const SAMPLE_MODELS = [
+            { label: 'Примеры…', files: [] },
+            {
+                label: 'SH35_LPM (0610_Shabolovka_Vl_35.zip)',
+                files: [
+                    'https://storage.yandexcloud.net/maragojeep/0610_Shabolovka_Vl_35.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=YCAJENUFHbvNEEcd7Rb00AGxU%2F20250923%2Fru-central1%2Fs3%2Faws4_request&X-Amz-Date=20250923T230730Z&X-Amz-Expires=2592000&X-Amz-Signature=943e5ff00396c1cc7f942e434853be47d68d7a31d6bcd346e6c191b8e6c6d157&X-Amz-SignedHeaders=host'
+                ]
+            },
+            {
+                label: 'SH34_LPM (0610_Shabolovka_Vl_34.zip)',
+                files: [
+                    'https://storage.yandexcloud.net/maragojeep/0610_Shabolovka_Vl_34.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=YCAJENUFHbvNEEcd7Rb00AGxU%2F20250923%2Fru-central1%2Fs3%2Faws4_request&X-Amz-Date=20250923T230545Z&X-Amz-Expires=2592000&X-Amz-Signature=d25d916a2754c41a582a7618cee65834fcfb4931f70f0ba583c625b617c20430&X-Amz-SignedHeaders=host'
+                ]
+            },
+            {
+                label: 'SH35_HPM (Ground + Building)',
+                files: [
+                    'https://storage.yandexcloud.net/maragojeep/SM_Shabolovka_Vl_35.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=YCAJENUFHbvNEEcd7Rb00AGxU%2F20250923%2Fru-central1%2Fs3%2Faws4_request&X-Amz-Date=20250923T230932Z&X-Amz-Expires=2592000&X-Amz-Signature=6419e24698888a213131664bdee893f90b07fd79d5dc46ec3db66bcc5862f6f6&X-Amz-SignedHeaders=host',
+                    'https://storage.yandexcloud.net/maragojeep/SM_Shabolovka_Vl_35_Ground.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=YCAJENUFHbvNEEcd7Rb00AGxU%2F20250923%2Fru-central1%2Fs3%2Faws4_request&X-Amz-Date=20250923T231155Z&X-Amz-Expires=2592000&X-Amz-Signature=826ed6e3fb7b07c9ac490396cabac4acbfd284d4c41d3e77786934f10318a7bb&X-Amz-SignedHeaders=host'
+                ]
+            },
+            {
+                label: 'SH34_HPM (Ground + Building)',
+                files: [
+                    'https://storage.yandexcloud.net/maragojeep/SM_Shabolovka_Vl_34.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=YCAJENUFHbvNEEcd7Rb00AGxU%2F20250923%2Fru-central1%2Fs3%2Faws4_request&X-Amz-Date=20250923T230806Z&X-Amz-Expires=2592000&X-Amz-Signature=47cf7ad4a3548de434900644f8de1bedc24facda64553d58c823bab2ff349844&X-Amz-SignedHeaders=host',
+                    'https://storage.yandexcloud.net/maragojeep/SM_Shabolovka_Vl_34_Ground.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=YCAJENUFHbvNEEcd7Rb00AGxU%2F20250923%2Fru-central1%2Fs3%2Faws4_request&X-Amz-Date=20250923T230833Z&X-Amz-Expires=2592000&X-Amz-Signature=bdf7d9cb9ca7ede1344ff0b89b59d54768fdaa1ad7810f87136c39f9ec61c017&X-Amz-SignedHeaders=host'
+                ]
+            }
+        ];
 
 
 
@@ -404,10 +459,6 @@ class ViewerApp {
             return box.getCenter(new THREE.Vector3());
         }
 
-        // удобные конвертеры координат (если нужно где-то показывать «абсолют»)
-        function toAbs(v){ return v.clone().add(worldOffset); }   // видовые → абсолютные
-        function toView(v){ return v.clone().sub(worldOffset); }  // абсолютные → видовые
-
         // =====================
         // Layout helper
         // =====================
@@ -416,9 +467,7 @@ class ViewerApp {
             const n = parseFloat(v || '0');
             return Number.isFinite(n) ? n : 0;
         }
-        // =====================
-        // HDRI texture flip Y
-        // =====================
+        /** Инвертирует equirectangular HDR по вертикали (для корректного отображения). */
         function flipHDRTextureVertically(srcTex) {
             const { data, width, height } = srcTex.image;
             const channels = 4; // RGBA/RGBE
@@ -459,11 +508,12 @@ class ViewerApp {
    
 
                 // ---------------------------------------
-                // DEBUG SHADDOW PANNEL'S LOGIC AUTOUPDATE
+                // DEBUG SHADOW PANEL AUTOUPDATE
                 // ---------------------------------------
                     let shadowCamHelper = null;
                     let sunHelper = null;
 
+                    /** Создаёт helpers для тюнинга теней (камера + направление). */
                     function ensureShadowHelpers() {
                         if (!shadowCamHelper) {
                             shadowCamHelper = new THREE.CameraHelper(dirLight.shadow.camera);
@@ -479,6 +529,7 @@ class ViewerApp {
                         }
                     }
 
+                    /** Включает/выключает визуализацию параметров теней. */
                     function setShadowDebug(on) {
                         ensureShadowHelpers();
                         shadowCamHelper.visible = !!on;
@@ -490,6 +541,7 @@ class ViewerApp {
                     let shadowAutoFrustum = true;
                     let shadowFrustumScale = 1.0;
 
+                    /** Подгоняет orthographic frustum для directional light под текущую сцену. */
                     function fitSunShadowToScene(recenterTarget = false, margin = 1.25) {
                         if (!dirLight || !dirLight.shadow || !dirLight.shadow.camera) return;
 
@@ -638,7 +690,10 @@ class ViewerApp {
             return hdrBaseTex;
         }
 
-        // Функция для вычисления позиции солнца (упрощённая астрономия)
+        /**
+         * Вычисляет высоту и азимут солнца по упрощённой модели (для UI солнца).
+         * Возвращает { altitude, azimuth } в радианах.
+         */
         function sunPosition(date, lat, lon) {
             const rad = Math.PI / 180;
             const day = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
@@ -661,7 +716,7 @@ class ViewerApp {
             return { altitude: alt, azimuth: az };
         }
 
-        // Обновление солнца
+        /** Обновляет направление солнечного света и helpers на основе UI-параметров. */
         function updateSun() {
             if (!dirLight || !dirLight.visible) return;
 
@@ -741,7 +796,7 @@ class ViewerApp {
             return tex;
         }
 
-        // build PMREM from rotated HDR and apply to scene.environment
+        /** Генерирует PMREM из повернутого HDRI и применяет к окружению/фону. */
         function buildAndApplyEnvFromRotation(deg) {
             currentRotDeg = deg;
             app.currentRotDeg = currentRotDeg;
@@ -770,6 +825,7 @@ class ViewerApp {
             applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
         }
 
+        /** Включает/выключает окружение (HDRI) и обновляет фон + стекло. */
         async function setEnvironmentEnabled(on) {
             await loadHDRBase();
             if (on) {
@@ -822,44 +878,11 @@ class ViewerApp {
             return _checkerTex;
         }
 
-        // =====================
-        // Points mode (vertices visualization)
-        // =====================
-        function createPointsForMesh(mesh) {
-            // create Points object that shares mesh.geometry but has its own material
-            const pm = new THREE.PointsMaterial({
-                size: 3.0,
-                sizeAttenuation: false,
-                color: 0x111111,
-                vertexColors: !!mesh.geometry.getAttribute('color'),
-                transparent: true,
-                opacity: 0.95
-            });
+        // =====================================================================
+        // Rendering Modes · Points/Beauty Wire helpers
+        // =====================================================================
 
-            const points = new THREE.Points(mesh.geometry, pm);
-            points.name = mesh.name ? `${mesh.name}_points` : 'points';
-
-            const parent = mesh.parent || world;
-            parent.add(points);
-
-            points.position.copy(mesh.position);
-            points.quaternion.copy(mesh.quaternion);
-            points.scale.copy(mesh.scale);
-
-            mesh.userData._points = points;
-            return points;
-        }
-
-        function destroyPointsForMesh(mesh) {
-            const p = mesh.userData._points;
-            if (p && p.parent) {
-                p.parent.remove(p);
-                p.geometry = null; // do not dispose shared geometry
-                p.material.dispose?.();
-            }
-            delete mesh.userData._points;
-        }
-
+        /** Гарантирует наличие Points-объекта и материала для указанного меша. */
         function ensurePointsForMesh(mesh, size = 3, color = 0x00aaff) {
             if (!mesh.isMesh || !mesh.geometry || !mesh.parent) return null;
 
@@ -884,6 +907,7 @@ class ViewerApp {
             return mesh.userData._pointsObj;
         }
 
+        /** Переключает режим отображения вершин: прячет исходные меши и показывает Points. */
         function setPointsMode(enabled, { size = 0.5, color = 0x666666 } = {}) {
             world.traverse(o => {
                 if (!o.isMesh) return;
@@ -891,15 +915,6 @@ class ViewerApp {
                 if (!pts) return;
                 o.visible = !enabled;
                 pts.visible = enabled;
-            });
-        }
-
-        function updatePointSize(newSize) {
-            world.traverse(o => {
-                if (o.userData?._pointsMat?.isPointsMaterial) {
-                    o.userData._pointsMat.size = newSize;
-                    o.userData._pointsMat.needsUpdate = true;
-                }
             });
         }
 
@@ -1060,98 +1075,13 @@ class ViewerApp {
 
 
 
-        function ensureEdgesForMesh(mesh, { angle=2, color=0x000000, opacity=0.9 } = {}) {
-            if (!mesh.isMesh || !mesh.geometry || !mesh.parent) return null;
-
-            if (!mesh.userData._edgesObj) {
-                const g   = new THREE.EdgesGeometry(mesh.geometry, angle);
-                const mat = new THREE.LineBasicMaterial({
-                color, transparent: opacity < 1, opacity,
-                depthTest: true, depthWrite: false
-                });
-                const lines = new THREE.LineSegments(g, mat);
-                lines.name = (mesh.name || mesh.type) + ' (edges)';
-                lines.renderOrder = (mesh.renderOrder || 0) + 1;
-                lines.visible = false;
-
-                mesh.add(lines); // дочерний — наследует трансформы
-                mesh.userData._edgesObj   = lines;
-                mesh.userData._edgesMat   = mat;
-                mesh.userData._edgesAngle = angle;
-            } else {
-                const mat = mesh.userData._edgesMat;
-                if (mat) {
-                mat.color.set(color);
-                mat.opacity = opacity;
-                mat.transparent = opacity < 1;
-                mat.needsUpdate = true;
-                }
-                if (mesh.userData._edgesAngle !== angle) {
-                mesh.userData._edgesObj.geometry.dispose?.();
-                mesh.userData._edgesObj.geometry = new THREE.EdgesGeometry(mesh.geometry, angle);
-                mesh.userData._edgesAngle = angle;
-                }
-            }
-            return mesh.userData._edgesObj;
-        }
-
-        function setEdgesMode(enabled, {
-            angle = 15,
-            color = 0x000000,
-            opacity = 0.3,
-            overlay = false   // overlay=true — линии поверх заливки; false — «только линии»
-            } = {}) {
-            world.traverse(o => {
-                if (!o.isMesh) return;
-
-                // гарантируем объект линий
-                const lines = ensureEdgesForMesh(o, { angle, color, opacity, overlay });
-                if (!lines) return;
-
-                // линии показываем/прячем
-                lines.visible = !!enabled;
-
-                // НЕ ТРОГАЕМ o.visible, иначе скроем и линии (они ребёнок меша)
-                o.visible = true;
-
-                // режим «только линии» — прячем заливку через colorWrite=false
-                if (enabled && !overlay) {
-                setFillVisible(o, /*show=*/false);
-                } else {
-                setFillVisible(o, /*show=*/true);
-                }
-            });
-            }
-
-        function setFillVisible(mesh, show) {
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        mats.forEach(m => {
-            if (!m) return;
-            m.userData ??= {};
-            if (!show) {
-            if (m.userData._savedColorWrite === undefined) {
-                m.userData._savedColorWrite = (m.colorWrite ?? true);
-            }
-            m.colorWrite = false;      // не рисуем цвет
-            m.transparent = true;      // на всякий случай
-            } else {
-            if (m.userData._savedColorWrite !== undefined) {
-                m.colorWrite = m.userData._savedColorWrite;
-                delete m.userData._savedColorWrite;
-            } else {
-                m.colorWrite = true;
-            }
-            }
-            m.needsUpdate = true;
-        });
-        }
-
 
         // === Beauty wire helpers ===
 const BEAUTY_WIRE_ANGLE_DEG = 25;   // угол между нормалями, > исключит мягкие рёбра/диагонали
 const BEAUTY_WIRE_COLOR     = 0x111111;
 const BEAUTY_WIRE_OPACITY   = 0.9;
 
+/** Готовит красочную обводку (beauty wire) для заданного меша. */
 function ensureBeautyWire(mesh, angleDeg = BEAUTY_WIRE_ANGLE_DEG) {
     if (!mesh.isMesh || !mesh.geometry) return null;
 
@@ -1194,6 +1124,7 @@ function ensureBeautyWire(mesh, angleDeg = BEAUTY_WIRE_ANGLE_DEG) {
     return line;
 }
 
+/** Возвращает меш из режима beauty wire к исходному материалу. */
 function clearBeautyWire(mesh) {
     if (!mesh.isMesh) return;
     // вернуть исходный материал
@@ -1215,10 +1146,14 @@ function clearBeautyWire(mesh) {
         // Shading modes
         // =====================
 
+        /**
+         * Возвращает материал-вариант для режима отображения.
+         * В режиме PBR возвращаем исходный материал, в остальных — создаём clone подходящего типа.
+         */
         function makeVariantFrom(orig, mode) {
             // Общие параметры, включая поддержку альфа
             const common = {
-                
+
                 side: THREE.FrontSide,
                 transparent: orig.transparent || !!orig.alphaMap,
                 alphaTest: 0.3,
@@ -1334,8 +1269,19 @@ function clearBeautyWire(mesh) {
             }
         }
 
-        function applyShading(mode) {
+        /**
+         * Главный переключатель режимов шейдинга. Кэширует исходные материалы (для PBR),
+         * управляет режимами точек/beauty wire и обновляет панель материалов.
+         */
+        function applyShading(mode, afterRender) {
             currentShadingMode = mode;
+            let panelScheduled = false;
+            const scheduleOnce = () => {
+                if (panelScheduled) return;
+                schedulePanelRefresh(afterRender);
+                panelScheduled = true;
+                afterRender = undefined;
+            };
 
             // выключаем точки, если были
             if (mode !== 'points') setPointsMode(false);
@@ -1344,7 +1290,7 @@ function clearBeautyWire(mesh) {
             if (mode === 'backface') {
                 setPointsMode(false);
                 setBackfaceMode(true);
-                renderMaterialsPanel();
+                scheduleOnce();
                 return;
             } else {
                 // выходим из backface при любом другом режиме
@@ -1364,7 +1310,7 @@ function clearBeautyWire(mesh) {
                         if (!o.isMesh) return;
                         ensureBeautyWire(o, BEAUTY_WIRE_ANGLE_DEG);
                     });
-                    renderMaterialsPanel();
+                    scheduleOnce();
                     return;
                 } else {
                     // выходим из beautywire, если он был включён
@@ -1387,7 +1333,7 @@ function clearBeautyWire(mesh) {
                 applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
                 applyGlassControlsToScene();
             }
-            renderMaterialsPanel();
+            scheduleOnce();
         }
 
         shadingSel.addEventListener('change', () => applyShading(shadingSel.value));
@@ -1673,46 +1619,6 @@ function clearBeautyWire(mesh) {
         // =====================
         // Utilities
         // =====================
-
-
-
-        function toggleGeoTab(hostDetailsEl, meta){
-        // если вкладка уже открыта в этом FBX → закрыть
-        const existing = hostDetailsEl.querySelector('.geo-tab');
-        if (existing) { existing.remove(); return; }
-
-        // красивый JSON (если парсится)
-        let pretty = '';
-        try {
-            const obj = meta.parsed ?? JSON.parse(meta.text);
-            pretty = JSON.stringify(obj, null, 2);
-        } catch {
-            pretty = meta.text || '';
-        }
-
-        const title = meta.entryName || 'geo.json';
-
-        const tab = document.createElement('div');
-        tab.className = 'geo-tab';
-        tab.innerHTML = `
-            <div class="head">
-            <div><b>${title}</b>${meta.featureCount!=null ? ` <span class="tag">features: ${meta.featureCount}</span>` : ''}</div>
-            <div class="row">
-                <a class="btn" href="${meta.url}" download="${title}">Скачать</a>
-                <button class="btn geo-close" title="Закрыть">×</button>
-            </div>
-            </div>
-            <pre></pre>
-        `;
-        tab.querySelector('pre').textContent = pretty;
-
-        // вставим вкладку внутрь <details id="${modelId}">
-        hostDetailsEl.appendChild(tab);
-
-        // закрыть крестиком
-        tab.querySelector('.geo-close').addEventListener('click', () => tab.remove());
-        }
-
 
         function disableShadowsOnImportedLights(root){
             let cnt = 0;
@@ -2217,38 +2123,6 @@ function clearBeautyWire(mesh) {
             return link;
         }
 
-        // На каждый UDIM свой материал
-
-        function uniquifyUDIMMaterials(root = world) {
-            const targets = [];
-            root.traverse(o => { if (o.isMesh && o.userData?.udim) targets.push(o); });
-            targets.forEach(o => {
-                const ud = o.userData.udim;
-                if (Array.isArray(o.material)) {
-                    o.material = o.material.map((m, i) => {
-                        if (m.userData && m.userData._uniqueForUDIM === ud) return m;
-                        const c = m.clone();
-                        c.name = (m.name || o.name || 'Material') + ` · UDIM ${ud}` + (o.material.length > 1 ? `_${i+1}` : '');
-                        (c.userData ||= {})._uniqueForUDIM = ud;
-                        return c;
-                    });
-                    cacheOriginalMaterialFor(o, true);
-                } else {
-                    const m = o.material;
-                    if (!(m.userData && m.userData._uniqueForUDIM === ud)) {
-                        const c = m.clone();
-                        c.name = (m.name || o.name || 'Material') + ` · UDIM ${ud}`;
-                        (c.userData ||= {})._uniqueForUDIM = ud;
-                        o.material = c;
-                        cacheOriginalMaterialFor(o, true);
-                    }
-                }
-            });
-            renderMaterialsPanel();
-            rebuildMaterialsDropdown();
-        }
-
-
         // --- ПОДПИСАТЬ МАТЕРИАЛЫ ПО ИМЕНИ ОБЪЕКТА/UCX ---
         function renameMaterialsByFBXObject(root){
         const RX_DEFAULT = /^_*default(?:_?material)?\s*$/i;  // __DEFAULT / Default / DefaultMaterial / "" и т.п.
@@ -2296,20 +2170,6 @@ function clearBeautyWire(mesh) {
         }
 
         // вернёт созданную/найденную группу "КОЛЛИЗИИ" или null, если UCX не найден
-        function normalizeMatBaseName(n){
-            if (!n) return '';
-            return String(n).split('::').pop().trim(); // убираем префикс "Material::"
-        }
-        function isDefaultMatName(n){
-            const base = normalizeMatBaseName(n);
-            return (
-                base === '' ||
-                /^_*\s*default(?:_material)?\s*$/i.test(base) ||
-                /^no\s*material$/i.test(base) ||
-                /^lambert\d+$/i.test(base) // частый дефолт у DCC
-            );
-        }
-
         // Собираем UCX-ноды в "КОЛЛИЗИИ" и подписываем материалы по ИМЕНИ ОБЪЕКТА.
         // ВАЖНО: каждому UCX-объекту — свой клон материала, чтобы имена не конфликтовали.
         function groupUCXUnderCollisions(root){
@@ -2365,17 +2225,18 @@ function clearBeautyWire(mesh) {
             return col;
             }
 
-        function classifyZipKind(zipName) {
-            const base = basename(zipName);
-            if (/^SM/i.test(base)) return 'SM';
-            if (/^\d/.test(base))  return 'NPM';   // «НПМ» в UI
-            return null;
-        }
-
         function basename(p) { return (p || '').split(/[\\\/]/).pop(); }
         
 
         // helper: формируем метаданные GeoJSON (url для скачивания, prettified текст, подсчёт features)
+        // =====================================================================
+        // GeoJSON & Glass parameters
+        // =====================================================================
+
+        /**
+         * Формирует удобную структуру с распарсенным GeoJSON, количеством features
+         * и blob-URL для скачивания. Используется для SM (ВПМ) проектов.
+         */
         function makeGeoJsonMeta(zipName, entryName, text){
             let parsed = null, featureCount = null;
             try {
@@ -2398,6 +2259,7 @@ function clearBeautyWire(mesh) {
             };
         }
 
+        /** Безопасно переводит строку вида "0,1" → число, возвращает fallback при ошибке. */
         function parseGeoNumber(value, fallback = null) {
             if (value == null) return fallback;
             if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
@@ -2409,16 +2271,22 @@ function clearBeautyWire(mesh) {
             return fallback;
         }
 
+        /** Ограничивает значение диапазоном [0,1], не выбрасывая NaN. */
         function clamp01(v) {
             const num = Number.isFinite(v) ? v : 0;
             return Math.min(1, Math.max(0, num));
         }
 
+        /** Приводит имя стеклянного материала к нормализованному ключу (lowercase). */
         function normalizeGlassKey(name) {
             if (!name) return null;
             return String(name).trim().toLowerCase();
         }
 
+        /**
+         * Извлекает массив `Glasses` из GeoJSON и кеширует результат: Map<matName, params>.
+         * params → { color, transparency, roughness, metalness, refraction } в нормализованном виде.
+         */
         function ensureGeoGlassIndex(meta) {
             if (!meta) return null;
             if (meta._glassIndex) return meta._glassIndex;
@@ -2478,6 +2346,7 @@ function clearBeautyWire(mesh) {
             return index;
         }
 
+        /** Возвращает параметры стекла для указанных имён (материал/объект), либо null. */
         function findGeoGlassParams(meta, nameCandidates) {
             if (!meta) return null;
             const index = ensureGeoGlassIndex(meta);
@@ -2786,6 +2655,49 @@ function clearBeautyWire(mesh) {
             });
         }
 
+        /** Если в группе ZIP остались видимые коллизии, скрывает их и синхронизирует кнопки. */
+        function ensureZipCollisionsHidden(groupName) {
+            if (!groupName) return;
+            const models = loadedModels.filter(m => m.group === groupName);
+            if (!models.length) return;
+
+            let anyCollision = false;
+            models.forEach(model => {
+                if (!model?.obj) return;
+                model.obj.traverse(o => {
+                    if (!o.isMesh || !o.userData?.isCollision) return;
+                    anyCollision = true;
+                    if (o.visible !== false) {
+                        setMeshAndMaterialsVisibility(o, false);
+                    }
+                });
+            });
+
+            if (!anyCollision) return;
+
+            schedulePanelRefresh(() => {
+                updateEyeButtonsForTarget(`zipcoll|${groupName}`, false);
+                models.forEach(model => {
+                    if (model?.obj?.uuid) updateEyeButtonsForTarget(`colgrp|${model.obj.uuid}`, false);
+                });
+                syncCollisionButtons();
+            });
+        }
+
+        function hideCollisions(root, refresh = true) {
+            let changed = false;
+            root.traverse(o => {
+                if (o.userData?.isCollision) {
+                    if (o.visible !== false) {
+                        setMeshAndMaterialsVisibility(o, false);
+                        changed = true;
+                    }
+                }
+            });
+            if (changed && refresh) schedulePanelRefresh(() => syncCollisionButtons());
+            return changed;
+        }
+
 
         function toStandard(m) {
             if (m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) return m;
@@ -2893,21 +2805,6 @@ function clearBeautyWire(mesh) {
         // ----------------------------------
 
 
-        function centroidXY(coords){
-        // рекурсивно берём все [x,y] пары и считаем центр
-        let sumX = 0, sumY = 0, n = 0;
-        (function walk(a){
-            if (!a) return;
-            if (Array.isArray(a[0])) { a.forEach(walk); return; }
-            // a — точка? [x,y] или [x,y,z]
-            if (Array.isArray(a) && a.length >= 2 && Number.isFinite(a[0]) && Number.isFinite(a[1])){
-            sumX += +a[0]; sumY += +a[1]; n++;
-            }
-        })(coords);
-        return n ? [sumX/n, sumY/n] : [0,0];
-        }
-
-        // === getSMOffset(meta) с логированием входа и решений ===
 function getSMOffset(meta) {
     function log(msg, level){ try{ typeof logBind==='function'?logBind(msg,level||'info'):console.log(msg); }catch(_){ console.log(msg); } }
     const src = meta?.parsed ?? meta?.json ?? meta?.text ?? meta;
@@ -2943,12 +2840,41 @@ function getSMOffset(meta) {
 
 
 
-        // =====================
-        // Materials panel
-        // =====================
+        // =====================================================================
+        // UI · Materials Panel & Gallery
+        // =====================================================================
 
+        let panelRefreshPending = false;
+        const panelRefreshCallbacks = [];
+        function schedulePanelRefresh(afterRender) {
+            if (typeof afterRender === 'function') panelRefreshCallbacks.push(afterRender);
+            if (panelRefreshPending) return;
+            panelRefreshPending = true;
+            Promise.resolve().then(() => {
+                panelRefreshPending = false;
+                renderMaterialsPanel();
+                const callbacks = panelRefreshCallbacks.splice(0);
+                callbacks.forEach(cb => {
+                    try { cb(); } catch (err) { console.error('panel refresh callback failed', err); }
+                });
+            });
+        }
 
+        function populateSampleSelect() {
+            if (!sampleSelect) return;
+            sampleSelect.innerHTML = '';
+            SAMPLE_MODELS.forEach(sample => {
+                const opt = document.createElement('option');
+                opt.value = (sample.files && sample.files[0]) || '';
+                opt.textContent = sample.label;
+                sampleSelect.appendChild(opt);
+            });
+        }
 
+        /**
+         * Рендерит один FBX в панель материалов: заголовок, секции коллизий,
+         * список мешей, интерактивные контролы стекла и кнопки видимости.
+         */
         function renderOneModel(model, chunksArr) {
             function glassInfoRow(obj, material, matIndex) {
                 const info = material?.userData?.glassInfo;
@@ -3105,6 +3031,10 @@ function getSMOffset(meta) {
             chunksArr.push(`</details><div class="collapsible-controls">${fileControls}</div></div>`);
         }     
 
+        /**
+         * Собирает данные по всем загруженным моделям и перерисовывает панель материалов.
+         * Обновляет выпадающий список, интерактивные элементы и синхронизацию коллизий.
+         */
         function renderMaterialsPanel() {
             const chunks = [];
             chunks.push('<details open><summary>Объекты</summary>');
@@ -3185,6 +3115,7 @@ function getSMOffset(meta) {
             syncCollisionButtons();
         }
 
+        /** Возвращает { mesh, mat, index } по UUID и индексу материала для стеклянных контролов. */
         function resolveGlassMaterial(uuid, matIndex) {
             if (!uuid) return null;
             const mesh = world.getObjectByProperty('uuid', uuid);
@@ -3197,6 +3128,7 @@ function getSMOffset(meta) {
             return { mesh, mat, index: safeIndex };
         }
 
+        /** Навешивает обработчики на контролы стекла после перерисовки панели. */
         function bindGlassControls() {
             outEl.querySelectorAll('.glass-slider').forEach(input => {
                 input.addEventListener('input', handleGlassSliderInput);
@@ -3207,6 +3139,7 @@ function getSMOffset(meta) {
             });
         }
 
+        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
         function syncCollisionButtons() {
             if (!outEl) return;
 
@@ -3248,6 +3181,7 @@ function getSMOffset(meta) {
             });
         }
 
+        /** Обработчик изменения значений слайдеров стекла (α/rough/metal). */
         function handleGlassSliderInput(ev) {
             const input = ev.currentTarget;
             if (!input) return;
@@ -3275,6 +3209,7 @@ function getSMOffset(meta) {
             renderer.render(scene, camera);
         }
 
+        /** Обработчик выбора цвета стекла. */
         function handleGlassColorInput(ev) {
             const input = ev.currentTarget;
             if (!input) return;
@@ -3298,6 +3233,7 @@ function getSMOffset(meta) {
             renderer.render(scene, camera);
         }
 
+        /** Обновляет текстовое поле-источник для стеклянного материала. */
         function updateGlassSourceLabel(container, mat) {
             if (!container || !mat) return;
             const label = container.querySelector('.glass-source');
@@ -3312,6 +3248,9 @@ function getSMOffset(meta) {
         // =====================
         // Gallery / modal
         // =====================
+        /**
+         * Обновляет галерею текстур в боковой панели: миниатюры embedded/zip изображений.
+         */
         function renderGallery(listAll) {
             galleryEl.innerHTML = '';
             const total = Array.isArray(listAll) ? listAll.length : 0;
@@ -3414,7 +3353,7 @@ function getSMOffset(meta) {
             cacheOriginalMaterialFor(obj, true);
 
             applyGlassControlsToScene();  // опционально
-            renderMaterialsPanel();
+            schedulePanelRefresh();
             logBind(`${modalTex.short} → ${std.name || 'материал'}.${slot}`, 'ok');
         });
 
@@ -3427,6 +3366,10 @@ function getSMOffset(meta) {
             obj.userData._origMaterial = obj.material;
         }
 
+        /**
+         * Применяет настройки стекла ко всем мешам: GeoJSON → overrides → UI-слайдеры.
+         * Актуализирует `userData.glassInfo` для панели и при необходимости сохраняет overrides.
+         */
         function applyGlassControlsToScene() {
             const op = parseFloat(glassOpacityEl?.value ?? 0.2);
             const refl = parseFloat(glassReflectEl?.value ?? 1.0);
@@ -3597,7 +3540,15 @@ function getSMOffset(meta) {
         }
 
             // строим: Map<fbxKey, Map<`${slot}.${udim}`, {Diffuse,Normal,ERM}>>
-            function buildVPMIndex(allImages){
+        // =====================================================================
+        // VPM (SM) helpers — индекс карт и разбивка ERM
+        // =====================================================================
+
+        /**
+         * Строит индекс T_* текстур, присутствующих в ZIP, сгруппированных по ключу FBX.
+         * Формат: Map<fbxKey, Map<`${slot}.${udim}`, { Diffuse, Normal, ERM }>>
+         */
+        function buildVPMIndex(allImages){
             const byFBX = new Map();
             for (const e of allImages){
                 if (!e?.url) continue;
@@ -3621,6 +3572,9 @@ function getSMOffset(meta) {
         // T_Адрес_(Diffuse|ERM|Normal)_<slot>.<udim>.(png|jpg|jpeg|webp)
         const RX_VPM_TEX = /(?:^|\/)T_.+_(Diffuse|ERM|Normal)_(\d+)\.(\d{4})\.(?:png|jpe?g|webp)$/i;
 
+        /**
+         * Разбирает имя texture entry из ZIP (формат T_*_Diffuse_1.1001.png) в структуру {kind, slot, udim}.
+         */
         function parseVPMTexEntry(entry){
             const nm = String(entry?.full || entry?.short || '');
             const m = nm.match(RX_VPM_TEX);
@@ -3632,7 +3586,9 @@ function getSMOffset(meta) {
             return { kind, slot, udim, url: entry.url };
         }
 
-        // Собираем индекс: key = `${slot}.${udim}` → { Diffuse?, ERM?, Normal? }
+        /**
+         * Строит упрощённый индекс для автопривязки: ключ `${slot}.${udim}` → { Diffuse?, ERM?, Normal? }.
+         */
         function buildVPMIndexFromImages(images){
             const map = new Map(); // key -> {Diffuse,ERM,Normal}
             (images || []).forEach(e => {
@@ -3645,7 +3601,9 @@ function getSMOffset(meta) {
             return map;
         }
 
-        // Из ERM (R=Emissive, G=Roughness, B=Metalness) делаем 3 CanvasTexture (линейные)
+        /**
+         * Разделяет ERM-карту (RGB: emissive/roughness/metalness) на отдельные CanvasTexture в линейном цветовом пространстве.
+         */
         async function splitERMtoThreeMaps(url){
             const img = await createImageBitmap(await (await fetch(url)).blob());
             const w = img.width, h = img.height;
@@ -3685,6 +3643,9 @@ function getSMOffset(meta) {
         //     return 1; // запасной вариант
         // }
 
+        /**
+         * Вычисляет UDIM-тайл по геометрии: берёт средние координаты UV и конвертирует в 1001+.
+         */
         function detectUDIMfromGeo(geo){
             const uv = geo?.getAttribute?.('uv');
             if (!uv) return 1001;
@@ -3699,7 +3660,10 @@ function getSMOffset(meta) {
             return 1001 + tileU + tileV*10;
         }
 
-        // Привязка Diffuse/ERM/Normal к каждому UDIM-сабмешу (отдельный материал на сабмеш)
+        /**
+         * Автоматически привязывает Diffuse/Normal/ERM карты к каждому UDIM-сабмешу модели ВПМ.
+         * Перезаписывает материалы (clone → MeshStandardMaterial), применяет стекло, ERM и окружение.
+         */
         async function autoBindVPMForModel(root, vpmIndex){
             const env = scene.environment;
             const envInt = parseFloat(iblIntEl.value);
@@ -3933,6 +3897,10 @@ function getSMOffset(meta) {
             return idx;
         }
 
+        /**
+         * Автопривязка для "обычных" моделей (НПМ): сопоставление текстур по имени файла.
+         * Ожидает входные embeddedList (файлы из ZIP/FBX) и обновляет материалы в сцене.
+         */
         function autoBindByNamesForModel(root, fileName, embeddedList) {
             const history = [];
             const matIndex = indexModelMaterials(root);
@@ -4016,6 +3984,9 @@ function getSMOffset(meta) {
         // =====================
         // Dropdown & material collection
         // =====================
+        /**
+         * Пересобирает выпадающий список материалов для ручной привязки текстур.
+         */
         function rebuildMaterialsDropdown() {
             const items = collectMaterialsFromWorld();
             matSelect.innerHTML = '<option value="">— выберите материал —</option>';
@@ -4025,6 +3996,9 @@ function getSMOffset(meta) {
             matSelect.dataset._map = JSON.stringify(items.map((x, idx) => ({ idx, path: x.path })));
         }
 
+        /**
+         * Собирает материалы из сцены (кроме коллизий) для выпадающего списка.
+         */
         function collectMaterialsFromWorld() {
             const out = [];
             world.traverse(o => {
@@ -4040,18 +4014,9 @@ function getSMOffset(meta) {
             return out;
         }
 
-        function getSelectedMaterial() {
-            if (matSelect && (matSelect.value === '' || matSelect.selectedIndex <= 0) && matSelect.options.length > 1) { matSelect.selectedIndex = 1; }
-            const val = matSelect?.value; if (val === '' || val == null) return null;
-            let map = [];
-            try { map = JSON.parse(matSelect.dataset._map || '[]'); } catch { map = []; }
-            const entry = map.find(e => String(e.idx) === String(val)); if (!entry || !entry.path) return null;
-            const [uuid, idxStr] = String(entry.path).split(':'); const targetIndex = parseInt(idxStr, 10) || 0;
-            let found = null;
-            world.traverse(o => { if (found || !o.isMesh) return; if (o.uuid !== uuid) return; const mats = Array.isArray(o.material) ? o.material : [o.material]; found = mats[targetIndex] || null; });
-            return found;
-        }
-
+        /**
+         * Возвращает объект { obj, index, mat } для текущего выбранного материала в выпадающем списке.
+         */
         // =====================
         // File flow
         // =====================
@@ -4087,6 +4052,16 @@ function getSMOffset(meta) {
             await finalizeBatchAfterAllFiles();
         });
 
+        populateSampleSelect();
+        if (sampleSelect) {
+            sampleSelect.addEventListener('change', async () => {
+                const idx = sampleSelect.selectedIndex;
+                const sample = SAMPLE_MODELS[idx];
+                if (!sample || !sample.files || !sample.files.length) return;
+                await loadSampleModel(sample);
+            });
+        }
+
         ['dragenter','dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); dropEl.classList.add('show'); }));
         ['dragleave','drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); if (ev === 'drop') return; dropEl.classList.remove('show'); }));
 
@@ -4103,6 +4078,48 @@ function getSMOffset(meta) {
             await finalizeBatchAfterAllFiles();
         });
 
+        // =====================================================================
+        // Asset Loading · Core Procedures
+        // =====================================================================
+
+        async function loadSampleModel(sample) {
+            if (!sample || !sample.files || !sample.files.length) return;
+            if (!statusEl) return;
+            try {
+                if (sampleSelect) sampleSelect.disabled = true;
+                statusEl.textContent = `Загрузка примера: ${sample.label}`;
+                appbarStatusEl.textContent = statusEl.textContent;
+
+                const downloadedFiles = [];
+                for (const url of sample.files) {
+                    const response = await fetch(url, { cache: 'no-cache' });
+                    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+                    const blob = await response.blob();
+                    const base = url.split('?')[0];
+                    const name = decodeURIComponent(base.split('/').pop() || 'sample.zip');
+                    downloadedFiles.push(new File([blob], name, { type: blob.type || 'application/zip' }));
+                }
+                for (const file of downloadedFiles) await handleZIPFile(file);
+                await finalizeBatchAfterAllFiles();
+
+                statusEl.textContent = `Загружен пример: ${sample.label}`;
+                appbarStatusEl.textContent = statusEl.textContent;
+            } catch (err) {
+                console.error(err);
+                statusEl.textContent = `Ошибка загрузки примера: ${err?.message || err}`;
+                appbarStatusEl.textContent = statusEl.textContent;
+            } finally {
+                if (sampleSelect) {
+                    sampleSelect.disabled = false;
+                    sampleSelect.value = '';
+                }
+            }
+        }
+
+        /**
+         * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
+         * извлекает embedded текстуры, выполняет автопривязку и обновляет панель/шейдинг.
+         */
         async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null) {
         logSessionHeader(`FBX: ${file.name}`);
 
@@ -4221,11 +4238,13 @@ function getSMOffset(meta) {
 
             // ← назначим материалы/флаги коллизиям
             markCollisionMeshes(obj);
+            hideCollisions(obj, false);
+            schedulePanelRefresh(() => syncCollisionButtons());
 
             // если это ВПМ/SM — разрезаем геометрию по UDIM
-    if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
-        splitAllMeshesByUDIM_SM(obj);
-    }
+            if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
+                splitAllMeshesByUDIM_SM(obj);
+            }
             // сохраняем метаданные для группировки и бейджа
             loadedModels.push({
                 obj,
@@ -4249,8 +4268,7 @@ function getSMOffset(meta) {
             }
             applyGlassControlsToScene();
 
-            renderMaterialsPanel();
-            applyShading(shadingSel.value);
+            schedulePanelRefresh();
             resolve();
             }, undefined, err => {
             URL.revokeObjectURL(url);
@@ -4261,6 +4279,10 @@ function getSMOffset(meta) {
             });
         });
         }
+        /**
+         * Обработка ZIP-архива: находит FBX/текстуры/GeoJSON, загружает FBX, сохраняет текстуры,
+         * привязывает GeoJSON к моделям и обновляет UI.
+         */
         async function handleZIPFile(file) {
             logSessionHeader(`ZIP: ${file.name}`);
             statusEl.textContent = `Чтение ZIP: ${file.name}…`;
@@ -4333,18 +4355,23 @@ function getSMOffset(meta) {
 
                 if (attached) {
                     logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount!=null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
-                    renderMaterialsPanel(); // перерисуем, чтобы появилась 📄
+                    schedulePanelRefresh(); // перерисуем, чтобы появилась 📄
                 } else {
                     logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
                 }
             }
+
+            ensureZipCollisionsHidden(file.name);
 
             // statusEl/appbarStatus — по желанию
             // statusEl.textContent = `Готово: ${file.name}`;
             // appbarStatusEl.textContent = statusEl.textContent;
         }
 
-            async function finalizeBatchAfterAllFiles() {
+        /**
+         * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
+         */
+        async function finalizeBatchAfterAllFiles() {
                 if (!loadedModels.length) return;
 
                 // — ребейз только один раз —
@@ -4388,6 +4415,20 @@ function getSMOffset(meta) {
                     logBind(`⚠️ VPM: ошибка автопривязки — ${e?.message || e}`, 'warn');
                 }
 
+                const smGroups = new Set();
+                loadedModels.forEach(model => {
+                    if ((model.zipKind || '').toUpperCase() !== 'SM') return;
+                    if (model.group) smGroups.add(model.group);
+                });
+                smGroups.forEach(groupName => ensureZipCollisionsHidden(groupName));
+
+                let collisionsChanged = false;
+                loadedModels.forEach(model => {
+                    if (!model?.obj) return;
+                    if (hideCollisions(model.obj, false)) collisionsChanged = true;
+                });
+                if (collisionsChanged) schedulePanelRefresh(() => syncCollisionButtons());
+
                 // камеру кадрируем только в самый первый раз, чтобы дальше не «прыгала»
                 if (firstTime) {
                     fitAll();
@@ -4401,14 +4442,13 @@ function getSMOffset(meta) {
                 }
                 }
 
-                renderMaterialsPanel();
-                outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
-                // Картинки + лог: свернуть после первой загрузки,
-                // чтобы потом не мешать пользователю, если он раскроет вручную.
-                if (firstTime) {
-                    if (imagesDetails) imagesDetails.open = false;
-                    if (bindLogDetails) bindLogDetails.open = false;
-                }
+                applyShading(currentShadingMode, () => {
+                    outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
+                    if (firstTime) {
+                        if (imagesDetails) imagesDetails.open = false;
+                        if (bindLogDetails) bindLogDetails.open = false;
+                    }
+                });
             }
 
         
