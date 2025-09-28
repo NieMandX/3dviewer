@@ -1620,19 +1620,186 @@ function clearBeautyWire(mesh) {
         // Utilities
         // =====================
 
+        let showLightHelpers = false;
+        let importedLightsEnabled = false;
+        const LIGHT_HELPER_COLOR = 0xffc107;
+
         function disableShadowsOnImportedLights(root){
-            let cnt = 0;
+            let shadowsOff = 0;
+            let intensityOff = 0;
+            let hidden = 0;
+
             root.traverse(o => {
-                if (!o || !o.isLight) return;
-                // castShadow есть у Directional/Spot/Point; проверяем безопасно
+                if (!o?.isLight) return;
+                if (!o.userData) o.userData = {};
+
                 if ('castShadow' in o && o.castShadow) {
                     o.castShadow = false;
-                    cnt++;
+                    shadowsOff++;
+                }
+
+                if ('intensity' in o && o.intensity !== 0) {
+                    if (o.userData._origIntensity === undefined) {
+                        o.userData._origIntensity = o.intensity;
+                    }
+                    o.intensity = 0;
+                    intensityOff++;
+                }
+
+                if ('power' in o && o.power !== 0) {
+                    if (o.userData._origPower === undefined) {
+                        o.userData._origPower = o.power;
+                    }
+                    o.power = 0;
+                }
+
+                if (o.visible) {
+                    if (o.userData._origVisible === undefined) {
+                        o.userData._origVisible = true;
+                    }
+                    o.visible = false;
+                    hidden++;
                 }
             });
-            if (cnt && typeof logBind === 'function') {
-                logBind(`Lights: отключены тени у ${cnt} импортированных источников`, 'ok');
+
+            if ((shadowsOff || intensityOff || hidden) && typeof logBind === 'function') {
+                const parts = [];
+                if (shadowsOff) parts.push(`тени → ${shadowsOff}`);
+                if (intensityOff) parts.push(`intensity=0 → ${intensityOff}`);
+                if (hidden) parts.push(`hidden → ${hidden}`);
+                logBind(`Lights: ${parts.join(', ')}`, 'info');
             }
+        }
+
+        function ensureLightHelpers(root) {
+            if (!root) return;
+
+            const box = new THREE.Box3();
+            const sizeVec = new THREE.Vector3();
+            box.setFromObject(root);
+            const diag = box.getSize(sizeVec).length() || 1;
+            const baseSize = THREE.MathUtils.clamp(diag * 0.02, 0.25, 10);
+
+            root.updateMatrixWorld(true);
+
+            root.traverse(o => {
+                if (!o?.isLight) return;
+
+                let helper = o.userData?._lightHelper || null;
+                if (!helper || !helper.parent) {
+                    helper = null;
+                    if (o.isDirectionalLight) {
+                        helper = new THREE.DirectionalLightHelper(o, baseSize, LIGHT_HELPER_COLOR);
+                    } else if (o.isPointLight) {
+                        helper = new THREE.PointLightHelper(o, baseSize * 0.35, LIGHT_HELPER_COLOR);
+                    } else if (o.isSpotLight) {
+                        helper = new THREE.SpotLightHelper(o, LIGHT_HELPER_COLOR);
+                    } else if (o.isHemisphereLight) {
+                        helper = new THREE.HemisphereLightHelper(o, baseSize * 0.5, LIGHT_HELPER_COLOR);
+                    } else if (o.isRectAreaLight && typeof THREE.RectAreaLightHelper === 'function') {
+                        helper = new THREE.RectAreaLightHelper(o, LIGHT_HELPER_COLOR);
+                    }
+
+                    if (!helper) return;
+
+                    helper.userData.excludeFromBounds = true;
+                    helper.userData.lightHelper = true;
+                    helper.name = helper.name || `${o.name || o.type}-helper`;
+
+                    const host = o.parent || root;
+                    host.add(helper);
+                    helper.update?.();
+
+                    o.userData ||= {};
+                    o.userData._lightHelper = helper;
+                } else {
+                    helper.update?.();
+                }
+
+                helper.visible = showLightHelpers;
+            });
+        }
+
+        function setLightHelpersVisible(visible) {
+            showLightHelpers = !!visible;
+            loadedModels.forEach(model => {
+                model.obj?.traverse(o => {
+                    if (o?.userData?._lightHelper) {
+                        o.userData._lightHelper.visible = showLightHelpers;
+                        o.userData._lightHelper.update?.();
+                    }
+                });
+            });
+        }
+
+        function setImportedLightsEnabled(enabled, targetRoot = null, options = {}) {
+            const { silent = false } = options || {};
+            const roots = targetRoot
+                ? (Array.isArray(targetRoot) ? targetRoot : [targetRoot])
+                : loadedModels.map(m => m.obj).filter(Boolean);
+
+            let affected = 0;
+
+            roots.forEach(root => {
+                if (!root) return;
+                root.traverse(o => {
+                    if (!o?.isLight) return;
+                    o.userData ||= {};
+
+                    if (enabled) {
+                        if ('intensity' in o && o.userData._origIntensity !== undefined) {
+                            // o.intensity = o.userData._origIntensity;
+                            o.intensity = 1000;
+                        }
+                        if ('power' in o && o.userData._origPower !== undefined) {
+                            // o.power = o.userData._origPower;
+                            o.power = 1000;
+                        }
+                        const restoreVisible = o.userData._origVisible;
+                        o.visible = restoreVisible !== undefined ? restoreVisible : true;
+                    } else {
+                        if ('intensity' in o) {
+                            if (o.userData._origIntensity === undefined) o.userData._origIntensity = o.intensity;
+                            o.intensity = 0;
+                        }
+                        if ('power' in o) {
+                            if (o.userData._origPower === undefined) o.userData._origPower = o.power;
+                            o.power = 0;
+                        }
+                        if (o.userData._origVisible === undefined) o.userData._origVisible = o.visible;
+                        o.visible = false;
+                    }
+
+                    o.userData._lightEnabled = !!enabled;
+                    affected++;
+                });
+            });
+
+            importedLightsEnabled = !!enabled;
+
+        if (!silent && typeof logBind === 'function') {
+            logBind(`Lights: ${enabled ? 'включены' : 'выключены'} (${affected})`, 'info');
+        }
+        }
+
+        const lightHelpersBtn = document.getElementById('lightHelpersBtn');
+        if (lightHelpersBtn) {
+            lightHelpersBtn.addEventListener('click', () => {
+                const next = !showLightHelpers;
+                setLightHelpersVisible(next);
+                lightHelpersBtn.classList.toggle('active', next);
+            });
+            lightHelpersBtn.classList.toggle('active', showLightHelpers);
+        }
+
+        const lightEmittersBtn = document.getElementById('lightEmittersBtn');
+        if (lightEmittersBtn) {
+            lightEmittersBtn.addEventListener('click', () => {
+                const next = !importedLightsEnabled;
+                setImportedLightsEnabled(next);
+                lightEmittersBtn.classList.toggle('active', next);
+            });
+            lightEmittersBtn.classList.toggle('active', importedLightsEnabled);
         }
 
 
@@ -1857,7 +2024,7 @@ function clearBeautyWire(mesh) {
 
         function normalizeObjectOrientation(obj, orientationType) {
             if (!obj) return;
-            obj.rotation.set(0, 0, 0);
+            // obj.rotation.set(0, 0, 0);
             switch (orientationType) {
                 case 1: // Y-up right-handed
                     break;
@@ -2695,6 +2862,17 @@ function clearBeautyWire(mesh) {
                 }
             });
             if (changed && refresh) schedulePanelRefresh(() => syncCollisionButtons());
+            return changed;
+        }
+
+        function hideSMCollisions(syncUI = true) {
+            let changed = false;
+            loadedModels.forEach(model => {
+                if ((model.zipKind || '').toUpperCase() !== 'SM') return;
+                if (!model?.obj) return;
+                if (hideCollisions(model.obj, false)) changed = true;
+            });
+            if (changed && syncUI) syncCollisionButtons();
             return changed;
         }
 
@@ -4203,6 +4381,7 @@ function getSMOffset(meta) {
           
             // Отключаем тени у всех светильников из этого FBX
             disableShadowsOnImportedLights(obj);
+            ensureLightHelpers(obj);
     
 
             renameMaterialsByFBXObject(obj);
@@ -4238,8 +4417,6 @@ function getSMOffset(meta) {
 
             // ← назначим материалы/флаги коллизиям
             markCollisionMeshes(obj);
-            hideCollisions(obj, false);
-            schedulePanelRefresh(() => syncCollisionButtons());
 
             // если это ВПМ/SM — разрезаем геометрию по UDIM
             if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
@@ -4266,6 +4443,7 @@ function getSMOffset(meta) {
                 // НПМ/прочее — как раньше
                 autoBindByNamesForModel(obj, file.name, embedded);
             }
+            setImportedLightsEnabled(importedLightsEnabled, obj, { silent: true });
             applyGlassControlsToScene();
 
             schedulePanelRefresh();
@@ -4422,13 +4600,6 @@ function getSMOffset(meta) {
                 });
                 smGroups.forEach(groupName => ensureZipCollisionsHidden(groupName));
 
-                let collisionsChanged = false;
-                loadedModels.forEach(model => {
-                    if (!model?.obj) return;
-                    if (hideCollisions(model.obj, false)) collisionsChanged = true;
-                });
-                if (collisionsChanged) schedulePanelRefresh(() => syncCollisionButtons());
-
                 // камеру кадрируем только в самый первый раз, чтобы дальше не «прыгала»
                 if (firstTime) {
                     fitAll();
@@ -4442,11 +4613,19 @@ function getSMOffset(meta) {
                 }
                 }
 
+                let smCollisionsNeedSync = hideSMCollisions(false);
+
                 applyShading(currentShadingMode, () => {
                     outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
                     if (firstTime) {
                         if (imagesDetails) imagesDetails.open = false;
                         if (bindLogDetails) bindLogDetails.open = false;
+                    }
+
+                    const hiddenAgain = hideSMCollisions(false);
+                    if (smCollisionsNeedSync || hiddenAgain) {
+                        smCollisionsNeedSync = false;
+                        syncCollisionButtons();
                     }
                 });
             }

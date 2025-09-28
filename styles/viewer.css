@@ -182,6 +182,11 @@ body {
 }
 
 .btn:hover { border-color: #d0d7de; }
+.btn.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+}
 
 .muted { color: var(--muted); }
 
