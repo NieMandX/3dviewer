@@ -1623,6 +1623,12 @@ function clearBeautyWire(mesh) {
         let showLightHelpers = false;
         let importedLightsEnabled = false;
         const LIGHT_HELPER_COLOR = 0xffc107;
+        const LIGHT_DIR_TMP = new THREE.Vector3();
+        const LIGHT_WORLD_POS = new THREE.Vector3();
+        const LIGHT_WORLD_QUAT = new THREE.Quaternion();
+        const TARGET_WORLD_POS = new THREE.Vector3();
+        const TEMP_BOX = new THREE.Box3();
+        const TEMP_SIZE = new THREE.Vector3();
 
         function disableShadowsOnImportedLights(root){
             let shadowsOff = 0;
@@ -1671,6 +1677,50 @@ function clearBeautyWire(mesh) {
             }
         }
 
+        function restoreLightTargetsFromOrientation(root) {
+            if (!root) return;
+
+            root.updateMatrixWorld(true);
+
+            TEMP_BOX.setFromObject(root);
+            const sceneDiag = TEMP_BOX.getSize(TEMP_SIZE).length();
+            const defaultDistance = Number.isFinite(sceneDiag) && sceneDiag > 0.0001
+                ? THREE.MathUtils.clamp(sceneDiag * 0.25, 5, 500)
+                : 25;
+
+            root.traverse(light => {
+                if (!light?.isLight) return;
+                const isDirectional = !!light.isDirectionalLight;
+                const isSpot = !!light.isSpotLight;
+                if (!isDirectional && !isSpot) return;
+
+                const target = light.target || (light.target = new THREE.Object3D());
+                const host = target.parent || root;
+                if (target.parent !== host) host.add(target);
+                host.updateMatrixWorld(true);
+
+                light.getWorldPosition(LIGHT_WORLD_POS);
+                light.getWorldQuaternion(LIGHT_WORLD_QUAT);
+
+                LIGHT_DIR_TMP.set(0, -1, 0).applyQuaternion(LIGHT_WORLD_QUAT).normalize();
+
+                let length = isDirectional ? defaultDistance : light.distance;
+                if (!Number.isFinite(length) || length <= 0.01) length = defaultDistance;
+
+                TARGET_WORLD_POS.copy(LIGHT_WORLD_POS).addScaledVector(LIGHT_DIR_TMP, length);
+
+                host.worldToLocal(TARGET_WORLD_POS);
+                target.position.copy(TARGET_WORLD_POS);
+                target.updateMatrixWorld(true);
+
+                if (light.isSpotLight) {
+                    light.translateY(-1);
+                    light.updateMatrix();
+                    light.updateMatrixWorld(true);
+                }
+            });
+        }
+
         function ensureLightHelpers(root) {
             if (!root) return;
 
@@ -1714,6 +1764,12 @@ function clearBeautyWire(mesh) {
                     o.userData._lightHelper = helper;
                 } else {
                     helper.update?.();
+                }
+
+                if (o.isSpotLight) {
+                    const dist = (Number.isFinite(o.distance) && o.distance > 0.01) ? o.distance : 20;
+                    o.distance = dist;
+                    helper.cone.scale.set(20, 20, 20);
                 }
 
                 helper.visible = showLightHelpers;
@@ -1777,9 +1833,9 @@ function clearBeautyWire(mesh) {
 
             importedLightsEnabled = !!enabled;
 
-        if (!silent && typeof logBind === 'function') {
-            logBind(`Lights: ${enabled ? 'включены' : 'выключены'} (${affected})`, 'info');
-        }
+            if (!silent && typeof logBind === 'function') {
+                logBind(`Lights: ${enabled ? 'включены' : 'выключены'} (${affected})`, 'info');
+            }
         }
 
         const lightHelpersBtn = document.getElementById('lightHelpersBtn');
@@ -4325,6 +4381,12 @@ function getSMOffset(meta) {
 
             // ★ NEW: имя FBX на объект
             obj.userData._fbxFileName = file.name;
+            
+            if (typeof window !== 'undefined') {
+                window.__fbxLoader = fbxLoader;
+
+                window.__lastFBXLoaded = obj;
+            }
             if (!orientationInfo && obj.userData?.fbxTree) {
                 const infoFromTree = readFBXOrientationFromTree(obj.userData.fbxTree);
                 if (infoFromTree) {
@@ -4378,7 +4440,7 @@ function getSMOffset(meta) {
 
             world.add(obj);
 
-          
+            restoreLightTargetsFromOrientation(obj);
             // Отключаем тени у всех светильников из этого FBX
             disableShadowsOnImportedLights(obj);
             ensureLightHelpers(obj);
