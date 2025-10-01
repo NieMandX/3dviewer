@@ -24,7 +24,24 @@ class ViewerApp {
         const rootEl          = document.getElementById('viewer');
         const dropEl          = document.getElementById('drop');
         const statusEl        = document.getElementById('status');
-        const appbarStatusEl  = document.getElementById('appbarStatus');
+        const appbarStatusEl  = document.getElementById('appbarStatus') || statusEl;
+        const emptyHintEl     = document.getElementById('emptyHint');
+
+        const setStatusMessage = (message = '') => {
+            if (!statusEl) return;
+            const hasMessage = !!(message && message.trim());
+            statusEl.textContent = hasMessage ? message : '';
+            statusEl.hidden = !hasMessage;
+            if (appbarStatusEl && appbarStatusEl !== statusEl) {
+                appbarStatusEl.textContent = statusEl.textContent;
+            }
+        };
+
+        const setEmptyHintVisible = (visible) => {
+            if (!emptyHintEl) return;
+            emptyHintEl.hidden = !visible;
+            emptyHintEl.style.opacity = visible ? '1' : '0';
+        };
         const shadingSel      = document.getElementById('shadingMode');
 
         
@@ -45,9 +62,13 @@ class ViewerApp {
         const iblChk          = document.getElementById('hdriChk');
         const hdriPresetSel   = document.getElementById('hdriPreset');
         const iblIntEl        = document.getElementById('iblInt');
+        const iblGammaEl      = document.getElementById('iblGamma');
+        const iblTintEl       = document.getElementById('iblTint');
         const iblRotEl        = document.getElementById('iblRot');
         const axisSel         = document.getElementById('axisSelect');
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
+        const statsBtn        = document.getElementById('statsBtn');
+        const statsOverlayEl  = document.getElementById('statsOverlay');
 
         const glassOpacityEl  = document.getElementById('glassOpacity');
         const glassReflectEl  = document.getElementById('glassReflect');
@@ -67,11 +88,27 @@ class ViewerApp {
 
         let didInitialRebase = false;
         let currentShadingMode = 'pbr';
+        let galleryNeedsRefresh = false;
+        let galleryRenderedCount = 0;
+        let gallerySpacerEl = null;
+        let lastFinalizedModelIndex = 0;
+        let needsRender = true;
+        const panelState = {
+            rootDetails: null,
+            ungroupedMarker: null,
+            groups: new Map(),
+            renderedModels: new Set(),
+        };
+        let statsVisible = false;
+        let lastStatsUpdate = 0;
+        let fpsEstimate = 0;
+        let lastFrameTime = 0;
         app.dom = {
             rootEl,
             dropEl,
             statusEl,
             appbarStatusEl,
+            emptyHintEl,
             shadingSel,
             sunHourEl,
             sunDayEl,
@@ -82,6 +119,8 @@ class ViewerApp {
             iblChk,
             hdriPresetSel,
             iblIntEl,
+            iblGammaEl,
+            iblTintEl,
             iblRotEl,
             axisSel,
             toggleSideBtn,
@@ -95,8 +134,14 @@ class ViewerApp {
             bindLogEl,
             bgAlphaEl,
             sampleSelect,
+            statsBtn,
+            statsOverlayEl,
         };
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
+
+        function requestRender() {
+            needsRender = true;
+        }
 
 
 
@@ -130,6 +175,7 @@ class ViewerApp {
         
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
+        controls.addEventListener('change', requestRender);
 
         // Простое освещение и сетка
         const hemiLight = new THREE.HemisphereLight(0xffffff, 0xcfd8dc, 1);
@@ -260,7 +306,7 @@ class ViewerApp {
                 if (shadowAutoFrustum) fitSunShadowToScene(false);
 
                 dirLight.shadow.needsUpdate = true;
-                renderer.render(scene, camera);
+                requestRender();
                 }
 
                 $('shadowApply')?.addEventListener('click', applyShadowUIToLight);
@@ -333,8 +379,7 @@ class ViewerApp {
             } else {
                 unmountSunControls();
             }
-
-            renderer.render(scene, camera);
+            requestRender();
         }
 
         // инициализация тумблера
@@ -349,16 +394,97 @@ class ViewerApp {
         const textureLoader  = new THREE.TextureLoader();
         const texLd          = new THREE.TextureLoader(); // for small helper textures
 
+        const fbxWorkerUrl = (() => {
+            try { return new URL('./fbx-worker.js', import.meta.url); }
+            catch (_) { return null; }
+        })();
+        let fbxWorkerSupported = typeof Worker !== 'undefined' && !!fbxWorkerUrl;
+        let fbxWorkerInstance = null;
+        let fbxWorkerReqId = 0;
+        const fbxWorkerPending = new Map();
+
+        function ensureFBXWorker() {
+            if (!fbxWorkerSupported) return null;
+            if (fbxWorkerInstance) return fbxWorkerInstance;
+            try {
+                fbxWorkerInstance = new Worker(fbxWorkerUrl, { type: 'module' });
+                fbxWorkerInstance.onmessage = (event) => {
+                    const { id, ok, json, error, duration, fbxTree } = event.data || {};
+                    const job = fbxWorkerPending.get(id);
+                    if (!job) return;
+                    fbxWorkerPending.delete(id);
+                    if (ok) job.resolve({ json, duration, fbxTree });
+                    else job.reject(new Error(error || 'FBX worker error'));
+                };
+                fbxWorkerInstance.onerror = (event) => {
+                    event.preventDefault?.();
+                    const err = event?.error || event?.message || new Error('FBX worker error');
+                    fbxWorkerPending.forEach(({ reject }) => reject(err));
+                    fbxWorkerPending.clear();
+                    fbxWorkerInstance?.terminate?.();
+                    fbxWorkerInstance = null;
+                    fbxWorkerSupported = false;
+                };
+            } catch (err) {
+                console.warn('FBX worker init failed', err);
+                fbxWorkerSupported = false;
+                fbxWorkerInstance = null;
+            }
+            return fbxWorkerInstance;
+        }
+
+        async function parseFBXInWorker(buffer) {
+            const worker = ensureFBXWorker();
+            if (!worker) throw new Error('worker not available');
+            const id = ++fbxWorkerReqId;
+            const promise = new Promise((resolve, reject) => {
+                fbxWorkerPending.set(id, { resolve, reject });
+            });
+            worker.postMessage({ id, buffer }, [buffer]);
+            const { json, duration } = await promise;
+            const loader = new THREE.ObjectLoader();
+            const parsed = loader.parse(json);
+            if (json.animations?.length) {
+                const clips = json.animations.map(THREE.AnimationClip.parse).filter(Boolean);
+                if (clips.length) parsed.animations = clips;
+            }
+            return { obj: parsed, duration: duration || 0 };
+        }
+
+        function parseFBXOnMainThread(buffer) {
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const parsed = fbxLoader.parse(buffer, '');
+            const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (fbxLoader?.fbxTree) {
+                (parsed.userData ||= {}).fbxTree = fbxLoader.fbxTree;
+            }
+            return { obj: parsed, duration: end - now };
+        }
+
         let pmremGen     = app.pmremGen     = null;      // PMREM generator (lazy)
         let hdrBaseTex   = app.hdrBaseTex   = null;      // original equirect HDR (DataTexture)
         const HDRI_LIBRARY = [
-            { name: "Royal Esplanade", url: "https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
-            { name: "Venice Sunset",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr" },
-            { name: "Studio Small",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" }
+            { name: "Royal Esplanade",    url: "https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
+            { name: "Venice Sunset",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr" },
+            { name: "Blouberg Sunrise",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/blouberg_sunrise_1k.hdr" },
+            { name: "Tropical Beach",     url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tropical_beach_1k.hdr" },
+            { name: "Country Field",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/country_field_1k.hdr" },
+            { name: "Construction Site",  url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/construction_1k.hdr" },
+            { name: "Skyline Rooftop",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/roof_garden_1k.hdr" },
+            { name: "City Overpass",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/urban_overpass_1k.hdr" },
+            { name: "Forest Trail",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/forest_trail_1k.hdr" },
+            { name: "Rocky Ridge",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/rocky_ridge_1k.hdr" },
+            { name: "Mountain Sunset",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/mountain_sunset_1k.hdr" },
+            { name: "Industrial Yard",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/industrial_pipe_1k.hdr" },
+            { name: "Tokyo Night",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tokyo_neon_1k.hdr" },
+            { name: "Small Hangar",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hangar_1k.hdr" },
+            { name: "Studio Small",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" }
         ];
         let currentEnv   = app.currentEnv   = null;      // pmrem result (for scene.environment)
-        let currentBg    = app.currentBg    = null;      // shifted equirect (for background sphere)
+        let currentBg    = app.currentBg    = null;      // shifted equirect (для фона)
         let currentRotDeg = app.currentRotDeg = 0;        // rotation slider value
+        let currentBgTint = new THREE.Color(0xffffff);
+        let currentExposure = 1;
 
         // =====================================================================
         // Asset Loading · Shared State
@@ -500,6 +626,7 @@ class ViewerApp {
             renderer.setSize(w, h);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
+            requestRender();
         }
 
         window.addEventListener('resize', layout);
@@ -539,10 +666,10 @@ class ViewerApp {
                     }
 
                     let shadowAutoFrustum = true;
-                    let shadowFrustumScale = 1.0;
+                    let shadowFrustumScale = 1;
 
                     /** Подгоняет orthographic frustum для directional light под текущую сцену. */
-                    function fitSunShadowToScene(recenterTarget = false, margin = 1.25) {
+                    function fitSunShadowToScene(recenterTarget = false, margin = 1.5) {
                         if (!dirLight || !dirLight.shadow || !dirLight.shadow.camera) return;
 
                         const box = computeSceneBounds();
@@ -645,6 +772,7 @@ class ViewerApp {
             camera.far = dist * 1000;
             camera.updateProjectionMatrix();
             controls.update();
+            requestRender();
         }
 
         function fitAll() {
@@ -663,6 +791,7 @@ class ViewerApp {
             camera.near = Math.max(dist / 1000, 0.01);
             camera.far  = dist * 1000;
             camera.updateProjectionMatrix();
+            requestRender();
         }
 
         function computeWorldCenter() {
@@ -762,6 +891,7 @@ class ViewerApp {
 
             // Подгоняем фрустум (НЕ меняем ни target, ни позицию света)
             fitSunShadowToScene(false); // передаём флажок: не ресентрить таргет
+            requestRender();
         }
 
 
@@ -769,21 +899,20 @@ class ViewerApp {
         function shiftEquirectColumns(srcTex, fracU) {
             const img = srcTex.image;
             const w = img.width, h = img.height;
-            const ch = 4; // RGBA / RGBE
             const data = img.data;
+            const channels = Math.max(3, Math.round(data.length / Math.max(1, w * h)) || 4);
             const out = new (data.constructor)(data.length);
 
             const shift = Math.round(((fracU % 1 + 1) % 1) * w);
             for (let y = 0; y < h; y++) {
-                const rowOff = y * w * ch;
+                const rowOff = y * w * channels;
                 for (let x = 0; x < w; x++) {
                     const sx = (x - shift + w) % w;
-                    const si = rowOff + sx * ch;
-                    const di = rowOff + x * ch;
-                    out[di] = data[si];
-                    out[di + 1] = data[si + 1];
-                    out[di + 2] = data[si + 2];
-                    out[di + 3] = data[si + 3];
+                    const si = rowOff + sx * channels;
+                    const di = rowOff + x * channels;
+                    for (let c = 0; c < channels; c++) {
+                        out[di + c] = data[si + c];
+                    }
                 }
             }
 
@@ -796,6 +925,58 @@ class ViewerApp {
             return tex;
         }
 
+        function syncEnvAdjustmentsState() {
+            const gamma = Math.max(0.01, parseFloat(iblGammaEl?.value) || 1.0);
+            const tintHex = (iblTintEl?.value && /^#/u.test(iblTintEl.value)) ? iblTintEl.value : '#ffffff';
+            const tintLinear = new THREE.Color(tintHex).convertSRGBToLinear();
+            const state = { gamma, tintHex, tintLinear };
+            app.envAdjustments = state;
+            return state;
+        }
+
+        function applyHDRAdjustments(dataTex, gamma = 1.0, tintColor = null) {
+            if (!dataTex?.image?.data) return dataTex;
+            const { data, width, height } = dataTex.image;
+            if (!width || !height) return dataTex;
+
+            const strideFloat = data.length / Math.max(1, width * height);
+            const stride = Number.isFinite(strideFloat) && strideFloat >= 3 ? Math.round(strideFloat) : 3;
+            const hasGamma = Math.abs(gamma - 1.0) > 1e-3;
+            const hasTint = !!tintColor && (
+                Math.abs(tintColor.r - 1) > 1e-3 ||
+                Math.abs(tintColor.g - 1) > 1e-3 ||
+                Math.abs(tintColor.b - 1) > 1e-3
+            );
+
+            if (!hasGamma && !hasTint) return dataTex;
+
+            const gammaPow = hasGamma ? (1 / gamma) : 1.0;
+
+            for (let i = 0; i < data.length; i += stride) {
+                let r = data[i];
+                let g = data[i + 1];
+                let b = data[i + 2];
+
+                if (hasGamma) {
+                    r = Math.pow(Math.max(r, 0), gammaPow);
+                    g = Math.pow(Math.max(g, 0), gammaPow);
+                    b = Math.pow(Math.max(b, 0), gammaPow);
+                }
+                if (hasTint) {
+                    r *= tintColor.r;
+                    g *= tintColor.g;
+                    b *= tintColor.b;
+                }
+
+                data[i] = r;
+                data[i + 1] = g;
+                data[i + 2] = b;
+            }
+
+            dataTex.needsUpdate = true;
+            return dataTex;
+        }
+
         /** Генерирует PMREM из повернутого HDRI и применяет к окружению/фону. */
         function buildAndApplyEnvFromRotation(deg) {
             currentRotDeg = deg;
@@ -805,6 +986,7 @@ class ViewerApp {
                 app.pmremGen = pmremGen;
             }
 
+            const { gamma, tintLinear } = syncEnvAdjustmentsState();
             const frac = ((deg % 360) + 360) % 360 / 360;
             if (bgMesh) {
                 bgMesh.rotation.y = THREE.MathUtils.degToRad(deg);
@@ -815,6 +997,7 @@ class ViewerApp {
 
             // shift source HDR and generate PMREM
             const shifted = shiftEquirectColumns(hdrBaseTex, frac);
+            applyHDRAdjustments(shifted, gamma, tintLinear);
             currentBg = shifted;
             app.currentBg = currentBg;
             const rt = pmremGen.fromEquirectangular(shifted);
@@ -823,6 +1006,11 @@ class ViewerApp {
 
             scene.environment = iblChk.checked ? currentEnv : null;
             applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
+            ensureBgMesh();
+            if (bgMesh) {
+                bgMesh.material.map = currentBg;
+                bgMesh.material.needsUpdate = true;
+            }
         }
 
         /** Включает/выключает окружение (HDRI) и обновляет фон + стекло. */
@@ -850,7 +1038,48 @@ class ViewerApp {
                         m.needsUpdate = true;
                     }
                 });
-            });
+           });
+
+            requestRender();
+        }
+
+        function setStatsVisible(visible) {
+            statsVisible = !!visible;
+            statsBtn?.classList.toggle('active', statsVisible);
+            if (statsOverlayEl) {
+                statsOverlayEl.hidden = !statsVisible;
+                if (statsVisible) {
+                    updateStatsOverlay(true);
+                    requestRender();
+                }
+            }
+        }
+
+        function updateStatsOverlay(force = false) {
+            if (!statsVisible || !statsOverlayEl) return;
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (!force && now - lastStatsUpdate < 250) return;
+            lastStatsUpdate = now;
+
+            const info = renderer.info || {};
+            const renderInfo = info.render || {};
+            const mem = info.memory || {};
+            const programs = Array.isArray(info.programs) ? info.programs.length : (info.programs || 0);
+            const formatInt = (value) => (typeof value === 'number' ? value.toLocaleString('ru-RU') : String(value ?? 0));
+            const fpsText = fpsEstimate ? Math.round(fpsEstimate).toString() : '—';
+
+            const lines = [
+                `fps        : ${fpsText}`,
+                `draw calls : ${formatInt(renderInfo.calls || 0)}`,
+                `triangles  : ${formatInt(renderInfo.triangles || 0)}`,
+                `lines      : ${formatInt(renderInfo.lines || 0)}`,
+                `points     : ${formatInt(renderInfo.points || 0)}`,
+                `geometries : ${formatInt(mem.geometries || 0)}`,
+                `textures   : ${formatInt(mem.textures || 0)}`,
+            ];
+            if (programs) lines.push(`programs   : ${formatInt(programs)}`);
+
+            statsOverlayEl.textContent = lines.join('\n');
         }
 
         // helper textures
@@ -1333,6 +1562,7 @@ function clearBeautyWire(mesh) {
                 applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
                 applyGlassControlsToScene();
             }
+            requestRender();
             scheduleOnce();
         }
 
@@ -1371,6 +1601,7 @@ function clearBeautyWire(mesh) {
             const materials = Array.isArray(target.material) ? target.material : [target.material];
             materials.forEach(mat => { if (mat) mat.visible = visible; });
             target.visible = visible;
+            requestRender();
         }
 
         function updateMeshVisibilityFromMaterials(target) {
@@ -1564,6 +1795,7 @@ function clearBeautyWire(mesh) {
             bgMesh.material.opacity = parseFloat(bgAlphaEl.value || '1');
             bgMesh.material.transparent = bgMesh.material.opacity < 0.999;
             bgMesh.material.needsUpdate = true;
+            requestRender();
         }
 
         // Привязываем обработчики ghliodon
@@ -1573,9 +1805,28 @@ function clearBeautyWire(mesh) {
         updateSun();
 
 
+        syncEnvAdjustmentsState();
+
+        if (statsBtn) {
+            statsBtn.addEventListener('click', () => setStatsVisible(!statsVisible));
+        }
+        setStatsVisible(false);
+
         iblChk.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl.addEventListener('input', () => { if (iblChk.checked) applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value)); });
-        iblRotEl.addEventListener('input', async () => { if (!iblChk.checked) return; await loadHDRBase(); buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0); });
+        const rebuildEnvOnAdjustments = async () => {
+            syncEnvAdjustmentsState();
+            if (!iblChk.checked) return;
+            await loadHDRBase();
+            buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
+        };
+        iblGammaEl.addEventListener('input', rebuildEnvOnAdjustments);
+        iblTintEl.addEventListener('input', rebuildEnvOnAdjustments);
+        iblRotEl.addEventListener('input', async () => {
+            if (!iblChk.checked) return;
+            await loadHDRBase();
+            buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
+        });
         hdriPresetSel.addEventListener('change', async (e) => {
             const idx = parseInt(e.target.value, 10);
             if (isNaN(idx)) return;
@@ -1786,6 +2037,7 @@ function clearBeautyWire(mesh) {
                     }
                 });
             });
+            requestRender();
         }
 
         function setImportedLightsEnabled(enabled, targetRoot = null, options = {}) {
@@ -1836,6 +2088,7 @@ function clearBeautyWire(mesh) {
             if (!silent && typeof logBind === 'function') {
                 logBind(`Lights: ${enabled ? 'включены' : 'выключены'} (${affected})`, 'info');
             }
+            requestRender();
         }
 
         const lightHelpersBtn = document.getElementById('lightHelpersBtn');
@@ -3265,87 +3518,226 @@ function getSMOffset(meta) {
             chunksArr.push(`</details><div class="collapsible-controls">${fileControls}</div></div>`);
         }     
 
+        function ensurePanelRoot() {
+            if (panelState.rootDetails && panelState.ungroupedMarker?.isConnected) {
+                return panelState.rootDetails;
+            }
+            panelState.groups.clear();
+            panelState.renderedModels.clear();
+            panelState.rootDetails = null;
+            panelState.ungroupedMarker = null;
+            if (outEl) outEl.innerHTML = '';
+            const rootDetails = document.createElement('details');
+            rootDetails.open = true;
+            rootDetails.dataset.level = 'root';
+            const summary = document.createElement('summary');
+            summary.textContent = 'Объекты';
+            rootDetails.appendChild(summary);
+            const marker = document.createComment('ungrouped-marker');
+            rootDetails.appendChild(marker);
+            outEl.appendChild(rootDetails);
+            panelState.rootDetails = rootDetails;
+            panelState.ungroupedMarker = marker;
+            return rootDetails;
+        }
+
+        function ensureGroupEntry(groupName, zipKind = '') {
+            const rootDetails = ensurePanelRoot();
+            if (panelState.groups.has(groupName)) {
+                return panelState.groups.get(groupName);
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'collapsible';
+            wrapper.dataset.level = 'group';
+
+            const details = document.createElement('details');
+            details.dataset.level = 'group';
+
+            const summary = document.createElement('summary');
+            const sumline = document.createElement('span');
+            sumline.className = 'sumline';
+
+            if (zipKind) {
+                const pill = document.createElement('span');
+                pill.className = 'pill';
+                pill.style.marginRight = '6px';
+                pill.textContent = zipKind === 'NPM' ? 'НПМ' : zipKind === 'SM' ? 'ВПМ' : zipKind;
+                sumline.appendChild(pill);
+            }
+
+            const label = document.createElement('span');
+            label.textContent = `📦 ${groupName}`;
+            sumline.appendChild(label);
+
+            summary.appendChild(sumline);
+            details.appendChild(summary);
+            wrapper.appendChild(details);
+
+            const controls = document.createElement('div');
+            controls.className = 'collapsible-controls';
+            const eyeBtn = document.createElement('button');
+            eyeBtn.type = 'button';
+            eyeBtn.className = 'eye';
+            eyeBtn.dataset.target = `group|${groupName}`;
+            eyeBtn.title = 'Показать/скрыть группу';
+            eyeBtn.textContent = '👁';
+            controls.appendChild(eyeBtn);
+            wrapper.appendChild(controls);
+
+            rootDetails.insertBefore(wrapper, panelState.ungroupedMarker);
+            attachPanelEvents(wrapper);
+
+            const entry = { wrapper, details, controls, groupName, hasCollisionButton: false, zipKind };
+            panelState.groups.set(groupName, entry);
+            return entry;
+        }
+
+        function appendNodesToRoot(nodes) {
+            const rootDetails = ensurePanelRoot();
+            nodes.forEach(node => {
+                rootDetails.insertBefore(node, panelState.ungroupedMarker);
+                attachPanelEvents(node);
+            });
+        }
+
+        function createNodesFromModel(model) {
+            const chunks = [];
+            renderOneModel(model, chunks);
+            const html = chunks.join('').trim();
+            if (!html) return [];
+            const template = document.createElement('template');
+            template.innerHTML = html;
+            return Array.from(template.content.children);
+        }
+
+        function appendModelToPanel(model, targetDetails) {
+            const nodes = createNodesFromModel(model);
+            if (!nodes.length) return;
+            nodes.forEach(node => {
+                targetDetails.appendChild(node);
+                attachPanelEvents(node);
+            });
+            panelState.renderedModels.add(model.obj.uuid);
+        }
+
+        function modelHasCollisions(model) {
+            let found = false;
+            model.obj?.traverse(o => {
+                if (!found && o.isMesh && o.userData?.isCollision) found = true;
+            });
+            return found;
+        }
+
+        function ensureGroupCollisionButton(entry, groupName) {
+            if (entry.hasCollisionButton) return;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'eye';
+            btn.dataset.target = `zipcoll|${groupName}`;
+            btn.dataset.iconOn = '🧱';
+            btn.dataset.iconOff = '🚫';
+            btn.title = 'Показать/скрыть коллизии группы';
+            btn.textContent = '🧱';
+            entry.controls.insertBefore(btn, entry.controls.firstChild);
+            attachPanelEvents(btn);
+            entry.hasCollisionButton = true;
+        }
+
+        function attachPanelEvents(root) {
+            if (!root) return;
+            const elements = [];
+            if (root instanceof Element) {
+                if (root.matches('.eye')) elements.push(root);
+                root.querySelectorAll('.eye').forEach(el => elements.push(el));
+            }
+            elements.forEach(bindEyeButton);
+
+            const docButtons = [];
+            if (root instanceof Element) {
+                if (root.matches('.doc')) docButtons.push(root);
+                root.querySelectorAll('.doc').forEach(el => docButtons.push(el));
+            }
+            docButtons.forEach(bindDocButton);
+
+            const glassSliders = [];
+            if (root instanceof Element) {
+                if (root.matches('.glass-slider')) glassSliders.push(root);
+                root.querySelectorAll('.glass-slider').forEach(el => glassSliders.push(el));
+            }
+            glassSliders.forEach(bindGlassSlider);
+
+            const glassColors = [];
+            if (root instanceof Element) {
+                if (root.matches('.glass-color-input')) glassColors.push(root);
+                root.querySelectorAll('.glass-color-input').forEach(el => glassColors.push(el));
+            }
+            glassColors.forEach(bindGlassColorInput);
+        }
+
+        function bindEyeButton(btn) {
+            if (!btn || btn.dataset.boundEye) return;
+            btn.dataset.boundEye = '1';
+            btn.style.cursor = 'pointer';
+            btn.addEventListener('click', () => handleEyeToggle(btn));
+        }
+
+        function bindDocButton(btn) {
+            if (!btn || btn.dataset.boundDoc) return;
+            btn.dataset.boundDoc = '1';
+            btn.style.cursor = 'pointer';
+            btn.addEventListener('click', ev => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const uuid = btn.dataset.uuid;
+                if (!uuid) return;
+                const mdl = loadedModels.find(m => m.obj.uuid === uuid);
+                const meta = mdl?.geojson || mdl?.obj?.userData?.geojson;
+                if (!meta) {
+                    alert('GeoJSON не найден для этого FBX');
+                    return;
+                }
+                openGeoModal(meta, mdl?.name || 'GeoJSON');
+            });
+        }
+
+        function bindGlassSlider(input) {
+            if (!input || input.dataset.boundGlassSlider) return;
+            input.dataset.boundGlassSlider = '1';
+            input.addEventListener('input', handleGlassSliderInput);
+        }
+
+        function bindGlassColorInput(input) {
+            if (!input || input.dataset.boundGlassColor) return;
+            input.dataset.boundGlassColor = '1';
+            input.addEventListener('input', handleGlassColorInput);
+            input.addEventListener('change', handleGlassColorInput);
+        }
+
         /**
          * Собирает данные по всем загруженным моделям и перерисовывает панель материалов.
          * Обновляет выпадающий список, интерактивные элементы и синхронизацию коллизий.
          */
         function renderMaterialsPanel() {
-            const chunks = [];
-            chunks.push('<details open><summary>Объекты</summary>');
+            const newModels = loadedModels.filter(m => !panelState.renderedModels.has(m.obj.uuid));
+            if (!newModels.length) return;
 
-            // Собираем модели по имени ZIP (group) + те, что без ZIP
-            const groupsMap = new Map();   // ← вместо "groups"
-            const ungrouped = [];
-
-            loadedModels.forEach(m => {
-                if (m.group) {
-                    if (!groupsMap.has(m.group)) groupsMap.set(m.group, []);
-                    groupsMap.get(m.group).push(m);
+            newModels.forEach(model => {
+                if (model.group) {
+                    const entry = ensureGroupEntry(model.group, model.zipKind || '');
+                    appendModelToPanel(model, entry.details);
+                    if (modelHasCollisions(model)) {
+                        ensureGroupCollisionButton(entry, model.group);
+                    }
                 } else {
-                    ungrouped.push(m);
+                    const nodes = createNodesFromModel(model);
+                    if (!nodes.length) return;
+                    appendNodesToRoot(nodes);
+                    panelState.renderedModels.add(model.obj.uuid);
                 }
             });
 
-            // Рендерим ZIP-группы
-            for (const [groupName, models] of groupsMap.entries()) {
-                const groupKind = models[0]?.zipKind || '';
-                const gBadge = groupKind === 'NPM' ? 'НПМ' : groupKind === 'SM' ? 'ВПМ' : '';
-                const groupId = `group|${groupName}`;
-                const groupCollId = `zipcoll|${groupName}`;
-
-                let groupHasCollisions = false;
-                models.forEach(model => {
-                    if (groupHasCollisions) return;
-                    model.obj?.traverse(o => { if (!groupHasCollisions && o.isMesh && o.userData?.isCollision) groupHasCollisions = true; });
-                });
-
-                const groupCollBtn = groupHasCollisions
-                    ? `<button type="button" class="eye" data-target="${groupCollId}" data-icon-on="🧱" data-icon-off="🚫" title="Показать/скрыть коллизии группы">🧱</button>`
-                    : '';
-
-                chunks.push(`
-                <div class="collapsible" data-level="group">
-                    <details data-level="group">
-                        <summary>
-                            <span class="sumline">
-                                ${gBadge ? `<span class="pill" style="margin-right:6px">${gBadge}</span>` : ''}
-                                <span>📦 ${groupName}</span>
-                            </span>
-                        </summary>
-                `);
-
-                models.forEach(model => renderOneModel(model, chunks));
-                chunks.push(`</details><div class="collapsible-controls">${groupCollBtn}<button type="button" class="eye" data-target="${groupId}" title="Показать/скрыть группу">👁</button></div></div>`);
-            }
-
-            // Модели без ZIP-группы
-            ungrouped.forEach(model => renderOneModel(model, chunks));
-
-            chunks.push('</details>');
-            outEl.innerHTML = chunks.join('\n');
             rebuildMaterialsDropdown();
-
-            // клики по «глазам»
-            outEl.querySelectorAll('.eye').forEach(el => {
-                el.style.cursor = 'pointer';
-                el.addEventListener('click', () => handleEyeToggle(el));
-            });
-
-            // клики по «бумажке» (GeoJSON)
-            outEl.querySelectorAll('.doc').forEach(el => {
-            el.style.cursor = 'pointer';
-            el.addEventListener('click', (ev) => {
-                ev.preventDefault();       // не даём <summary> схлопнуться/раскрыться
-                ev.stopPropagation();      // гасим всплытие
-                const uuid = el.dataset.uuid;
-                const mdl = loadedModels.find(m => m.obj.uuid === uuid);
-                const meta = mdl?.geojson || mdl?.obj?.userData?.geojson;
-                if (!meta) { alert('GeoJSON не найден для этого FBX'); return; }
-                openGeoModal(meta, mdl?.name || 'GeoJSON');
-            });
-            });
-
-            bindGlassControls();
             syncCollisionButtons();
         }
 
@@ -3364,13 +3756,7 @@ function getSMOffset(meta) {
 
         /** Навешивает обработчики на контролы стекла после перерисовки панели. */
         function bindGlassControls() {
-            outEl.querySelectorAll('.glass-slider').forEach(input => {
-                input.addEventListener('input', handleGlassSliderInput);
-            });
-            outEl.querySelectorAll('.glass-color-input').forEach(input => {
-                input.addEventListener('input', handleGlassColorInput);
-                input.addEventListener('change', handleGlassColorInput);
-            });
+            attachPanelEvents(outEl);
         }
 
         /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
@@ -3439,8 +3825,6 @@ function getSMOffset(meta) {
                 if (span) span.textContent = value.toFixed(2);
                 updateGlassSourceLabel(container, mat);
             }
-
-            renderer.render(scene, camera);
         }
 
         /** Обработчик выбора цвета стекла. */
@@ -3463,8 +3847,6 @@ function getSMOffset(meta) {
 
             const container = input.closest('.glass-controls');
             if (container) updateGlassSourceLabel(container, mat);
-
-            renderer.render(scene, camera);
         }
 
         /** Обновляет текстовое поле-источник для стеклянного материала. */
@@ -3486,33 +3868,93 @@ function getSMOffset(meta) {
          * Обновляет галерею текстур в боковой панели: миниатюры embedded/zip изображений.
          */
         function renderGallery(listAll) {
-            galleryEl.innerHTML = '';
             const total = Array.isArray(listAll) ? listAll.length : 0;
 
-            (listAll || []).forEach((e, i) => {
-                const div = document.createElement('div'); div.className = 'thumb';
-                const nm = document.createElement('div'); nm.className = 'nm';
-                nm.title = (e.full || e.short || '') + (e.fileName ? ` — ${e.fileName}` : '');
-                nm.textContent = (e.short || `(entry ${i})`);
-                const pill = document.createElement('span'); pill.className = 'pill';
-                pill.textContent = guessKindFromName(e.short) + (e.fileName ? ` · ${basename(e.fileName)}` : '');
+            if (!gallerySpacerEl || gallerySpacerEl.parentNode !== galleryEl) {
+                gallerySpacerEl = document.createElement('div');
+                gallerySpacerEl.className = 'gallery-spacer';
+            }
+
+            if (total === 0) {
+                galleryEl.innerHTML = '';
+                gallerySpacerEl = document.createElement('div');
+                gallerySpacerEl.className = 'gallery-spacer';
+                galleryEl.appendChild(gallerySpacerEl);
+                galleryRenderedCount = 0;
+                texCountEl.textContent = '0';
+                return;
+            }
+
+            if (total < galleryRenderedCount) {
+                galleryEl.innerHTML = '';
+                galleryRenderedCount = 0;
+            }
+
+            const fragment = document.createDocumentFragment();
+            for (let i = galleryRenderedCount; i < total; i++) {
+                const e = listAll[i];
+                const div = document.createElement('div');
+                div.className = 'thumb';
 
                 const imgWrap = document.createElement('div');
-                if (e && e.url) {
-                    const img = document.createElement('img'); img.loading = 'lazy'; img.decoding = 'async'; img.alt = e.short || ''; img.src = e.url;
-                    img.onerror = () => { div.classList.add('broken'); img.replaceWith(makePlaceholder(e)); };
+                if (e?.url) {
+                    const img = document.createElement('img');
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    img.alt = e.short || '';
+                    img.src = e.url;
+                    img.onerror = () => {
+                        div.classList.add('broken');
+                        img.replaceWith(makePlaceholder(e));
+                    };
                     imgWrap.appendChild(img);
-                } else { div.classList.add('broken'); imgWrap.appendChild(makePlaceholder(e)); }
+                } else {
+                    div.classList.add('broken');
+                    imgWrap.appendChild(makePlaceholder(e));
+                }
 
-                div.appendChild(imgWrap); div.appendChild(nm); div.appendChild(pill);
+                const nm = document.createElement('div');
+                nm.className = 'nm';
+                nm.title = (e.full || e.short || '') + (e.fileName ? ` — ${e.fileName}` : '');
+                nm.textContent = e.short || `(entry ${i})`;
+
+                const pill = document.createElement('span');
+                pill.className = 'pill';
+                pill.textContent = `${guessKindFromName(e.short)}${e.fileName ? ` · ${basename(e.fileName)}` : ''}`;
+
+                div.appendChild(imgWrap);
+                div.appendChild(nm);
+                div.appendChild(pill);
                 div.addEventListener('click', () => openTexModal(e));
-                galleryEl.appendChild(div);
 
-                function makePlaceholder(entry) { const ph = document.createElement('div'); ph.className = 'ph'; ph.textContent = entry?.mime ? entry.mime : 'preview error'; return ph; }
-            });
+                fragment.appendChild(div);
+            }
 
-            const spacer = document.createElement('div'); spacer.className = 'gallery-spacer'; galleryEl.appendChild(spacer);
+            if (fragment.childNodes.length) {
+                if (galleryRenderedCount === 0) {
+                    galleryEl.innerHTML = '';
+                }
+                if (gallerySpacerEl.parentNode !== galleryEl) {
+                    galleryEl.appendChild(gallerySpacerEl);
+                }
+                galleryEl.insertBefore(fragment, gallerySpacerEl);
+            }
+
+            if (gallerySpacerEl.parentNode !== galleryEl) {
+                galleryEl.appendChild(gallerySpacerEl);
+            }
+
+            galleryRenderedCount = total;
             texCountEl.textContent = String(total);
+
+            function makePlaceholder(entry) {
+                const ph = document.createElement('div');
+                ph.className = 'ph';
+                ph.textContent = entry?.mime ? entry.mime : 'preview error';
+                return ph;
+            }
+
+            galleryNeedsRefresh = false;
         }
 
         const texModal = document.getElementById('texModal');
@@ -3700,10 +4142,11 @@ function getSMOffset(meta) {
                     cacheOriginalMaterialFor(o, true);
                 });
             });
+            requestRender();
         }
 
         [glassOpacityEl, glassReflectEl, glassMetalEl].forEach(el => {
-            el?.addEventListener('input', () => { applyGlassControlsToScene(); renderer.render(scene, camera); });
+            el?.addEventListener('input', applyGlassControlsToScene);
         });
 
         // =====================
@@ -4052,6 +4495,7 @@ function getSMOffset(meta) {
             });
 
             await Promise.all(bindOps);
+            requestRender();
         }
 
 
@@ -4272,19 +4716,29 @@ function getSMOffset(meta) {
             hemiLight.groundColor.set(e.target.value);
         });
 
+        if (openBtn && fileInput) {
+            openBtn.addEventListener('click', () => fileInput.click());
+        }
 
-        openBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', async (e) => {
-            const files = [...(e.target.files || [])];
-            for (const f of files) {
-                if (/\.fbx$/i.test(f.name)) {
-                    await handleFBXFile(f);
-                } else if (/\.zip$/i.test(f.name)) {
-                    await handleZIPFile(f);
+        if (emptyHintEl && fileInput) {
+            emptyHintEl.addEventListener('click', () => fileInput.click());
+        }
+
+        if (fileInput) {
+            fileInput.addEventListener('change', async (e) => {
+                const files = [...(e.target.files || [])];
+                for (const f of files) {
+                    if (/\.fbx$/i.test(f.name)) {
+                        await handleFBXFile(f);
+                    } else if (/\.zip$/i.test(f.name)) {
+                        await handleZIPFile(f);
+                    }
                 }
-            }
-            await finalizeBatchAfterAllFiles();
-        });
+                if (fileInput) fileInput.value = '';
+                setEmptyHintVisible(loadedModels.length === 0);
+                await finalizeBatchAfterAllFiles();
+            });
+        }
 
         populateSampleSelect();
         if (sampleSelect) {
@@ -4321,8 +4775,8 @@ function getSMOffset(meta) {
             if (!statusEl) return;
             try {
                 if (sampleSelect) sampleSelect.disabled = true;
-                statusEl.textContent = `Загрузка примера: ${sample.label}`;
-                appbarStatusEl.textContent = statusEl.textContent;
+                setStatusMessage(`Загрузка примера: ${sample.label}`);
+                setEmptyHintVisible(false);
 
                 const downloadedFiles = [];
                 for (const url of sample.files) {
@@ -4336,12 +4790,12 @@ function getSMOffset(meta) {
                 for (const file of downloadedFiles) await handleZIPFile(file);
                 await finalizeBatchAfterAllFiles();
 
-                statusEl.textContent = `Загружен пример: ${sample.label}`;
-                appbarStatusEl.textContent = statusEl.textContent;
+                setStatusMessage('');
+                setEmptyHintVisible(loadedModels.length === 0);
             } catch (err) {
                 console.error(err);
-                statusEl.textContent = `Ошибка загрузки примера: ${err?.message || err}`;
-                appbarStatusEl.textContent = statusEl.textContent;
+                setStatusMessage(`Ошибка загрузки примера: ${err?.message || err}`);
+                setEmptyHintVisible(loadedModels.length === 0);
             } finally {
                 if (sampleSelect) {
                     sampleSelect.disabled = false;
@@ -4362,7 +4816,7 @@ function getSMOffset(meta) {
             zipKind = /^\d/.test(groupName) ? 'NPM' : (/^SM/i.test(groupName) ? 'SM' : null);
         }
 
-        const ab = await file.arrayBuffer();
+        let ab = await file.arrayBuffer();
         let orientationInfo = readFBXOrientationFromBuffer(ab);
         let orientationSource = orientationInfo?.source || null;
         let orientationMeta = determineOrientationType(orientationInfo);
@@ -4370,90 +4824,130 @@ function getSMOffset(meta) {
 
         const embedded = await extractImagesFromFBX(ab);
         embedded.forEach(e => e.fileName = file.name);
-        allEmbedded.push(...embedded);
-        renderGallery(allEmbedded);
+        if (embedded.length) {
+            allEmbedded.push(...embedded);
+            galleryNeedsRefresh = true;
+        }
 
-        const url = URL.createObjectURL(new Blob([ab], { type: 'model/fbx' }));
+        setStatusMessage(`Парсинг FBX: ${file.name}…`);
 
-        await new Promise((resolve, reject) => {
-            fbxLoader.load(url, async obj => {
-            URL.revokeObjectURL(url);
+        let parsedObj = null;
+        let parsedViaWorker = false;
+        let parseDuration = 0;
 
-            // ★ NEW: имя FBX на объект
-            obj.userData._fbxFileName = file.name;
-            
-            if (typeof window !== 'undefined') {
-                window.__fbxLoader = fbxLoader;
-
-                window.__lastFBXLoaded = obj;
-            }
-            if (!orientationInfo && obj.userData?.fbxTree) {
-                const infoFromTree = readFBXOrientationFromTree(obj.userData.fbxTree);
-                if (infoFromTree) {
-                    orientationInfo = infoFromTree;
-                    orientationSource = infoFromTree.source || 'tree';
-                    orientationMeta = determineOrientationType(orientationInfo);
-                    orientationType = orientationMeta.type;
+        if (fbxWorkerSupported) {
+            try {
+                const workerResult = await parseFBXInWorker(ab);
+                parsedObj = workerResult.obj;
+                parsedViaWorker = true;
+                parseDuration = workerResult.duration;
+            } catch (err) {
+                logBind(`FBX: фон. парсер не сработал → ${err?.message || err}`, 'warn');
+                fbxWorkerSupported = false;
+                try {
+                    ab = await file.arrayBuffer();
+                } catch (reloadErr) {
+                    logBind(`FBX: повторное чтение файла не удалось → ${reloadErr?.message || reloadErr}`, 'warn');
+                    throw err;
                 }
             }
-            if (!orientationInfo) {
-                const infoFromGeom = parseOrientationFromNode(obj);
-                if (infoFromGeom) {
-                    orientationInfo = infoFromGeom;
-                    orientationSource = infoFromGeom.source || 'geometry';
-                    orientationMeta = determineOrientationType(orientationInfo);
-                    orientationType = orientationMeta.type;
-                }
+        }
+
+        if (!parsedObj) {
+            try {
+                const mainResult = parseFBXOnMainThread(ab);
+                parsedObj = mainResult.obj;
+                parseDuration = mainResult.duration;
+            } catch (err) {
+                setStatusMessage(`Ошибка парсинга: ${file.name}`);
+                logBind(`⚠️ Ошибка парсинга ${file.name}: ${err?.message || String(err)}`, 'warn');
+                throw err;
             }
+        }
 
-            if (orientationInfo) {
-                orientationInfo.type = orientationType;
-                orientationInfo.handedness = orientationMeta.handedness;
-                orientationInfo.upAxisResolved = orientationMeta.upAxis;
-                obj.userData.orientation = orientationInfo;
-                const sourceLabels = { binary: 'GlobalSettings', tree: 'fbxTree' };
-                const src = sourceLabels[orientationSource] || orientationSource || 'unknown';
-                logBind(`FBX: ориентация (${src}; ${describeOrientationType(orientationType)}) — ${describeFBXOrientation(orientationInfo)}`, 'info');
-            } else {
-                logBind(`FBX: ориентация — не найдена (тип: ${describeOrientationType(orientationType)})`, 'warn');
+        const obj = parsedObj;
+        if (!obj) {
+            setStatusMessage(`Ошибка парсинга: ${file.name}`);
+            logBind(`⚠️ Парсер FBX вернул пустой объект для ${file.name}`, 'warn');
+            return;
+        }
+
+        setStatusMessage('Обработка сцены…');
+
+        if (typeof window !== 'undefined') {
+            window.__fbxLoader = fbxLoader;
+            window.__lastFBXLoaded = obj;
+            window.__fbxParsedInWorker = parsedViaWorker;
+        }
+
+        obj.userData._fbxFileName = file.name;
+
+        if (!orientationInfo && obj.userData?.fbxTree) {
+            const infoFromTree = readFBXOrientationFromTree(obj.userData.fbxTree);
+            if (infoFromTree) {
+                orientationInfo = infoFromTree;
+                orientationSource = infoFromTree.source || 'tree';
+                orientationMeta = determineOrientationType(orientationInfo);
+                orientationType = orientationMeta.type;
             }
-
-            obj.userData.orientationType = orientationType;
-            obj.userData.orientationHandedness = orientationMeta.handedness;
-            obj.userData.orientationUpAxis = orientationMeta.upAxis;
-
-            normalizeObjectOrientation(obj, orientationType);
-
-            // ★ NEW: если это ВПМ и есть geojson — сохраним мету и применим смещение
-            if ((zipKind || '').toUpperCase() === 'SM' && zipMeta) {
-                // иконка 📄 в панели смотрит на _geojsonMeta
-                obj.userData._geojsonMeta = zipMeta;
-
-                const fbxBase = file.name.replace(/\.[^.]+$/, '');
-                const { x, y, z } = getSMOffset(zipMeta);
-
-                // XY из GeoJSON → XZ в сцене (Y = up), h_relief → Y
-                applyGeoOffsetByOrientation(obj, orientationType, { x, y, z });
-
-                logBind(`VPM: смещение для ${file.name} из GeoJSON → Δx=${x} Δy=${y} Δz=${z}`, 'ok');
+        }
+        if (!orientationInfo) {
+            const infoFromGeom = parseOrientationFromNode(obj);
+            if (infoFromGeom) {
+                orientationInfo = infoFromGeom;
+                orientationSource = infoFromGeom.source || 'geometry';
+                orientationMeta = determineOrientationType(orientationInfo);
+                orientationType = orientationMeta.type;
             }
+        }
 
-            world.add(obj);
+        if (orientationInfo) {
+            orientationInfo.type = orientationType;
+            orientationInfo.handedness = orientationMeta.handedness;
+            orientationInfo.upAxisResolved = orientationMeta.upAxis;
+            obj.userData.orientation = orientationInfo;
+            const sourceLabels = { binary: 'GlobalSettings', tree: 'fbxTree' };
+            const src = sourceLabels[orientationSource] || orientationSource || 'unknown';
+            logBind(`FBX: ориентация (${src}; ${describeOrientationType(orientationType)}) — ${describeFBXOrientation(orientationInfo)}`, 'info');
+        } else {
+            logBind(`FBX: ориентация — не найдена (тип: ${describeOrientationType(orientationType)})`, 'warn');
+        }
 
-            restoreLightTargetsFromOrientation(obj);
-            // Отключаем тени у всех светильников из этого FBX
-            disableShadowsOnImportedLights(obj);
-            ensureLightHelpers(obj);
-    
+        if (parseDuration) {
+            logBind(`FBX: парсинг ${parsedViaWorker ? 'в воркере' : 'на UI-потоке'} занял ${Math.round(parseDuration)} мс`, 'info');
+        }
 
-            renameMaterialsByFBXObject(obj);
+        obj.userData.orientationType = orientationType;
+        obj.userData.orientationHandedness = orientationMeta.handedness;
+        obj.userData.orientationUpAxis = orientationMeta.upAxis;
 
-            obj.traverse(o => {
-                if (!o.isMesh) return;
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
+        normalizeObjectOrientation(obj, orientationType);
 
-                let willCast = false;
-                mats.forEach(m => {
+        // ★ NEW: если это ВПМ и есть geojson — сохраним мету и применим смещение
+        if ((zipKind || '').toUpperCase() === 'SM' && zipMeta) {
+            obj.userData._geojsonMeta = zipMeta;
+
+            const { x, y, z } = getSMOffset(zipMeta);
+
+            applyGeoOffsetByOrientation(obj, orientationType, { x, y, z });
+
+            logBind(`VPM: смещение для ${file.name} из GeoJSON → Δx=${x} Δy=${y} Δz=${z}`, 'ok');
+        }
+
+        world.add(obj);
+
+        restoreLightTargetsFromOrientation(obj);
+        disableShadowsOnImportedLights(obj);
+        ensureLightHelpers(obj);
+
+        renameMaterialsByFBXObject(obj);
+
+        obj.traverse(o => {
+            if (!o.isMesh) return;
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+
+            let willCast = false;
+            mats.forEach(m => {
                 if (m.side === THREE.DoubleSide) m.shadowSide = THREE.FrontSide;
 
                 const hasMask = !!m.alphaMap || (m.alphaTest > 0);
@@ -4467,57 +4961,41 @@ function getSMOffset(meta) {
                 } else if (!trulyTransparent) {
                     willCast = true;
                 }
-                });
-
-                o.castShadow = willCast;
-                o.receiveShadow = true;
             });
 
-            // // сгруппировать UCX в "КОЛЛИЗИИ" и подписать материалы по имени объекта
-            // const col = groupUCXUnderCollisions(obj);
-            // if (col) logBind(`Найдены UCX → собраны в «КОЛЛИЗИИ» и материалы переименованы по объекту`, 'ok');
-
-            // ← назначим материалы/флаги коллизиям
-            markCollisionMeshes(obj);
-
-            // если это ВПМ/SM — разрезаем геометрию по UDIM
-            if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
-                splitAllMeshesByUDIM_SM(obj);
-            }
-            // сохраняем метаданные для группировки и бейджа
-            loadedModels.push({
-                obj,
-                name: file.name,
-                group: groupName || null,  // имя ZIP (если есть)
-                zipKind: zipKind || null,   // 'NPM' | 'SM' | null
-                geojson: zipMeta || null,
-                orientation: orientationInfo || null,
-                orientationType
-            });
-            // (опционально дублируем на сам объект)
-            obj.userData.zipGroup = groupName || null;
-            obj.userData.zipKind  = zipKind || null;
-
-            if ((zipKind || '').toUpperCase() === 'SM' || /^SM_/i.test(file.name)) {
-                // Для ВПМ (SM) автопривязку делаем ПОЗЖЕ (когда картинки из ZIP уже добавлены)
-                logBind(`VPM: отложенная автопривязка для ${file.name}`, 'info');
-            } else {
-                // НПМ/прочее — как раньше
-                autoBindByNamesForModel(obj, file.name, embedded);
-            }
-            setImportedLightsEnabled(importedLightsEnabled, obj, { silent: true });
-            applyGlassControlsToScene();
-
-            schedulePanelRefresh();
-            resolve();
-            }, undefined, err => {
-            URL.revokeObjectURL(url);
-            statusEl.textContent = `Ошибка загрузки: ${file.name}`;
-            appbarStatusEl.textContent = statusEl.textContent;
-            logBind(`⚠️ Ошибка загрузки ${file.name}: ${err?.message || String(err)}`, 'warn');
-            reject(err);
-            });
+            o.castShadow = willCast;
+            o.receiveShadow = true;
         });
+
+        markCollisionMeshes(obj);
+
+        if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
+            splitAllMeshesByUDIM_SM(obj);
+        }
+        loadedModels.push({
+            obj,
+            name: file.name,
+            group: groupName || null,
+            zipKind: zipKind || null,
+            geojson: zipMeta || null,
+            orientation: orientationInfo || null,
+            orientationType
+        });
+        obj.userData.zipGroup = groupName || null;
+        obj.userData.zipKind  = zipKind || null;
+
+        if ((zipKind || '').toUpperCase() === 'SM' || /^SM_/i.test(file.name)) {
+            logBind(`VPM: отложенная автопривязка для ${file.name}`, 'info');
+        } else {
+            autoBindByNamesForModel(obj, file.name, embedded);
+        }
+        setImportedLightsEnabled(importedLightsEnabled, obj, { silent: true });
+        applyGlassControlsToScene();
+        setEmptyHintVisible(false);
+
+        schedulePanelRefresh();
+        requestRender();
+        setStatusMessage('');
         }
         /**
          * Обработка ZIP-архива: находит FBX/текстуры/GeoJSON, загружает FBX, сохраняет текстуры,
@@ -4525,8 +5003,7 @@ function getSMOffset(meta) {
          */
         async function handleZIPFile(file) {
             logSessionHeader(`ZIP: ${file.name}`);
-            statusEl.textContent = `Чтение ZIP: ${file.name}…`;
-            appbarStatusEl.textContent = statusEl.textContent;
+            setStatusMessage(`Чтение ZIP: ${file.name}…`);
 
             const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
             const zip = await JSZip.loadAsync(file);
@@ -4566,6 +5043,7 @@ function getSMOffset(meta) {
                 const ab = await entry.async("arraybuffer");
                 const fbxFile = new File([ab], basename(entry.name), { type: "model/fbx" });
                 await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta);
+                setEmptyHintVisible(false);
                 }
             }
 
@@ -4573,14 +5051,13 @@ function getSMOffset(meta) {
             for (const entry of entries) {
                 if (entry.dir) continue;
                 if (/\.(png|jpe?g|webp)$/i.test(entry.name)) {
-                const blob = await entry.async("blob");
-                const url = URL.createObjectURL(blob);
-                const short = basename(entry.name).toLowerCase();
-                allEmbedded.push({ short, url, full: entry.name, mime: blob.type || "image/png", source: "zip" });
+                    const blob = await entry.async("blob");
+                    const url = URL.createObjectURL(blob);
+                    const short = basename(entry.name).toLowerCase();
+                    allEmbedded.push({ short, url, full: entry.name, mime: blob.type || "image/png", source: "zip" });
+                    galleryNeedsRefresh = true;
                 }
             }
-
-            renderGallery(allEmbedded);
 
             // 4) если в ZIP был geojson — прикрепим его ко ВСЕМ FBX из этого ZIP
             if (zipGeoMeta) {
@@ -4603,6 +5080,8 @@ function getSMOffset(meta) {
 
             ensureZipCollisionsHidden(file.name);
 
+            setStatusMessage('');
+
             // statusEl/appbarStatus — по желанию
             // statusEl.textContent = `Готово: ${file.name}`;
             // appbarStatusEl.textContent = statusEl.textContent;
@@ -4612,18 +5091,33 @@ function getSMOffset(meta) {
          * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
          */
         async function finalizeBatchAfterAllFiles() {
-                if (!loadedModels.length) return;
+            if (!loadedModels.length) return;
 
-                // — ребейз только один раз —
-                let firstTime = false;
-                if (!didInitialRebase) {
-                    const off = computeAutoOffsetHorizontalOnly(); // только XZ (при Y-up) или XY (при Z-up)
-                    setWorldOffset(off);                            // высоту не трогаем
-                    didInitialRebase = true;
-                    firstTime = true;
-                }
+            const newModels = loadedModels.slice(lastFinalizedModelIndex);
+            const hasNewModels = newModels.length > 0;
+            const needGalleryRefresh = galleryNeedsRefresh;
 
-                // IBL / фон — всегда
+            if (!hasNewModels && !needGalleryRefresh) {
+                setStatusMessage('');
+                setEmptyHintVisible(loadedModels.length === 0);
+                return;
+            }
+
+            if (needGalleryRefresh) {
+                renderGallery(allEmbedded);
+                galleryNeedsRefresh = false;
+            }
+
+            // — ребейз только один раз —
+            let firstTime = false;
+            if (!didInitialRebase && hasNewModels) {
+                const off = computeAutoOffsetHorizontalOnly();
+                setWorldOffset(off);
+                didInitialRebase = true;
+                firstTime = true;
+            }
+
+            if (hasNewModels) {
                 if (iblChk.checked) {
                     await loadHDRBase();
                     buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
@@ -4634,63 +5128,68 @@ function getSMOffset(meta) {
                 bgMesh.material.needsUpdate = true;
                 updateBgVisibility();
 
-                // материалы/стекло — всегда
                 applyGlassControlsToScene();
-
-                // тени/солнце — всегда
                 fitSunShadowToScene(true);
                 updateSun();
+            }
 
+            const newSmModels = newModels.filter(m => (m.zipKind || '').toUpperCase() === 'SM');
+            let modelsForBinding = newSmModels;
+            if (!modelsForBinding.length && needGalleryRefresh) {
+                modelsForBinding = loadedModels.filter(m => (m.zipKind || '').toUpperCase() === 'SM');
+            }
 
-                // --- VPM (SM) автопривязка ПОСЛЕ того как все картинки добавлены ---
+            if (modelsForBinding.length) {
                 try {
-                    const smModels = loadedModels.filter(m => (m.zipKind || '').toUpperCase() === 'SM');
-                    if (smModels.length) {
-                        const vpmIndex = buildVPMIndexFromImages(allEmbedded); // парсим T_..._Diffuse/ERM/Normal_Slot.UDIM.png
-                        for (const m of smModels) {
-                            await autoBindVPMForModel(m.obj, vpmIndex);
-                        }
+                    const vpmIndex = buildVPMIndex(allEmbedded);
+                    for (const m of modelsForBinding) {
+                        await autoBindVPMForModel(m.obj, vpmIndex);
                     }
                 } catch (e) {
                     logBind(`⚠️ VPM: ошибка автопривязки — ${e?.message || e}`, 'warn');
                 }
+            }
 
+            if (hasNewModels) {
                 const smGroups = new Set();
-                loadedModels.forEach(model => {
+                newModels.forEach(model => {
                     if ((model.zipKind || '').toUpperCase() !== 'SM') return;
                     if (model.group) smGroups.add(model.group);
                 });
                 smGroups.forEach(groupName => ensureZipCollisionsHidden(groupName));
 
-                // камеру кадрируем только в самый первый раз, чтобы дальше не «прыгала»
                 if (firstTime) {
                     fitAll();
                     focusOn(loadedModels.map(m => m.obj));
                 }
-
-                const vpmIndex = buildVPMIndex(allEmbedded);
-                for (const m of loadedModels) {
-                if ((m.zipKind || '').toUpperCase() === 'SM') {
-                    await autoBindVPMForModel(m.obj, vpmIndex);
-                }
-                }
-
-                let smCollisionsNeedSync = hideSMCollisions(false);
-
-                applyShading(currentShadingMode, () => {
-                    outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
-                    if (firstTime) {
-                        if (imagesDetails) imagesDetails.open = false;
-                        if (bindLogDetails) bindLogDetails.open = false;
-                    }
-
-                    const hiddenAgain = hideSMCollisions(false);
-                    if (smCollisionsNeedSync || hiddenAgain) {
-                        smCollisionsNeedSync = false;
-                        syncCollisionButtons();
-                    }
-                });
             }
+
+            const finalizeUI = () => {
+                outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
+                if (firstTime) {
+                    if (imagesDetails) imagesDetails.open = false;
+                    if (bindLogDetails) bindLogDetails.open = false;
+                }
+
+                const hiddenAgain = hasNewModels ? hideSMCollisions(false) : false;
+                if (hasNewModels || hiddenAgain) {
+                    syncCollisionButtons();
+                }
+
+                setStatusMessage('');
+                setEmptyHintVisible(loadedModels.length === 0);
+            };
+
+            if (hasNewModels) {
+                applyShading(currentShadingMode, finalizeUI);
+            } else {
+                finalizeUI();
+            }
+
+            if (hasNewModels) {
+                lastFinalizedModelIndex = loadedModels.length;
+            }
+        }
 
         
         app.api = Object.freeze({
@@ -4703,11 +5202,37 @@ function getSMOffset(meta) {
             layout,
             updateBgVisibility,
             computeWorldCenter,
+            setStatsVisible,
+            requestRender,
         });
 // =====================
         // Animation loop & init
         // =====================
-        (function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); })();
+        function animate() {
+            requestAnimationFrame(animate);
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (!lastFrameTime) lastFrameTime = now;
+            const delta = now - lastFrameTime;
+            lastFrameTime = now;
+
+            const controlsChanged = controls.update();
+            if (controlsChanged) needsRender = true;
+
+            if (!needsRender) {
+                updateStatsOverlay();
+                return;
+            }
+
+            if (delta > 0 && delta < 1000) {
+                const instant = 1000 / delta;
+                fpsEstimate = fpsEstimate ? (fpsEstimate * 0.9 + instant * 0.1) : instant;
+            }
+
+            needsRender = false;
+            renderer.render(scene, camera);
+            updateStatsOverlay();
+        }
+        animate();
         layout();
         HDRI_LIBRARY.forEach((h, i) => {
             const opt = document.createElement('option');

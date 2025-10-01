@@ -27,7 +27,8 @@
         <button id="shadowHelpersBtn" class="btn" title="Показать объём теней">Shadow box</button>
         <button id="lightHelpersBtn" class="btn" title="Показать/скрыть хелперы источников света">Light helpers</button>
         <button id="lightEmittersBtn" class="btn" title="Включить/выключить импортированные источники света">Lights on/off</button>
-        <input id="fileInput" type="file" accept=".fbx" multiple hidden />
+        <button id="statsBtn" class="btn" title="Показать статистику сцены">Stats</button>
+        <input id="fileInput" type="file" accept=".fbx,.zip" multiple hidden />
 
         <label>point size
             <input type="range" id="pointSize" min="1" max="10" step="1" value="3" />
@@ -68,7 +69,9 @@
         </div>
 
             <label>bg&nbsp;α <input id="bgAlpha" type="range" min="0" max="1" step="0.01" value="0.00" /></label>
-            <label>intensity <input id="iblInt" type="range" min="0" max="3" step="0.05" value="1.5" /></label>
+            <label>intensity <input id="iblInt" type="range" min="0" max="5" step="0.05" value="1.5" /></label>
+            <label>gamma <input id="iblGamma" type="range" min="0.2" max="3" step="0.05" value="1.0" /></label>
+            <label>tint <input id="iblTint" type="color" value="#ffffff" /></label>
             <label>rot&nbsp;<input id="iblRot" type="range" min="0" max="360" step="1" value="0" /></label>
             
             
@@ -116,11 +119,12 @@
             </label>
         </div>
 
-        <div class="spacer"></div>
-        <span id="appbarStatus" class="muted"></span>
     </div>
 
     <div id="viewer"></div>
+    <div id="statsOverlay" class="stats-overlay" hidden></div>
+    <div id="status" class="status-overlay muted" hidden>—</div>
+    <button id="emptyHint" class="status-overlay btn" type="button">Перетяните файлы сюда или нажмите, чтобы выбрать. zip / fbx</button>
 
 <!-- --------------------------- -->
 <!--     DEBUG SHADDOW PANNEL    -->
@@ -173,11 +177,7 @@
 <!--- -------------------------- -->
 
     <div class="side">
-        <div class="row" style="padding:10px; border-bottom:1px solid var(--border)">
-            <span id="status" class="muted">—</span>
-        </div>
-
-        <div class="list" id="out"><div class="muted">Нет модели. Загрузите .fbx</div></div>
+        <div class="list" id="out"></div>
 
         <details id="imagesDetails" open style="margin:8px">
             <summary>Текстуры · <span id="texCount" class="chip">0</span></summary>
