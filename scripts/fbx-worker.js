@@ -1,4 +1,4 @@
-const FBX_LOADER_MODULE = 'https://unpkg.com/three@0.179.1/examples/jsm/loaders/FBXLoader.js?module';
+const FBX_LOADER_MODULE = 'https://unpkg.com/three@0.180.0/examples/jsm/loaders/FBXLoader.js?module';
 
 let FBXLoaderCtor = null;
 

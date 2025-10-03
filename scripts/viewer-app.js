@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
-import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 
 class ViewerApp {
     constructor() {
@@ -66,6 +66,7 @@ class ViewerApp {
         const iblTintEl       = document.getElementById('iblTint');
         const iblRotEl        = document.getElementById('iblRot');
         const axisSel         = document.getElementById('axisSelect');
+        const isZUp = () => (axisSel?.value === 'Z'); // если нет селекта — вернёт false
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
         const statsBtn        = document.getElementById('statsBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
@@ -200,6 +201,92 @@ class ViewerApp {
         grid.userData.excludeFromBounds = true; // ← исключать из bbox
         
        scene.add(grid);
+
+        const northPointer = createNorthPointer();
+        world.add(northPointer);
+        app.northPointer = northPointer;
+
+        const _northTmpDir = new THREE.Vector3();
+        const _northBaseVec = new THREE.Vector3();
+        const _northUpVec = new THREE.Vector3();
+        const _northOffsetVec = new THREE.Vector3();
+        const _northLabelOffset = new THREE.Vector3();
+
+        function createNorthPointer() {
+            const length = 2.5;
+            const color = 0xff3d00;
+            const group = new THREE.Group();
+            group.name = 'NorthPointer';
+            group.userData.excludeFromBounds = true;
+
+            const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), length, color, length * 0.35, length * 0.22);
+            arrow.cone.castShadow = false;
+            arrow.cone.receiveShadow = false;
+            group.add(arrow);
+
+            const label = createNorthLabelSprite();
+            group.add(label);
+
+            group.userData.arrow = arrow;
+            group.userData.label = label;
+            group.userData.length = length;
+
+            return group;
+        }
+
+        function createNorthLabelSprite() {
+            const size = 256;
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+            ctx.fillStyle = 'rgba(0,0,0,0)';
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = '#ff3d00';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${Math.round(size * 0.6)}px sans-serif`;
+            ctx.fillText('N', size * 0.5, size * 0.5);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.needsUpdate = true;
+
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.setScalar(0.6);
+            sprite.userData.excludeFromBounds = true;
+            return sprite;
+        }
+
+        function updateNorthPointer() {
+            if (!northPointer) return;
+            const arrow = northPointer.userData?.arrow;
+            if (!arrow) return;
+            const length = northPointer.userData?.length ?? 2.5;
+            const label = northPointer.userData?.label ?? null;
+
+            const northDeg = parseFloat(sunNorthEl?.value) || 0;
+            const up = isZUp() ? _northUpVec.set(0, 0, 1) : _northUpVec.set(0, 1, 0);
+            const base = isZUp() ? _northBaseVec.set(0, 1, 0) : _northBaseVec.set(0, 0, 1);
+
+            const dir = _northTmpDir.copy(base).applyAxisAngle(up, THREE.MathUtils.degToRad(-northDeg)).normalize();
+            arrow.setDirection(dir);
+            arrow.setLength(length, length * 0.35, length * 0.2);
+
+            const posOffset = _northOffsetVec.copy(up).multiplyScalar(length * 0.05);
+            northPointer.position.copy(posOffset);
+
+            if (label) {
+                const labelOffset = _northLabelOffset.copy(dir).setLength(length + 0.3);
+                labelOffset.add(up.clone().multiplyScalar(length * 0.12));
+                label.position.copy(labelOffset);
+            }
+
+            requestRender();
+        }
+
+        updateNorthPointer();
         app.scene = scene;
         app.world = world;
         app.camera = camera;
@@ -544,8 +631,6 @@ class ViewerApp {
         // REBASE
         // =====================      
 
-        const isZUp = () => (axisSel?.value === 'Z'); // если нет селекта — вернёт false
-
         function computeAutoOffsetHorizontalOnly() {
             const c = computeAutoOffset(); // центр до ребейза (в текущих координатах world)
             if (isZUp()) {
@@ -669,16 +754,19 @@ class ViewerApp {
                     let shadowFrustumScale = 1;
 
                     /** Подгоняет orthographic frustum для directional light под текущую сцену. */
-                    function fitSunShadowToScene(recenterTarget = false, margin = 1.5) {
+                    function fitSunShadowToScene(recenterTarget = false, margin = 1.1) {
                         if (!dirLight || !dirLight.shadow || !dirLight.shadow.camera) return;
 
                         const box = computeSceneBounds();
                         if (box.isEmpty()) return;
 
+                        const scale = Math.max(0.1, shadowFrustumScale || 1);
+                        const effectiveMargin = margin * scale;
+
                         const center = box.getCenter(new THREE.Vector3());
                         const size   = box.getSize(new THREE.Vector3());
-                        const radius = size.length() * 0.5 * margin;
-                        const sXY    = Math.max(size.x, size.y) * 0.5 * margin;
+                        const radius = size.length() * 0.5 * effectiveMargin;
+                        const spanXY = Math.max(size.x, size.y, size.z) * 0.5 * effectiveMargin;
 
                         // По желанию — один раз «поймать» центр
                         if (recenterTarget) {
@@ -687,7 +775,10 @@ class ViewerApp {
                         }
 
                         const cam = dirLight.shadow.camera; // OrthographicCamera
-                        cam.left = -sXY; cam.right = sXY; cam.top = sXY; cam.bottom = -sXY;
+                        cam.left = -spanXY;
+                        cam.right = spanXY;
+                        cam.top = spanXY;
+                        cam.bottom = -spanXY;
 
                         // near/far вокруг текущей геометрии относительно текущего луча
                         const dist = dirLight.position.distanceTo(dirLight.target.position) || (radius * 1.2);
@@ -807,7 +898,7 @@ class ViewerApp {
             if (hdrBaseTex) return hdrBaseTex;
             const base = 'https://threejs.org/examples/textures/equirectangular/';
             const file = 'royal_esplanade_1k.hdr';
-            hdrBaseTex = await new RGBELoader().setPath(base).loadAsync(file);
+            hdrBaseTex = await new HDRLoader().setPath(base).loadAsync(file);
             app.hdrBaseTex = hdrBaseTex;
             hdrBaseTex.mapping = THREE.EquirectangularReflectionMapping;
             hdrBaseTex.wrapS = THREE.RepeatWrapping;
@@ -891,6 +982,7 @@ class ViewerApp {
 
             // Подгоняем фрустум (НЕ меняем ни target, ни позицию света)
             fitSunShadowToScene(false); // передаём флажок: не ресентрить таргет
+            updateNorthPointer();
             requestRender();
         }
 
@@ -1833,7 +1925,7 @@ function clearBeautyWire(mesh) {
             const entry = HDRI_LIBRARY[idx];
             if (!entry) return;
 
-            hdrBaseTex = await new RGBELoader().loadAsync(entry.url);
+            hdrBaseTex = await new HDRLoader().loadAsync(entry.url);
             app.hdrBaseTex = hdrBaseTex;
             hdrBaseTex = flipHDRTextureVertically(hdrBaseTex);
             app.hdrBaseTex = hdrBaseTex;
