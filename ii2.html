@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini FBX Viewer — Refactored</title>
+    <link rel="stylesheet" href="./styles/viewer.css">
+</head>
+<body>
+
+    <!--
+        Refactored single-file viewer.
+        - Весь JS разделён на блоки и подробно прокомментирован.
+        - Отступы — 4 пробела.
+        - Функционал сохранён.
+    -->
+
+    <div class="appbar">
+        <button id="toggleSideBtn" class="btn" title="Показать/скрыть боковую панель">☰</button>
+        <button id="shadowDbgBtn" class="btn" title="Параметры теней">Shadows ⚙️</button>
+
+        <!-- Files -->
+        <button id="openBtn" class="btn">Открыть FBX</button>
+        <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
+            <option value="">Примеры…</option>
+        </select>
+        <button id="shadowHelpersBtn" class="btn" title="Показать объём теней">Shadow box</button>
+        <button id="lightHelpersBtn" class="btn" title="Показать/скрыть хелперы источников света">Light helpers</button>
+        <button id="lightEmittersBtn" class="btn" title="Включить/выключить импортированные источники света">Lights on/off</button>
+        <button id="statsBtn" class="btn" title="Показать статистику сцены">Stats</button>
+        <button id="loadParcelsBtn" class="btn" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
+        <input id="fileInput" type="file" accept=".fbx,.zip" multiple hidden />
+
+        <label>point size
+            <input type="range" id="pointSize" min="1" max="10" step="1" value="3" />
+        </label>
+
+        <!-- IBL / controls -->
+        <div class="row">
+            <label><input type="checkbox" id="hdriChk" checked /></label>
+            <label>HDRI
+                <select id="hdriPreset">
+                    <option value="">— выберите —</option>
+                </select>
+            </label>
+            <label>Hemi&nbsp;int
+                <input id="hemiInt" type="range" min="0" max="10" step="0.05" value="1" />
+            </label>
+            <label>Sky
+                <input id="hemiSky" type="color" value="#ffffff" />
+            </label>
+            <label>Ground
+                <input id="hemiGround" type="color" value="#cfd8dc" />
+            </label>
+
+        <!-- SUN CONTROL -->
+
+        <label>☀
+            <input id="sunEnabled" type="checkbox" checked />
+        </label>
+        <div class="row" id="sunControls">
+            <label>Часы
+                <input id="sunHour" type="range" min="2" max="23" step="0.25" value="12" />
+            </label>
+            <label>День <input id="sunDay" type="number" min="1" max="31" value="1" style="width:60px" /></label>
+            <label>Месяц <input id="sunMonth" type="number" min="1" max="12" value="6" style="width:60px" /></label>
+            <label>Север
+                <input id="sunNorth" type="range" min="0" max="360" step="1" value="0" />
+            </label>
+        </div>
+
+            <label>bg&nbsp;α <input id="bgAlpha" type="range" min="0" max="1" step="0.01" value="0.00" /></label>
+            <label>intensity <input id="iblInt" type="range" min="0" max="5" step="0.05" value="1.5" /></label>
+            <label>gamma <input id="iblGamma" type="range" min="0.2" max="3" step="0.05" value="1.0" /></label>
+            <label>tint <input id="iblTint" type="color" value="#ffffff" /></label>
+            <label>rot&nbsp;<input id="iblRot" type="range" min="0" max="360" step="1" value="0" /></label>
+            
+            
+
+            <label>shading
+                <select id="shadingMode" title="Режим шейдинга">
+                    <option value="pbr" selected>PBR</option>
+                    <option value="backface">Backface (white/red)</option>
+                    <option value="lambert">Lambert</option>
+                    <option value="phong">Phong</option>
+                    <option value="toon">Toon</option>
+                    <option value="normal">Normal</option>
+                    <option value="basic">Unlit</option>
+                    <option value="wire">Wireframe</option>
+                    <option value="beautywire">Beauty wire</option>
+                    <option value="matcap">Matcap</option>
+                    <option value="xray">X-Ray</option>
+                    <option value="uv">UV Checker</option>
+                    <option value="depth">Depth</option>
+                    <option value="vcol">Vertex Color</option>
+                    <option value="roughOnly">Roughness Only</option>
+                    <option value="metalOnly">Metalness Only</option>
+                    <option value="points">Points (Vertices)</option>
+                </select>
+            </label>
+
+            <label>
+                <select id="axisSelect" title="Ось вверх">
+                    <option value="Y" selected>Y ↑</option>
+                    <option value="Z">Z ↑</option>
+                </select>
+            </label>
+        </div>
+
+        <!-- Glass controls -->
+        <div class="row" id="glassTopControls">
+            <label title="Прозрачность стекла (opacity)">Glass&nbsp;α
+                <input id="glassOpacity" type="range" min="0" max="1" step="0.01" value="0.20" />
+            </label>
+            <label title="Интенсивность отражений у стекла (envMapIntensity)">Reflect
+                <input id="glassReflect" type="range" min="0" max="3" step="0.05" value="3.00" />
+            </label>
+            <label title="Шероховатость стекла (roughness)">Rough
+                <input id="glassRough" type="range" min="0" max="1" step="0.01" value="0.05" />
+            </label>
+            <label title="Metalness для стекла (если нет карты)">Metal
+                <input id="glassMetal" type="range" min="0" max="1" step="0.01" value="1.0" />
+            </label>
+            <label title="Цвет стекла">Color
+                <input id="glassColor" type="color" value="#FFFFFF" />
+            </label>
+            <button id="glassReset" class="btn" type="button" title="Сбросить значения стекла к исходным">Сбросить</button>
+        </div>
+
+    </div>
+
+    <div id="viewer"></div>
+    <div id="statsOverlay" class="stats-overlay" hidden></div>
+    <div id="status" class="status-overlay muted" hidden>—</div>
+    <button id="emptyHint" class="status-overlay btn" type="button">Перетяните файлы сюда или нажмите, чтобы выбрать. zip / fbx</button>
+
+<!-- --------------------------- -->
+<!--     DEBUG SHADDOW PANNEL    -->
+<!-- --------------------------- -->
+
+<div id="shadowDbg" class="debug-panel">
+  <div class="hdr">
+    <h4>Shadows · debug</h4>
+    <button id="shadowDbgClose" class="btn" title="Закрыть">×</button>
+  </div>
+
+  <div class="row">
+    <label>Тип теней
+      <select id="shadowType">
+        <option value="PCFSoft">PCF Soft</option>
+        <option value="PCF">PCF</option>
+        <option value="VSM">VSM</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="row">
+    <label>Карта, px
+      <select id="shadowMapSize">
+        <option>1024</option>
+        <option>2048</option>
+        <option selected>4096</option>
+        <option>8192</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="row"><label>bias <input id="shadowBias" type="number" step="0.00001" value="-0.00005"></label></div>
+  <div class="row"><label>normalBias <input id="shadowNormalBias" type="number" step="0.001" value="0.02"></label></div>
+  <div class="row"><label>radius <input id="shadowRadius" type="number" step="0.1" value="1"></label></div>
+
+  <div class="row"><label>near <input id="shadowNear" type="number" step="0.01" value="0.1"></label></div>
+  <div class="row"><label>far <input id="shadowFar" type="number" step="0.1" value="200"></label></div>
+
+  <div class="row"><label>Auto frustum <input id="shadowAuto" type="checkbox" checked></label></div>
+  <div class="row"><label>Frustum scale <input id="shadowFrustumScale" type="number" step="0.1" value="1"></label></div>
+
+  <div class="row" style="justify-content:flex-end">
+    <button id="shadowApply" class="btn primary">Применить</button>
+    <button id="shadowReset" class="btn">Сброс</button>
+  </div>
+</div>
+
+<!--- -------------------------- -->
+<!-- END OF DEBUG SHADDOW PANNEL -->
+<!--- -------------------------- -->
+
+    <div class="side">
+        <div class="list" id="out"></div>
+
+        <details id="imagesDetails" open style="margin:8px">
+            <summary>Текстуры · <span id="texCount" class="chip">0</span></summary>
+            <div class="row" style="margin:6px 0">
+                <select id="matSelect" title="Материал для привязки">
+                    <option value="">— выберите материал —</option>
+                </select>
+                <span class="muted" style="font-size:12px">Выберите материал, затем щёлкните на миниатюре → Привязать…</span>
+            </div>
+            <div id="gallery"></div>
+        </details>
+
+        <details id="bindLogDetails" open style="margin:8px">
+            <summary>Лог автопривязки</summary>
+            <div id="bindLog" style="font-size:13px; line-height:1.4; padding:6px; max-height:220px; overflow:auto; white-space:pre-wrap; background:#fafafa; border:1px solid var(--border); border-radius:6px;">— пока пусто —</div>
+        </details>
+    </div>
+
+    <div id="drop" class="drop">Бросайте сюда один или несколько .fbx .zip</div>
+
+    <div id="texModal" class="modal">
+        <div class="sheet">
+            <div class="head">
+                <div id="mTitle" class="muted">Карта</div>
+                <button id="mClose" class="btn">Закрыть</button>
+            </div>
+            <div class="body">
+                <div class="imgwrap"><img id="mImg" alt=""></div>
+                <div class="side">
+                    <div><b>Файл:</b> <span id="mFile"></span></div>
+                    <div class="row"><span class="pill" id="mKind">other</span> <span class="muted" id="mMime"></span></div>
+                    <hr style="border:none; border-top:1px dashed var(--border)">
+                    <div class="row">
+                        <select id="slotSelect" title="Слот">
+                            <option value="map">map (diffuse/base)</option>
+                            <option value="alphaMap">alphaMap</option>
+                            <option value="normalMap">normalMap</option>
+                            <option value="aoMap">aoMap</option>
+                            <option value="roughnessMap">roughnessMap</option>
+                            <option value="metalnessMap">metalnessMap</option>
+                        </select>
+                        <button id="bindBtn" class="btn primary">Привязать к материалу</button>
+                    </div>
+                    <div class="muted" style="font-size:12px">Подсказка: для roughness/metalness — линейный профиль, для map — sRGB.</div>
+                    <div style="margin-top:8px">
+                        <a id="dlLink" class="btn" download>Скачать картинку</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "./scripts/vendor/three/src/Three.js",
+                "three/addons/": "./scripts/vendor/three/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        (function () {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const renderer = params.get('renderer');
+                if (renderer) {
+                    window.__LPMVIEW_RENDERER = renderer;
+                }
+            } catch (_) {
+                /* ignore */
+            }
+        })();
+    </script>
+
+    <script type="module" src="./scripts/viewer-app.js"></script>
+</body>
+</html> 
