@@ -240,8 +240,8 @@ button.status-overlay {
     right: 0;
     bottom: 0;
     width: var(--sideW);
-    border-left: 1px solid var(--border);
-    background: #fff;
+    border-left: none;
+    background: transparent;
     display: flex;
     flex-direction: column;
     overflow:auto;
