@@ -4027,7 +4027,7 @@ function getSMOffset(meta) {
             });
         }
 
-        function formatPanelLabel(label, maxChars = 30, dots = '....') {
+        function formatPanelLabel(label, maxChars = 36, dots = '....') {
             if (label == null) return '';
             const str = String(label);
             if (str.length <= maxChars) return str;
