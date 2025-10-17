@@ -4031,24 +4031,42 @@ function getSMOffset(meta) {
             if (label == null) return '';
             const str = String(label);
             if (str.length <= maxChars) return str;
-            const ellipsis = dots;
-            const reserved = ellipsis.length;
+            const ellipsis = dots || '....';
+            const reserved = Math.min(maxChars, ellipsis.length);
             const available = Math.max(maxChars - reserved, 0);
-            let headLen = Math.max(3, Math.floor(available / 2));
-            let tailLen = Math.max(3, available - headLen);
-            let total = headLen + tailLen + reserved;
-            if (total > maxChars) {
-                const diff = total - maxChars;
-                if (tailLen > headLen) {
-                    tailLen = Math.max(3, tailLen - diff);
-                } else {
-                    headLen = Math.max(3, headLen - diff);
-                }
+            if (available <= 0) return str.slice(0, maxChars);
+
+            let headLen = Math.max(2, Math.ceil(available / 2));
+            let tailLen = Math.max(2, available - headLen);
+
+            const minSegment = 3;
+            if (headLen < minSegment && available >= minSegment * 2) {
+                tailLen = Math.max(minSegment, tailLen - (minSegment - headLen));
+                headLen = minSegment;
             }
+            if (tailLen < minSegment && available >= minSegment * 2) {
+                headLen = Math.max(minSegment, headLen - (minSegment - tailLen));
+                tailLen = minSegment;
+            }
+
+            while (headLen + tailLen > available) {
+                if (headLen > tailLen && headLen > 1) headLen--;
+                else if (tailLen > 1) tailLen--;
+                else break;
+            }
+
             const head = str.slice(0, headLen);
-            const tailStart = Math.max(str.length - tailLen, headLen);
-            const tail = str.slice(tailStart);
+            const tail = str.slice(Math.max(str.length - tailLen, headLen));
             return head + ellipsis + tail;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         /**
@@ -4105,7 +4123,9 @@ function getSMOffset(meta) {
             const fileControls = `${hasGeo ? `<button type="button" class="doc" data-uuid="${model.obj.uuid}" title="Показать GeoJSON">📄</button>` : ''}<button type="button" class="eye" data-target="${modelId}" title="Показать/скрыть файл">👁</button>`;
             const fileTitlePieces = [];
             if (kindBadge) fileTitlePieces.push(kindBadge);
-            fileTitlePieces.push(`<span>${formatPanelLabel(model.name)}</span>`);
+            const displayName = formatPanelLabel(model.name);
+            fileTitlePieces.push(`<span title="${escapeHtml(model.name)}">${escapeHtml(displayName)}</span>`);
+
             const fileTitle = fileTitlePieces.join('');
             chunksArr.push(`
                 <div class="collapsible" data-level="file">
@@ -4149,7 +4169,7 @@ function getSMOffset(meta) {
                             <div class="collapsible" data-level="collision-mesh">
                                 <details>
                                     <summary>
-                                        <span class="sumline"><span>${title}</span></span>
+                                        <span class="sumline"><span title="${escapeHtml(rawTitle)}">${escapeHtml(title)}</span></span>
                                     </summary>
                                 <table>
                                     <tr><td class="k">Тип</td><td>${m?.type || '—'}</td></tr>
@@ -4191,7 +4211,7 @@ function getSMOffset(meta) {
                         <div class="collapsible" data-level="mesh">
                             <details>
                                 <summary>
-                                    <span class="sumline"><span>${title}</span></span>
+                                    <span class="sumline"><span title="${escapeHtml(rawTitle)}">${escapeHtml(title)}</span></span>
                                 </summary>
                             <table>
                                 <tr><td class="k">Карты</td><td>${present.length ? present.join(' ') : '<span class="muted">—</span>'}</td></tr>
@@ -4262,7 +4282,9 @@ function getSMOffset(meta) {
             }
 
             const label = document.createElement('span');
-            label.textContent = `📦 ${formatPanelLabel(groupName)}`;
+            const displayGroup = formatPanelLabel(groupName);
+            label.textContent = `📦 ${displayGroup}`;
+            label.title = groupName || '';
             sumline.appendChild(label);
 
             summary.appendChild(sumline);
