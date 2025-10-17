@@ -4027,6 +4027,17 @@ function getSMOffset(meta) {
             });
         }
 
+        function formatPanelLabel(label, max = 48) {
+            if (label == null) return '';
+            const str = String(label);
+            if (str.length <= max) return str;
+            const ellipsis = '\u2026';
+            const safeMax = Math.max(max, ellipsis.length + 2);
+            const tailLen = Math.max(1, Math.floor((safeMax - ellipsis.length) / 3));
+            const headLen = Math.max(1, safeMax - ellipsis.length - tailLen);
+            return str.slice(0, headLen) + ellipsis + str.slice(Math.max(str.length - tailLen, headLen));
+        }
+
         /**
          * Рендерит один FBX в панель материалов: заголовок, секции коллизий,
          * список мешей, интерактивные контролы стекла и кнопки видимости.
@@ -4081,7 +4092,7 @@ function getSMOffset(meta) {
             const fileControls = `${hasGeo ? `<button type="button" class="doc" data-uuid="${model.obj.uuid}" title="Показать GeoJSON">📄</button>` : ''}<button type="button" class="eye" data-target="${modelId}" title="Показать/скрыть файл">👁</button>`;
             const fileTitlePieces = [];
             if (kindBadge) fileTitlePieces.push(kindBadge);
-            fileTitlePieces.push(`<span>${model.name}</span>`);
+            fileTitlePieces.push(`<span>${formatPanelLabel(model.name)}</span>`);
             const fileTitle = fileTitlePieces.join('');
             chunksArr.push(`
                 <div class="collapsible" data-level="file">
@@ -4113,7 +4124,8 @@ function getSMOffset(meta) {
                         const objId = `collision-${o.uuid}-${idx}`;
                         o.userData._panelId = objId;
                         const humanIdx = mats.length > 1 ? ` [${idx+1}]` : '';
-                        const title = (m?.name || o.name || o.geometry?.name || '__COLLISION__') + humanIdx;
+                        const rawTitle = (m?.name || o.name || o.geometry?.name || '__COLLISION__') + humanIdx;
+                        const title = formatPanelLabel(rawTitle);
 
                         const present = [];
                         ['map','alphaMap','normalMap','aoMap','roughnessMap','metalnessMap']
@@ -4152,7 +4164,8 @@ function getSMOffset(meta) {
                 mats.forEach((m, idx) => {
                     const humanIdx = idx + 1;
                     const matName = m.name || obj.name || `${m.type}`;
-                    const title = `${matName}${mats.length > 1 ? ` [${humanIdx}]` : ''}`;
+                    const rawTitle = `${matName}${mats.length > 1 ? ` [${humanIdx}]` : ''}`;
+                    const title = formatPanelLabel(rawTitle);
                     const present = [];
                     ['map','alphaMap','normalMap','bumpMap','aoMap','emissiveMap','specularMap','roughnessMap','metalnessMap']
                         .forEach(k => { if (m[k]) present.push(`<span class="tag">${k}</span>`); });
