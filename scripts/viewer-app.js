@@ -4027,15 +4027,28 @@ function getSMOffset(meta) {
             });
         }
 
-        function formatPanelLabel(label, max = 48) {
+        function formatPanelLabel(label, maxChars = 48, dots = '....') {
             if (label == null) return '';
             const str = String(label);
-            if (str.length <= max) return str;
-            const ellipsis = '\u2026';
-            const safeMax = Math.max(max, ellipsis.length + 4);
-            const tailLen = Math.max(6, Math.floor((safeMax - ellipsis.length) / 3));
-            const headLen = Math.max(3, safeMax - ellipsis.length - tailLen);
-            return str.slice(0, headLen) + ellipsis + str.slice(Math.max(str.length - tailLen, headLen));
+            if (str.length <= maxChars) return str;
+            const ellipsis = dots;
+            const reserved = ellipsis.length;
+            const available = Math.max(maxChars - reserved, 0);
+            let headLen = Math.max(3, Math.floor(available / 2));
+            let tailLen = Math.max(3, available - headLen);
+            let total = headLen + tailLen + reserved;
+            if (total > maxChars) {
+                const diff = total - maxChars;
+                if (tailLen > headLen) {
+                    tailLen = Math.max(3, tailLen - diff);
+                } else {
+                    headLen = Math.max(3, headLen - diff);
+                }
+            }
+            const head = str.slice(0, headLen);
+            const tailStart = Math.max(str.length - tailLen, headLen);
+            const tail = str.slice(tailStart);
+            return head + ellipsis + tail;
         }
 
         /**
