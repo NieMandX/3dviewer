@@ -4032,9 +4032,9 @@ function getSMOffset(meta) {
             const str = String(label);
             if (str.length <= max) return str;
             const ellipsis = '\u2026';
-            const safeMax = Math.max(max, ellipsis.length + 2);
-            const tailLen = Math.max(1, Math.floor((safeMax - ellipsis.length) / 3));
-            const headLen = Math.max(1, safeMax - ellipsis.length - tailLen);
+            const safeMax = Math.max(max, ellipsis.length + 4);
+            const tailLen = Math.max(6, Math.floor((safeMax - ellipsis.length) / 3));
+            const headLen = Math.max(3, safeMax - ellipsis.length - tailLen);
             return str.slice(0, headLen) + ellipsis + str.slice(Math.max(str.length - tailLen, headLen));
         }
 
@@ -4249,7 +4249,7 @@ function getSMOffset(meta) {
             }
 
             const label = document.createElement('span');
-            label.textContent = `📦 ${groupName}`;
+            label.textContent = `📦 ${formatPanelLabel(groupName)}`;
             sumline.appendChild(label);
 
             summary.appendChild(sumline);

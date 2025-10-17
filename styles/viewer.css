@@ -85,9 +85,10 @@ body {
 }
 
 .collapsible > details > summary {
+    position: relative;
     display: flex;
     align-items: center;
-    padding-right: 0;
+    padding-right: 56px;
 }
 
 .collapsible > details > summary .sumline {
@@ -95,6 +96,14 @@ body {
     align-items: center;
     gap: 8px;
     width: 100%;
+    overflow: hidden;
+}
+
+.collapsible > details > summary .sumline span:last-of-type {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .collapsible-controls {
