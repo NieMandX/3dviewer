@@ -122,20 +122,31 @@ body {
 
 .glass-controls {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 10px;
-    align-items: center;
+    align-items: stretch;
+    padding: 8px 0 4px;
 }
 
-.glass-controls label {
-    display: flex;
+.glass-group label {
+    display: grid;
+    grid-template-columns: max-content 1fr max-content;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-size: 12px;
 }
 
+.glass-group label span:first-child {
+    font-weight: 600;
+    min-width: 40px;
+}
+
 .glass-controls input[type="range"] {
-    width: 110px;
+    width: 100%;
+}
+
+.glass-group:not(.glass-source-wrap) .glass-value {
+    justify-self: end;
 }
 
 .glass-value {
@@ -150,6 +161,11 @@ body {
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: .04em;
+}
+
+.glass-source-wrap {
+    display: flex;
+    justify-content: flex-end;
 }
 
 
@@ -300,7 +316,7 @@ box-shadow:none; outline:0;
 
 #out {
     margin-top: 8px;
-    max-height: 320px;
+    max-height: calc(100vh - var(--appbarH) - 260px);
     min-height: 0;
     overflow: auto;
     flex: 0 0 auto;

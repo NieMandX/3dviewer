@@ -72,7 +72,7 @@
 
             <label>bg&nbsp;α <input id="bgAlpha" type="range" min="0" max="1" step="0.01" value="0.00" /></label>
             <label>intensity <input id="iblInt" type="range" min="0" max="5" step="0.05" value="1.5" /></label>
-            <label>gamma <input id="iblGamma" type="range" min="0.2" max="3" step="0.05" value="1.0" /></label>
+            <label>gamma <input id="iblGamma" type="range" min="0.9" max="1.1" step="0.01" value="1.0" /></label>
             <label>tint <input id="iblTint" type="color" value="#ffffff" /></label>
             <label>rot&nbsp;<input id="iblRot" type="range" min="0" max="360" step="1" value="0" /></label>
             
@@ -111,7 +111,13 @@
         <!-- Glass controls -->
         <div class="row" id="glassTopControls">
             <label title="Прозрачность стекла (opacity)">Glass&nbsp;α
-                <input id="glassOpacity" type="range" min="0" max="1" step="0.01" value="0.20" />
+                <input id="glassOpacity" type="range" min="0" max="1" step="0.01" value="0.10" />
+            </label>
+            <label title="Показатель преломления (ior)">IOR
+                <input id="glassIor" type="range" min="1" max="4" step="0.01" value="1.50" />
+            </label>
+            <label title="Transmission (доля проходящего света)">Transmission
+                <input id="glassTransmission" type="range" min="0" max="1" step="0.01" value="1.0" />
             </label>
             <label title="Интенсивность отражений у стекла (envMapIntensity)">Reflect
                 <input id="glassReflect" type="range" min="0" max="3" step="0.05" value="3.00" />

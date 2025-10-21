@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import {
     configureParcels,
     loadParcels,
@@ -145,12 +146,14 @@ class ViewerApp {
         const statsBtn        = document.getElementById('statsBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
 
-        const glassOpacityEl  = document.getElementById('glassOpacity');
-        const glassReflectEl  = document.getElementById('glassReflect');
-        const glassRoughEl    = document.getElementById('glassRough');
-        const glassMetalEl    = document.getElementById('glassMetal');
-        const glassColorEl    = document.getElementById('glassColor');
-        const glassResetBtn   = document.getElementById('glassReset');
+        const glassOpacityEl      = document.getElementById('glassOpacity');
+        const glassIorEl          = document.getElementById('glassIor');
+        const glassTransmissionEl = document.getElementById('glassTransmission');
+        const glassReflectEl      = document.getElementById('glassReflect');
+        const glassRoughEl        = document.getElementById('glassRough');
+        const glassMetalEl        = document.getElementById('glassMetal');
+        const glassColorEl        = document.getElementById('glassColor');
+        const glassResetBtn       = document.getElementById('glassReset');
 
         const outEl           = document.getElementById('out');
         const galleryEl       = document.getElementById('gallery');
@@ -183,6 +186,9 @@ class ViewerApp {
         let lastStatsUpdate = 0;
         let fpsEstimate = 0;
         let lastFrameTime = 0;
+        let lastRenderStats = null;
+        let sceneStatsDirty = true;
+        let cachedSceneStats = { triangles: 0 };
         app.dom = {
             rootEl,
             dropEl,
@@ -205,6 +211,8 @@ class ViewerApp {
             axisSel,
             toggleSideBtn,
             glassOpacityEl,
+            glassIorEl,
+            glassTransmissionEl,
             glassReflectEl,
             glassMetalEl,
             outEl,
@@ -234,6 +242,70 @@ class ViewerApp {
         const world    = new THREE.Group();
         scene.add(world);
 
+        function markSceneStatsDirty() {
+            sceneStatsDirty = true;
+        }
+
+        function isObjectGloballyVisible(obj) {
+            let current = obj;
+            while (current) {
+                if (current.visible === false) return false;
+                current = current.parent;
+            }
+            return true;
+        }
+
+        function estimateTrianglesForMesh(mesh) {
+            const geometry = mesh.geometry;
+            if (!geometry) return 0;
+
+            const instanceMultiplier = mesh.isInstancedMesh ? Math.max(0, mesh.count || 0) : 1;
+
+            if (Array.isArray(mesh.material) && geometry.groups?.length) {
+                let grouped = 0;
+                geometry.groups.forEach(group => {
+                    if (!group || typeof group.count !== 'number' || group.count <= 0) return;
+                    const mat = mesh.material[group.materialIndex];
+                    if (!mat || mat.visible === false) return;
+                    grouped += group.count / 3;
+                });
+                if (grouped > 0 && Number.isFinite(grouped)) {
+                    return Math.max(0, Math.floor(grouped)) * instanceMultiplier;
+                }
+            }
+
+            if (geometry.index && geometry.index.count) {
+                return Math.max(0, Math.floor(geometry.index.count / 3)) * instanceMultiplier;
+            }
+            const position = geometry.attributes?.position;
+            if (position && position.count) {
+                return Math.max(0, Math.floor(position.count / 3)) * instanceMultiplier;
+            }
+            return 0;
+        }
+
+        function getSceneGeometryStats() {
+            if (!sceneStatsDirty && cachedSceneStats) return cachedSceneStats;
+            const stats = { triangles: 0 };
+            if (!world) {
+                cachedSceneStats = stats;
+                sceneStatsDirty = false;
+                return stats;
+            }
+            world.traverse(obj => {
+                if (!obj?.isMesh) return;
+                if (obj.userData?._isBackfaceOverlay) return;
+                if (!isObjectGloballyVisible(obj)) return;
+                if (obj.material && Array.isArray(obj.material) && obj.material.every(mat => mat && mat.visible === false)) return;
+                if (obj.material && !Array.isArray(obj.material) && obj.material.visible === false) return;
+                const triCount = estimateTrianglesForMesh(obj);
+                if (triCount > 0) stats.triangles += triCount;
+            });
+            cachedSceneStats = stats;
+            sceneStatsDirty = false;
+            return stats;
+        }
+
         let bgMesh = null; // background sphere used to show HDRI
         app.bgMesh = bgMesh;
 
@@ -244,6 +316,9 @@ class ViewerApp {
             ? new WebGPURendererCtor({ antialias: true })
             : new THREE.WebGLRenderer({ antialias: true });
         app.renderer = renderer;
+        if (renderer.info && Object.prototype.hasOwnProperty.call(renderer.info, 'autoReset')) {
+            renderer.info.autoReset = false;
+        }
 
         let rendererReady = !USE_WEBGPU;
         let rendererInitPromise = Promise.resolve();
@@ -530,6 +605,7 @@ class ViewerApp {
                 if (parcelsGroup) {
                     world.remove(parcelsGroup);
                     parcelsGroup.traverse(o => o.geometry?.dispose?.());
+                    markSceneStatsDirty();
                 }
 
                 parcelsGroup = group;
@@ -537,6 +613,7 @@ class ViewerApp {
                 world.add(parcelsGroup);
                 alignParcelsGroupToNorth();
                 app.layers.parcels = parcelsGroup;
+                markSceneStatsDirty();
 
                 logBind?.(`MOS parcels: загружено ${group.children.length} контуров (обработано ${features.length})`, 'info');
                 schedulePanelRefresh();
@@ -813,21 +890,25 @@ class ViewerApp {
 
         let pmremGen     = app.pmremGen     = null;      // PMREM generator (lazy)
         let hdrBaseTex   = app.hdrBaseTex   = null;      // original equirect HDR (DataTexture)
+        const DEFAULT_ENV_URL = 'exr/forest-01-1024.exr';
+        const FALLBACK_HDR_URL = 'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr';
+
         const HDRI_LIBRARY = [
+            { name: "Forest EXR (local)", url: DEFAULT_ENV_URL },
             { name: "Royal Esplanade",    url: "https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
             { name: "Venice Sunset",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr" },
-            { name: "Blouberg Sunrise",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/blouberg_sunrise_1k.hdr" },
-            { name: "Tropical Beach",     url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tropical_beach_1k.hdr" },
-            { name: "Country Field",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/country_field_1k.hdr" },
-            { name: "Construction Site",  url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/construction_1k.hdr" },
+            // { name: "Blouberg Sunrise",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/blouberg_sunrise_1k.hdr" },
+            // { name: "Tropical Beach",     url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tropical_beach_1k.hdr" },
+            // { name: "Country Field",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/country_field_1k.hdr" },
+            // { name: "Construction Site",  url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/construction_1k.hdr" },
             { name: "Skyline Rooftop",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/roof_garden_1k.hdr" },
-            { name: "City Overpass",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/urban_overpass_1k.hdr" },
-            { name: "Forest Trail",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/forest_trail_1k.hdr" },
+            // { name: "City Overpass",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/urban_overpass_1k.hdr" },
+            // { name: "Forest Trail",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/forest_trail_1k.hdr" },
             { name: "Rocky Ridge",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/rocky_ridge_1k.hdr" },
             { name: "Mountain Sunset",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/mountain_sunset_1k.hdr" },
-            { name: "Industrial Yard",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/industrial_pipe_1k.hdr" },
-            { name: "Tokyo Night",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tokyo_neon_1k.hdr" },
-            { name: "Small Hangar",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hangar_1k.hdr" },
+            // { name: "Industrial Yard",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/industrial_pipe_1k.hdr" },
+            // { name: "Tokyo Night",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tokyo_neon_1k.hdr" },
+            // { name: "Small Hangar",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hangar_1k.hdr" },
             { name: "Studio Small",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" }
         ];
         let currentEnv   = app.currentEnv   = null;      // pmrem result (for scene.environment)
@@ -1162,19 +1243,35 @@ class ViewerApp {
         // =====================
         // HDR / IBL handling
         // =====================
+        async function loadEquirectTexture(url) {
+            const lower = String(url || '').toLowerCase();
+            let tex;
+            if (lower.endsWith('.exr')) {
+                tex = await new EXRLoader().loadAsync(url);
+            } else {
+                tex = await new HDRLoader().loadAsync(url);
+                tex = flipHDRTextureVertically(tex);
+            }
+            tex.mapping = THREE.EquirectangularReflectionMapping;
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.flipY = false;
+            if ('flipX' in tex) tex.flipX = false;
+            if ('flipZ' in tex) tex.flipZ = false;
+            if ('colorSpace' in tex) tex.colorSpace = THREE.LinearSRGBColorSpace;
+            tex.needsUpdate = true;
+            return tex;
+        }
+
         async function loadHDRBase() {
             if (hdrBaseTex) return hdrBaseTex;
-            const base = 'https://threejs.org/examples/textures/equirectangular/';
-            const file = 'royal_esplanade_1k.hdr';
-            hdrBaseTex = await new HDRLoader().setPath(base).loadAsync(file);
+            try {
+                hdrBaseTex = await loadEquirectTexture(DEFAULT_ENV_URL);
+            } catch (err) {
+                console.warn('Default EXR environment failed to load, falling back to HDR.', err);
+                hdrBaseTex = await loadEquirectTexture(FALLBACK_HDR_URL);
+            }
             app.hdrBaseTex = hdrBaseTex;
-            hdrBaseTex.mapping = THREE.EquirectangularReflectionMapping;
-            hdrBaseTex.wrapS = THREE.RepeatWrapping;
-            hdrBaseTex.wrapT = THREE.ClampToEdgeWrapping;
-            hdrBaseTex.flipY = false;
-            hdrBaseTex.flipX = false;
-            hdrBaseTex.flipZ = false;
-            hdrBaseTex.needsUpdate = true;
             return hdrBaseTex;
         }
 
@@ -1466,17 +1563,20 @@ class ViewerApp {
             lastStatsUpdate = now;
 
             const info = renderer.info || {};
-            const renderInfo = info.render || {};
-            const mem = info.memory || {};
-            const programs = Array.isArray(info.programs) ? info.programs.length : (info.programs || 0);
+            const renderInfo = lastRenderStats?.render || info.render || {};
+            const mem = lastRenderStats?.memory || info.memory || {};
+            const programsRaw = lastRenderStats?.programs ?? info.programs ?? 0;
+            const programs = Array.isArray(programsRaw) ? programsRaw.length : programsRaw;
             const formatInt = (value) => (typeof value === 'number' ? value.toLocaleString('ru-RU') : String(value ?? 0));
             const fpsText = fpsEstimate ? Math.round(fpsEstimate).toString() : '—';
+            const sceneStats = getSceneGeometryStats();
 
             const modeLabel = (app.activeRendererMode || 'webgl').toUpperCase();
             const lines = [
                 `fps        : ${fpsText}`,
                 `draw calls : ${formatInt(renderInfo.drawCalls ?? renderInfo.calls ?? 0)}`,
                 `triangles  : ${formatInt(renderInfo.triangles || 0)}`,
+                `scene tris : ${formatInt(sceneStats.triangles || 0)}`,
                 `lines      : ${formatInt(renderInfo.lines || 0)}`,
                 `points     : ${formatInt(renderInfo.points || 0)}`,
                 `geometries : ${formatInt(mem.geometries || 0)}`,
@@ -1545,13 +1645,18 @@ class ViewerApp {
 
         /** Переключает режим отображения вершин: прячет исходные меши и показывает Points. */
         function setPointsMode(enabled, { size = 0.5, color = 0x666666 } = {}) {
+            let changed = false;
             world.traverse(o => {
                 if (!o.isMesh) return;
                 const pts = ensurePointsForMesh(o, size, color);
                 if (!pts) return;
+                const prevMeshVisible = o.visible;
+                const prevPtsVisible = pts.visible;
                 o.visible = !enabled;
                 pts.visible = enabled;
+                if (prevMeshVisible !== o.visible || prevPtsVisible !== pts.visible) changed = true;
             });
+            if (changed) markSceneStatsDirty();
         }
 
         document.getElementById('pointSize').addEventListener('input', (e) => {
@@ -2006,15 +2111,29 @@ function clearBeautyWire(mesh) {
 
         function setMeshAndMaterialsVisibility(target, visible) {
             const materials = Array.isArray(target.material) ? target.material : [target.material];
-            materials.forEach(mat => { if (mat) mat.visible = visible; });
-            target.visible = visible;
+            let changed = false;
+            materials.forEach(mat => {
+                if (!mat) return;
+                if (mat.visible !== visible) {
+                    mat.visible = visible;
+                    changed = true;
+                }
+            });
+            if (target.visible !== visible) {
+                target.visible = visible;
+                changed = true;
+            }
+            if (changed) markSceneStatsDirty();
             requestRender();
         }
 
         function updateMeshVisibilityFromMaterials(target) {
             const materials = Array.isArray(target.material) ? target.material : [target.material];
             const anyVisible = materials.some(mat => mat ? mat.visible !== false : false);
-            target.visible = anyVisible;
+            if (target.visible !== anyVisible) {
+                target.visible = anyVisible;
+                markSceneStatsDirty();
+            }
         }
 
         function toggleObjectVisibility(uuid, matIndex = null) {
@@ -2026,8 +2145,13 @@ function clearBeautyWire(mesh) {
                 const mat = materials[matIndex];
                 if (!mat) return;
                 const nextVisible = !(mat.visible !== false);
-                mat.visible = nextVisible;
+                if (mat.visible !== nextVisible) {
+                    mat.visible = nextVisible;
+                    markSceneStatsDirty();
+                }
+                if ('needsUpdate' in mat) mat.needsUpdate = true;
                 updateMeshVisibilityFromMaterials(target);
+                requestRender();
                 syncEyeIconsForObject(uuid, nextVisible, matIndex);
                 return;
             }
@@ -2240,15 +2364,8 @@ function clearBeautyWire(mesh) {
             const entry = HDRI_LIBRARY[idx];
             if (!entry) return;
 
-            hdrBaseTex = await new HDRLoader().loadAsync(entry.url);
+            hdrBaseTex = await loadEquirectTexture(entry.url);
             app.hdrBaseTex = hdrBaseTex;
-            hdrBaseTex = flipHDRTextureVertically(hdrBaseTex);
-            app.hdrBaseTex = hdrBaseTex;
-            hdrBaseTex.mapping = THREE.EquirectangularReflectionMapping;
-            hdrBaseTex.wrapS = THREE.RepeatWrapping;
-            hdrBaseTex.wrapT = THREE.ClampToEdgeWrapping;
-            
-            hdrBaseTex.needsUpdate = true;
 
             await buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
             ensureBgMesh();
@@ -3390,7 +3507,7 @@ function clearBeautyWire(mesh) {
                         const key = normalizeGlassKey(matName);
                         if (!key || index.has(key) || !params || typeof params !== 'object') return;
 
-                        const color = params.color_RGB || params.color_rgb || null;
+                        const color = params.color_RGB || params.color_rgb || params.color || null;
                         let colorData = null;
                         if (color && typeof color === 'object') {
                             const toChan = v => {
@@ -4081,30 +4198,64 @@ function getSMOffset(meta) {
                 const alphaVal = clamp01(overrides.opacity ?? info.opacity ?? material.opacity ?? 1);
                 const roughVal = clamp01(overrides.roughness ?? info.roughness ?? material.roughness ?? 0.1);
                 const metalVal = clamp01(overrides.metalness ?? info.metalness ?? material.metalness ?? 0);
+                const transVal = clamp01(overrides.transmission ?? info.transmission ?? (material.transmission ?? Math.max(0, 1 - (material.opacity ?? 1))));
+                const refractionRaw = overrides.refraction ?? info.refraction ?? material.ior ?? 1.5;
+                const iorVal = Number.isFinite(refractionRaw) ? refractionRaw : 1.5;
+                const reflectVal = Number.isFinite(overrides.envIntensity) ? overrides.envIntensity : (Number.isFinite(info.envIntensity) ? info.envIntensity : (Number.isFinite(material.envMapIntensity) ? material.envMapIntensity : 1));
                 const rawColor = overrides.color || info.colorHex || (material.color?.isColor ? `#${material.color.getHexString()}` : '#ffffff');
                 const colorHex = (rawColor.startsWith ? rawColor : `#${rawColor}`).toUpperCase();
+                const rgbDisplay = formatColorForDisplay(material?.color);
                 const sourceLabel = info.source === 'override' ? 'Custom' : (info.source === 'geojson' ? 'GeoJSON' : 'UI');
                 return `
                 <tr class="glass-row">
-                    <td class="k">Glass</td>
+                    <td class="k glass-cell">Glass</td>
                     <td>
                         <div class="glass-controls" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                            <label>α
-                                <input type="range" min="0" max="1" step="0.01" value="${alphaVal}" class="glass-slider" data-prop="opacity" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                <span class="glass-value" data-prop="opacity">${alphaVal.toFixed(2)}</span>
-                            </label>
-                            <label>rough
-                                <input type="range" min="0" max="1" step="0.01" value="${roughVal}" class="glass-slider" data-prop="roughness" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                <span class="glass-value" data-prop="roughness">${roughVal.toFixed(2)}</span>
-                            </label>
-                            <label>metal
-                                <input type="range" min="0" max="1" step="0.01" value="${metalVal}" class="glass-slider" data-prop="metalness" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                <span class="glass-value" data-prop="metalness">${metalVal.toFixed(2)}</span>
-                            </label>
-                            <label>color
-                                <input type="color" class="glass-color-input" data-prop="color" data-uuid="${obj.uuid}" data-mat-index="${matIndex}" value="${colorHex}">
-                            </label>
-                            <span class="glass-source" data-role="glass-source">${sourceLabel}</span>
+                            <div class="glass-group">
+                                <label><span>α</span>
+                                    <input type="range" min="0" max="1" step="0.01" value="${alphaVal}" class="glass-slider" data-prop="opacity" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                    <span class="glass-value" data-prop="opacity">${alphaVal.toFixed(2)}</span>
+                                </label>
+                            </div>
+                            <div class="glass-group">
+                                <label><span>rough</span>
+                                    <input type="range" min="0" max="1" step="0.01" value="${roughVal}" class="glass-slider" data-prop="roughness" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                    <span class="glass-value" data-prop="roughness">${roughVal.toFixed(2)}</span>
+                                </label>
+                            </div>
+                            <div class="glass-group">
+                                <label><span>metal</span>
+                                    <input type="range" min="0" max="1" step="0.01" value="${metalVal}" class="glass-slider" data-prop="metalness" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                    <span class="glass-value" data-prop="metalness">${metalVal.toFixed(2)}</span>
+                                </label>
+                            </div>
+                            <div class="glass-group">
+                                <label><span>trans</span>
+                                    <input type="range" min="0" max="1" step="0.01" value="${transVal}" class="glass-slider" data-prop="transmission" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                    <span class="glass-value" data-prop="transmission">${transVal.toFixed(2)}</span>
+                                </label>
+                            </div>
+                            <div class="glass-group">
+                                <label><span>IOR</span>
+                                    <input type="range" min="1" max="4" step="0.01" value="${iorVal}" class="glass-slider" data-prop="refraction" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                    <span class="glass-value" data-prop="refraction">${iorVal.toFixed(2)}</span>
+                                </label>
+                            </div>
+                            <div class="glass-group">
+                                <label><span>reflect</span>
+                                    <input type="range" min="0" max="5" step="0.05" value="${reflectVal}" class="glass-slider" data-prop="envIntensity" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                    <span class="glass-value" data-prop="envIntensity">${reflectVal.toFixed(2)}</span>
+                                </label>
+                            </div>
+                            <div class="glass-group">
+                                <label><span>color</span>
+                                    <input type="color" class="glass-color-input" data-prop="color" data-uuid="${obj.uuid}" data-mat-index="${matIndex}" value="${colorHex}">
+                                    <span class="glass-value" data-prop="color-rgb">${rgbDisplay}</span>
+                                </label>
+                            </div>
+                            <div class="glass-group glass-source-wrap">
+                                <span class="glass-source" data-role="glass-source">${sourceLabel}</span>
+                            </div>
                         </div>
                     </td>
                 </tr>`;
@@ -4528,20 +4679,41 @@ function getSMOffset(meta) {
             const resolved = resolveGlassMaterial(uuid, matIndex);
             if (!resolved) return;
             const { mat } = resolved;
-            const value = clamp01(parseFloat(input.value));
-            input.value = String(value);
+            let rawValue = parseFloat(input.value);
+            if (!Number.isFinite(rawValue)) rawValue = 0;
+            const minAttr = Number.parseFloat(input.min ?? '');
+            const maxAttr = Number.parseFloat(input.max ?? '');
+            if (Number.isFinite(minAttr)) rawValue = Math.max(minAttr, rawValue);
+            if (Number.isFinite(maxAttr)) rawValue = Math.min(maxAttr, rawValue);
+            input.value = String(rawValue);
+
+            let storedValue;
+            if (prop === 'opacity' || prop === 'roughness' || prop === 'metalness' || prop === 'transmission') {
+                storedValue = clamp01(rawValue);
+            } else {
+                storedValue = rawValue;
+            }
 
             const overrides = (mat.userData ||= {}).glassOverrides ||= {};
-            overrides[prop] = value;
+            overrides[prop] = storedValue;
+            if (prop === 'envIntensity') overrides.envIntensity = storedValue;
+            if (prop === 'transmission') {
+                (mat.userData.glassOriginal ||= {}).transmission = storedValue;
+            }
 
             applyGlassControlsToScene();
 
             const container = input.closest('.glass-controls');
             if (container) {
                 const span = container.querySelector(`.glass-value[data-prop="${prop}"]`);
-                if (span) span.textContent = value.toFixed(2);
+                if (span) span.textContent = Number.isFinite(storedValue) ? storedValue.toFixed(2) : '—';
                 updateGlassSourceLabel(container, mat);
+                if (prop === 'color' || prop === 'opacity' || prop === 'roughness' || prop === 'metalness' || prop === 'transmission' || prop === 'envIntensity' || prop === 'refraction') {
+                    const colorSpan = container.querySelector('.glass-value[data-prop="color-rgb"]');
+                    if (colorSpan) colorSpan.textContent = formatColorForDisplay(mat?.color);
+                }
             }
+            requestRender();
         }
 
         /** Обработчик выбора цвета стекла. */
@@ -4562,7 +4734,12 @@ function getSMOffset(meta) {
             applyGlassControlsToScene();
 
             const container = input.closest('.glass-controls');
-            if (container) updateGlassSourceLabel(container, mat);
+            if (container) {
+                updateGlassSourceLabel(container, mat);
+                const colorSpan = container.querySelector('.glass-value[data-prop="color-rgb"]');
+                if (colorSpan) colorSpan.textContent = formatColorForDisplay(mat?.color);
+            }
+            requestRender();
         }
 
         /** Обновляет текстовое поле-источник для стеклянного материала. */
@@ -4575,6 +4752,12 @@ function getSMOffset(meta) {
             if (info?.source === 'geojson') text = 'GeoJSON';
             else if (info?.source === 'override') text = 'Custom';
             label.textContent = text;
+        }
+
+        function formatColorForDisplay(color) {
+            if (!color || !color.isColor) return '—';
+            const to255 = (v) => Math.round(clamp01(v) * 255);
+            return `${to255(color.r)}/${to255(color.g)}/${to255(color.b)}`;
         }
 
         // =====================
@@ -4763,11 +4946,15 @@ function getSMOffset(meta) {
          * Актуализирует `userData.glassInfo` для панели и при необходимости сохраняет overrides.
          */
         function applyGlassControlsToScene() {
-            const sliderOpacity = parseFloat(glassOpacityEl?.value ?? 0.2);
-            const sliderReflect = parseFloat(glassReflectEl?.value ?? 1.0);
+            const sliderOpacity = parseFloat(glassOpacityEl?.value ?? 0.1);
+            const sliderReflect = parseFloat(glassReflectEl?.value ?? 3.0);
             const sliderRough = parseFloat(glassRoughEl?.value ?? 0.05);
             const sliderMetal = parseFloat(glassMetalEl?.value ?? 1.0);
+            const sliderTransmission = parseFloat(glassTransmissionEl?.value ?? 1);
+            const sliderIor = parseFloat(glassIorEl?.value ?? 1.5);
             const useGlobalOpacity = glassOpacityEl?.dataset.userSet === '1';
+            const useGlobalIor = glassIorEl?.dataset.userSet === '1';
+            const useGlobalTransmission = glassTransmissionEl?.dataset.userSet === '1';
             const useGlobalReflect = glassReflectEl?.dataset.userSet === '1';
             const useGlobalRoughness = glassRoughEl?.dataset.userSet === '1';
             const useGlobalMetalness = glassMetalEl?.dataset.userSet === '1';
@@ -4781,6 +4968,16 @@ function getSMOffset(meta) {
                 while (node) {
                     const meta = node.userData?._geojsonMeta || node.userData?.geojson;
                     if (meta) return meta;
+                    node = node.parent || null;
+                }
+                return null;
+            }
+
+            function findZipKindForObject(obj) {
+                let node = obj;
+                while (node) {
+                    const kind = node.userData?.zipKind || node.userData?.zipKindOverride;
+                    if (kind) return kind;
                     node = node.parent || null;
                 }
                 return null;
@@ -4805,6 +5002,9 @@ function getSMOffset(meta) {
                     const geoMeta = findGeoMetaForObject(o);
                     const glassParams = geoMeta ? findGeoGlassParams(geoMeta, [m.name, o.name, nameStr]) : null;
                     const currentEnvIntensity = Number.isFinite(std.envMapIntensity) ? std.envMapIntensity : sliderReflect;
+                    const zipKind = (findZipKindForObject(o) || '').toUpperCase();
+                    const isNPM = zipKind === 'NPM';
+                    const isSM = zipKind === 'SM';
 
                     if (!std.userData.glassOriginal) {
                         const baseColorFromGeo = glassParams?.color ? geoColorToHex(glassParams.color) : (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
@@ -4812,39 +5012,82 @@ function getSMOffset(meta) {
                         const originalRoughness = glassParams?.roughness ?? std.roughness ?? sliderRough;
                         const originalMetalness = glassParams?.metalness ?? std.metalness ?? sliderMetal;
                         const originalRefraction = glassParams?.refraction ?? (('ior' in std) ? std.ior : null);
-
-                        std.userData.glassOriginal = {
+                        const baseAttenuationColor = baseColorFromGeo || (std.attenuationColor?.isColor ? `#${std.attenuationColor.getHexString().toUpperCase()}` : null);
+                        const originalData = {
                             opacity: Number.isFinite(originalOpacity) ? clamp01(originalOpacity) : null,
                             roughness: Number.isFinite(originalRoughness) ? clamp01(originalRoughness) : null,
                             metalness: Number.isFinite(originalMetalness) ? clamp01(originalMetalness) : null,
                             envIntensity: Number.isFinite(currentEnvIntensity) ? currentEnvIntensity : sliderReflect,
                             color: baseColorFromGeo,
                             refraction: originalRefraction,
+                            transmission: 1,
+                            attenuationColor: baseAttenuationColor,
+                            attenuationDistance: 0.1,
                         };
+                        if (isNPM) {
+                            originalData.opacity = 0.30;
+                            originalData.roughness = 0.05;
+                            originalData.metalness = 0.1;
+                            originalData.envIntensity = 3.0;
+                            originalData.refraction = 3.0;
+                            originalData.transmission = 1;
+                            originalData.attenuationColor = baseColorFromGeo || (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
+                            originalData.attenuationDistance = 0.1;
+                            std.transmission = 1;
+                        }
+                        if (isSM && !isNPM && glassParams) {
+                            if (glassParams.color) std.color?.set?.(originalData.color || glassParams.color);
+                            if (glassParams.transparency != null) originalData.opacity = clamp01(glassParams.transparency);
+                            if (glassParams.roughness != null) originalData.roughness = clamp01(glassParams.roughness);
+                            if (glassParams.metalness != null) originalData.metalness = clamp01(glassParams.metalness);
+                            if (glassParams.refraction != null) originalData.refraction = glassParams.refraction;
+                            if (glassParams.transparency != null) originalData.transmission = clamp01(glassParams.transparency);
+                        }
+                        std.userData.glassOriginal = originalData;
                     }
 
                     const original = std.userData.glassOriginal || {};
 
-                    let targetOpacity = useGlobalOpacity
-                        ? clamp01(sliderOpacity)
-                        : clamp01(original.opacity ?? std.opacity ?? sliderOpacity);
-                    let targetMetalness = useGlobalMetalness
-                        ? clamp01(sliderMetal)
+            let targetOpacity = useGlobalOpacity
+                ? clamp01(sliderOpacity)
+                : clamp01(original.opacity ?? std.opacity ?? sliderOpacity);
+            let targetMetalness = useGlobalMetalness
+                ? clamp01(sliderMetal)
                         : clamp01(original.metalness ?? std.metalness ?? sliderMetal);
                     let targetRoughness = useGlobalRoughness
                         ? clamp01(sliderRough)
                         : clamp01(original.roughness ?? std.roughness ?? sliderRough);
-                    let targetRefraction = original.refraction ?? (('ior' in std) ? std.ior : null);
+            let targetRefraction = useGlobalIor
+                ? (Number.isFinite(sliderIor) ? sliderIor : 1.5)
+                : (overrides?.refraction ?? original.refraction ?? (('ior' in std) ? std.ior : null));
                     let targetColorHex = globalColorHex ?? normalizeHexColor(original.color, std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
                     let targetEnvIntensity = useGlobalReflect
                         ? sliderReflect
                         : (Number.isFinite(original.envIntensity) ? original.envIntensity : currentEnvIntensity);
+            const hasOverrideTransmission = overrides?.transmission != null;
+            const hasGeoTransmission = glassParams?.transparency != null;
+            let targetTransmission = 1;
+            if (useGlobalTransmission) {
+                targetTransmission = clamp01(Number.isFinite(sliderTransmission) ? sliderTransmission : 1);
+            } else if (hasOverrideTransmission) {
+                targetTransmission = clamp01(overrides.transmission);
+            } else if (hasGeoTransmission) {
+                targetTransmission = clamp01(glassParams.transparency);
+            } else if (original.transmission != null) {
+                targetTransmission = clamp01(original.transmission);
+            } else if (std.isMeshPhysicalMaterial) {
+                targetTransmission = clamp01(Number.isFinite(std.transmission) ? std.transmission : (std.opacity < 1 ? (1 - std.opacity) : 0));
+            }
+            let targetAttenuationDistance = original.attenuationDistance != null ? original.attenuationDistance : (Number.isFinite(std.attenuationDistance) ? std.attenuationDistance : null);
+            let targetAttenuationColorHex = normalizeHexColor(original.attenuationColor, null);
 
                     const hasOverrides = overrides && Object.keys(overrides).length > 0;
                     if (hasOverrides) {
                         if (overrides.opacity != null) targetOpacity = clamp01(overrides.opacity);
                         if (overrides.roughness != null) targetRoughness = clamp01(overrides.roughness);
                         if (overrides.metalness != null) targetMetalness = clamp01(overrides.metalness);
+                        if (overrides.transmission != null) targetTransmission = clamp01(overrides.transmission);
+                        if (overrides.envIntensity != null) targetEnvIntensity = overrides.envIntensity;
                         if (overrides.color) {
                             const overrideHex = normalizeHexColor(overrides.color, targetColorHex);
                             if (overrideHex) {
@@ -4859,6 +5102,28 @@ function getSMOffset(meta) {
                         }
                     }
 
+                    if (isNPM && !useGlobalRoughness && !(hasOverrides && overrides?.roughness != null)) {
+                        targetRoughness = 0.05;
+                    }
+                    if (isNPM && !useGlobalMetalness && !(hasOverrides && overrides?.metalness != null)) {
+                        targetMetalness = 0;
+                    }
+                    if (targetRefraction != null && 'ior' in std) {
+                        std.ior = targetRefraction;
+                        std.userData.refraction = targetRefraction;
+                    }
+
+                    if (!targetAttenuationColorHex) {
+                        targetAttenuationColorHex = normalizeHexColor(targetColorHex, null);
+                    } else {
+                        targetAttenuationColorHex = normalizeHexColor(targetAttenuationColorHex, targetColorHex);
+                    }
+                    if (isNPM && !useGlobalTransmission) {
+                        targetTransmission = 0.1;
+                        targetAttenuationDistance = 1;
+                        targetAttenuationColorHex = normalizeHexColor(targetColorHex, targetAttenuationColorHex);
+                    }
+
                     if (targetColorHex) {
                         try { std.color.set(targetColorHex); } catch (_) {}
                     }
@@ -4869,15 +5134,24 @@ function getSMOffset(meta) {
                     if (!std.roughnessMap) std.roughness = clamp01(targetRoughness);
                     std.envMapIntensity = targetEnvIntensity;
                     if (std.isMeshPhysicalMaterial) {
-                        const transmission = clamp01(1 - finalOpacity);
+                        const transmission = clamp01(targetTransmission ?? 0);
                         std.transmission = transmission;
-                        std.opacity = 1.0;
-                        std.transparent = transmission > 0.01;
+                        std.transparent = transmission > 0.01 || finalOpacity < 0.999;
+                        std.opacity = finalOpacity;
                         std.thickness = Number.isFinite(std.thickness) ? std.thickness : 0.2;
                         std.ior = Number.isFinite(std.ior) ? std.ior : 1.5;
+                        if (targetAttenuationColorHex) {
+                            try {
+                                if (std.attenuationColor?.isColor) std.attenuationColor.set(targetAttenuationColorHex);
+                                else std.attenuationColor = new THREE.Color(targetAttenuationColorHex);
+                            } catch (_) {}
+                        }
+                        if (targetAttenuationDistance != null) {
+                            std.attenuationDistance = Math.max(0, targetAttenuationDistance);
+                        }
                     }
 
-                    const globalOverrideActive = useGlobalOpacity || useGlobalRoughness || useGlobalMetalness || useGlobalReflect || useGlobalColor;
+                    const globalOverrideActive = useGlobalOpacity || useGlobalRoughness || useGlobalMetalness || useGlobalReflect || useGlobalColor || useGlobalTransmission || useGlobalIor;
                     const infoSource = hasOverrides ? 'override' : (globalOverrideActive ? 'ui' : (glassParams ? 'geojson' : 'ui'));
                     const infoColorHex = normalizeHexColor(targetColorHex ?? (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null), null);
                     const info = {
@@ -4888,6 +5162,9 @@ function getSMOffset(meta) {
                         envIntensity: targetEnvIntensity,
                         source: infoSource,
                         colorHex: infoColorHex,
+                        transmission: std.isMeshPhysicalMaterial ? clamp01(std.transmission ?? 0) : 0,
+                        attenuationDistance: std.attenuationDistance,
+                        attenuationColor: targetAttenuationColorHex,
                     };
                     if (targetRefraction != null) info.refraction = targetRefraction;
                     std.userData.glassInfo = info;
@@ -4937,6 +5214,22 @@ function getSMOffset(meta) {
                         std.ior = original.refraction;
                         std.userData.refraction = original.refraction;
                     }
+                    if (original.transmission != null && 'transmission' in std) {
+                        std.transmission = clamp01(original.transmission);
+                        std.transparent = std.transmission > 0.01 || std.opacity < 0.999;
+                    }
+                    if (original.attenuationDistance != null && 'attenuationDistance' in std) {
+                        std.attenuationDistance = original.attenuationDistance;
+                    }
+                    if (original.attenuationColor) {
+                        const attHex = normalizeHexColor(original.attenuationColor, original.color || null);
+                        if (attHex) {
+                            try {
+                                if (std.attenuationColor?.isColor) std.attenuationColor.set(attHex);
+                                else std.attenuationColor = new THREE.Color(attHex);
+                            } catch (_) {}
+                        }
+                    }
 
                     std.needsUpdate = true;
 
@@ -4965,6 +5258,15 @@ function getSMOffset(meta) {
                     glassRoughEl.value = clamp01(firstOriginal.roughness).toFixed(2);
                     delete glassRoughEl.dataset.userSet;
                 }
+                if (glassIorEl && firstOriginal.refraction != null) {
+                    const safe = Math.min(Math.max(firstOriginal.refraction, 1.0), 2.5);
+                    glassIorEl.value = safe.toFixed(2);
+                    delete glassIorEl.dataset.userSet;
+                }
+                if (glassTransmissionEl && firstOriginal.transmission != null) {
+                    glassTransmissionEl.value = clamp01(firstOriginal.transmission).toFixed(2);
+                    delete glassTransmissionEl.dataset.userSet;
+                }
                 if (glassColorEl) {
                     const colorHex = normalizeHexColor(firstOriginal.color, '#FFFFFF') || '#FFFFFF';
                     glassColorEl.value = colorHex;
@@ -4976,6 +5278,8 @@ function getSMOffset(meta) {
                 glassMetalEl && delete glassMetalEl.dataset.userSet;
                 glassReflectEl && delete glassReflectEl.dataset.userSet;
                 glassRoughEl && delete glassRoughEl.dataset.userSet;
+                glassIorEl && delete glassIorEl.dataset.userSet;
+                glassTransmissionEl && delete glassTransmissionEl.dataset.userSet;
             }
 
             applyGlassControlsToScene();
@@ -4985,6 +5289,7 @@ function getSMOffset(meta) {
         const handleGlobalGlassInput = () => {
             applyGlassControlsToScene();
             schedulePanelRefresh();
+            requestRender();
         };
 
         if (glassOpacityEl) {
@@ -5008,6 +5313,18 @@ function getSMOffset(meta) {
         if (glassRoughEl) {
             glassRoughEl.addEventListener('input', () => {
                 glassRoughEl.dataset.userSet = '1';
+                handleGlobalGlassInput();
+            });
+        }
+        if (glassIorEl) {
+            glassIorEl.addEventListener('input', () => {
+                glassIorEl.dataset.userSet = '1';
+                handleGlobalGlassInput();
+            });
+        }
+        if (glassTransmissionEl) {
+            glassTransmissionEl.addEventListener('input', () => {
+                glassTransmissionEl.dataset.userSet = '1';
                 handleGlobalGlassInput();
             });
         }
@@ -5868,6 +6185,7 @@ function getSMOffset(meta) {
         setImportedLightsEnabled(importedLightsEnabled, obj, { silent: true });
         applyGlassControlsToScene();
         setEmptyHintVisible(false);
+        markSceneStatsDirty();
 
         schedulePanelRefresh();
         requestRender();
@@ -6108,10 +6426,16 @@ function getSMOffset(meta) {
 
             needsRender = false;
             renderer.render(scene, camera);
-            updateStatsOverlay();
-            if (USE_WEBGPU && renderer.info?.reset) {
-                renderer.info.reset();
+            const info = renderer.info || {};
+            lastRenderStats = {
+                render: info.render ? { ...info.render } : {},
+                memory: info.memory ? { ...info.memory } : {},
+                programs: info.programs != null ? (Array.isArray(info.programs) ? info.programs.length : info.programs) : 0,
+            };
+            if (info.reset && renderer.info && renderer.info.autoReset === false) {
+                info.reset();
             }
+            updateStatsOverlay();
         }
         animate();
         layout();
