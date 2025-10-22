@@ -5025,7 +5025,7 @@ function getSMOffset(meta) {
                             refraction: originalRefraction,
                             transmission: 1,
                             attenuationColor: baseAttenuationColor,
-                            attenuationDistance: 0.1,
+                            attenuationDistance: 0.2,
                         };
                         if (isNPM) {
                             originalData.opacity = 0.30;
