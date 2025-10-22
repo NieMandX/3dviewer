@@ -5008,7 +5008,10 @@ function getSMOffset(meta) {
 
                     if (!std.userData.glassOriginal) {
                         const baseColorFromGeo = glassParams?.color ? geoColorToHex(glassParams.color) : (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
-                        const originalOpacity = glassParams?.transparency ?? glassParams?.opacity ?? std.opacity ?? sliderOpacity;
+                        const geoTransparency = glassParams?.transparency;
+                        const originalOpacity = (geoTransparency != null)
+                            ? clamp01(1 - geoTransparency)
+                            : (glassParams?.opacity ?? std.opacity ?? sliderOpacity);
                         const originalRoughness = glassParams?.roughness ?? std.roughness ?? sliderRough;
                         const originalMetalness = glassParams?.metalness ?? std.metalness ?? sliderMetal;
                         const originalRefraction = glassParams?.refraction ?? (('ior' in std) ? std.ior : null);
@@ -5037,11 +5040,11 @@ function getSMOffset(meta) {
                         }
                         if (isSM && !isNPM && glassParams) {
                             if (glassParams.color) std.color?.set?.(originalData.color || glassParams.color);
-                            if (glassParams.transparency != null) originalData.opacity = clamp01(glassParams.transparency);
+                            if (glassParams.transparency != null) originalData.opacity = clamp01(1 - glassParams.transparency);
                             if (glassParams.roughness != null) originalData.roughness = clamp01(glassParams.roughness);
                             if (glassParams.metalness != null) originalData.metalness = clamp01(glassParams.metalness);
                             if (glassParams.refraction != null) originalData.refraction = glassParams.refraction;
-                            if (glassParams.transparency != null) originalData.transmission = clamp01(glassParams.transparency);
+                            if (glassParams.transparency != null) originalData.transmission = 1;
                         }
                         std.userData.glassOriginal = originalData;
                     }
@@ -5065,18 +5068,14 @@ function getSMOffset(meta) {
                         ? sliderReflect
                         : (Number.isFinite(original.envIntensity) ? original.envIntensity : currentEnvIntensity);
             const hasOverrideTransmission = overrides?.transmission != null;
-            const hasGeoTransmission = glassParams?.transparency != null;
+            const hasGeoTransmission = false;
             let targetTransmission = 1;
             if (useGlobalTransmission) {
                 targetTransmission = clamp01(Number.isFinite(sliderTransmission) ? sliderTransmission : 1);
             } else if (hasOverrideTransmission) {
                 targetTransmission = clamp01(overrides.transmission);
-            } else if (hasGeoTransmission) {
-                targetTransmission = clamp01(glassParams.transparency);
             } else if (original.transmission != null) {
                 targetTransmission = clamp01(original.transmission);
-            } else if (std.isMeshPhysicalMaterial) {
-                targetTransmission = clamp01(Number.isFinite(std.transmission) ? std.transmission : (std.opacity < 1 ? (1 - std.opacity) : 0));
             }
             let targetAttenuationDistance = original.attenuationDistance != null ? original.attenuationDistance : (Number.isFinite(std.attenuationDistance) ? std.attenuationDistance : null);
             let targetAttenuationColorHex = normalizeHexColor(original.attenuationColor, null);
@@ -5106,7 +5105,7 @@ function getSMOffset(meta) {
                         targetRoughness = 0.05;
                     }
                     if (isNPM && !useGlobalMetalness && !(hasOverrides && overrides?.metalness != null)) {
-                        targetMetalness = 0;
+                        targetMetalness = 0.1;
                     }
                     if (targetRefraction != null && 'ior' in std) {
                         std.ior = targetRefraction;
@@ -5118,9 +5117,9 @@ function getSMOffset(meta) {
                     } else {
                         targetAttenuationColorHex = normalizeHexColor(targetAttenuationColorHex, targetColorHex);
                     }
-                    if (isNPM && !useGlobalTransmission) {
-                        targetTransmission = 0.1;
-                        targetAttenuationDistance = 1;
+                    if (isNPM && !useGlobalTransmission && !(hasOverrides && overrides?.transmission != null)) {
+                        targetTransmission = 1;
+                        targetAttenuationDistance = 0.1;
                         targetAttenuationColorHex = normalizeHexColor(targetColorHex, targetAttenuationColorHex);
                     }
 
