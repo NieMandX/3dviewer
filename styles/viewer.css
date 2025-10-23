@@ -268,6 +268,26 @@ body {
     background: none;
 }
 
+.light-hemi {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+.light-hemi .light-label {
+    flex: 0 0 auto;
+}
+
+.light-hemi input[type="range"] {
+    flex: 1;
+}
+
+.light-hemi .glass-value-input {
+    flex: 0 0 64px;
+}
+
+
 
 .glass-global-controls {
     gap: 12px;
