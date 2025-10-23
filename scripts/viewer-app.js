@@ -99,6 +99,8 @@ class ViewerApp {
 
         const sunHourEl  = document.getElementById('sunHour');
         const sunHourInputEl = document.getElementById('sunHourInput');
+        const sunIntensityEl = document.getElementById('sunIntensity');
+        const sunIntensityInputEl = document.getElementById('sunIntensityInput');
         const sunDayEl   = document.getElementById('sunDay');
         const sunMonthEl = document.getElementById('sunMonth');
         const sunNorthEl = document.getElementById('sunNorth');
@@ -2491,6 +2493,8 @@ function clearBeautyWire(mesh) {
             const minutes = totalMinutes % 60;
             return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
         };
+
+        const formatSunIntensity = (value) => value.toFixed(1);
 
         const parseSunHour = (text) => {
             const match = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/u.exec(text);
@@ -5468,6 +5472,29 @@ function getSMOffset(meta) {
                 sunHourEl.value = String(parsed);
                 sunHourInputEl.value = formatSunHour(parsed);
                 sunHourEl.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+        }
+
+        if (sunIntensityEl && sunIntensityInputEl && dirLight) {
+            sunIntensityEl.value = String(dirLight.intensity);
+            sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
+            sunIntensityEl.addEventListener('input', () => {
+                const value = parseFloat(sunIntensityEl.value);
+                dirLight.intensity = value;
+                sunIntensityInputEl.value = formatSunIntensity(value);
+                requestRender();
+            });
+            sunIntensityInputEl.addEventListener('change', () => {
+                let value = parseFloat(sunIntensityInputEl.value);
+                if (!Number.isFinite(value)) {
+                    sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
+                    return;
+                }
+                value = Math.min(parseFloat(sunIntensityInputEl.max) || 20, Math.max(parseFloat(sunIntensityInputEl.min) || 0, value));
+                sunIntensityEl.value = String(value);
+                sunIntensityInputEl.value = formatSunIntensity(value);
+                dirLight.intensity = value;
+                requestRender();
             });
         }
 

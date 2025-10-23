@@ -633,6 +633,14 @@ body.side-hidden { --sideW: 0px; }
     text-align: center;
 }
 
+.light-sun-int-input {
+    width: 56px;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    text-align: right;
+}
 
 .light-sun-date {
     display: flex;
