@@ -632,3 +632,26 @@ body.side-hidden { --sideW: 0px; }
     font-size: 13px;
     text-align: center;
 }
+
+
+.light-sun-date {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.light-date-field {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.light-date-field input[type="number"] {
+    width: 54px;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+}
