@@ -2489,22 +2489,24 @@ function clearBeautyWire(mesh) {
         }
         setStatsVisible(false);
 
-        iblChk.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
-        iblIntEl.addEventListener('input', () => { if (iblChk.checked) applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value)); });
+        iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
+        iblIntEl?.addEventListener('input', () => {
+            if (iblChk?.checked) applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
+        });
         const rebuildEnvOnAdjustments = async () => {
             syncEnvAdjustmentsState();
-            if (!iblChk.checked) return;
+            if (!iblChk?.checked) return;
             await loadHDRBase();
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
+            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
         };
-        iblGammaEl.addEventListener('input', rebuildEnvOnAdjustments);
-        iblTintEl.addEventListener('input', rebuildEnvOnAdjustments);
-        iblRotEl.addEventListener('input', async () => {
-            if (!iblChk.checked) return;
+        iblGammaEl?.addEventListener('input', rebuildEnvOnAdjustments);
+        iblTintEl?.addEventListener('input', rebuildEnvOnAdjustments);
+        iblRotEl?.addEventListener('input', async () => {
+            if (!iblChk?.checked) return;
             await loadHDRBase();
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
+            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
         });
-        hdriPresetSel.addEventListener('change', async (e) => {
+        hdriPresetSel?.addEventListener('change', async (e) => {
             const idx = parseInt(e.target.value, 10);
             if (isNaN(idx)) return;
             const entry = HDRI_LIBRARY[idx];
@@ -2513,7 +2515,7 @@ function clearBeautyWire(mesh) {
             hdrBaseTex = await loadEquirectTexture(entry.url);
             app.hdrBaseTex = hdrBaseTex;
 
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
+            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
             ensureBgMesh();
             bgMesh.material.map = currentBg;
             bgMesh.material.needsUpdate = true;

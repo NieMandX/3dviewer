@@ -594,3 +594,14 @@ body.side-hidden { --sideW: 0px; }
 }
 
 .stats-overlay .stats-mode { color: #ff4e4e; font-weight: 600; }
+
+
+.light-sun .light-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.light-sun input[type="number"] {
+    width: 80px;
+}

@@ -36,22 +36,6 @@
             <input type="range" id="pointSize" min="1" max="10" step="1" value="3" />
         </label>
 
-        <!-- SUN CONTROL -->
-
-        <label>☀
-            <input id="sunEnabled" type="checkbox" checked />
-        </label>
-        <div class="row" id="sunControls">
-            <label>Часы
-                <input id="sunHour" type="range" min="2" max="23" step="0.25" value="12" />
-            </label>
-            <label>День <input id="sunDay" type="number" min="1" max="31" value="1" style="width:60px" /></label>
-            <label>Месяц <input id="sunMonth" type="number" min="1" max="12" value="6" style="width:60px" /></label>
-            <label>Север
-                <input id="sunNorth" type="range" min="0" max="360" step="1" value="0" />
-            </label>
-        </div>
-
         <div class="row appbar-shading">
             <label>shading
                 <select id="shadingMode" title="Режим шейдинга">
@@ -160,6 +144,29 @@
                 <summary>Global Light Control</summary>
                 <div class="light-controls">
                     <div class="light-section">
+                        <div class="light-section-title">SUN</div>
+                        <div class="light-grid">
+                            <label class="light-checkbox light-checkbox-toggle" title="Включить солнце">
+                                <input type="checkbox" id="sunEnabled" checked />
+                            </label>
+                            <div class="light-row">
+                                <span class="light-label">Часы</span>
+                                <input id="sunHour" type="range" min="2" max="23" step="0.25" value="12" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">День</span>
+                                <input id="sunDay" type="number" min="1" max="31" value="1" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Месяц</span>
+                                <input id="sunMonth" type="number" min="1" max="12" value="6" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Север</span>
+                                <input id="sunNorth" type="range" min="0" max="360" step="1" value="0" />
+                            </div>
+                        </div>
+
                         <div class="light-section-title">HDRI</div>
                         <div class="light-grid">
                             <div class="light-row light-row-hdri">
@@ -198,7 +205,7 @@
                             -->
                             <div class="light-section-title">Ambient</div>
 
-                             <div class="light-row">
+                            <div class="light-row">
                                 <div class="light-duo">
                                     <span class="light-label">Ground</span>
                                     <input id="hemiGround" type="color" value="#cfd8dc" />
@@ -213,6 +220,11 @@
                                     <input class="glass-value glass-value-input" data-light-value-for="hemiInt" type="number" min="0" max="10" step="0.05" value="1.00" inputmode="decimal" />
                                 </div>
                             </div>
+
+                            <div class="light-section-title">SUN</div>
+
+
+
                         </div>
                     </div>
                 </div>
