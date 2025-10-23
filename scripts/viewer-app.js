@@ -1541,6 +1541,13 @@ class ViewerApp {
             return tex;
         }
 
+        function clampNumericInput(value, min, max) {
+            if (!Number.isFinite(value)) return null;
+            if (min != null) value = Math.max(min, value);
+            if (max != null) value = Math.min(max, value);
+            return value;
+        }
+
         function syncEnvAdjustmentsState() {
             const gamma = Math.max(0.01, parseFloat(iblGammaEl?.value) || 1.0);
             const tintHex = (iblTintEl?.value && /^#/u.test(iblTintEl.value)) ? iblTintEl.value : '#ffffff';
