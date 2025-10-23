@@ -180,15 +180,20 @@ class ViewerApp {
             const { input, display } = entry;
             if (!display || !input) return;
             if (input.type === 'color') {
-                display.textContent = String(input.value || '').toUpperCase();
+                const val = String(input.value || '').toUpperCase();
+                if (display instanceof HTMLInputElement) display.value = val;
+                else display.textContent = val;
                 return;
             }
             const numeric = parseFloat(input.value);
             if (!Number.isFinite(numeric)) {
-                display.textContent = input.value || '';
+                if (display instanceof HTMLInputElement) display.value = input.value || '';
+                else display.textContent = input.value || '';
                 return;
             }
-            display.textContent = numeric.toFixed(glassStepDecimals(input));
+            const formatted = numeric.toFixed(glassStepDecimals(input));
+            if (display instanceof HTMLInputElement) display.value = formatted;
+            else display.textContent = formatted;
         }
 
         function updateGlassDisplay(id) {
@@ -5344,6 +5349,99 @@ function getSMOffset(meta) {
             schedulePanelRefresh();
             requestRender();
         };
+
+        function clampValueToSlider(slider, value) {
+            let next = value;
+            const minAttr = slider.getAttribute('min');
+            const maxAttr = slider.getAttribute('max');
+            const min = minAttr !== null && minAttr !== '' ? parseFloat(minAttr) : null;
+            const max = maxAttr !== null && maxAttr !== '' ? parseFloat(maxAttr) : null;
+            if (Number.isFinite(min)) next = Math.max(next, min);
+            if (Number.isFinite(max)) next = Math.min(next, max);
+            return next;
+        }
+
+        function snapValueToStep(slider, value) {
+            const stepAttr = slider.getAttribute('step');
+            if (!stepAttr || stepAttr === 'any') return value;
+            const step = parseFloat(stepAttr);
+            if (!Number.isFinite(step) || step <= 0) return value;
+            const minAttr = slider.getAttribute('min');
+            const origin = minAttr !== null && minAttr !== '' ? parseFloat(minAttr) : 0;
+            const steps = Math.round((value - origin) / step);
+            return origin + steps * step;
+        }
+
+        const commitGlassDisplayInput = (id) => {
+            const entry = glassValueDisplays.get(id);
+            if (!entry) return;
+            const { input: slider, display } = entry;
+            if (!slider || !(display instanceof HTMLInputElement)) return;
+
+            if (slider.type === 'color') {
+                const normalized = normalizeHexColor(display.value, null);
+                if (!normalized) {
+                    updateGlassDisplay(id);
+                    return;
+                }
+                if (slider.value === normalized) {
+                    slider.dataset.userSet = '1';
+                    updateGlassDisplay(id);
+                    return;
+                }
+                slider.value = normalized;
+                display.value = normalized;
+                slider.dataset.userSet = '1';
+                updateGlassDisplay(id);
+                handleGlobalGlassInput();
+                return;
+            }
+
+            const raw = display.value.replace(',', '.').trim();
+            const parsed = parseFloat(raw);
+            if (!Number.isFinite(parsed)) {
+                updateGlassDisplay(id);
+                return;
+            }
+
+            let next = clampValueToSlider(slider, parsed);
+            next = snapValueToStep(slider, next);
+            next = clampValueToSlider(slider, next);
+
+            const decimals = glassStepDecimals(slider);
+            const formatted = Number.isFinite(decimals) ? next.toFixed(decimals) : String(next);
+
+            if (slider.value === formatted) {
+                slider.dataset.userSet = '1';
+                updateGlassDisplay(id);
+                return;
+            }
+
+            slider.value = formatted;
+            display.value = formatted;
+            slider.dataset.userSet = '1';
+            updateGlassDisplay(id);
+            handleGlobalGlassInput();
+        };
+
+        function attachGlassDisplayInputs() {
+            glassValueDisplays.forEach(({ display }, id) => {
+                if (!(display instanceof HTMLInputElement)) return;
+                const commit = () => commitGlassDisplayInput(id);
+                display.addEventListener('change', commit);
+                display.addEventListener('blur', commit);
+                display.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        commit();
+                    } else if (event.key === 'Escape') {
+                        updateGlassDisplay(id);
+                        display.blur();
+                    }
+                });
+            });
+        }
+        attachGlassDisplayInputs();
 
         if (glassOpacityEl) {
             glassOpacityEl.addEventListener('input', () => {

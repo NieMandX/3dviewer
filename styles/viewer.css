@@ -183,8 +183,43 @@ body {
     color: var(--muted);
 }
 
+.glass-global-controls .glass-group input[type="range"] {
+    width: 85%;
+    justify-self: start;
+}
+
 .glass-global-controls .glass-value {
     font-variant-numeric: tabular-nums;
+}
+
+.glass-value-input {
+    width: 56px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+}
+
+.glass-value-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(11, 87, 208, 0.12);
+}
+
+.glass-value-input[type="text"] {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.glass-value-input[type="number"]::-webkit-outer-spin-button,
+.glass-value-input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.glass-value-input[type="number"] {
+    -moz-appearance: textfield;
 }
 
 .glass-global-controls input[type="color"] {

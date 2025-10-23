@@ -188,49 +188,49 @@
                         <label title="Прозрачность стекла (opacity)">
                             <span>Opacity</span>
                             <input id="glassOpacity" type="range" min="0" max="1" step="0.01" value="0.10" />
-                            <span class="glass-value" data-value-for="glassOpacity">0.10</span>
+                            <input class="glass-value glass-value-input" data-value-for="glassOpacity" type="number" min="0" max="1" step="0.01" value="0.10" inputmode="decimal" />
                         </label>
                     </div>
                     <div class="glass-group">
                         <label title="Показатель преломления (ior)">
                             <span>IOR</span>
                             <input id="glassIor" type="range" min="1" max="4" step="0.01" value="1.50" />
-                            <span class="glass-value" data-value-for="glassIor">1.50</span>
+                            <input class="glass-value glass-value-input" data-value-for="glassIor" type="number" min="1" max="4" step="0.01" value="1.50" inputmode="decimal" />
                         </label>
                     </div>
                     <div class="glass-group">
                         <label title="Transmission (доля проходящего света)">
                             <span>Transmission</span>
                             <input id="glassTransmission" type="range" min="0" max="1" step="0.01" value="1.0" />
-                            <span class="glass-value" data-value-for="glassTransmission">1.00</span>
+                            <input class="glass-value glass-value-input" data-value-for="glassTransmission" type="number" min="0" max="1" step="0.01" value="1.00" inputmode="decimal" />
                         </label>
                     </div>
                     <div class="glass-group">
                         <label title="Интенсивность отражений у стекла (envMapIntensity)">
                             <span>Reflect</span>
                             <input id="glassReflect" type="range" min="0" max="3" step="0.05" value="3.00" />
-                            <span class="glass-value" data-value-for="glassReflect">3.00</span>
+                            <input class="glass-value glass-value-input" data-value-for="glassReflect" type="number" min="0" max="3" step="0.05" value="3.00" inputmode="decimal" />
                         </label>
                     </div>
                     <div class="glass-group">
                         <label title="Шероховатость стекла (roughness)">
                             <span>Rough</span>
                             <input id="glassRough" type="range" min="0" max="1" step="0.01" value="0.05" />
-                            <span class="glass-value" data-value-for="glassRough">0.05</span>
+                            <input class="glass-value glass-value-input" data-value-for="glassRough" type="number" min="0" max="1" step="0.01" value="0.05" inputmode="decimal" />
                         </label>
                     </div>
                     <div class="glass-group">
                         <label title="Metalness для стекла (если нет карты)">
                             <span>Metal</span>
                             <input id="glassMetal" type="range" min="0" max="1" step="0.01" value="1.0" />
-                            <span class="glass-value" data-value-for="glassMetal">1.00</span>
+                            <input class="glass-value glass-value-input" data-value-for="glassMetal" type="number" min="0" max="1" step="0.01" value="1.00" inputmode="decimal" />
                         </label>
                     </div>
                     <div class="glass-group">
                         <label title="Цвет стекла">
                             <span>Color</span>
                             <input id="glassColor" type="color" value="#FFFFFF" />
-                            <span class="glass-value" data-value-for="glassColor">#FFFFFF</span>
+                            <input class="glass-value glass-value-input" data-value-for="glassColor" type="text" value="#FFFFFF" spellcheck="false" inputmode="text" />
                         </label>
                     </div>
                     <div class="glass-actions">
