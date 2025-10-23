@@ -248,6 +248,27 @@ body {
     text-align: right;
 }
 
+
+.light-duo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.light-duo .light-label {
+    flex: 0 0 auto;
+}
+
+.light-duo input[type="color"] {
+    width: 48px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+}
+
+
 .glass-global-controls {
     gap: 12px;
     padding-top: 8px;
