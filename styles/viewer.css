@@ -260,7 +260,7 @@ body {
 }
 
 .light-duo input[type="color"] {
-    width: 48px;
+    width: 24px;
     height: 24px;
     padding: 0;
     border: 1px solid var(--border);
@@ -324,7 +324,7 @@ body {
 }
 
 .glass-global-controls input[type="color"] {
-    width: 24px;
+    width: 48px;
     height: 24px;
     padding: 0;
     border: 1px solid var(--border);
