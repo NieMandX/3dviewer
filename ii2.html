@@ -145,12 +145,14 @@
                     <div class="light-section">
                         <div class="light-section-title">SUN</div>
                         <div class="light-grid">
-                            <label class="light-checkbox light-checkbox-toggle" title="Включить солнце">
-                                <input type="checkbox" id="sunEnabled" checked />
-                            </label>
-                            <div class="light-row">
-                                <span class="light-label">Часы</span>
-                                <input id="sunHour" type="range" min="2" max="23" step="0.25" value="12" />
+                            <div class="light-row light-row-sun">
+                                <label class="light-checkbox light-checkbox-toggle" title="Включить солнце">
+                                    <input type="checkbox" id="sunEnabled" checked />
+                                </label>
+                                <div class="light-sun-hour">
+                                    <input id="sunHour" type="range" min="0" max="24" step="0.25" value="12" />
+                                    <input id="sunHourInput" type="text" value="12:00" />
+                                </div>
                             </div>
                             <div class="light-row">
                                 <span class="light-label">День</span>

@@ -98,6 +98,7 @@ class ViewerApp {
         
 
         const sunHourEl  = document.getElementById('sunHour');
+        const sunHourInputEl = document.getElementById('sunHourInput');
         const sunDayEl   = document.getElementById('sunDay');
         const sunMonthEl = document.getElementById('sunMonth');
         const sunNorthEl = document.getElementById('sunNorth');
@@ -2483,6 +2484,24 @@ function clearBeautyWire(mesh) {
 
 
         syncEnvAdjustmentsState();
+
+        const formatSunHour = (value) => {
+            const totalMinutes = Math.round(value * 60);
+            const hours = Math.floor(totalMinutes / 60) % 24;
+            const minutes = totalMinutes % 60;
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        };
+
+        const parseSunHour = (text) => {
+            const match = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/u.exec(text);
+            if (!match) return null;
+            let hours = parseInt(match[1], 10);
+            let minutes = parseInt(match[2], 10);
+            if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+            minutes = Math.max(0, Math.min(59, minutes));
+            hours = Math.max(0, Math.min(23, hours));
+            return hours + minutes / 60;
+        };
 
         if (statsBtn) {
             statsBtn.addEventListener('click', () => setStatsVisible(!statsVisible));
@@ -5432,6 +5451,24 @@ function getSMOffset(meta) {
             updateAllGlassDisplays();
             applyGlassControlsToScene();
             schedulePanelRefresh();
+        }
+
+
+        if (sunHourEl && sunHourInputEl) {
+            sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
+            sunHourEl.addEventListener('input', () => {
+                sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
+            });
+            sunHourInputEl.addEventListener('change', () => {
+                const parsed = parseSunHour(sunHourInputEl.value);
+                if (parsed == null) {
+                    sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
+                    return;
+                }
+                sunHourEl.value = String(parsed);
+                sunHourInputEl.value = formatSunHour(parsed);
+                sunHourEl.dispatchEvent(new Event('input', { bubbles: true }));
+            });
         }
 
         const handleGlobalGlassInput = () => {

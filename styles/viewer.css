@@ -605,3 +605,30 @@ body.side-hidden { --sideW: 0px; }
 .light-sun input[type="number"] {
     width: 80px;
 }
+
+
+.light-row-sun {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.light-sun-hour {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.light-sun-hour input[type="range"] {
+    flex: 1;
+}
+
+.light-sun-hour input[type="text"] {
+    width: 80px;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    text-align: center;
+}
