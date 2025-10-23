@@ -2575,12 +2575,6 @@ function clearBeautyWire(mesh) {
 
         const formatSunIntensity = (value) => value.toFixed(1);
 
-        const clampNumericInput = (value, min, max) => {
-            if (!Number.isFinite(value)) return null;
-            if (min != null) value = Math.max(min, value);
-            if (max != null) value = Math.min(max, value);
-            return value;
-        };
 
         const parseSunHour = (text) => {
             const match = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/u.exec(text);
