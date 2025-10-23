@@ -140,6 +140,9 @@ class ViewerApp {
         const iblGammaEl      = document.getElementById('iblGamma');
         const iblTintEl       = document.getElementById('iblTint');
         const iblRotEl        = document.getElementById('iblRot');
+        const hemiIntEl       = document.getElementById('hemiInt');
+        const hemiSkyEl       = document.getElementById('hemiSky');
+        const hemiGroundEl    = document.getElementById('hemiGround');
         const axisSel         = document.getElementById('axisSelect');
         const isZUp = () => (axisSel?.value === 'Z'); // если нет селекта — вернёт false
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
@@ -164,7 +167,7 @@ class ViewerApp {
             glassValueDisplays.set(id, { input, display });
         }
 
-        function glassStepDecimals(input) {
+        function sliderStepDecimals(input) {
             if (!input) return 2;
             const stepAttr = input.getAttribute?.('step');
             if (!stepAttr || stepAttr === 'any') return 2;
@@ -191,7 +194,7 @@ class ViewerApp {
                 else display.textContent = input.value || '';
                 return;
             }
-            const formatted = numeric.toFixed(glassStepDecimals(input));
+            const formatted = numeric.toFixed(sliderStepDecimals(input));
             if (display instanceof HTMLInputElement) display.value = formatted;
             else display.textContent = formatted;
         }
@@ -213,6 +216,81 @@ class ViewerApp {
         registerGlassDisplay('glassColor', glassColorEl);
         updateAllGlassDisplays();
 
+        const lightValueDisplays = new Map();
+
+        function registerLightDisplay(id, slider) {
+            if (!slider) return;
+            const display = document.querySelector(`[data-light-value-for="${id}"]`);
+            if (!display || !(display instanceof HTMLInputElement)) return;
+            lightValueDisplays.set(id, { slider, display });
+            slider.addEventListener('input', () => updateLightDisplay(id));
+        }
+
+        function applyLightDisplay(entry) {
+            if (!entry) return;
+            const { slider, display } = entry;
+            if (!slider || !(display instanceof HTMLInputElement)) return;
+            const numeric = parseFloat(slider.value);
+            if (!Number.isFinite(numeric)) {
+                display.value = slider.value || '';
+                return;
+            }
+            display.value = numeric.toFixed(sliderStepDecimals(slider));
+        }
+
+        function updateLightDisplay(id) {
+            applyLightDisplay(lightValueDisplays.get(id));
+        }
+
+        function updateAllLightDisplays() {
+            lightValueDisplays.forEach(applyLightDisplay);
+        }
+
+        function commitLightDisplayInput(id) {
+            const entry = lightValueDisplays.get(id);
+            if (!entry) return;
+            const { slider, display } = entry;
+            if (!slider || !(display instanceof HTMLInputElement)) return;
+
+            const raw = (display.value || '').replace(',', '.').trim();
+            const parsed = parseFloat(raw);
+            if (!Number.isFinite(parsed)) {
+                updateLightDisplay(id);
+                return;
+            }
+
+            let next = clampValueToSlider(slider, parsed);
+            next = snapValueToStep(slider, next);
+            next = clampValueToSlider(slider, next);
+
+            const decimals = sliderStepDecimals(slider);
+            const formatted = Number.isFinite(decimals) ? next.toFixed(decimals) : String(next);
+
+            slider.value = formatted;
+            display.value = formatted;
+            updateLightDisplay(id);
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function attachLightDisplayInputs() {
+            lightValueDisplays.forEach(({ display }, id) => {
+                if (!(display instanceof HTMLInputElement)) return;
+                const commit = () => commitLightDisplayInput(id);
+                display.addEventListener('change', commit);
+                display.addEventListener('blur', commit);
+                display.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        commit();
+                        display.blur();
+                    } else if (event.key === 'Escape') {
+                        updateLightDisplay(id);
+                        display.blur();
+                    }
+                });
+            });
+        }
+
         const outEl           = document.getElementById('out');
         const galleryEl       = document.getElementById('gallery');
         const texCountEl      = document.getElementById('texCount');
@@ -221,6 +299,16 @@ class ViewerApp {
 
         const bgAlphaEl       = document.getElementById('bgAlpha');
         bgAlphaEl.addEventListener('input', updateBgVisibility);
+
+        [
+            ['hemiInt', hemiIntEl],
+            ['bgAlpha', bgAlphaEl],
+            ['iblInt', iblIntEl],
+            ['iblGamma', iblGammaEl],
+            ['iblRot', iblRotEl],
+        ].forEach(([id, slider]) => registerLightDisplay(id, slider));
+        updateAllLightDisplays();
+        attachLightDisplayInputs();
 
         const sampleSelect    = document.getElementById('sampleSelect');
 
@@ -5408,7 +5496,7 @@ function getSMOffset(meta) {
             next = snapValueToStep(slider, next);
             next = clampValueToSlider(slider, next);
 
-            const decimals = glassStepDecimals(slider);
+            const decimals = sliderStepDecimals(slider);
             const formatted = Number.isFinite(decimals) ? next.toFixed(decimals) : String(next);
 
             if (slider.value === formatted) {
@@ -6052,17 +6140,23 @@ function getSMOffset(meta) {
         // =====================
         // LIGHT CONTROLL
         // =====================
-        document.getElementById('hemiInt').addEventListener('input', e => {
-            hemiLight.intensity = parseFloat(e.target.value);
-        });
+        if (hemiIntEl) {
+            hemiIntEl.addEventListener('input', (e) => {
+                hemiLight.intensity = parseFloat(e.target.value);
+            });
+        }
 
-        document.getElementById('hemiSky').addEventListener('input', e => {
-            hemiLight.color.set(e.target.value);
-        });
+        if (hemiSkyEl) {
+            hemiSkyEl.addEventListener('input', (e) => {
+                hemiLight.color.set(e.target.value);
+            });
+        }
 
-        document.getElementById('hemiGround').addEventListener('input', e => {
-            hemiLight.groundColor.set(e.target.value);
-        });
+        if (hemiGroundEl) {
+            hemiGroundEl.addEventListener('input', (e) => {
+                hemiLight.groundColor.set(e.target.value);
+            });
+        }
 
         if (openBtn && fileInput) {
             openBtn.addEventListener('click', () => fileInput.click());

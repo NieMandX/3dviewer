@@ -36,24 +36,6 @@
             <input type="range" id="pointSize" min="1" max="10" step="1" value="3" />
         </label>
 
-        <!-- IBL / controls -->
-        <div class="row">
-            <label><input type="checkbox" id="hdriChk" checked /></label>
-            <label>HDRI
-                <select id="hdriPreset">
-                    <option value="">— выберите —</option>
-                </select>
-            </label>
-            <label>Hemi&nbsp;int
-                <input id="hemiInt" type="range" min="0" max="10" step="0.05" value="1" />
-            </label>
-            <label>Sky
-                <input id="hemiSky" type="color" value="#ffffff" />
-            </label>
-            <label>Ground
-                <input id="hemiGround" type="color" value="#cfd8dc" />
-            </label>
-
         <!-- SUN CONTROL -->
 
         <label>☀
@@ -70,14 +52,7 @@
             </label>
         </div>
 
-            <label>bg&nbsp;α <input id="bgAlpha" type="range" min="0" max="1" step="0.01" value="0.00" /></label>
-            <label>intensity <input id="iblInt" type="range" min="0" max="5" step="0.05" value="1.5" /></label>
-            <label>gamma <input id="iblGamma" type="range" min="0.9" max="1.1" step="0.01" value="1.0" /></label>
-            <label>tint <input id="iblTint" type="color" value="#ffffff" /></label>
-            <label>rot&nbsp;<input id="iblRot" type="range" min="0" max="360" step="1" value="0" /></label>
-            
-            
-
+        <div class="row appbar-shading">
             <label>shading
                 <select id="shadingMode" title="Режим шейдинга">
                     <option value="pbr" selected>PBR</option>
@@ -179,6 +154,64 @@
                     <span class="muted" style="font-size:12px">Выберите материал, затем щёлкните на миниатюре → Привязать…</span>
                 </div>
                 <div id="gallery"></div>
+            </details>
+
+            <details id="lightGlobalDetails" open>
+                <summary>Global Light Control</summary>
+                <div class="light-controls">
+                    <div class="light-section">
+                        <div class="light-section-title">HDRI</div>
+                        <div class="light-grid">
+                            <div class="light-row light-row-hdri">
+                                <label class="light-checkbox light-checkbox-toggle" title="Использовать HDRI">
+                                    <input type="checkbox" id="hdriChk" checked />
+                                </label>
+                                <select id="hdriPreset">
+                                    <option value="">— выберите —</option>
+                                </select>
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Intensity</span>
+                                <input id="iblInt" type="range" min="0" max="5" step="0.05" value="1.5" />
+                                <input class="glass-value glass-value-input" data-light-value-for="iblInt" type="number" min="0" max="5" step="0.05" value="1.50" inputmode="decimal" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">BG α</span>
+                                <input id="bgAlpha" type="range" min="0" max="1" step="0.01" value="0.00" />
+                                <input class="glass-value glass-value-input" data-light-value-for="bgAlpha" type="number" min="0" max="1" step="0.01" value="0.00" inputmode="decimal" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Gamma</span>
+                                <input id="iblGamma" type="range" min="0.9" max="1.1" step="0.01" value="1.0" />
+                                <input class="glass-value glass-value-input" data-light-value-for="iblGamma" type="number" min="0.9" max="1.1" step="0.01" value="1.00" inputmode="decimal" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Rotation</span>
+                                <input id="iblRot" type="range" min="0" max="360" step="1" value="0" />
+                                <input class="glass-value glass-value-input" data-light-value-for="iblRot" type="number" min="0" max="360" step="1" value="0" inputmode="numeric" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Hemi int</span>
+                                <input id="hemiInt" type="range" min="0" max="10" step="0.05" value="1" />
+                                <input class="glass-value glass-value-input" data-light-value-for="hemiInt" type="number" min="0" max="10" step="0.05" value="1.00" inputmode="decimal" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Sky</span>
+                                <input id="hemiSky" type="color" value="#ffffff" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Ground</span>
+                                <input id="hemiGround" type="color" value="#cfd8dc" />
+                            </div>
+                            <!--
+                            <div class="light-row">
+                                <span class="light-label">Tint</span>
+                                <input id="iblTint" type="color" value="#ffffff" />
+                            </div>
+                            -->
+                        </div>
+                    </div>
+                </div>
             </details>
 
             <details id="glassGlobalDetails" open>
