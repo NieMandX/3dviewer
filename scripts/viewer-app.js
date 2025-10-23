@@ -155,6 +155,59 @@ class ViewerApp {
         const glassColorEl        = document.getElementById('glassColor');
         const glassResetBtn       = document.getElementById('glassReset');
 
+        const glassValueDisplays = new Map();
+
+        function registerGlassDisplay(id, input) {
+            if (!input) return;
+            const display = document.querySelector(`[data-value-for="${id}"]`);
+            if (!display) return;
+            glassValueDisplays.set(id, { input, display });
+        }
+
+        function glassStepDecimals(input) {
+            if (!input) return 2;
+            const stepAttr = input.getAttribute?.('step');
+            if (!stepAttr || stepAttr === 'any') return 2;
+            if (stepAttr.includes('.')) {
+                const decimals = stepAttr.split('.')[1]?.length || 0;
+                return Math.min(Math.max(decimals, 0), 4);
+            }
+            return 0;
+        }
+
+        function applyGlassDisplay(entry) {
+            if (!entry) return;
+            const { input, display } = entry;
+            if (!display || !input) return;
+            if (input.type === 'color') {
+                display.textContent = String(input.value || '').toUpperCase();
+                return;
+            }
+            const numeric = parseFloat(input.value);
+            if (!Number.isFinite(numeric)) {
+                display.textContent = input.value || '';
+                return;
+            }
+            display.textContent = numeric.toFixed(glassStepDecimals(input));
+        }
+
+        function updateGlassDisplay(id) {
+            applyGlassDisplay(glassValueDisplays.get(id));
+        }
+
+        function updateAllGlassDisplays() {
+            glassValueDisplays.forEach(applyGlassDisplay);
+        }
+
+        registerGlassDisplay('glassOpacity', glassOpacityEl);
+        registerGlassDisplay('glassReflect', glassReflectEl);
+        registerGlassDisplay('glassRough', glassRoughEl);
+        registerGlassDisplay('glassMetal', glassMetalEl);
+        registerGlassDisplay('glassIor', glassIorEl);
+        registerGlassDisplay('glassTransmission', glassTransmissionEl);
+        registerGlassDisplay('glassColor', glassColorEl);
+        updateAllGlassDisplays();
+
         const outEl           = document.getElementById('out');
         const galleryEl       = document.getElementById('gallery');
         const texCountEl      = document.getElementById('texCount');
@@ -5281,6 +5334,7 @@ function getSMOffset(meta) {
                 glassTransmissionEl && delete glassTransmissionEl.dataset.userSet;
             }
 
+            updateAllGlassDisplays();
             applyGlassControlsToScene();
             schedulePanelRefresh();
         }
@@ -5294,42 +5348,49 @@ function getSMOffset(meta) {
         if (glassOpacityEl) {
             glassOpacityEl.addEventListener('input', () => {
                 glassOpacityEl.dataset.userSet = '1';
+                updateGlassDisplay('glassOpacity');
                 handleGlobalGlassInput();
             });
         }
         if (glassReflectEl) {
             glassReflectEl.addEventListener('input', () => {
                 glassReflectEl.dataset.userSet = '1';
+                updateGlassDisplay('glassReflect');
                 handleGlobalGlassInput();
             });
         }
         if (glassMetalEl) {
             glassMetalEl.addEventListener('input', () => {
                 glassMetalEl.dataset.userSet = '1';
+                updateGlassDisplay('glassMetal');
                 handleGlobalGlassInput();
             });
         }
         if (glassRoughEl) {
             glassRoughEl.addEventListener('input', () => {
                 glassRoughEl.dataset.userSet = '1';
+                updateGlassDisplay('glassRough');
                 handleGlobalGlassInput();
             });
         }
         if (glassIorEl) {
             glassIorEl.addEventListener('input', () => {
                 glassIorEl.dataset.userSet = '1';
+                updateGlassDisplay('glassIor');
                 handleGlobalGlassInput();
             });
         }
         if (glassTransmissionEl) {
             glassTransmissionEl.addEventListener('input', () => {
                 glassTransmissionEl.dataset.userSet = '1';
+                updateGlassDisplay('glassTransmission');
                 handleGlobalGlassInput();
             });
         }
         if (glassColorEl) {
             glassColorEl.addEventListener('input', () => {
                 glassColorEl.dataset.userSet = '1';
+                updateGlassDisplay('glassColor');
                 handleGlobalGlassInput();
             });
         }

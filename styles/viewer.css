@@ -168,6 +168,40 @@ body {
     justify-content: flex-end;
 }
 
+.glass-global-controls {
+    gap: 12px;
+    padding-top: 8px;
+}
+
+.glass-global-controls .glass-group label {
+    grid-template-columns: 110px 1fr 56px;
+    font-size: 13px;
+}
+
+.glass-global-controls .glass-group label span:first-child {
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.glass-global-controls .glass-value {
+    font-variant-numeric: tabular-nums;
+}
+
+.glass-global-controls input[type="color"] {
+    width: 48px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+}
+
+.glass-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+}
+
 
 
 .appbar {
