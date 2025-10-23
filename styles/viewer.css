@@ -633,6 +633,7 @@ body.side-hidden { --sideW: 0px; }
     text-align: center;
 }
 
+.light-sun-hour input[type="text"],
 .light-sun-int-input {
     width: 56px;
     padding: 4px 6px;

@@ -2496,6 +2496,13 @@ function clearBeautyWire(mesh) {
 
         const formatSunIntensity = (value) => value.toFixed(1);
 
+        const clampNumericInput = (value, min, max) => {
+            if (!Number.isFinite(value)) return null;
+            if (min != null) value = Math.max(min, value);
+            if (max != null) value = Math.min(max, value);
+            return value;
+        };
+
         const parseSunHour = (text) => {
             const match = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/u.exec(text);
             if (!match) return null;
@@ -5479,18 +5486,19 @@ function getSMOffset(meta) {
             sunIntensityEl.value = String(dirLight.intensity);
             sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
             sunIntensityEl.addEventListener('input', () => {
-                const value = parseFloat(sunIntensityEl.value);
+                const value = clampNumericInput(parseFloat(sunIntensityEl.value), parseFloat(sunIntensityEl.min) || 0, parseFloat(sunIntensityEl.max) || 20);
+                if (value == null) return;
                 dirLight.intensity = value;
+                sunIntensityEl.value = String(value);
                 sunIntensityInputEl.value = formatSunIntensity(value);
                 requestRender();
             });
             sunIntensityInputEl.addEventListener('change', () => {
-                let value = parseFloat(sunIntensityInputEl.value);
-                if (!Number.isFinite(value)) {
+                let value = clampNumericInput(parseFloat(sunIntensityInputEl.value), parseFloat(sunIntensityInputEl.min) || 0, parseFloat(sunIntensityInputEl.max) || 20);
+                if (value == null) {
                     sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
                     return;
                 }
-                value = Math.min(parseFloat(sunIntensityInputEl.max) || 20, Math.max(parseFloat(sunIntensityInputEl.min) || 0, value));
                 sunIntensityEl.value = String(value);
                 sunIntensityInputEl.value = formatSunIntensity(value);
                 dirLight.intensity = value;
