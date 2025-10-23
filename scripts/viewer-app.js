@@ -146,6 +146,9 @@ class ViewerApp {
         const hemiIntEl       = document.getElementById('hemiInt');
         const hemiSkyEl       = document.getElementById('hemiSky');
         const hemiGroundEl    = document.getElementById('hemiGround');
+        const hdriExposureEl  = document.getElementById('hdriExposure');
+        const hdriSaturationEl= document.getElementById('hdriSaturation');
+        const hdriBlurEl      = document.getElementById('hdriBlur');
         const axisSel         = document.getElementById('axisSelect');
         const isZUp = () => (axisSel?.value === 'Z'); // если нет селекта — вернёт false
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
@@ -309,6 +312,9 @@ class ViewerApp {
             ['iblInt', iblIntEl],
             ['iblGamma', iblGammaEl],
             ['iblRot', iblRotEl],
+            ['hdriExposure', hdriExposureEl],
+            ['hdriSaturation', hdriSaturationEl],
+            ['hdriBlur', hdriBlurEl],
         ].forEach(([id, slider]) => registerLightDisplay(id, slider));
         updateAllLightDisplays();
         attachLightDisplayInputs();
@@ -1539,12 +1545,67 @@ class ViewerApp {
             const gamma = Math.max(0.01, parseFloat(iblGammaEl?.value) || 1.0);
             const tintHex = (iblTintEl?.value && /^#/u.test(iblTintEl.value)) ? iblTintEl.value : '#ffffff';
             const tintLinear = new THREE.Color(tintHex).convertSRGBToLinear();
-            const state = { gamma, tintHex, tintLinear };
+            const exposure = clampNumericInput(parseFloat(hdriExposureEl?.value), 0, 2) ?? 1;
+            const saturation = clampNumericInput(parseFloat(hdriSaturationEl?.value), 0, 2) ?? 1;
+            const blur = clampNumericInput(parseFloat(hdriBlurEl?.value), 0, 1) ?? 0;
+            const state = { gamma, tintHex, tintLinear, exposure, saturation, blur };
             app.envAdjustments = state;
             return state;
         }
 
-        function applyHDRAdjustments(dataTex, gamma = 1.0, tintColor = null) {
+        function applySimpleBlurToData(data, width, height, stride, amount) {
+            if (!(amount > 1e-3)) return;
+            const neighborWeight = amount * 0.5;
+            const centerWeight = 1;
+            const totalWeight = centerWeight + neighborWeight * 4;
+            const tmp = new (data.constructor)(data.length);
+
+            const sampleIndex = (x, y) => {
+                const sx = (x % width + width) % width;
+                const sy = Math.min(height - 1, Math.max(0, y));
+                return (sy * width + sx) * stride;
+            };
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    let r = 0, g = 0, b = 0;
+                    let weight = 0;
+
+                    const addSample = (ix, iy, w) => {
+                        const idx = sampleIndex(ix, iy);
+                        r += data[idx] * w;
+                        g += data[idx + 1] * w;
+                        b += data[idx + 2] * w;
+                        weight += w;
+                    };
+
+                    addSample(x, y, centerWeight);
+                    addSample(x - 1, y, neighborWeight);
+                    addSample(x + 1, y, neighborWeight);
+                    addSample(x, y - 1, neighborWeight);
+                    addSample(x, y + 1, neighborWeight);
+
+                    const outIdx = (y * width + x) * stride;
+                    const invW = weight > 0 ? (1 / weight) : 1;
+                    tmp[outIdx] = r * invW;
+                    tmp[outIdx + 1] = g * invW;
+                    tmp[outIdx + 2] = b * invW;
+
+                    for (let s = 3; s < stride; s++) {
+                        tmp[outIdx + s] = data[outIdx + s];
+                    }
+                }
+            }
+            data.set(tmp);
+        }
+
+        function applyHDRAdjustments(dataTex, {
+            gamma = 1.0,
+            tintColor = null,
+            exposure = 1.0,
+            saturation = 1.0,
+            blur = 0.0,
+        } = {}) {
             if (!dataTex?.image?.data) return dataTex;
             const { data, width, height } = dataTex.image;
             if (!width || !height) return dataTex;
@@ -1557,8 +1618,11 @@ class ViewerApp {
                 Math.abs(tintColor.g - 1) > 1e-3 ||
                 Math.abs(tintColor.b - 1) > 1e-3
             );
+            const hasExposure = Math.abs(exposure - 1.0) > 1e-3;
+            const hasSaturation = Math.abs(saturation - 1.0) > 1e-3;
+            const hasBlur = blur > 1e-3;
 
-            if (!hasGamma && !hasTint) return dataTex;
+            if (!hasGamma && !hasTint && !hasExposure && !hasSaturation && !hasBlur) return dataTex;
 
             const gammaPow = hasGamma ? (1 / gamma) : 1.0;
 
@@ -1577,10 +1641,25 @@ class ViewerApp {
                     g *= tintColor.g;
                     b *= tintColor.b;
                 }
+                 if (hasExposure) {
+                    r *= exposure;
+                    g *= exposure;
+                    b *= exposure;
+                }
+                if (hasSaturation) {
+                    const lum = r * 0.2126 + g * 0.7152 + b * 0.0722;
+                    r = lum + (r - lum) * saturation;
+                    g = lum + (g - lum) * saturation;
+                    b = lum + (b - lum) * saturation;
+                }
 
                 data[i] = r;
                 data[i + 1] = g;
                 data[i + 2] = b;
+            }
+
+            if (hasBlur) {
+                applySimpleBlurToData(data, width, height, stride, blur);
             }
 
             dataTex.needsUpdate = true;
@@ -1599,7 +1678,7 @@ class ViewerApp {
                     return;
                 }
             }
-            const { gamma, tintLinear } = syncEnvAdjustmentsState();
+            const { gamma, tintLinear, exposure, saturation, blur } = syncEnvAdjustmentsState();
             const frac = ((deg % 360) + 360) % 360 / 360;
             if (bgMesh) {
                 bgMesh.rotation.y = THREE.MathUtils.degToRad(deg);
@@ -1611,7 +1690,7 @@ class ViewerApp {
             currentEnv = null;
 
             const shifted = shiftEquirectColumns(hdrBaseTex, frac);
-            applyHDRAdjustments(shifted, gamma, tintLinear);
+            applyHDRAdjustments(shifted, { gamma, tintColor: tintLinear, exposure, saturation, blur });
             shifted.mapping = THREE.EquirectangularReflectionMapping;
             if ('colorSpace' in shifted) {
                 shifted.colorSpace = THREE.LinearSRGBColorSpace;
@@ -2531,6 +2610,9 @@ function clearBeautyWire(mesh) {
         };
         iblGammaEl?.addEventListener('input', rebuildEnvOnAdjustments);
         iblTintEl?.addEventListener('input', rebuildEnvOnAdjustments);
+        hdriExposureEl?.addEventListener('input', rebuildEnvOnAdjustments);
+        hdriSaturationEl?.addEventListener('input', rebuildEnvOnAdjustments);
+        hdriBlurEl?.addEventListener('input', rebuildEnvOnAdjustments);
         iblRotEl?.addEventListener('input', async () => {
             if (!iblChk?.checked) return;
             await loadHDRBase();
