@@ -161,6 +161,8 @@ class ViewerApp {
         const glassReflectEl      = document.getElementById('glassReflect');
         const glassRoughEl        = document.getElementById('glassRough');
         const glassMetalEl        = document.getElementById('glassMetal');
+        const glassAttenDistEl    = document.getElementById('glassAttenDist');
+        const glassAttenColorEl   = document.getElementById('glassAttenColor');
         const glassColorEl        = document.getElementById('glassColor');
         const glassResetBtn       = document.getElementById('glassReset');
 
@@ -219,6 +221,8 @@ class ViewerApp {
         registerGlassDisplay('glassMetal', glassMetalEl);
         registerGlassDisplay('glassIor', glassIorEl);
         registerGlassDisplay('glassTransmission', glassTransmissionEl);
+        registerGlassDisplay('glassAttenDist', glassAttenDistEl);
+        registerGlassDisplay('glassAttenColor', glassAttenColorEl);
         registerGlassDisplay('glassColor', glassColorEl);
         updateAllGlassDisplays();
 
@@ -370,6 +374,8 @@ class ViewerApp {
             glassTransmissionEl,
             glassReflectEl,
             glassMetalEl,
+            glassAttenDistEl,
+            glassAttenColorEl,
             outEl,
             galleryEl,
             texCountEl,
@@ -5178,6 +5184,7 @@ function getSMOffset(meta) {
             const sliderMetal = parseFloat(glassMetalEl?.value ?? 1.0);
             const sliderTransmission = parseFloat(glassTransmissionEl?.value ?? 1);
             const sliderIor = parseFloat(glassIorEl?.value ?? 1.5);
+            const sliderAttenDist = parseFloat(glassAttenDistEl?.value ?? 0.2);
             const useGlobalOpacity = glassOpacityEl?.dataset.userSet === '1';
             const useGlobalIor = glassIorEl?.dataset.userSet === '1';
             const useGlobalTransmission = glassTransmissionEl?.dataset.userSet === '1';
@@ -5185,8 +5192,13 @@ function getSMOffset(meta) {
             const useGlobalRoughness = glassRoughEl?.dataset.userSet === '1';
             const useGlobalMetalness = glassMetalEl?.dataset.userSet === '1';
             const useGlobalColor = glassColorEl?.dataset.userSet === '1';
+            const useGlobalAttenDist = glassAttenDistEl?.dataset.userSet === '1';
+            const useGlobalAttenColor = glassAttenColorEl?.dataset.userSet === '1';
             const globalColorHex = useGlobalColor
                 ? normalizeHexColor(glassColorEl.value, '#FFFFFF')
+                : null;
+            const globalAttenColorHex = useGlobalAttenColor
+                ? normalizeHexColor(glassAttenColorEl.value, '#FFFFFF')
                 : null;
 
             function findGeoMetaForObject(obj) {
@@ -5305,6 +5317,13 @@ function getSMOffset(meta) {
             }
             let targetAttenuationDistance = original.attenuationDistance != null ? original.attenuationDistance : (Number.isFinite(std.attenuationDistance) ? std.attenuationDistance : null);
             let targetAttenuationColorHex = normalizeHexColor(original.attenuationColor, null);
+            if (useGlobalAttenDist) {
+                const fallback = Number.isFinite(sliderAttenDist) ? sliderAttenDist : (targetAttenuationDistance != null ? targetAttenuationDistance : 0.2);
+                targetAttenuationDistance = Math.max(0, fallback);
+            }
+            if (useGlobalAttenColor && globalAttenColorHex) {
+                targetAttenuationColorHex = globalAttenColorHex;
+            }
 
                     const hasOverrides = overrides && Object.keys(overrides).length > 0;
                     if (hasOverrides) {
@@ -5324,6 +5343,16 @@ function getSMOffset(meta) {
                             targetRefraction = overrides.refraction;
                             std.ior = overrides.refraction;
                             std.userData.refraction = overrides.refraction;
+                        }
+                        if (overrides.attenuationDistance != null) {
+                            targetAttenuationDistance = Math.max(0, overrides.attenuationDistance);
+                        }
+                        if (overrides.attenuationColor) {
+                            const overrideAttHex = normalizeHexColor(overrides.attenuationColor, targetAttenuationColorHex);
+                            if (overrideAttHex) {
+                                overrides.attenuationColor = overrideAttHex;
+                                targetAttenuationColorHex = overrideAttHex;
+                            }
                         }
                     }
 
@@ -5372,11 +5401,13 @@ function getSMOffset(meta) {
                             } catch (_) {}
                         }
                         if (targetAttenuationDistance != null) {
-                            std.attenuationDistance = Math.max(0, targetAttenuationDistance);
+                            const dist = Math.max(0, targetAttenuationDistance);
+                            std.attenuationDistance = dist;
+                            if ('thickness' in std) std.thickness = dist;
                         }
                     }
 
-                    const globalOverrideActive = useGlobalOpacity || useGlobalRoughness || useGlobalMetalness || useGlobalReflect || useGlobalColor || useGlobalTransmission || useGlobalIor;
+                    const globalOverrideActive = useGlobalOpacity || useGlobalRoughness || useGlobalMetalness || useGlobalReflect || useGlobalColor || useGlobalTransmission || useGlobalIor || useGlobalAttenDist || useGlobalAttenColor;
                     const infoSource = hasOverrides ? 'override' : (globalOverrideActive ? 'ui' : (glassParams ? 'geojson' : 'ui'));
                     const infoColorHex = normalizeHexColor(targetColorHex ?? (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null), null);
                     const info = {
@@ -5492,6 +5523,15 @@ function getSMOffset(meta) {
                     glassTransmissionEl.value = clamp01(firstOriginal.transmission).toFixed(2);
                     delete glassTransmissionEl.dataset.userSet;
                 }
+                if (glassAttenDistEl && firstOriginal.attenuationDistance != null) {
+                    glassAttenDistEl.value = Number(firstOriginal.attenuationDistance).toFixed(2);
+                    delete glassAttenDistEl.dataset.userSet;
+                }
+                if (glassAttenColorEl) {
+                    const attHex = normalizeHexColor(firstOriginal.attenuationColor, '#FFFFFF') || '#FFFFFF';
+                    glassAttenColorEl.value = attHex;
+                    delete glassAttenColorEl.dataset.userSet;
+                }
                 if (glassColorEl) {
                     const colorHex = normalizeHexColor(firstOriginal.color, '#FFFFFF') || '#FFFFFF';
                     glassColorEl.value = colorHex;
@@ -5505,6 +5545,8 @@ function getSMOffset(meta) {
                 glassRoughEl && delete glassRoughEl.dataset.userSet;
                 glassIorEl && delete glassIorEl.dataset.userSet;
                 glassTransmissionEl && delete glassTransmissionEl.dataset.userSet;
+                glassAttenDistEl && delete glassAttenDistEl.dataset.userSet;
+                glassAttenColorEl && delete glassAttenColorEl.dataset.userSet;
             }
 
             updateAllGlassDisplays();
@@ -5692,6 +5734,20 @@ function getSMOffset(meta) {
             glassTransmissionEl.addEventListener('input', () => {
                 glassTransmissionEl.dataset.userSet = '1';
                 updateGlassDisplay('glassTransmission');
+                handleGlobalGlassInput();
+            });
+        }
+        if (glassAttenDistEl) {
+            glassAttenDistEl.addEventListener('input', () => {
+                glassAttenDistEl.dataset.userSet = '1';
+                updateGlassDisplay('glassAttenDist');
+                handleGlobalGlassInput();
+            });
+        }
+        if (glassAttenColorEl) {
+            glassAttenColorEl.addEventListener('input', () => {
+                glassAttenColorEl.dataset.userSet = '1';
+                updateGlassDisplay('glassAttenColor');
                 handleGlobalGlassInput();
             });
         }
