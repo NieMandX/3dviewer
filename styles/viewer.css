@@ -682,3 +682,9 @@ body.side-hidden { --sideW: 0px; }
     flex-wrap: wrap;
     gap: 8px;
 }
+
+.future-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
