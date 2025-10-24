@@ -24,7 +24,6 @@
             <option value="">Примеры…</option>
         </select>
         <button id="statsBtn" class="btn" title="Показать статистику сцены">Stats</button>
-        <button id="loadParcelsBtn" class="btn" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
         <input id="fileInput" type="file" accept=".fbx,.zip" multiple hidden />
 
 
@@ -241,7 +240,13 @@
                 </div>
             </details>
 
-            <details id="glassGlobalDetails" open>
+                        <details id="futureDevDetails" open>
+                <summary>Future Dev</summary>
+                <div class="future-controls">
+                    <button id="loadParcelsBtn" class="btn" type="button" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
+                </div>
+            </details>
+<details id="glassGlobalDetails" open>
                 <summary>Global Glass Control</summary>
                 <div class="glass-controls glass-global-controls">
                     <div class="glass-group">

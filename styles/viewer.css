@@ -676,3 +676,9 @@ body.side-hidden { --sideW: 0px; }
     padding: 4px 10px;
     font-size: 13px;
 }
+
+.future-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
