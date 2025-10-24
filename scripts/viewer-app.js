@@ -2621,21 +2621,6 @@ function clearBeautyWire(mesh) {
         // =====================
         // Axis toggle
         // =====================
-        function setAxisUp(up = 'Y') {
-            if (up === 'Z') {
-                camera.up.set(0, 0, 1);
-                world.rotation.set(Math.PI / 2, 0, 0);
-            } else {
-                camera.up.set(0, 1, 0);
-                world.rotation.set(0, 0, 0);
-            }
-            controls.update();
-            fitAll();
-            fitSunShadowToScene()
-        }
-
-        axisSel.addEventListener('change', () => setAxisUp(axisSel.value));
-        setAxisUp('Y');
 
         // =====================
         // Utilities
