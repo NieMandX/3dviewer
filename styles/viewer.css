@@ -671,3 +671,8 @@ body.side-hidden { --sideW: 0px; }
     gap: 10px;
     margin-top: 12px;
 }
+
+.light-actions .btn {
+    padding: 4px 10px;
+    font-size: 13px;
+}

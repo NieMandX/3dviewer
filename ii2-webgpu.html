@@ -168,12 +168,7 @@
                                 <span class="light-label">Север</span>
                                 <input id="sunNorth" type="range" min="0" max="360" step="1" value="0" />
                             </div>
-                        <div class="light-actions">
-                            <button id="shadowDbgBtn" class="btn" title="Параметры теней">Shadows ⚙️</button>
-                            <button id="shadowHelpersBtn" class="btn" title="Показать объём теней">Shadow box</button>
-                            <button id="lightHelpersBtn" class="btn" title="Показать/скрыть хелперы источников света">Light helpers</button>
-                            <button id="lightEmittersBtn" class="btn" title="Включить/выключить импортированные источники света">Lights on/off</button>
-                        </div>
+                        
                         </div>
 
                         <div class="light-section-title">HDRI</div>
@@ -243,9 +238,14 @@
                                     <input id="hemiInt" type="range" min="0" max="10" step="0.05" value="1" />
                                     <input class="glass-value glass-value-input" data-light-value-for="hemiInt" type="number" min="0" max="10" step="0.05" value="1.00" inputmode="decimal" />
                                 </div>
-                                <div class="light-section-title">Lights</div>
-                                
                             </div>
+                            <div class="light-section-title">Lights</div>
+                            <div class="light-actions">
+                                <button id="shadowDbgBtn" class="btn" title="Параметры теней">Shadows ⚙️</button>
+                                <button id="shadowHelpersBtn" class="btn" title="Показать объём теней">Shadow box</button>
+                                <button id="lightHelpersBtn" class="btn" title="Показать/скрыть хелперы источников света">Light helpers</button>
+                                <button id="lightEmittersBtn" class="btn" title="Включить/выключить импортированные источники света">Lights on/off</button>
+                            </div>        
                         </div>
                     </div>
                 </div>
