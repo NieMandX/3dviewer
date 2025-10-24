@@ -585,7 +585,7 @@ class ViewerApp {
 
                         const material = new THREE.PointsMaterial({
                 color,
-                size: pointSize,
+                size: 0.8,
                 sizeAttenuation: false,
                 transparent: true,
                 opacity: 0.75,
