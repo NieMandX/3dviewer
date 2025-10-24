@@ -664,3 +664,10 @@ body.side-hidden { --sideW: 0px; }
     border-radius: 6px;
     font-size: 13px;
 }
+
+.light-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+}
