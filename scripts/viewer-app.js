@@ -1893,20 +1893,6 @@ class ViewerApp {
             if (changed) markSceneStatsDirty();
         }
 
-        document.getElementById('pointSize').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            world.traverse(o => {
-                if (o.isPoints && o.material?.isPointsMaterial) {
-                    o.material.size = val;
-                    o.material.needsUpdate = true;
-                }
-            });
-        });
-
-
-
-        
-
         // ================================
         // Edges (wireframe без диагоналей)
         // ================================
