@@ -1809,16 +1809,11 @@ class ViewerApp {
             const lines = [
                 `fps        : ${fpsText}`,
                 `draw calls : ${formatInt(renderInfo.drawCalls ?? renderInfo.calls ?? 0)}`,
-                `triangles  : ${formatInt(renderInfo.triangles || 0)}`,
                 `scene tris : ${formatInt(sceneStats.triangles || 0)}`,
-                `lines      : ${formatInt(renderInfo.lines || 0)}`,
-                `points     : ${formatInt(renderInfo.points || 0)}`,
-                `geometries : ${formatInt(mem.geometries || 0)}`,
-                `textures   : ${formatInt(mem.textures || 0)}`,
             ];
             if (programs) lines.push(`programs   : ${formatInt(programs)}`);
 
-            const html = [`<span class="stats-mode">${(app.activeRendererMode || "webgl").toUpperCase()}</span>`, ...lines].join('<br>');
+            const html = [`<span class="stats-mode">${(app.activeRendererMode || 'webgl').toUpperCase()}</span>`, ...lines].join('<br>');
             statsOverlayEl.innerHTML = html;
         }
 
