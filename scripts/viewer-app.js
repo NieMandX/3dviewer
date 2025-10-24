@@ -6264,6 +6264,13 @@ function getSMOffset(meta) {
         const fileInput = document.getElementById('fileInput');
         const openBtn = document.getElementById('openBtn');
 
+        const registerFileOpenTrigger = (el) => {
+            if (!el || !fileInput) return;
+            el.addEventListener('click', () => fileInput.click());
+        };
+        registerFileOpenTrigger(openBtn);
+        registerFileOpenTrigger(emptyHintEl);
+
         // =====================
         // LIGHT CONTROLL
         // =====================
