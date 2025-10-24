@@ -149,8 +149,8 @@ class ViewerApp {
         const hdriExposureEl  = document.getElementById('hdriExposure');
         const hdriSaturationEl= document.getElementById('hdriSaturation');
         const hdriBlurEl      = document.getElementById('hdriBlur');
-        const axisSel         = document.getElementById('axisSelect');
-        const isZUp = () => (axisSel?.value === 'Z'); // если нет селекта — вернёт false
+        const axisSel         = null;
+        const isZUp = () => false;
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
         const statsBtn        = document.getElementById('statsBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
@@ -583,8 +583,7 @@ class ViewerApp {
             geometry.setAttribute('position', attr);
             geometry.setDrawRange(0, array.length / 3);
 
-            const pointSize = 0.8;
-            const material = new THREE.PointsMaterial({
+                        const material = new THREE.PointsMaterial({
                 color,
                 size: pointSize,
                 sizeAttenuation: false,
