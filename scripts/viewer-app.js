@@ -6315,14 +6315,6 @@ function getSMOffset(meta) {
             });
         }
 
-        if (openBtn && fileInput) {
-            openBtn.addEventListener('click', () => fileInput.click());
-        }
-
-        if (emptyHintEl && fileInput) {
-            emptyHintEl.addEventListener('click', () => fileInput.click());
-        }
-
         if (fileInput) {
             fileInput.addEventListener('change', async (e) => {
                 const files = [...(e.target.files || [])];
