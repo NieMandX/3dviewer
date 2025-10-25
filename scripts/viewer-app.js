@@ -2023,11 +2023,16 @@ class ViewerApp {
         // не модифицировать дерево прямо во время обхода
         const targets = [];
         world.traverse(o => {
-            if (o.isMesh && !o.userData?._isBackfaceOverlay) targets.push(o);
+            if (!o.isMesh) return;
+            if (o.userData?._isBackfaceOverlay) return;
+            targets.push(o);
         });
 
         if (on) {
-            targets.forEach(m => ensureBackfaceOverlay(m, Array.isArray(m.material) ? m.material[0] : m.material));
+            targets.forEach(m => {
+                if (m.userData?.isCollision) return;
+                ensureBackfaceOverlay(m, Array.isArray(m.material) ? m.material[0] : m.material);
+            });
         } else {
             targets.forEach(removeBackfaceOverlay);
         }
