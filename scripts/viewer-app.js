@@ -38,7 +38,7 @@ let backfaceNodeSupport = null;
 
 if (USE_WEBGPU) {
     try {
-        const mod = await import('./vendor/three/src/renderers/webgpu/WebGPURenderer.js');
+        const mod = await import('three/src/renderers/webgpu/WebGPURenderer.js');
         WebGPURendererCtor = mod.WebGPURenderer || mod.default || null;
         if (!WebGPURendererCtor) {
             throw new Error('WebGPURenderer export not found');
@@ -61,10 +61,10 @@ if (USE_WEBGPU) {
             positionMod,
             tslMod,
         ] = await Promise.all([
-            import('./vendor/three/src/materials/nodes/MeshBasicNodeMaterial.js'),
-            import('./vendor/three/src/nodes/accessors/Normal.js'),
-            import('./vendor/three/src/nodes/accessors/Position.js'),
-            import('./vendor/three/src/nodes/tsl/TSLBase.js'),
+            import('three/src/materials/nodes/MeshBasicNodeMaterial.js'),
+            import('three/src/nodes/accessors/Normal.js'),
+            import('three/src/nodes/accessors/Position.js'),
+            import('three/src/nodes/tsl/TSLBase.js'),
         ]);
 
         if (MeshBasicNodeMaterial && normalMod?.normalView && positionMod?.positionViewDirection && tslMod?.float && tslMod?.vec3) {
