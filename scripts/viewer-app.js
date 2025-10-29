@@ -1861,7 +1861,7 @@ class ViewerApp {
 
         function getMatcap() {
             if (_matcapTex) return _matcapTex;
-            _matcapTex = texLd.load('https://threejs.org/examples/textures/matcaps/matcap-porcelain-white.jpg');
+            _matcapTex = texLd.load('https://raw.githubusercontent.com/nidorx/matcaps/1b1e43a338335b6401034d48488298966755d717/1024/1D3FCC_051B5F_81A0F2_5579E9.png');
             return _matcapTex;
         }
 
