@@ -1861,7 +1861,7 @@ class ViewerApp {
 
         function getMatcap() {
             if (_matcapTex) return _matcapTex;
-            _matcapTex = texLd.load('https://raw.githubusercontent.com/nidorx/matcaps/1b1e43a338335b6401034d48488298966755d717/1024/1D3FCC_051B5F_81A0F2_5579E9.png');
+            _matcapTex = texLd.load('https://raw.githubusercontent.com/nidorx/matcaps/1b1e43a338335b6401034d48488298966755d717/1024/2A2A2A_B3B3B3_6D6D6D_848C8C.png');
             return _matcapTex;
         }
 
@@ -4373,7 +4373,7 @@ function clearBeautyWire(mesh) {
                     std.clearcoat = m.clearcoat ?? 0;
                     std.clearcoatRoughness = m.clearcoatRoughness ?? 0;
                     std.transmission = m.transmission ?? 0;
-                    std.ior = m.ior ?? 1.5;
+                    std.ior = m.ior ?? 1.0;
                     std.thickness = m.thickness ?? 0;
                     std.attenuationColor = m.attenuationColor?.clone?.() ?? new THREE.Color(0xffffff);
                     std.attenuationDistance = m.attenuationDistance ?? Infinity;
@@ -4384,9 +4384,9 @@ function clearBeautyWire(mesh) {
                     std.iridescenceThicknessRange = m.iridescenceThicknessRange?.slice?.() ?? [100, 400];
                 } else {
                     std.clearcoat = 0;
-                    std.clearcoatRoughness = 0.25;
+                    std.clearcoatRoughness =1.0;
                     std.transmission = 0;
-                    std.ior = 1.5;
+                    std.ior = 1.0;
                     std.thickness = 0.1;
                     std.attenuationColor = new THREE.Color(0xffffff);
                     std.attenuationDistance = Infinity;
