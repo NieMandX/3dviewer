@@ -2,89 +2,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
-import {
-    configureParcels,
-    loadParcels,
-    createParcelsGroupFromGeoJSON,
-    setVPMReferenceHeight,
-    getVPMReferenceHeight,
-    parseGeoNumber,
-} from './modules/parcels.js';
-
-const REQUESTED_RENDERER_MODE = (() => {
-    const forced = globalThis.__LPMVIEW_RENDERER;
-    if (forced) return String(forced).toLowerCase();
-    if (typeof window !== 'undefined') {
-        const param = new URLSearchParams(window.location.search).get('renderer');
-        if (param) return param.toLowerCase();
-    }
-    return 'auto';
-})();
-const WEBGPU_SUPPORTED = typeof navigator !== 'undefined' && 'gpu' in navigator;
-let activeRendererMode = 'webgl';
-if (REQUESTED_RENDERER_MODE === 'webgl') {
-    activeRendererMode = 'webgl';
-} else if (REQUESTED_RENDERER_MODE === 'webgpu') {
-    activeRendererMode = WEBGPU_SUPPORTED ? 'webgpu' : 'webgl';
-} else {
-    activeRendererMode = WEBGPU_SUPPORTED ? 'webgpu' : 'webgl';
-}
-let USE_WEBGPU = activeRendererMode === 'webgpu';
-let WebGPURendererCtor = null;
-let webgpuModuleError = null;
-let rendererModeNote = '';
-let backfaceNodeSupport = null;
-
-if (USE_WEBGPU) {
-    try {
-        const mod = await import('three/src/renderers/webgpu/WebGPURenderer.js');
-        WebGPURendererCtor = mod.WebGPURenderer || mod.default || null;
-        if (!WebGPURendererCtor) {
-            throw new Error('WebGPURenderer export not found');
-        }
-        activeRendererMode = 'webgpu';
-    } catch (err) {
-        console.warn('WebGPU module load failed', err);
-        webgpuModuleError = err;
-        USE_WEBGPU = false;
-        activeRendererMode = 'webgl';
-        rendererModeNote = 'fallback: init failed';
-    }
-}
-
-if (USE_WEBGPU) {
-    try {
-        const [
-            { default: MeshBasicNodeMaterial },
-            normalMod,
-            positionMod,
-            tslMod,
-        ] = await Promise.all([
-            import('three/src/materials/nodes/MeshBasicNodeMaterial.js'),
-            import('three/src/nodes/accessors/Normal.js'),
-            import('three/src/nodes/accessors/Position.js'),
-            import('three/src/nodes/tsl/TSLBase.js'),
-        ]);
-
-        if (MeshBasicNodeMaterial && normalMod?.normalView && positionMod?.positionViewDirection && tslMod?.float && tslMod?.vec3) {
-            backfaceNodeSupport = {
-                MeshBasicNodeMaterial,
-                normalView: normalMod.normalView,
-                positionViewDirection: positionMod.positionViewDirection,
-                floatNode: tslMod.float,
-                vec3Node: tslMod.vec3,
-            };
-        }
-    } catch (err) {
-        console.warn('Backface node support init failed', err);
-        backfaceNodeSupport = null;
-    }
-}
-
-if (!USE_WEBGPU && REQUESTED_RENDERER_MODE === 'webgpu') {
-    rendererModeNote = 'fallback: unsupported';
-}
 
 class ViewerApp {
     constructor() {
@@ -130,9 +47,6 @@ class ViewerApp {
         
 
         const sunHourEl  = document.getElementById('sunHour');
-        const sunHourInputEl = document.getElementById('sunHourInput');
-        const sunIntensityEl = document.getElementById('sunIntensity');
-        const sunIntensityInputEl = document.getElementById('sunIntensityInput');
         const sunDayEl   = document.getElementById('sunDay');
         const sunMonthEl = document.getElementById('sunMonth');
         const sunNorthEl = document.getElementById('sunNorth');
@@ -140,34 +54,10 @@ class ViewerApp {
         const imagesDetails = document.getElementById('imagesDetails');
         const bindLogDetails = document.getElementById('bindLogDetails');
         
-        if (typeof document !== 'undefined') {
-            document.body?.setAttribute('data-renderer', activeRendererMode);
-        }
-
-        app.activeRendererMode = activeRendererMode;
-        app.rendererModeNote = rendererModeNote;
-        if (rendererModeNote) {
-            console.warn(rendererModeNote, webgpuModuleError || '');
-        }
-        app.activeRendererMode = activeRendererMode;
-        if (typeof globalThis !== 'undefined') {
-            globalThis.__LPMVIEW_ACTIVE_RENDERER = activeRendererMode;
-        }
 
         // Москва
-        const MOSCOW_LAT = 55.6666;
-        const MOSCOW_LON = 37.5;
-
-        const MOS_PARCELS = Object.freeze({
-            datasetId: 1497,
-            apiKey: '205841bf-e747-4627-87ba-dd0f36392884',
-            baseUrl: 'https://apidata.mos.ru/v1/datasets'
-        });
-        // const MOS_PARCELS_TARGET_GLOBAL_ID = '2703068986';
-        // const MOS_PARCELS_TARGET_GLOBAL_ID = '2703013442';
-        const MOS_PARCELS_TARGET_GLOBAL_ID = '';
-
-        const MOS_PARCELS_FILTER = null;
+        const MOSCOW_LAT = 55.7558;
+        const MOSCOW_LON = 37.6173;
 
         const iblChk          = document.getElementById('hdriChk');
         const hdriPresetSel   = document.getElementById('hdriPreset');
@@ -175,163 +65,15 @@ class ViewerApp {
         const iblGammaEl      = document.getElementById('iblGamma');
         const iblTintEl       = document.getElementById('iblTint');
         const iblRotEl        = document.getElementById('iblRot');
-        const hemiIntEl       = document.getElementById('hemiInt');
-        const hemiSkyEl       = document.getElementById('hemiSky');
-        const hemiGroundEl    = document.getElementById('hemiGround');
-        const hdriExposureEl  = document.getElementById('hdriExposure');
-        const hdriSaturationEl= document.getElementById('hdriSaturation');
-        const hdriBlurEl      = document.getElementById('hdriBlur');
-        const axisSel         = null;
-        const isZUp = () => false;
+        const axisSel         = document.getElementById('axisSelect');
+        const isZUp = () => (axisSel?.value === 'Z'); // если нет селекта — вернёт false
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
         const statsBtn        = document.getElementById('statsBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
 
-        const glassOpacityEl      = document.getElementById('glassOpacity');
-        const glassIorEl          = document.getElementById('glassIor');
-        const glassTransmissionEl = document.getElementById('glassTransmission');
-        const glassReflectEl      = document.getElementById('glassReflect');
-        const glassRoughEl        = document.getElementById('glassRough');
-        const glassMetalEl        = document.getElementById('glassMetal');
-        const glassAttenDistEl    = document.getElementById('glassAttenDist');
-        const glassAttenColorEl   = document.getElementById('glassAttenColor');
-        const glassColorEl        = document.getElementById('glassColor');
-        const glassResetBtn       = document.getElementById('glassReset');
-
-        const glassValueDisplays = new Map();
-
-        function registerGlassDisplay(id, input) {
-            if (!input) return;
-            const display = document.querySelector(`[data-value-for="${id}"]`);
-            if (!display) return;
-            glassValueDisplays.set(id, { input, display });
-        }
-
-        function sliderStepDecimals(input) {
-            if (!input) return 2;
-            const stepAttr = input.getAttribute?.('step');
-            if (!stepAttr || stepAttr === 'any') return 2;
-            if (stepAttr.includes('.')) {
-                const decimals = stepAttr.split('.')[1]?.length || 0;
-                return Math.min(Math.max(decimals, 0), 4);
-            }
-            return 0;
-        }
-
-        function applyGlassDisplay(entry) {
-            if (!entry) return;
-            const { input, display } = entry;
-            if (!display || !input) return;
-            if (input.type === 'color') {
-                const val = String(input.value || '').toUpperCase();
-                if (display instanceof HTMLInputElement) display.value = val;
-                else display.textContent = val;
-                return;
-            }
-            const numeric = parseFloat(input.value);
-            if (!Number.isFinite(numeric)) {
-                if (display instanceof HTMLInputElement) display.value = input.value || '';
-                else display.textContent = input.value || '';
-                return;
-            }
-            const formatted = numeric.toFixed(sliderStepDecimals(input));
-            if (display instanceof HTMLInputElement) display.value = formatted;
-            else display.textContent = formatted;
-        }
-
-        function updateGlassDisplay(id) {
-            applyGlassDisplay(glassValueDisplays.get(id));
-        }
-
-        function updateAllGlassDisplays() {
-            glassValueDisplays.forEach(applyGlassDisplay);
-        }
-
-        registerGlassDisplay('glassOpacity', glassOpacityEl);
-        registerGlassDisplay('glassReflect', glassReflectEl);
-        registerGlassDisplay('glassRough', glassRoughEl);
-        registerGlassDisplay('glassMetal', glassMetalEl);
-        registerGlassDisplay('glassIor', glassIorEl);
-        registerGlassDisplay('glassTransmission', glassTransmissionEl);
-        registerGlassDisplay('glassAttenDist', glassAttenDistEl);
-        registerGlassDisplay('glassAttenColor', glassAttenColorEl);
-        registerGlassDisplay('glassColor', glassColorEl);
-        updateAllGlassDisplays();
-
-        const lightValueDisplays = new Map();
-
-        function registerLightDisplay(id, slider) {
-            if (!slider) return;
-            const display = document.querySelector(`[data-light-value-for="${id}"]`);
-            if (!display || !(display instanceof HTMLInputElement)) return;
-            lightValueDisplays.set(id, { slider, display });
-            slider.addEventListener('input', () => updateLightDisplay(id));
-        }
-
-        function applyLightDisplay(entry) {
-            if (!entry) return;
-            const { slider, display } = entry;
-            if (!slider || !(display instanceof HTMLInputElement)) return;
-            const numeric = parseFloat(slider.value);
-            if (!Number.isFinite(numeric)) {
-                display.value = slider.value || '';
-                return;
-            }
-            display.value = numeric.toFixed(sliderStepDecimals(slider));
-        }
-
-        function updateLightDisplay(id) {
-            applyLightDisplay(lightValueDisplays.get(id));
-        }
-
-        function updateAllLightDisplays() {
-            lightValueDisplays.forEach(applyLightDisplay);
-        }
-
-        function commitLightDisplayInput(id) {
-            const entry = lightValueDisplays.get(id);
-            if (!entry) return;
-            const { slider, display } = entry;
-            if (!slider || !(display instanceof HTMLInputElement)) return;
-
-            const raw = (display.value || '').replace(',', '.').trim();
-            const parsed = parseFloat(raw);
-            if (!Number.isFinite(parsed)) {
-                updateLightDisplay(id);
-                return;
-            }
-
-            let next = clampValueToSlider(slider, parsed);
-            next = snapValueToStep(slider, next);
-            next = clampValueToSlider(slider, next);
-
-            const decimals = sliderStepDecimals(slider);
-            const formatted = Number.isFinite(decimals) ? next.toFixed(decimals) : String(next);
-
-            slider.value = formatted;
-            display.value = formatted;
-            updateLightDisplay(id);
-            slider.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        function attachLightDisplayInputs() {
-            lightValueDisplays.forEach(({ display }, id) => {
-                if (!(display instanceof HTMLInputElement)) return;
-                const commit = () => commitLightDisplayInput(id);
-                display.addEventListener('change', commit);
-                display.addEventListener('blur', commit);
-                display.addEventListener('keydown', (event) => {
-                    if (event.key === 'Enter') {
-                        event.preventDefault();
-                        commit();
-                        display.blur();
-                    } else if (event.key === 'Escape') {
-                        updateLightDisplay(id);
-                        display.blur();
-                    }
-                });
-            });
-        }
+        const glassOpacityEl  = document.getElementById('glassOpacity');
+        const glassReflectEl  = document.getElementById('glassReflect');
+        const glassMetalEl    = document.getElementById('glassMetal');
 
         const outEl           = document.getElementById('out');
         const galleryEl       = document.getElementById('gallery');
@@ -341,19 +83,6 @@ class ViewerApp {
 
         const bgAlphaEl       = document.getElementById('bgAlpha');
         bgAlphaEl.addEventListener('input', updateBgVisibility);
-
-        [
-            ['hemiInt', hemiIntEl],
-            ['bgAlpha', bgAlphaEl],
-            ['iblInt', iblIntEl],
-            ['iblGamma', iblGammaEl],
-            ['iblRot', iblRotEl],
-            ['hdriExposure', hdriExposureEl],
-            ['hdriSaturation', hdriSaturationEl],
-            ['hdriBlur', hdriBlurEl],
-        ].forEach(([id, slider]) => registerLightDisplay(id, slider));
-        updateAllLightDisplays();
-        attachLightDisplayInputs();
 
         const sampleSelect    = document.getElementById('sampleSelect');
 
@@ -365,8 +94,6 @@ class ViewerApp {
         let gallerySpacerEl = null;
         let lastFinalizedModelIndex = 0;
         let needsRender = true;
-        let parcelsGroup = null;
-        let parcelsOrigin = null;
         const panelState = {
             rootDetails: null,
             ungroupedMarker: null,
@@ -377,9 +104,6 @@ class ViewerApp {
         let lastStatsUpdate = 0;
         let fpsEstimate = 0;
         let lastFrameTime = 0;
-        let lastRenderStats = null;
-        let sceneStatsDirty = true;
-        let cachedSceneStats = { triangles: 0 };
         app.dom = {
             rootEl,
             dropEl,
@@ -402,12 +126,8 @@ class ViewerApp {
             axisSel,
             toggleSideBtn,
             glassOpacityEl,
-            glassIorEl,
-            glassTransmissionEl,
             glassReflectEl,
             glassMetalEl,
-            glassAttenDistEl,
-            glassAttenColorEl,
             outEl,
             galleryEl,
             texCountEl,
@@ -430,74 +150,10 @@ class ViewerApp {
         // THREE.js scene init
         // =====================
         const scene    = new THREE.Scene();
-        scene.background = new THREE.Color(0xffffff);
+        scene.background = new THREE.Color(0xf5f5f7);
 
         const world    = new THREE.Group();
         scene.add(world);
-
-        function markSceneStatsDirty() {
-            sceneStatsDirty = true;
-        }
-
-        function isObjectGloballyVisible(obj) {
-            let current = obj;
-            while (current) {
-                if (current.visible === false) return false;
-                current = current.parent;
-            }
-            return true;
-        }
-
-        function estimateTrianglesForMesh(mesh) {
-            const geometry = mesh.geometry;
-            if (!geometry) return 0;
-
-            const instanceMultiplier = mesh.isInstancedMesh ? Math.max(0, mesh.count || 0) : 1;
-
-            if (Array.isArray(mesh.material) && geometry.groups?.length) {
-                let grouped = 0;
-                geometry.groups.forEach(group => {
-                    if (!group || typeof group.count !== 'number' || group.count <= 0) return;
-                    const mat = mesh.material[group.materialIndex];
-                    if (!mat || mat.visible === false) return;
-                    grouped += group.count / 3;
-                });
-                if (grouped > 0 && Number.isFinite(grouped)) {
-                    return Math.max(0, Math.floor(grouped)) * instanceMultiplier;
-                }
-            }
-
-            if (geometry.index && geometry.index.count) {
-                return Math.max(0, Math.floor(geometry.index.count / 3)) * instanceMultiplier;
-            }
-            const position = geometry.attributes?.position;
-            if (position && position.count) {
-                return Math.max(0, Math.floor(position.count / 3)) * instanceMultiplier;
-            }
-            return 0;
-        }
-
-        function getSceneGeometryStats() {
-            if (!sceneStatsDirty && cachedSceneStats) return cachedSceneStats;
-            const stats = { triangles: 0 };
-            if (!world) {
-                cachedSceneStats = stats;
-                sceneStatsDirty = false;
-                return stats;
-            }
-            world.traverse(obj => {
-                if (!obj?.isMesh) return;
-                if (obj.userData?._isBackfaceOverlay) return;
-                if (!isObjectGloballyVisible(obj)) return;
-                if (obj.material && Array.isArray(obj.material) && obj.material.every(mat => mat && mat.visible === false)) return;
-                if (obj.material && !Array.isArray(obj.material) && obj.material.visible === false) return;
-                const triCount = estimateTrianglesForMesh(obj);
-                if (triCount > 0) stats.triangles += triCount;
-            });
-            cachedSceneStats = stats;
-            sceneStatsDirty = false;
-            return stats;
-        }
 
         let bgMesh = null; // background sphere used to show HDRI
         app.bgMesh = bgMesh;
@@ -505,44 +161,16 @@ class ViewerApp {
         const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
         camera.position.set(2.5, 1.5, 3.5);
 
-        const renderer = USE_WEBGPU && WebGPURendererCtor
-            ? new WebGPURendererCtor({ antialias: true })
-            : new THREE.WebGLRenderer({ antialias: true });
-        app.renderer = renderer;
-        if (renderer.info && Object.prototype.hasOwnProperty.call(renderer.info, 'autoReset')) {
-            renderer.info.autoReset = false;
-        }
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
 
-        let rendererReady = !USE_WEBGPU;
-        let rendererInitPromise = Promise.resolve();
-        if (USE_WEBGPU && typeof renderer.init === 'function') {
-            rendererInitPromise = renderer.init()
-                .then(() => {
-                    rendererReady = true;
-                    requestRender();
-                })
-                .catch(err => {
-                    console.error('WebGPU init failed', err);
-                    setStatusMessage('⚠️ WebGPU: не удалось инициализировать рендерер.');
-                });
-        } else if (USE_WEBGPU) {
-            rendererReady = true;
-        }
-        app.rendererInitPromise = rendererInitPromise;
+        // ➕ ВКЛЮЧАЕМ ТЕНИ
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; // можно VSM, если хотите более мягкие
 
-        if ('shadowMap' in renderer) {
-            renderer.shadowMap.enabled = true;
-            if (renderer.shadowMap && 'type' in renderer.shadowMap) {
-                renderer.shadowMap.type = THREE.PCFSoftShadowMap; // можно VSM, если хотите более мягкие
-            }
-        }
-
-        if (typeof devicePixelRatio === 'number' && renderer.setPixelRatio) {
-            renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-        }
-        if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
-        if ('toneMapping' in renderer) renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        if ('toneMappingExposure' in renderer) renderer.toneMappingExposure = 1.0;
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
         rootEl.appendChild(renderer.domElement);
 
         
@@ -567,254 +195,95 @@ class ViewerApp {
 
 
 
-        const GRID_SIZE = 100;
-        const grid = createPointGridHelper({ size: GRID_SIZE, divisions: 100, color: 0x888888 });
-        grid.userData.excludeFromBounds = true;
-        scene.add(grid);
-        app.grid = grid;
+        const grid = new THREE.GridHelper(100, 100, 0x666666, 0x999999);
+        grid.material.transparent = true;
+        grid.material.opacity = 0.5;
+        grid.userData.excludeFromBounds = true; // ← исключать из bbox
+        
+       scene.add(grid);
 
         const northPointer = createNorthPointer();
-        scene.add(northPointer);
+        world.add(northPointer);
         app.northPointer = northPointer;
 
         const _northTmpDir = new THREE.Vector3();
         const _northBaseVec = new THREE.Vector3();
         const _northUpVec = new THREE.Vector3();
-        const _northPlaneVec2 = new THREE.Vector2();
-        const _glassTmpColor = new THREE.Color();
+        const _northOffsetVec = new THREE.Vector3();
+        const _northLabelOffset = new THREE.Vector3();
 
         function createNorthPointer() {
+            const length = 2.5;
             const color = 0xff3d00;
             const group = new THREE.Group();
             group.name = 'NorthPointer';
             group.userData.excludeFromBounds = true;
 
-            const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 });
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 1], 3));
-            const line = new THREE.Line(geometry, material);
-            line.frustumCulled = false;
-            line.userData.excludeFromBounds = true;
-            group.add(line);
+            const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), length, color, length * 0.35, length * 0.22);
+            arrow.cone.castShadow = false;
+            arrow.cone.receiveShadow = false;
+            group.add(arrow);
 
-            group.userData.line = line;
-            return group;
-        }
+            const label = createNorthLabelSprite();
+            group.add(label);
 
-        function createPointGridHelper({ size = 100, divisions = 10, color = 0x888888 } = {}) {
-            const group = new THREE.Group();
-            group.name = 'PointGrid';
-
-            const half = size * 0.5;
-            const step = divisions > 0 ? size / divisions : size;
-
-            const positions = [];
-            for (let x = -half; x <= half + 1e-6; x += step) {
-                for (let z = -half; z <= half + 1e-6; z += step) {
-                    positions.push(x, 0, z);
-                }
-            }
-
-            const geometry = new THREE.BufferGeometry();
-            const array = new Float32Array(positions);
-            const attr = new THREE.BufferAttribute(array, 3);
-            geometry.setAttribute('position', attr);
-            geometry.setDrawRange(0, array.length / 3);
-
-                        const material = new THREE.PointsMaterial({
-                color,
-                size: 0.8,
-                sizeAttenuation: false,
-                transparent: true,
-                opacity: 0.75,
-            });
-
-            const points = new THREE.Points(geometry, material);
-            points.renderOrder = -10;
-            points.userData.excludeFromBounds = true;
-            points.isGridHelper = true;
-
-            group.add(points);
-            group.userData.excludeFromBounds = true;
-            group.isGridHelper = true;
-
-            group.userData.gridSize = size;
-            group.userData.step = step;
-            group.userData.geometry = geometry;
-            group.userData.basePositions = array.slice(0);
-            group.userData.lineLength = size * 0.5;
+            group.userData.arrow = arrow;
+            group.userData.label = label;
+            group.userData.length = length;
 
             return group;
         }
 
-        function alignParcelsGroupToNorth() {
-            if (!parcelsGroup) return;
+        function createNorthLabelSprite() {
+            const size = 256;
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+            ctx.fillStyle = 'rgba(0,0,0,0)';
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = '#ff3d00';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${Math.round(size * 0.6)}px sans-serif`;
+            ctx.fillText('N', size * 0.5, size * 0.5);
 
-            parcelsGroup.rotation.set(0, 0, 0);
-            parcelsGroup.quaternion.identity();
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.needsUpdate = true;
 
-            parcelsGroup.updateMatrixWorld(true);
-            requestRender();
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.setScalar(0.6);
+            sprite.userData.excludeFromBounds = true;
+            return sprite;
         }
 
         function updateNorthPointer() {
             if (!northPointer) return;
-            const line = northPointer.userData?.line;
-            if (!line) return;
+            const arrow = northPointer.userData?.arrow;
+            if (!arrow) return;
+            const length = northPointer.userData?.length ?? 2.5;
+            const label = northPointer.userData?.label ?? null;
 
             const northDeg = parseFloat(sunNorthEl?.value) || 0;
             const up = isZUp() ? _northUpVec.set(0, 0, 1) : _northUpVec.set(0, 1, 0);
             const base = isZUp() ? _northBaseVec.set(0, 1, 0) : _northBaseVec.set(0, 0, 1);
 
             const dir = _northTmpDir.copy(base).applyAxisAngle(up, THREE.MathUtils.degToRad(-northDeg)).normalize();
-            dir.multiplyScalar(-1);
-            const gridSize = (app.grid?.userData?.gridSize) ?? GRID_SIZE;
-            const lineLength = gridSize * 0.5;
+            arrow.setDirection(dir);
+            arrow.setLength(length, length * 0.35, length * 0.2);
 
-            const positions = line.geometry.attributes.position.array;
-            positions[0] = 0; positions[1] = 0; positions[2] = 0;
-            positions[3] = dir.x * lineLength;
-            positions[4] = dir.y * lineLength;
-            positions[5] = dir.z * lineLength;
-            line.geometry.attributes.position.needsUpdate = true;
+            const posOffset = _northOffsetVec.copy(up).multiplyScalar(length * 0.05);
+            northPointer.position.copy(posOffset);
 
-            northPointer.position.set(0, 0, 0);
-            app.northDirection = dir.clone();
+            if (label) {
+                const labelOffset = _northLabelOffset.copy(dir).setLength(length + 0.3);
+                labelOffset.add(up.clone().multiplyScalar(length * 0.12));
+                label.position.copy(labelOffset);
+            }
 
-            updateGridNorthGap(dir, lineLength);
-            alignParcelsGroupToNorth();
             requestRender();
-        }
-
-        function updateGridNorthGap(dir, lineLength) {
-            const gridHelper = app.grid;
-            if (!gridHelper) return;
-            const geometry = gridHelper.userData?.geometry;
-            const basePositions = gridHelper.userData?.basePositions;
-            if (!geometry || !basePositions) return;
-
-            const attr = geometry.attributes.position;
-            const arr = attr.array;
-            const step = gridHelper.userData.step || 1;
-            const size = gridHelper.userData.gridSize || GRID_SIZE;
-
-            let maxAlong = lineLength;
-            if (maxAlong == null) {
-                maxAlong = gridHelper.userData.lineLength;
-                if (maxAlong == null) maxAlong = size * 0.5;
-            }
-            const cutoff = maxAlong + step * 0.5;
-            const threshold = Math.max(step * 0.5, 0.2);
-            const forwardTolerance = Math.min(step * 0.25, 0.1);
-
-            const vec2 = isZUp()
-                ? _northPlaneVec2.set(dir.x, dir.y)
-                : _northPlaneVec2.set(dir.x, dir.z);
-            let len = vec2.length();
-            if (!Number.isFinite(len) || len < 1e-6) {
-                vec2.set(0, 1);
-                len = 1;
-            }
-            vec2.divideScalar(len);
-
-            let write = 0;
-            for (let i = 0; i < basePositions.length; i += 3) {
-                const x = basePositions[i];
-                const y = basePositions[i + 1];
-                const z = basePositions[i + 2];
-                const px = x;
-                const pz = z;
-
-                const along = px * vec2.x + pz * vec2.y;
-                const perp = Math.abs(px * vec2.y - pz * vec2.x);
-                const masked = along >= -forwardTolerance && along <= cutoff && perp <= threshold;
-
-                if (!masked) {
-                    arr[write] = x;
-                    arr[write + 1] = y;
-                    arr[write + 2] = z;
-                    write += 3;
-                }
-            }
-
-            attr.needsUpdate = true;
-            geometry.setDrawRange(0, write / 3);
-            geometry.computeBoundingSphere();
-        }
-
-        configureParcels({
-            apiKey: MOS_PARCELS.apiKey,
-            datasetId: MOS_PARCELS.datasetId,
-            baseUrl: MOS_PARCELS.baseUrl,
-            filter: MOS_PARCELS_FILTER,
-            targetGlobalId: MOS_PARCELS_TARGET_GLOBAL_ID,
-            resetOrigin: true,
-        });
-
-        const buildParcelsGroup = (geojson, overrides = {}) => createParcelsGroupFromGeoJSON(geojson, {
-            origin: parcelsOrigin,
-            verticalIsZ: isZUp(),
-            referenceHeight: overrides.referenceHeight ?? getVPMReferenceHeight(),
-        });
-
-        async function loadMosParcels(options = {}) {
-            const {
-                fetchAll = true,
-                batchSize = 200,
-                maxRecords = MOS_PARCELS_TARGET_GLOBAL_ID ? 1 : 10000,
-                initialTop = 200,
-                filter = MOS_PARCELS_FILTER,
-                targetGlobalId = MOS_PARCELS_TARGET_GLOBAL_ID,
-            } = options;
-
-            try {
-                setStatusMessage('Загрузка участков data.mos.ru…');
-
-                const { features, processedCount } = await loadParcels({
-                    fetchAll,
-                    batchSize,
-                    initialTop,
-                    maxRecords,
-                    filter,
-                    targetGlobalId,
-                    onProgress: ({ collectedCount, processedCount }) => {
-                        setStatusMessage(`Загрузка участков… найдено ${collectedCount} из ${processedCount}`);
-                    },
-                });
-
-                if (!features.length) {
-                    setStatusMessage('Участки не найдены');
-                    return;
-                }
-
-                const aggregated = { type: 'FeatureCollection', features };
-                const group = buildParcelsGroup(aggregated);
-                if (!group) {
-                    setStatusMessage(`Участки не найдены (0 контуров среди ${features.length} записей)`);
-                    return;
-                }
-
-                if (parcelsGroup) {
-                    world.remove(parcelsGroup);
-                    parcelsGroup.traverse(o => o.geometry?.dispose?.());
-                    markSceneStatsDirty();
-                }
-
-                parcelsGroup = group;
-                parcelsOrigin = group.userData.originMeters || parcelsOrigin;
-                world.add(parcelsGroup);
-                alignParcelsGroupToNorth();
-                app.layers.parcels = parcelsGroup;
-                markSceneStatsDirty();
-
-                logBind?.(`MOS parcels: загружено ${group.children.length} контуров (обработано ${features.length})`, 'info');
-                schedulePanelRefresh();
-                requestRender();
-                setStatusMessage('');
-            } catch (err) {
-                console.error(err);
-                setStatusMessage('Не удалось загрузить участки: ' + (err?.message || err));
-            }
         }
 
         updateNorthPointer();
@@ -827,7 +296,6 @@ class ViewerApp {
         app.dirLight = dirLight;
         app.grid = grid;
         app.sun = { enabled: sunEnabled, direction: sunDir.clone() };
-        app.layers = { parcels: null };
 
 
 
@@ -1082,25 +550,21 @@ class ViewerApp {
 
         let pmremGen     = app.pmremGen     = null;      // PMREM generator (lazy)
         let hdrBaseTex   = app.hdrBaseTex   = null;      // original equirect HDR (DataTexture)
-        const DEFAULT_ENV_URL = 'exr/forest-01-1024.exr';
-        const FALLBACK_HDR_URL = 'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr';
-
         const HDRI_LIBRARY = [
-            { name: "Forest EXR (local)", url: DEFAULT_ENV_URL },
             { name: "Royal Esplanade",    url: "https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
             { name: "Venice Sunset",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr" },
-            // { name: "Blouberg Sunrise",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/blouberg_sunrise_1k.hdr" },
-            // { name: "Tropical Beach",     url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tropical_beach_1k.hdr" },
-            // { name: "Country Field",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/country_field_1k.hdr" },
-            // { name: "Construction Site",  url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/construction_1k.hdr" },
+            { name: "Blouberg Sunrise",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/blouberg_sunrise_1k.hdr" },
+            { name: "Tropical Beach",     url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tropical_beach_1k.hdr" },
+            { name: "Country Field",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/country_field_1k.hdr" },
+            { name: "Construction Site",  url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/construction_1k.hdr" },
             { name: "Skyline Rooftop",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/roof_garden_1k.hdr" },
-            // { name: "City Overpass",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/urban_overpass_1k.hdr" },
-            // { name: "Forest Trail",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/forest_trail_1k.hdr" },
+            { name: "City Overpass",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/urban_overpass_1k.hdr" },
+            { name: "Forest Trail",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/forest_trail_1k.hdr" },
             { name: "Rocky Ridge",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/rocky_ridge_1k.hdr" },
             { name: "Mountain Sunset",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/mountain_sunset_1k.hdr" },
-            // { name: "Industrial Yard",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/industrial_pipe_1k.hdr" },
-            // { name: "Tokyo Night",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tokyo_neon_1k.hdr" },
-            // { name: "Small Hangar",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hangar_1k.hdr" },
+            { name: "Industrial Yard",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/industrial_pipe_1k.hdr" },
+            { name: "Tokyo Night",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tokyo_neon_1k.hdr" },
+            { name: "Small Hangar",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hangar_1k.hdr" },
             { name: "Studio Small",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" }
         ];
         let currentEnv   = app.currentEnv   = null;      // pmrem result (for scene.environment)
@@ -1209,6 +673,11 @@ class ViewerApp {
         // =====================
         // Layout helper
         // =====================
+        function getCssNumber(varName) {
+            const v = getComputedStyle(document.body).getPropertyValue(varName).trim();
+            const n = parseFloat(v || '0');
+            return Number.isFinite(n) ? n : 0;
+        }
         /** Инвертирует equirectangular HDR по вертикали (для корректного отображения). */
         function flipHDRTextureVertically(srcTex) {
             const { data, width, height } = srcTex.image;
@@ -1235,8 +704,9 @@ class ViewerApp {
             const appH = Math.ceil(appbar?.getBoundingClientRect().height || 48);
             document.body.style.setProperty('--appbarH', appH + 'px');
 
-            // 2) compute canvas size (side panel overlays, so use full width)
-            const w = Math.max(1, window.innerWidth);
+            // 2) compute canvas size (account for side panel)
+            const sideW = getCssNumber('--sideW');
+            const w = Math.max(1, window.innerWidth - sideW);
             const h = Math.max(1, window.innerHeight - appH);
             renderer.setSize(w, h);
             camera.aspect = w / h;
@@ -1246,17 +716,6 @@ class ViewerApp {
 
         window.addEventListener('resize', layout);
         toggleSideBtn.addEventListener('click', () => { document.body.classList.toggle('side-hidden'); layout(); });
-        loadParcelsBtn?.addEventListener('click', () => loadMosParcels({ fetchAll: true, batchSize: 1000, maxRecords: 20000 }));
-
-        function hideSidePanel() {
-            if (!document?.body) return;
-            if (!document.body.classList.contains('side-hidden')) {
-                document.body.classList.add('side-hidden');
-                try { layout(); } catch (_) {}
-            }
-        }
-
-        hideSidePanel();
 
    
 
@@ -1295,7 +754,7 @@ class ViewerApp {
                     let shadowFrustumScale = 1;
 
                     /** Подгоняет orthographic frustum для directional light под текущую сцену. */
-                    function fitSunShadowToScene(recenterTarget = false, margin = 1.3) {
+                    function fitSunShadowToScene(recenterTarget = false, margin = 1.1) {
                         if (!dirLight || !dirLight.shadow || !dirLight.shadow.camera) return;
 
                         const box = computeSceneBounds();
@@ -1435,35 +894,19 @@ class ViewerApp {
         // =====================
         // HDR / IBL handling
         // =====================
-        async function loadEquirectTexture(url) {
-            const lower = String(url || '').toLowerCase();
-            let tex;
-            if (lower.endsWith('.exr')) {
-                tex = await new EXRLoader().loadAsync(url);
-            } else {
-                tex = await new HDRLoader().loadAsync(url);
-                tex = flipHDRTextureVertically(tex);
-            }
-            tex.mapping = THREE.EquirectangularReflectionMapping;
-            tex.wrapS = THREE.RepeatWrapping;
-            tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.flipY = false;
-            if ('flipX' in tex) tex.flipX = false;
-            if ('flipZ' in tex) tex.flipZ = false;
-            if ('colorSpace' in tex) tex.colorSpace = THREE.LinearSRGBColorSpace;
-            tex.needsUpdate = true;
-            return tex;
-        }
-
         async function loadHDRBase() {
             if (hdrBaseTex) return hdrBaseTex;
-            try {
-                hdrBaseTex = await loadEquirectTexture(DEFAULT_ENV_URL);
-            } catch (err) {
-                console.warn('Default EXR environment failed to load, falling back to HDR.', err);
-                hdrBaseTex = await loadEquirectTexture(FALLBACK_HDR_URL);
-            }
+            const base = 'https://threejs.org/examples/textures/equirectangular/';
+            const file = 'royal_esplanade_1k.hdr';
+            hdrBaseTex = await new HDRLoader().setPath(base).loadAsync(file);
             app.hdrBaseTex = hdrBaseTex;
+            hdrBaseTex.mapping = THREE.EquirectangularReflectionMapping;
+            hdrBaseTex.wrapS = THREE.RepeatWrapping;
+            hdrBaseTex.wrapT = THREE.ClampToEdgeWrapping;
+            hdrBaseTex.flipY = false;
+            hdrBaseTex.flipX = false;
+            hdrBaseTex.flipZ = false;
+            hdrBaseTex.needsUpdate = true;
             return hdrBaseTex;
         }
 
@@ -1510,17 +953,13 @@ class ViewerApp {
 
             // «Север» — это поворот сцены относительно географического севера.
             // Если крутилка в UI ощущается "наоборот", замените +northRad на -northRad.
-            const northRad = THREE.MathUtils.degToRad(north) + Math.PI;
+            const northRad = THREE.MathUtils.degToRad(north);
 
             // Единичный вектор направления света (Y — вверх)
-            const fullTurn = Math.PI * 2;
-            const correctedAzimuth = (fullTurn - ((azimuth % fullTurn) + fullTurn) % fullTurn);
-            const angle = correctedAzimuth - northRad;
-
             const dir = new THREE.Vector3(
-                Math.cos(altitude) * Math.sin(angle),
+                Math.cos(altitude) * Math.sin(azimuth - northRad), // <— обратите внимание на знак
                 Math.sin(altitude),
-                Math.cos(altitude) * Math.cos(angle)
+                Math.cos(altitude) * Math.cos(azimuth - northRad)
             ).normalize();
             app.sun.direction = dir.clone();
 
@@ -1578,78 +1017,16 @@ class ViewerApp {
             return tex;
         }
 
-        function clampNumericInput(value, min, max) {
-            if (!Number.isFinite(value)) return null;
-            if (min != null) value = Math.max(min, value);
-            if (max != null) value = Math.min(max, value);
-            return value;
-        }
-
         function syncEnvAdjustmentsState() {
             const gamma = Math.max(0.01, parseFloat(iblGammaEl?.value) || 1.0);
             const tintHex = (iblTintEl?.value && /^#/u.test(iblTintEl.value)) ? iblTintEl.value : '#ffffff';
             const tintLinear = new THREE.Color(tintHex).convertSRGBToLinear();
-            const exposure = clampNumericInput(parseFloat(hdriExposureEl?.value), 0, 2) ?? 1;
-            const saturation = clampNumericInput(parseFloat(hdriSaturationEl?.value), 0, 2) ?? 1;
-            const blur = clampNumericInput(parseFloat(hdriBlurEl?.value), 0, 1) ?? 0;
-            const state = { gamma, tintHex, tintLinear, exposure, saturation, blur };
+            const state = { gamma, tintHex, tintLinear };
             app.envAdjustments = state;
             return state;
         }
 
-        function applySimpleBlurToData(data, width, height, stride, amount) {
-            if (!(amount > 1e-3)) return;
-            const neighborWeight = amount * 0.5;
-            const centerWeight = 1;
-            const totalWeight = centerWeight + neighborWeight * 4;
-            const tmp = new (data.constructor)(data.length);
-
-            const sampleIndex = (x, y) => {
-                const sx = (x % width + width) % width;
-                const sy = Math.min(height - 1, Math.max(0, y));
-                return (sy * width + sx) * stride;
-            };
-
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    let r = 0, g = 0, b = 0;
-                    let weight = 0;
-
-                    const addSample = (ix, iy, w) => {
-                        const idx = sampleIndex(ix, iy);
-                        r += data[idx] * w;
-                        g += data[idx + 1] * w;
-                        b += data[idx + 2] * w;
-                        weight += w;
-                    };
-
-                    addSample(x, y, centerWeight);
-                    addSample(x - 1, y, neighborWeight);
-                    addSample(x + 1, y, neighborWeight);
-                    addSample(x, y - 1, neighborWeight);
-                    addSample(x, y + 1, neighborWeight);
-
-                    const outIdx = (y * width + x) * stride;
-                    const invW = weight > 0 ? (1 / weight) : 1;
-                    tmp[outIdx] = r * invW;
-                    tmp[outIdx + 1] = g * invW;
-                    tmp[outIdx + 2] = b * invW;
-
-                    for (let s = 3; s < stride; s++) {
-                        tmp[outIdx + s] = data[outIdx + s];
-                    }
-                }
-            }
-            data.set(tmp);
-        }
-
-        function applyHDRAdjustments(dataTex, {
-            gamma = 1.0,
-            tintColor = null,
-            exposure = 1.0,
-            saturation = 1.0,
-            blur = 0.0,
-        } = {}) {
+        function applyHDRAdjustments(dataTex, gamma = 1.0, tintColor = null) {
             if (!dataTex?.image?.data) return dataTex;
             const { data, width, height } = dataTex.image;
             if (!width || !height) return dataTex;
@@ -1662,11 +1039,8 @@ class ViewerApp {
                 Math.abs(tintColor.g - 1) > 1e-3 ||
                 Math.abs(tintColor.b - 1) > 1e-3
             );
-            const hasExposure = Math.abs(exposure - 1.0) > 1e-3;
-            const hasSaturation = Math.abs(saturation - 1.0) > 1e-3;
-            const hasBlur = blur > 1e-3;
 
-            if (!hasGamma && !hasTint && !hasExposure && !hasSaturation && !hasBlur) return dataTex;
+            if (!hasGamma && !hasTint) return dataTex;
 
             const gammaPow = hasGamma ? (1 / gamma) : 1.0;
 
@@ -1685,25 +1059,10 @@ class ViewerApp {
                     g *= tintColor.g;
                     b *= tintColor.b;
                 }
-                 if (hasExposure) {
-                    r *= exposure;
-                    g *= exposure;
-                    b *= exposure;
-                }
-                if (hasSaturation) {
-                    const lum = r * 0.2126 + g * 0.7152 + b * 0.0722;
-                    r = lum + (r - lum) * saturation;
-                    g = lum + (g - lum) * saturation;
-                    b = lum + (b - lum) * saturation;
-                }
 
                 data[i] = r;
                 data[i + 1] = g;
                 data[i + 2] = b;
-            }
-
-            if (hasBlur) {
-                applySimpleBlurToData(data, width, height, stride, blur);
             }
 
             dataTex.needsUpdate = true;
@@ -1711,63 +1070,26 @@ class ViewerApp {
         }
 
         /** Генерирует PMREM из повернутого HDRI и применяет к окружению/фону. */
-        async function buildAndApplyEnvFromRotation(deg) {
+        function buildAndApplyEnvFromRotation(deg) {
             currentRotDeg = deg;
             app.currentRotDeg = currentRotDeg;
-            if (USE_WEBGPU) {
-                try {
-                    await rendererInitPromise;
-                } catch (err) {
-                    console.error('WebGPU init failed before env build', err);
-                    return;
-                }
-            }
-            const { gamma, tintLinear, exposure, saturation, blur } = syncEnvAdjustmentsState();
-            const frac = ((deg % 360) + 360) % 360 / 360;
-            if (bgMesh) {
-                bgMesh.rotation.y = THREE.MathUtils.degToRad(deg);
-            }
-
-            if (currentEnv) { currentEnv.dispose?.(); currentEnv = null; app.currentEnv = null; }
-            if (currentBg && currentBg !== hdrBaseTex) { currentBg.dispose?.(); }
-            currentBg = null;
-            currentEnv = null;
-
-            const shifted = shiftEquirectColumns(hdrBaseTex, frac);
-            applyHDRAdjustments(shifted, { gamma, tintColor: tintLinear, exposure, saturation, blur });
-            shifted.mapping = THREE.EquirectangularReflectionMapping;
-            if ('colorSpace' in shifted) {
-                shifted.colorSpace = THREE.LinearSRGBColorSpace;
-            }
-            shifted.needsUpdate = true;
-
-            if (USE_WEBGPU) {
-                shifted.needsPMREMUpdate = true;
-                currentBg = shifted;
-                currentEnv = shifted;
-                app.currentBg = currentBg;
-                app.currentEnv = currentEnv;
-
-                scene.environment = iblChk.checked ? currentEnv : null;
-                scene.environmentRotation.set(0, THREE.MathUtils.degToRad(deg), 0);
-                scene.backgroundRotation.set(0, THREE.MathUtils.degToRad(deg), 0);
-                if (iblChk.checked) {
-                    ensureBgMesh();
-                    if (bgMesh) {
-                        bgMesh.material.map = currentBg;
-                        bgMesh.material.needsUpdate = true;
-                        bgMesh.visible = true;
-                    }
-                }
-                applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
-                return;
-            }
-
             if (!pmremGen) {
                 pmremGen = new THREE.PMREMGenerator(renderer);
                 app.pmremGen = pmremGen;
             }
 
+            const { gamma, tintLinear } = syncEnvAdjustmentsState();
+            const frac = ((deg % 360) + 360) % 360 / 360;
+            if (bgMesh) {
+                bgMesh.rotation.y = THREE.MathUtils.degToRad(deg);
+            }
+            // dispose previous
+            if (currentEnv) { currentEnv.dispose?.(); currentEnv = null; app.currentEnv = null; }
+            if (currentBg) { currentBg.dispose?.(); currentBg = null; app.currentBg = null; }
+
+            // shift source HDR and generate PMREM
+            const shifted = shiftEquirectColumns(hdrBaseTex, frac);
+            applyHDRAdjustments(shifted, gamma, tintLinear);
             currentBg = shifted;
             app.currentBg = currentBg;
             const rt = pmremGen.fromEquirectangular(shifted);
@@ -1787,7 +1109,7 @@ class ViewerApp {
         async function setEnvironmentEnabled(on) {
             await loadHDRBase();
             if (on) {
-                await buildAndApplyEnvFromRotation(currentRotDeg || 0);
+                buildAndApplyEnvFromRotation(currentRotDeg || 0);
             } else {
                 scene.environment = null;
                 applyEnvToMaterials(null, 1.0);
@@ -1798,12 +1120,9 @@ class ViewerApp {
         }
 
         function applyEnvToMaterials(env, intensity) {
-            if (USE_WEBGPU && scene) {
-                scene.environmentIntensity = intensity;
-            }
             world.traverse(o => {
                 if (!o.isMesh || !o.material) return;
-                const mats = getPanelMaterials(o);
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
                 mats.forEach(m => {
                     if (m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) {
                         m.envMap = env;
@@ -1835,24 +1154,24 @@ class ViewerApp {
             lastStatsUpdate = now;
 
             const info = renderer.info || {};
-            const renderInfo = lastRenderStats?.render || info.render || {};
-            const mem = lastRenderStats?.memory || info.memory || {};
-            const programsRaw = lastRenderStats?.programs ?? info.programs ?? 0;
-            const programs = Array.isArray(programsRaw) ? programsRaw.length : programsRaw;
+            const renderInfo = info.render || {};
+            const mem = info.memory || {};
+            const programs = Array.isArray(info.programs) ? info.programs.length : (info.programs || 0);
             const formatInt = (value) => (typeof value === 'number' ? value.toLocaleString('ru-RU') : String(value ?? 0));
             const fpsText = fpsEstimate ? Math.round(fpsEstimate).toString() : '—';
-            const sceneStats = getSceneGeometryStats();
 
-            const modeLabel = (app.activeRendererMode || 'webgl').toUpperCase();
             const lines = [
                 `fps        : ${fpsText}`,
-                `draw calls : ${formatInt(renderInfo.drawCalls ?? renderInfo.calls ?? 0)}`,
-                `scene tris : ${formatInt(sceneStats.triangles || 0)}`,
+                `draw calls : ${formatInt(renderInfo.calls || 0)}`,
+                `triangles  : ${formatInt(renderInfo.triangles || 0)}`,
+                `lines      : ${formatInt(renderInfo.lines || 0)}`,
+                `points     : ${formatInt(renderInfo.points || 0)}`,
+                `geometries : ${formatInt(mem.geometries || 0)}`,
+                `textures   : ${formatInt(mem.textures || 0)}`,
             ];
             if (programs) lines.push(`programs   : ${formatInt(programs)}`);
 
-            const html = [`<span class="stats-mode">${(app.activeRendererMode || 'webgl').toUpperCase()}</span>`, ...lines].join('<br>');
-            statsOverlayEl.innerHTML = html;
+            statsOverlayEl.textContent = lines.join('\n');
         }
 
         // helper textures
@@ -1861,7 +1180,7 @@ class ViewerApp {
 
         function getMatcap() {
             if (_matcapTex) return _matcapTex;
-            _matcapTex = texLd.load('https://raw.githubusercontent.com/nidorx/matcaps/1b1e43a338335b6401034d48488298966755d717/1024/2A2A2A_B3B3B3_6D6D6D_848C8C.png');
+            _matcapTex = texLd.load('https://threejs.org/examples/textures/matcaps/matcap-porcelain-white.jpg');
             return _matcapTex;
         }
 
@@ -1876,8 +1195,7 @@ class ViewerApp {
             }
             _checkerTex = new THREE.CanvasTexture(c);
             _checkerTex.wrapS = _checkerTex.wrapT = THREE.RepeatWrapping;
-                const maxAniso = renderer.capabilities?.getMaxAnisotropy?.();
-                _checkerTex.anisotropy = maxAniso || 1;
+            _checkerTex.anisotropy = renderer.capabilities.getMaxAnisotropy?.() || 1;
             return _checkerTex;
         }
 
@@ -1912,19 +1230,28 @@ class ViewerApp {
 
         /** Переключает режим отображения вершин: прячет исходные меши и показывает Points. */
         function setPointsMode(enabled, { size = 0.5, color = 0x666666 } = {}) {
-            let changed = false;
             world.traverse(o => {
                 if (!o.isMesh) return;
                 const pts = ensurePointsForMesh(o, size, color);
                 if (!pts) return;
-                const prevMeshVisible = o.visible;
-                const prevPtsVisible = pts.visible;
                 o.visible = !enabled;
                 pts.visible = enabled;
-                if (prevMeshVisible !== o.visible || prevPtsVisible !== pts.visible) changed = true;
             });
-            if (changed) markSceneStatsDirty();
         }
+
+        document.getElementById('pointSize').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            world.traverse(o => {
+                if (o.isPoints && o.material?.isPointsMaterial) {
+                    o.material.size = val;
+                    o.material.needsUpdate = true;
+                }
+            });
+        });
+
+
+
+        
 
         // ================================
         // Edges (wireframe без диагоналей)
@@ -1932,214 +1259,55 @@ class ViewerApp {
 
         // === Backface debug (2-pass: front white + back red) ===
 
-        /**
-         * Создаёт ShaderMaterial, повторяющий fresnel-подсветку из WebGL-варианта,
-         * но без onBeforeCompile, чтобы одинаково работать и в WebGPU, и в WebGL.
-         */
+// Делает MeshBasicMaterial с "угловым" затенением по взгляду.
+// power — крутизна кривой, min/max — диапазон яркости,
+// invert=true — затемнять к краям, false — подсвечивать к краям (Fresnel-рим).
         function makeViewAngleShadedBasic(params = {}, { power = 2.0, min = 1.4, max = 2.0, invert = false } = {}) {
-            const {
-                color = 0xffffff,
-                side = THREE.FrontSide,
-                transparent = false,
-                opacity = 1.0,
-                alphaMap = null,
-                alphaTest = 0.0,
-                depthWrite = true,
-                depthTest = true,
-                blending = THREE.NormalBlending,
-                polygonOffset = false,
-                polygonOffsetFactor = 0,
-                polygonOffsetUnits = 0,
-                skinning = false,
-                morphTargets = false,
-                morphNormals = false,
-                morphColors = false,
-                vertexColors = false,
-            } = params;
+        const mat = new THREE.MeshBasicMaterial(params);
 
-            const baseColor = (params.color && params.color.isColor)
-                ? params.color.clone()
-                : new THREE.Color(color);
+        mat.onBeforeCompile = (shader) => {
+            shader.uniforms.uPower  = { value: power };
+            shader.uniforms.uMin    = { value: min };
+            shader.uniforms.uMax    = { value: max };
+            shader.uniforms.uInvert = { value: invert ? 1 : 0 };
 
-            if (USE_WEBGPU && backfaceNodeSupport) {
-                const {
-                    MeshBasicNodeMaterial,
-                    normalView,
-                    positionViewDirection,
-                    floatNode,
-                    vec3Node,
-                } = backfaceNodeSupport;
+            // Вершинный: пробрасываем нормаль и вектор к камере
+            shader.vertexShader =
+            /*glsl*/`
+            varying vec3 vN;
+            varying vec3 vV;
+            ` + shader.vertexShader.replace(
+                '#include <begin_vertex>',
+                /*glsl*/`
+                #include <begin_vertex>
+                vN = normalize( normalMatrix * normal );
+                vec4 mvPos = modelViewMatrix * vec4( transformed, 1.0 );
+                vV = -mvPos.xyz;
+                `
+            );
 
-                try {
-                    const nodeParams = {
-                        side,
-                        transparent,
-                        depthWrite,
-                        depthTest,
-                        blending,
-                        polygonOffset,
-                        polygonOffsetFactor,
-                        polygonOffsetUnits,
-                        alphaTest,
-                        vertexColors,
-                    };
-                    if (alphaMap && alphaMap.isTexture) nodeParams.alphaMap = alphaMap;
+            // Фрагментный: считаем фактор по углу и умножаем цвет
+            shader.fragmentShader =
+            /*glsl*/`
+            uniform float uPower, uMin, uMax;
+            uniform int   uInvert;
+            varying vec3  vN;
+            varying vec3  vV;
+            ` + shader.fragmentShader.replace(
+                '#include <dithering_fragment>',
+                /*glsl*/`
+                float ndv  = clamp( abs( dot( normalize(vN), normalize(vV) ) ), 0.0, 1.0 );
+                float fres = pow( 1.0 - ndv, uPower );        // 0 (фронт) → 1 (скользящий взгляд)
+                float t    = (uInvert == 1) ? (1.0 - fres) : fres;
+                float fac  = mix( uMin, uMax, t );
+                gl_FragColor.rgb *= fac;
+                #include <dithering_fragment>
+                `
+            );
+        };
 
-                    const material = new MeshBasicNodeMaterial(nodeParams);
-                    material.name = params.name || 'ViewAngleBackface';
-                    material.opacity = opacity;
-                    material.toneMapped = false;
-                    material.fog = true;
-                    material.color.copy(baseColor);
-                    material.polygonOffset = polygonOffset;
-                    material.polygonOffsetFactor = polygonOffsetFactor;
-                    material.polygonOffsetUnits = polygonOffsetUnits;
-                    material.vertexColors = !!vertexColors;
-
-                    if (alphaMap && alphaMap.isTexture) {
-                        alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
-                        material.alphaMap = alphaMap;
-                    }
-
-                    const normalNode = normalView.normalize();
-                    const viewDirNode = positionViewDirection;
-                    const ndv = normalNode.dot(viewDirNode).abs().clamp();
-                    const fresBase = floatNode(1.0).sub(ndv).max(floatNode(1e-5));
-                    const fres = fresBase.pow(floatNode(power));
-                    const tNode = invert ? floatNode(1.0).sub(fres) : fres;
-                    const fresFactor = floatNode(min).mix(floatNode(max), tNode.clamp());
-                    const colorNode = vec3Node(baseColor.r, baseColor.g, baseColor.b).mul(fresFactor);
-
-                    material.colorNode = colorNode;
-                    material.opacityNode = floatNode(opacity);
-                    material.needsUpdate = true;
-                    return material;
-                } catch (err) {
-                    console.warn('Backface node material build failed', err);
-                }
-            }
-
-            if (USE_WEBGPU) {
-                const mat = new THREE.MeshBasicMaterial({
-                    color: baseColor,
-                    side,
-                    transparent,
-                    opacity,
-                    alphaMap,
-                    alphaTest,
-                    depthWrite,
-                    depthTest,
-                    blending,
-                });
-                mat.polygonOffset = polygonOffset;
-                mat.polygonOffsetFactor = polygonOffsetFactor;
-                mat.polygonOffsetUnits = polygonOffsetUnits;
-                mat.skinning = !!skinning;
-                mat.morphTargets = !!morphTargets;
-                mat.morphNormals = !!morphNormals;
-                mat.morphColors = !!morphColors;
-                mat.vertexColors = !!vertexColors;
-                mat.needsUpdate = true;
-                return mat;
-            }
-
-            const baseLib = THREE.ShaderLib?.basic;
-            if (!baseLib) {
-                console.warn('ShaderLib.basic отсутствует, backface fallback');
-                return new THREE.MeshBasicMaterial({
-                    color: baseColor,
-                    side,
-                    transparent,
-                    opacity,
-                    alphaMap,
-                    alphaTest,
-                    depthWrite,
-                    depthTest,
-                    blending,
-                });
-            }
-            const uniforms = THREE.UniformsUtils.clone(baseLib.uniforms);
-
-            uniforms.diffuse.value.copy(baseColor);
-            uniforms.opacity.value = opacity;
-            uniforms.uPower = { value: power };
-            uniforms.uMin = { value: min };
-            uniforms.uMax = { value: max };
-            uniforms.uInvert = { value: invert ? 1 : 0 };
-
-            if (alphaMap && alphaMap.isTexture) {
-                uniforms.alphaMap.value = alphaMap;
-                alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
-                if (alphaMap.matrix) {
-                    uniforms.alphaMapTransform.value.copy(alphaMap.matrix);
-                }
-            }
-
-            const vertexShader = baseLib.vertexShader
-                .replace(
-                    '#include <fog_pars_vertex>',
-                    '#include <fog_pars_vertex>\nvarying vec3 vViewDir;\nvarying vec3 vPosView;'
-                )
-                .replace(
-                    '#include <project_vertex>',
-                    '#include <project_vertex>\n\tvViewDir = -mvPosition.xyz;\n\tvPosView = mvPosition.xyz;'
-                );
-
-            const fragmentShader = baseLib.fragmentShader
-                .replace(
-                    'uniform float opacity;',
-                    'uniform float opacity;\nuniform float uPower;\nuniform float uMin;\nuniform float uMax;\nuniform int uInvert;\nvarying vec3 vViewDir;\nvarying vec3 vPosView;'
-                )
-                .replace(
-                    'vec4 diffuseColor = vec4( diffuse, opacity );',
-                    `vec4 diffuseColor = vec4( diffuse, opacity );
-    vec3 viewDir = normalize( vViewDir );
-    vec3 normalDir = normalize( cross( dFdx( vPosView ), dFdy( vPosView ) ) );
-    normalDir *= ( gl_FrontFacing ? 1.0 : -1.0 );
-    float ndv = clamp( abs( dot( normalDir, viewDir ) ), 0.0, 1.0 );
-    float fres = pow( max( 1.0 - ndv, 1e-5 ), uPower );
-    float t = ( uInvert == 1 ) ? ( 1.0 - fres ) : fres;
-    float fresFactor = mix( uMin, uMax, clamp( t, 0.0, 1.0 ) );
-    diffuseColor.rgb *= fresFactor;`
-                );
-
-            const material = new THREE.ShaderMaterial({
-                uniforms,
-                vertexShader,
-                fragmentShader,
-                side,
-                transparent,
-                depthWrite,
-                depthTest,
-                blending,
-            });
-
-            if (alphaMap && alphaMap.isTexture) {
-                material.defines = {
-                    ...(material.defines || {}),
-                    USE_ALPHAMAP: '',
-                    USE_UV: '',
-                    ALPHAMAP_UV: 'vUv',
-                };
-            }
-
-            material.extensions = { ...(material.extensions || {}), derivatives: true };
-            material.name = params.name || 'ViewAngleBackface';
-            material.alphaTest = alphaTest;
-            material.toneMapped = false;
-            material.fog = true;
-            material.polygonOffset = polygonOffset;
-            material.polygonOffsetFactor = polygonOffsetFactor;
-            material.polygonOffsetUnits = polygonOffsetUnits;
-            material.skinning = !!skinning;
-            material.morphTargets = !!morphTargets;
-            material.morphNormals = !!morphNormals;
-            material.morphColors = !!morphColors;
-            material.vertexColors = !!vertexColors;
-            material.uniformsNeedUpdate = true;
-            material.needsUpdate = true;
-
-            return material;
+        mat.needsUpdate = true;
+        return mat;
         }
 
         function ensureBackfaceOverlay(mesh, origMat) {
@@ -2155,17 +1323,8 @@ class ViewerApp {
             opacity: origMat.opacity ?? 1,
             alphaMap: origMat.alphaMap || null,
             alphaTest: (origMat.alphaMap ? (origMat.alphaTest ?? 0.5) : (origMat.alphaTest ?? 0.0)),
-            depthWrite: origMat.depthWrite ?? true,
-            depthTest: origMat.depthTest ?? true,
-            blending: origMat.blending ?? THREE.NormalBlending,
-            polygonOffset: !!origMat.polygonOffset,
-            polygonOffsetFactor: origMat.polygonOffsetFactor ?? 0,
-            polygonOffsetUnits: origMat.polygonOffsetUnits ?? 0,
-            skinning: !!origMat.skinning,
-            morphTargets: !!origMat.morphTargets,
-            morphNormals: !!origMat.morphNormals,
-            morphColors: !!origMat.morphColors,
-            vertexColors: !!origMat.vertexColors,
+            depthWrite: true,
+            depthTest: true
         };
 
         // FRONT: белый + угловое затенение (рим-подсветка к краям)
@@ -2174,6 +1333,7 @@ class ViewerApp {
             { ...baseParams, side: THREE.FrontSide, color: 0xffffff },
             { power: 1.2, min: 0.55, max: 1.2, invert: true} // ярче на гранях
             );
+            if (front.alphaMap) front.alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
             mesh.userData._bfFront = front;
         }
 
@@ -2183,6 +1343,7 @@ class ViewerApp {
             { ...baseParams, side: THREE.BackSide, color: 0xff3333 },
             { power: 1.2, min: 0.55, max: 1.0, invert: false }
             );
+            if (back.alphaMap) back.alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
             mesh.userData._bfBack = back;
         }
 
@@ -2221,16 +1382,11 @@ class ViewerApp {
         // не модифицировать дерево прямо во время обхода
         const targets = [];
         world.traverse(o => {
-            if (!o.isMesh) return;
-            if (o.userData?._isBackfaceOverlay) return;
-            targets.push(o);
+            if (o.isMesh && !o.userData?._isBackfaceOverlay) targets.push(o);
         });
 
         if (on) {
-            targets.forEach(m => {
-                if (m.userData?.isCollision) return;
-                ensureBackfaceOverlay(m, Array.isArray(m.material) ? m.material[0] : m.material);
-            });
+            targets.forEach(m => ensureBackfaceOverlay(m, Array.isArray(m.material) ? m.material[0] : m.material));
         } else {
             targets.forEach(removeBackfaceOverlay);
         }
@@ -2455,7 +1611,6 @@ function clearBeautyWire(mesh) {
             if (mode === 'backface') {
                 setPointsMode(false);
                 setBackfaceMode(true);
-                requestRender();
                 scheduleOnce();
                 return;
             } else {
@@ -2536,29 +1691,15 @@ function clearBeautyWire(mesh) {
 
         function setMeshAndMaterialsVisibility(target, visible) {
             const materials = Array.isArray(target.material) ? target.material : [target.material];
-            let changed = false;
-            materials.forEach(mat => {
-                if (!mat) return;
-                if (mat.visible !== visible) {
-                    mat.visible = visible;
-                    changed = true;
-                }
-            });
-            if (target.visible !== visible) {
-                target.visible = visible;
-                changed = true;
-            }
-            if (changed) markSceneStatsDirty();
+            materials.forEach(mat => { if (mat) mat.visible = visible; });
+            target.visible = visible;
             requestRender();
         }
 
         function updateMeshVisibilityFromMaterials(target) {
             const materials = Array.isArray(target.material) ? target.material : [target.material];
             const anyVisible = materials.some(mat => mat ? mat.visible !== false : false);
-            if (target.visible !== anyVisible) {
-                target.visible = anyVisible;
-                markSceneStatsDirty();
-            }
+            target.visible = anyVisible;
         }
 
         function toggleObjectVisibility(uuid, matIndex = null) {
@@ -2570,13 +1711,8 @@ function clearBeautyWire(mesh) {
                 const mat = materials[matIndex];
                 if (!mat) return;
                 const nextVisible = !(mat.visible !== false);
-                if (mat.visible !== nextVisible) {
-                    mat.visible = nextVisible;
-                    markSceneStatsDirty();
-                }
-                if ('needsUpdate' in mat) mat.needsUpdate = true;
+                mat.visible = nextVisible;
                 updateMeshVisibilityFromMaterials(target);
-                requestRender();
                 syncEyeIconsForObject(uuid, nextVisible, matIndex);
                 return;
             }
@@ -2763,62 +1899,43 @@ function clearBeautyWire(mesh) {
 
         syncEnvAdjustmentsState();
 
-        const formatSunHour = (value) => {
-            const totalMinutes = Math.round(value * 60);
-            const hours = Math.floor(totalMinutes / 60) % 24;
-            const minutes = totalMinutes % 60;
-            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-        };
-
-        const formatSunIntensity = (value) => value.toFixed(1);
-
-
-        const parseSunHour = (text) => {
-            const match = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/u.exec(text);
-            if (!match) return null;
-            let hours = parseInt(match[1], 10);
-            let minutes = parseInt(match[2], 10);
-            if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-            minutes = Math.max(0, Math.min(59, minutes));
-            hours = Math.max(0, Math.min(23, hours));
-            return hours + minutes / 60;
-        };
-
         if (statsBtn) {
             statsBtn.addEventListener('click', () => setStatsVisible(!statsVisible));
         }
-        setStatsVisible(true);
+        setStatsVisible(false);
 
-        iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
-        iblIntEl?.addEventListener('input', () => {
-            if (iblChk?.checked) applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
-        });
+        iblChk.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
+        iblIntEl.addEventListener('input', () => { if (iblChk.checked) applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value)); });
         const rebuildEnvOnAdjustments = async () => {
             syncEnvAdjustmentsState();
-            if (!iblChk?.checked) return;
+            if (!iblChk.checked) return;
             await loadHDRBase();
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
+            buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
         };
-        iblGammaEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        iblTintEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        hdriExposureEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        hdriSaturationEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        hdriBlurEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        iblRotEl?.addEventListener('input', async () => {
-            if (!iblChk?.checked) return;
+        iblGammaEl.addEventListener('input', rebuildEnvOnAdjustments);
+        iblTintEl.addEventListener('input', rebuildEnvOnAdjustments);
+        iblRotEl.addEventListener('input', async () => {
+            if (!iblChk.checked) return;
             await loadHDRBase();
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
+            buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
         });
-        hdriPresetSel?.addEventListener('change', async (e) => {
+        hdriPresetSel.addEventListener('change', async (e) => {
             const idx = parseInt(e.target.value, 10);
             if (isNaN(idx)) return;
             const entry = HDRI_LIBRARY[idx];
             if (!entry) return;
 
-            hdrBaseTex = await loadEquirectTexture(entry.url);
+            hdrBaseTex = await new HDRLoader().loadAsync(entry.url);
             app.hdrBaseTex = hdrBaseTex;
+            hdrBaseTex = flipHDRTextureVertically(hdrBaseTex);
+            app.hdrBaseTex = hdrBaseTex;
+            hdrBaseTex.mapping = THREE.EquirectangularReflectionMapping;
+            hdrBaseTex.wrapS = THREE.RepeatWrapping;
+            hdrBaseTex.wrapT = THREE.ClampToEdgeWrapping;
+            
+            hdrBaseTex.needsUpdate = true;
 
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
+            buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
             ensureBgMesh();
             bgMesh.material.map = currentBg;
             bgMesh.material.needsUpdate = true;
@@ -2826,6 +1943,21 @@ function clearBeautyWire(mesh) {
         // =====================
         // Axis toggle
         // =====================
+        function setAxisUp(up = 'Y') {
+            if (up === 'Z') {
+                camera.up.set(0, 0, 1);
+                world.rotation.set(Math.PI / 2, 0, 0);
+            } else {
+                camera.up.set(0, 1, 0);
+                world.rotation.set(0, 0, 0);
+            }
+            controls.update();
+            fitAll();
+            fitSunShadowToScene()
+        }
+
+        axisSel.addEventListener('change', () => setAxisUp(axisSel.value));
+        setAxisUp('Y');
 
         // =====================
         // Utilities
@@ -3864,55 +2996,21 @@ function clearBeautyWire(mesh) {
         }
 
         /** Безопасно переводит строку вида "0,1" → число, возвращает fallback при ошибке. */
-        /** Ограничивает значение диапазоном [0,1], не выбрасывая NaN. */
-        function clamp01(v) {
-            const num = Number.isFinite(v) ? v : 0;
-            return Math.min(1, Math.max(0, num));
-        }
-
-        /** Нормализует hex-цвет в формат #RRGGBB или возвращает fallback. */
-        function normalizeHexColor(value, fallback = null) {
-            if (typeof value !== 'string') return fallback;
-            let hex = value.trim();
-            if (!hex) return fallback;
-            if (!hex.startsWith('#')) hex = `#${hex}`;
-            if (/^#[0-9a-fA-F]{3}$/.test(hex)) {
-                hex = `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
-            }
-            if (/^#[0-9a-fA-F]{8}$/.test(hex)) {
-                hex = hex.slice(0, 7);
-            }
-            if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
-                return hex.toUpperCase();
+        function parseGeoNumber(value, fallback = null) {
+            if (value == null) return fallback;
+            if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+            if (typeof value === 'string') {
+                const cleaned = value.trim().replace(/\s+/g, '').replace(',', '.');
+                const num = parseFloat(cleaned);
+                if (Number.isFinite(num)) return num;
             }
             return fallback;
         }
 
-        /** Преобразует объект цвета GeoJSON в hex-строку. */
-        function geoColorToHex(colorObj) {
-            if (!colorObj) return null;
-            try {
-                if (Array.isArray(colorObj) && colorObj.length >= 3) {
-                    _glassTmpColor.setRGB(
-                        clamp01(colorObj[0]),
-                        clamp01(colorObj[1]),
-                        clamp01(colorObj[2])
-                    );
-                } else if (typeof colorObj === 'object' && colorObj !== null && 'r' in colorObj) {
-                    _glassTmpColor.setRGB(
-                        clamp01(colorObj.r ?? 0),
-                        clamp01(colorObj.g ?? 0),
-                        clamp01(colorObj.b ?? 0)
-                    );
-                } else if (typeof colorObj === 'string') {
-                    _glassTmpColor.set(colorObj);
-                } else {
-                    return null;
-                }
-                return `#${_glassTmpColor.getHexString().toUpperCase()}`;
-            } catch (_) {
-                return null;
-            }
+        /** Ограничивает значение диапазоном [0,1], не выбрасывая NaN. */
+        function clamp01(v) {
+            const num = Number.isFinite(v) ? v : 0;
+            return Math.min(1, Math.max(0, num));
         }
 
         /** Приводит имя стеклянного материала к нормализованному ключу (lowercase). */
@@ -3943,7 +3041,7 @@ function clearBeautyWire(mesh) {
                         const key = normalizeGlassKey(matName);
                         if (!key || index.has(key) || !params || typeof params !== 'object') return;
 
-                        const color = params.color_RGB || params.color_rgb || params.color || null;
+                        const color = params.color_RGB || params.color_rgb || null;
                         let colorData = null;
                         if (color && typeof color === 'object') {
                             const toChan = v => {
@@ -4350,7 +3448,7 @@ function clearBeautyWire(mesh) {
 
         function toStandard(m) {
             if (m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) return m;
-            const std = new THREE.MeshPhysicalMaterial({
+            const std = new THREE.MeshStandardMaterial({
                 side: THREE.DoubleSide,
                 color: m.color?.clone?.() ?? new THREE.Color(0xffffff),
                 map: m.map ?? null,
@@ -4364,37 +3462,6 @@ function clearBeautyWire(mesh) {
                 metalness: 0.0,
                 roughness: Math.max(0.04, 1 - (m.shininess ?? 30) / 100)
             });
-
-            if (std.isMeshPhysicalMaterial) {
-                if (m.isMeshPhysicalMaterial) {
-                    std.sheen = m.sheen ?? 0;
-                    std.sheenColor = m.sheenColor?.clone?.() ?? new THREE.Color(0xffffff);
-                    std.sheenRoughness = m.sheenRoughness ?? 1;
-                    std.clearcoat = m.clearcoat ?? 0;
-                    std.clearcoatRoughness = m.clearcoatRoughness ?? 0;
-                    std.transmission = m.transmission ?? 0;
-                    std.ior = m.ior ?? 1.0;
-                    std.thickness = m.thickness ?? 0;
-                    std.attenuationColor = m.attenuationColor?.clone?.() ?? new THREE.Color(0xffffff);
-                    std.attenuationDistance = m.attenuationDistance ?? Infinity;
-                    std.anisotropy = m.anisotropy ?? 0;
-                    std.anisotropyRotation = m.anisotropyRotation ?? 0;
-                    std.iridescence = m.iridescence ?? 0;
-                    std.iridescenceIOR = m.iridescenceIOR ?? 1.3;
-                    std.iridescenceThicknessRange = m.iridescenceThicknessRange?.slice?.() ?? [100, 400];
-                } else {
-                    std.clearcoat = 0;
-                    std.clearcoatRoughness =1.0;
-                    std.transmission = 0;
-                    std.ior = 1.0;
-                    std.thickness = 0.1;
-                    std.attenuationColor = new THREE.Color(0xffffff);
-                    std.attenuationDistance = Infinity;
-                    std.sheen = 0;
-                    std.iridescence = 0;
-                    std.anisotropy = 0;
-                }
-            }
 
             // НЕ ТЕРЯЕМ ИМЯ
             std.name = m.name || std.name;
@@ -4512,7 +3579,6 @@ function getSMOffset(meta) {
         if (isFinite(hr)) Z = hr;
     }
     log(`VPM: GeoJSON offset → Δx=${X} Δy=${Y} Δz=${Z}`,'ok');
-    if (Number.isFinite(Z)) setVPMReferenceHeight(Z);
     return { x:X, y:Y, z:Z };
 }
 
@@ -4527,46 +3593,18 @@ function getSMOffset(meta) {
 
         let panelRefreshPending = false;
         const panelRefreshCallbacks = [];
-        const PANEL_TEX_KEYS = ['map','alphaMap','normalMap','bumpMap','aoMap','emissiveMap','specularMap','roughnessMap','metalnessMap'];
-        let panelNeedsFullRefresh = false;
-
-        function resetMaterialsPanelState() {
-            panelState.groups.forEach(entry => entry?.wrapper?.remove?.());
-            panelState.groups.clear();
-            panelState.renderedModels.clear();
-            if (panelState.rootDetails) {
-                panelState.rootDetails.remove();
-                panelState.rootDetails = null;
-            }
-            panelState.ungroupedMarker = null;
-            panelNeedsFullRefresh = false;
-        }
-
         function schedulePanelRefresh(afterRender) {
             if (typeof afterRender === 'function') panelRefreshCallbacks.push(afterRender);
             if (panelRefreshPending) return;
             panelRefreshPending = true;
             Promise.resolve().then(() => {
                 panelRefreshPending = false;
-                if (panelNeedsFullRefresh) resetMaterialsPanelState();
                 renderMaterialsPanel();
                 const callbacks = panelRefreshCallbacks.splice(0);
                 callbacks.forEach(cb => {
                     try { cb(); } catch (err) { console.error('panel refresh callback failed', err); }
                 });
             });
-        }
-
-        function getPanelMaterials(obj) {
-            if (!obj) return [];
-            const orig = obj.userData?._origMaterial;
-            if (orig) {
-                const mats = Array.isArray(orig) ? orig : [orig];
-                const hasTex = mats.some(m => PANEL_TEX_KEYS.some(k => !!m?.[k]));
-                if (hasTex) return mats;
-            }
-            const mat = obj.material;
-            return Array.isArray(mat) ? mat : mat ? [mat] : [];
         }
 
         function populateSampleSelect() {
@@ -4578,48 +3616,6 @@ function getSMOffset(meta) {
                 opt.textContent = sample.label;
                 sampleSelect.appendChild(opt);
             });
-        }
-
-        function formatPanelLabel(label, maxChars = 36, dots = '....') {
-            if (label == null) return '';
-            const str = String(label);
-            if (str.length <= maxChars) return str;
-            const ellipsis = dots || '....';
-            const reserved = Math.min(maxChars, ellipsis.length);
-            const available = Math.max(maxChars - reserved, 0);
-            if (available <= 0) return str.slice(0, maxChars);
-
-            let headLen = Math.max(2, Math.ceil(available / 2));
-            let tailLen = Math.max(2, available - headLen);
-
-            const minSegment = 3;
-            if (headLen < minSegment && available >= minSegment * 2) {
-                tailLen = Math.max(minSegment, tailLen - (minSegment - headLen));
-                headLen = minSegment;
-            }
-            if (tailLen < minSegment && available >= minSegment * 2) {
-                headLen = Math.max(minSegment, headLen - (minSegment - tailLen));
-                tailLen = minSegment;
-            }
-
-            while (headLen + tailLen > available) {
-                if (headLen > tailLen && headLen > 1) headLen--;
-                else if (tailLen > 1) tailLen--;
-                else break;
-            }
-
-            const head = str.slice(0, headLen);
-            const tail = str.slice(Math.max(str.length - tailLen, headLen));
-            return head + ellipsis + tail;
-        }
-
-        function escapeHtml(value) {
-            return String(value ?? '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
         }
 
         /**
@@ -4634,64 +3630,30 @@ function getSMOffset(meta) {
                 const alphaVal = clamp01(overrides.opacity ?? info.opacity ?? material.opacity ?? 1);
                 const roughVal = clamp01(overrides.roughness ?? info.roughness ?? material.roughness ?? 0.1);
                 const metalVal = clamp01(overrides.metalness ?? info.metalness ?? material.metalness ?? 0);
-                const transVal = clamp01(overrides.transmission ?? info.transmission ?? (material.transmission ?? Math.max(0, 1 - (material.opacity ?? 1))));
-                const refractionRaw = overrides.refraction ?? info.refraction ?? material.ior ?? 1.5;
-                const iorVal = Number.isFinite(refractionRaw) ? refractionRaw : 1.5;
-                const reflectVal = Number.isFinite(overrides.envIntensity) ? overrides.envIntensity : (Number.isFinite(info.envIntensity) ? info.envIntensity : (Number.isFinite(material.envMapIntensity) ? material.envMapIntensity : 1));
                 const rawColor = overrides.color || info.colorHex || (material.color?.isColor ? `#${material.color.getHexString()}` : '#ffffff');
                 const colorHex = (rawColor.startsWith ? rawColor : `#${rawColor}`).toUpperCase();
-                const rgbDisplay = formatColorForDisplay(material?.color);
                 const sourceLabel = info.source === 'override' ? 'Custom' : (info.source === 'geojson' ? 'GeoJSON' : 'UI');
                 return `
                 <tr class="glass-row">
-                    <td class="k glass-cell">Glass</td>
+                    <td class="k">Glass</td>
                     <td>
                         <div class="glass-controls" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                            <div class="glass-group">
-                                <label><span>α</span>
-                                    <input type="range" min="0" max="1" step="0.01" value="${alphaVal}" class="glass-slider" data-prop="opacity" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                    <span class="glass-value" data-prop="opacity">${alphaVal.toFixed(2)}</span>
-                                </label>
-                            </div>
-                            <div class="glass-group">
-                                <label><span>rough</span>
-                                    <input type="range" min="0" max="1" step="0.01" value="${roughVal}" class="glass-slider" data-prop="roughness" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                    <span class="glass-value" data-prop="roughness">${roughVal.toFixed(2)}</span>
-                                </label>
-                            </div>
-                            <div class="glass-group">
-                                <label><span>metal</span>
-                                    <input type="range" min="0" max="1" step="0.01" value="${metalVal}" class="glass-slider" data-prop="metalness" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                    <span class="glass-value" data-prop="metalness">${metalVal.toFixed(2)}</span>
-                                </label>
-                            </div>
-                            <div class="glass-group">
-                                <label><span>trans</span>
-                                    <input type="range" min="0" max="1" step="0.01" value="${transVal}" class="glass-slider" data-prop="transmission" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                    <span class="glass-value" data-prop="transmission">${transVal.toFixed(2)}</span>
-                                </label>
-                            </div>
-                            <div class="glass-group">
-                                <label><span>IOR</span>
-                                    <input type="range" min="1" max="4" step="0.01" value="${iorVal}" class="glass-slider" data-prop="refraction" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                    <span class="glass-value" data-prop="refraction">${iorVal.toFixed(2)}</span>
-                                </label>
-                            </div>
-                            <div class="glass-group">
-                                <label><span>reflect</span>
-                                    <input type="range" min="0" max="5" step="0.05" value="${reflectVal}" class="glass-slider" data-prop="envIntensity" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
-                                    <span class="glass-value" data-prop="envIntensity">${reflectVal.toFixed(2)}</span>
-                                </label>
-                            </div>
-                            <div class="glass-group">
-                                <label><span>color</span>
-                                    <input type="color" class="glass-color-input" data-prop="color" data-uuid="${obj.uuid}" data-mat-index="${matIndex}" value="${colorHex}">
-                                    <span class="glass-value" data-prop="color-rgb">${rgbDisplay}</span>
-                                </label>
-                            </div>
-                            <div class="glass-group glass-source-wrap">
-                                <span class="glass-source" data-role="glass-source">${sourceLabel}</span>
-                            </div>
+                            <label>α
+                                <input type="range" min="0" max="1" step="0.01" value="${alphaVal}" class="glass-slider" data-prop="opacity" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                <span class="glass-value" data-prop="opacity">${alphaVal.toFixed(2)}</span>
+                            </label>
+                            <label>rough
+                                <input type="range" min="0" max="1" step="0.01" value="${roughVal}" class="glass-slider" data-prop="roughness" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                <span class="glass-value" data-prop="roughness">${roughVal.toFixed(2)}</span>
+                            </label>
+                            <label>metal
+                                <input type="range" min="0" max="1" step="0.01" value="${metalVal}" class="glass-slider" data-prop="metalness" data-uuid="${obj.uuid}" data-mat-index="${matIndex}">
+                                <span class="glass-value" data-prop="metalness">${metalVal.toFixed(2)}</span>
+                            </label>
+                            <label>color
+                                <input type="color" class="glass-color-input" data-prop="color" data-uuid="${obj.uuid}" data-mat-index="${matIndex}" value="${colorHex}">
+                            </label>
+                            <span class="glass-source" data-role="glass-source">${sourceLabel}</span>
                         </div>
                     </td>
                 </tr>`;
@@ -4710,9 +3672,7 @@ function getSMOffset(meta) {
             const fileControls = `${hasGeo ? `<button type="button" class="doc" data-uuid="${model.obj.uuid}" title="Показать GeoJSON">📄</button>` : ''}<button type="button" class="eye" data-target="${modelId}" title="Показать/скрыть файл">👁</button>`;
             const fileTitlePieces = [];
             if (kindBadge) fileTitlePieces.push(kindBadge);
-            const displayName = formatPanelLabel(model.name);
-            fileTitlePieces.push(`<span title="${escapeHtml(model.name)}">${escapeHtml(displayName)}</span>`);
-
+            fileTitlePieces.push(`<span>${model.name}</span>`);
             const fileTitle = fileTitlePieces.join('');
             chunksArr.push(`
                 <div class="collapsible" data-level="file">
@@ -4744,8 +3704,7 @@ function getSMOffset(meta) {
                         const objId = `collision-${o.uuid}-${idx}`;
                         o.userData._panelId = objId;
                         const humanIdx = mats.length > 1 ? ` [${idx+1}]` : '';
-                        const rawTitle = (m?.name || o.name || o.geometry?.name || '__COLLISION__') + humanIdx;
-                        const title = formatPanelLabel(rawTitle);
+                        const title = (m?.name || o.name || o.geometry?.name || '__COLLISION__') + humanIdx;
 
                         const present = [];
                         ['map','alphaMap','normalMap','aoMap','roughnessMap','metalnessMap']
@@ -4756,7 +3715,7 @@ function getSMOffset(meta) {
                             <div class="collapsible" data-level="collision-mesh">
                                 <details>
                                     <summary>
-                                        <span class="sumline"><span title="${escapeHtml(rawTitle)}">${escapeHtml(title)}</span></span>
+                                        <span class="sumline"><span>${title}</span></span>
                                     </summary>
                                 <table>
                                     <tr><td class="k">Тип</td><td>${m?.type || '—'}</td></tr>
@@ -4776,16 +3735,15 @@ function getSMOffset(meta) {
 
             // ---- ОСТАЛЬНЫЕ МЕШИ (ИСКЛЮЧАЕМ КОЛЛИЗИИ) ----
             model.obj.traverse((obj) => {
-                if (!obj.isMesh) return;
-                const mats = getPanelMaterials(obj);
-                if (!mats.length) return;
+                if (!obj.isMesh || !obj.material) return;
                 if (obj.userData?.isCollision) return; // 👈 не мешаем коллизиям
+
+                const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
 
                 mats.forEach((m, idx) => {
                     const humanIdx = idx + 1;
                     const matName = m.name || obj.name || `${m.type}`;
-                    const rawTitle = `${matName}${mats.length > 1 ? ` [${humanIdx}]` : ''}`;
-                    const title = formatPanelLabel(rawTitle);
+                    const title = `${matName}${mats.length > 1 ? ` [${humanIdx}]` : ''}`;
                     const present = [];
                     ['map','alphaMap','normalMap','bumpMap','aoMap','emissiveMap','specularMap','roughnessMap','metalnessMap']
                         .forEach(k => { if (m[k]) present.push(`<span class="tag">${k}</span>`); });
@@ -4798,7 +3756,7 @@ function getSMOffset(meta) {
                         <div class="collapsible" data-level="mesh">
                             <details>
                                 <summary>
-                                    <span class="sumline"><span title="${escapeHtml(rawTitle)}">${escapeHtml(title)}</span></span>
+                                    <span class="sumline"><span>${title}</span></span>
                                 </summary>
                             <table>
                                 <tr><td class="k">Карты</td><td>${present.length ? present.join(' ') : '<span class="muted">—</span>'}</td></tr>
@@ -4869,9 +3827,7 @@ function getSMOffset(meta) {
             }
 
             const label = document.createElement('span');
-            const displayGroup = formatPanelLabel(groupName);
-            label.textContent = `📦 ${displayGroup}`;
-            label.title = groupName || '';
+            label.textContent = `📦 ${groupName}`;
             sumline.appendChild(label);
 
             summary.appendChild(sumline);
@@ -5115,41 +4071,20 @@ function getSMOffset(meta) {
             const resolved = resolveGlassMaterial(uuid, matIndex);
             if (!resolved) return;
             const { mat } = resolved;
-            let rawValue = parseFloat(input.value);
-            if (!Number.isFinite(rawValue)) rawValue = 0;
-            const minAttr = Number.parseFloat(input.min ?? '');
-            const maxAttr = Number.parseFloat(input.max ?? '');
-            if (Number.isFinite(minAttr)) rawValue = Math.max(minAttr, rawValue);
-            if (Number.isFinite(maxAttr)) rawValue = Math.min(maxAttr, rawValue);
-            input.value = String(rawValue);
-
-            let storedValue;
-            if (prop === 'opacity' || prop === 'roughness' || prop === 'metalness' || prop === 'transmission') {
-                storedValue = clamp01(rawValue);
-            } else {
-                storedValue = rawValue;
-            }
+            const value = clamp01(parseFloat(input.value));
+            input.value = String(value);
 
             const overrides = (mat.userData ||= {}).glassOverrides ||= {};
-            overrides[prop] = storedValue;
-            if (prop === 'envIntensity') overrides.envIntensity = storedValue;
-            if (prop === 'transmission') {
-                (mat.userData.glassOriginal ||= {}).transmission = storedValue;
-            }
+            overrides[prop] = value;
 
             applyGlassControlsToScene();
 
             const container = input.closest('.glass-controls');
             if (container) {
                 const span = container.querySelector(`.glass-value[data-prop="${prop}"]`);
-                if (span) span.textContent = Number.isFinite(storedValue) ? storedValue.toFixed(2) : '—';
+                if (span) span.textContent = value.toFixed(2);
                 updateGlassSourceLabel(container, mat);
-                if (prop === 'color' || prop === 'opacity' || prop === 'roughness' || prop === 'metalness' || prop === 'transmission' || prop === 'envIntensity' || prop === 'refraction') {
-                    const colorSpan = container.querySelector('.glass-value[data-prop="color-rgb"]');
-                    if (colorSpan) colorSpan.textContent = formatColorForDisplay(mat?.color);
-                }
             }
-            requestRender();
         }
 
         /** Обработчик выбора цвета стекла. */
@@ -5161,7 +4096,8 @@ function getSMOffset(meta) {
             const resolved = resolveGlassMaterial(uuid, matIndex);
             if (!resolved) return;
             const { mat } = resolved;
-            const hex = normalizeHexColor(input.value, '#FFFFFF') || '#FFFFFF';
+            let hex = (input.value || '#FFFFFF').toUpperCase();
+            if (!hex.startsWith('#')) hex = `#${hex}`;
             input.value = hex;
 
             const overrides = (mat.userData ||= {}).glassOverrides ||= {};
@@ -5170,12 +4106,7 @@ function getSMOffset(meta) {
             applyGlassControlsToScene();
 
             const container = input.closest('.glass-controls');
-            if (container) {
-                updateGlassSourceLabel(container, mat);
-                const colorSpan = container.querySelector('.glass-value[data-prop="color-rgb"]');
-                if (colorSpan) colorSpan.textContent = formatColorForDisplay(mat?.color);
-            }
-            requestRender();
+            if (container) updateGlassSourceLabel(container, mat);
         }
 
         /** Обновляет текстовое поле-источник для стеклянного материала. */
@@ -5188,12 +4119,6 @@ function getSMOffset(meta) {
             if (info?.source === 'geojson') text = 'GeoJSON';
             else if (info?.source === 'override') text = 'Custom';
             label.textContent = text;
-        }
-
-        function formatColorForDisplay(color) {
-            if (!color || !color.isColor) return '—';
-            const to255 = (v) => Math.round(clamp01(v) * 255);
-            return `${to255(color.r)}/${to255(color.g)}/${to255(color.b)}`;
         }
 
         // =====================
@@ -5382,44 +4307,15 @@ function getSMOffset(meta) {
          * Актуализирует `userData.glassInfo` для панели и при необходимости сохраняет overrides.
          */
         function applyGlassControlsToScene() {
-            const sliderOpacity = parseFloat(glassOpacityEl?.value ?? 0.1);
-            const sliderReflect = parseFloat(glassReflectEl?.value ?? 3.0);
-            const sliderRough = parseFloat(glassRoughEl?.value ?? 0.05);
-            const sliderMetal = parseFloat(glassMetalEl?.value ?? 1.0);
-            const sliderTransmission = parseFloat(glassTransmissionEl?.value ?? 1);
-            const sliderIor = parseFloat(glassIorEl?.value ?? 1.5);
-            const sliderAttenDist = parseFloat(glassAttenDistEl?.value ?? 0.2);
-            const useGlobalOpacity = glassOpacityEl?.dataset.userSet === '1';
-            const useGlobalIor = glassIorEl?.dataset.userSet === '1';
-            const useGlobalTransmission = glassTransmissionEl?.dataset.userSet === '1';
-            const useGlobalReflect = glassReflectEl?.dataset.userSet === '1';
-            const useGlobalRoughness = glassRoughEl?.dataset.userSet === '1';
-            const useGlobalMetalness = glassMetalEl?.dataset.userSet === '1';
-            const useGlobalColor = glassColorEl?.dataset.userSet === '1';
-            const useGlobalAttenDist = glassAttenDistEl?.dataset.userSet === '1';
-            const useGlobalAttenColor = glassAttenColorEl?.dataset.userSet === '1';
-            const globalColorHex = useGlobalColor
-                ? normalizeHexColor(glassColorEl.value, '#FFFFFF')
-                : null;
-            const globalAttenColorHex = useGlobalAttenColor
-                ? normalizeHexColor(glassAttenColorEl.value, '#FFFFFF')
-                : null;
+            const op = parseFloat(glassOpacityEl?.value ?? 0.2);
+            const refl = parseFloat(glassReflectEl?.value ?? 1.0);
+            const metal = parseFloat(glassMetalEl?.value ?? 1.0);
 
             function findGeoMetaForObject(obj) {
                 let node = obj;
                 while (node) {
                     const meta = node.userData?._geojsonMeta || node.userData?.geojson;
                     if (meta) return meta;
-                    node = node.parent || null;
-                }
-                return null;
-            }
-
-            function findZipKindForObject(obj) {
-                let node = obj;
-                while (node) {
-                    const kind = node.userData?.zipKind || node.userData?.zipKindOverride;
-                    if (kind) return kind;
                     node = node.parent || null;
                 }
                 return null;
@@ -5438,193 +4334,64 @@ function getSMOffset(meta) {
                     const std = toStandard(m);
                     std.transparent = true;
                     std.envMap = scene.environment || std.envMap;
-                    std.userData ||= {};
+                    std.envMapIntensity = refl;
 
-                    let overrides = std.userData.glassOverrides || null;
                     const geoMeta = findGeoMetaForObject(o);
                     const glassParams = geoMeta ? findGeoGlassParams(geoMeta, [m.name, o.name, nameStr]) : null;
-                    const currentEnvIntensity = Number.isFinite(std.envMapIntensity) ? std.envMapIntensity : sliderReflect;
-                    const zipKind = (findZipKindForObject(o) || '').toUpperCase();
-                    const isNPM = zipKind === 'NPM';
-                    const isSM = zipKind === 'SM';
+                    std.userData ||= {};
+                    const overrides = std.userData.glassOverrides || null;
 
-                    if (!std.userData.glassOriginal) {
-                        const baseColorFromGeo = glassParams?.color ? geoColorToHex(glassParams.color) : (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
-                        const geoTransparency = glassParams?.transparency;
-                        const originalOpacity = (geoTransparency != null)
-                            ? clamp01(1 - geoTransparency)
-                            : (glassParams?.opacity ?? std.opacity ?? sliderOpacity);
-                        const originalRoughness = glassParams?.roughness ?? std.roughness ?? sliderRough;
-                        const originalMetalness = glassParams?.metalness ?? std.metalness ?? sliderMetal;
-                        const originalRefraction = glassParams?.refraction ?? (('ior' in std) ? std.ior : null);
-                        const baseAttenuationColor = baseColorFromGeo || (std.attenuationColor?.isColor ? `#${std.attenuationColor.getHexString().toUpperCase()}` : null);
-                        const originalData = {
-                            opacity: Number.isFinite(originalOpacity) ? clamp01(originalOpacity) : null,
-                            roughness: Number.isFinite(originalRoughness) ? clamp01(originalRoughness) : null,
-                            metalness: Number.isFinite(originalMetalness) ? clamp01(originalMetalness) : null,
-                            envIntensity: Number.isFinite(currentEnvIntensity) ? currentEnvIntensity : sliderReflect,
-                            color: baseColorFromGeo,
-                            refraction: originalRefraction,
-                            transmission: 1,
-                            attenuationColor: baseAttenuationColor,
-                            attenuationDistance: 0.2,
-                        };
-                        if (isNPM) {
-                            originalData.opacity = 0.30;
-                            originalData.roughness = 0.05;
-                            originalData.metalness = 0.1;
-                            originalData.envIntensity = 3.0;
-                            originalData.refraction = 3.0;
-                            originalData.transmission = 1;
-                            originalData.attenuationColor = baseColorFromGeo || (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
-                            originalData.attenuationDistance = 0.1;
-                            std.transmission = 1;
+                    let targetOpacity = clamp01(op);
+                    let targetMetalness = metal;
+                    let targetRoughness = Math.min(std.roughness ?? 0.12, 0.05);
+                    let targetRefraction = null;
+
+                    if (glassParams) {
+                        if (glassParams.transparency != null) {
+                            targetOpacity = clamp01(glassParams.transparency);
+                        } else if (glassParams.opacity != null) {
+                            targetOpacity = clamp01(glassParams.opacity);
                         }
-                        if (isSM && !isNPM && glassParams) {
-                            if (glassParams.color) std.color?.set?.(originalData.color || glassParams.color);
-                            if (glassParams.transparency != null) originalData.opacity = clamp01(1 - glassParams.transparency);
-                            if (glassParams.roughness != null) originalData.roughness = clamp01(glassParams.roughness);
-                            if (glassParams.metalness != null) originalData.metalness = clamp01(glassParams.metalness);
-                            if (glassParams.refraction != null) originalData.refraction = glassParams.refraction;
-                            if (glassParams.transparency != null) originalData.transmission = 1;
+                        if (glassParams.color) {
+                            std.color.setRGB(glassParams.color.r, glassParams.color.g, glassParams.color.b);
                         }
-                        std.userData.glassOriginal = originalData;
+                        if (glassParams.roughness != null) targetRoughness = clamp01(glassParams.roughness);
+                        if (glassParams.metalness != null) targetMetalness = clamp01(glassParams.metalness);
+                        if (glassParams.refraction != null) {
+                            targetRefraction = glassParams.refraction;
+                            if ('ior' in std) std.ior = glassParams.refraction;
+                            std.userData.refraction = glassParams.refraction;
+                        }
                     }
 
-                    const original = std.userData.glassOriginal || {};
-
-            let targetOpacity = useGlobalOpacity
-                ? clamp01(sliderOpacity)
-                : clamp01(original.opacity ?? std.opacity ?? sliderOpacity);
-            let targetMetalness = useGlobalMetalness
-                ? clamp01(sliderMetal)
-                        : clamp01(original.metalness ?? std.metalness ?? sliderMetal);
-                    let targetRoughness = useGlobalRoughness
-                        ? clamp01(sliderRough)
-                        : clamp01(original.roughness ?? std.roughness ?? sliderRough);
-            let targetRefraction = useGlobalIor
-                ? (Number.isFinite(sliderIor) ? sliderIor : 1.5)
-                : (overrides?.refraction ?? original.refraction ?? (('ior' in std) ? std.ior : null));
-                    let targetColorHex = globalColorHex ?? normalizeHexColor(original.color, std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
-                    let targetEnvIntensity = useGlobalReflect
-                        ? sliderReflect
-                        : (Number.isFinite(original.envIntensity) ? original.envIntensity : currentEnvIntensity);
-            const hasOverrideTransmission = overrides?.transmission != null;
-            const hasGeoTransmission = false;
-            let targetTransmission = 1;
-            if (useGlobalTransmission) {
-                targetTransmission = clamp01(Number.isFinite(sliderTransmission) ? sliderTransmission : 1);
-            } else if (hasOverrideTransmission) {
-                targetTransmission = clamp01(overrides.transmission);
-            } else if (original.transmission != null) {
-                targetTransmission = clamp01(original.transmission);
-            }
-            let targetAttenuationDistance = original.attenuationDistance != null ? original.attenuationDistance : (Number.isFinite(std.attenuationDistance) ? std.attenuationDistance : null);
-            let targetAttenuationColorHex = normalizeHexColor(original.attenuationColor, null);
-            if (useGlobalAttenDist) {
-                const fallback = Number.isFinite(sliderAttenDist) ? sliderAttenDist : (targetAttenuationDistance != null ? targetAttenuationDistance : 0.2);
-                targetAttenuationDistance = Math.max(0, fallback);
-            }
-            if (useGlobalAttenColor && globalAttenColorHex) {
-                targetAttenuationColorHex = globalAttenColorHex;
-            }
-
-                    const hasOverrides = overrides && Object.keys(overrides).length > 0;
-                    if (hasOverrides) {
+                    if (overrides) {
                         if (overrides.opacity != null) targetOpacity = clamp01(overrides.opacity);
                         if (overrides.roughness != null) targetRoughness = clamp01(overrides.roughness);
                         if (overrides.metalness != null) targetMetalness = clamp01(overrides.metalness);
-                        if (overrides.transmission != null) targetTransmission = clamp01(overrides.transmission);
-                        if (overrides.envIntensity != null) targetEnvIntensity = overrides.envIntensity;
                         if (overrides.color) {
-                            const overrideHex = normalizeHexColor(overrides.color, targetColorHex);
-                            if (overrideHex) {
-                                overrides.color = overrideHex;
-                                targetColorHex = overrideHex;
-                            }
+                            try { std.color.set(overrides.color); } catch (_) {}
                         }
                         if (overrides.refraction != null && 'ior' in std) {
                             targetRefraction = overrides.refraction;
                             std.ior = overrides.refraction;
                             std.userData.refraction = overrides.refraction;
                         }
-                        if (overrides.attenuationDistance != null) {
-                            targetAttenuationDistance = Math.max(0, overrides.attenuationDistance);
-                        }
-                        if (overrides.attenuationColor) {
-                            const overrideAttHex = normalizeHexColor(overrides.attenuationColor, targetAttenuationColorHex);
-                            if (overrideAttHex) {
-                                overrides.attenuationColor = overrideAttHex;
-                                targetAttenuationColorHex = overrideAttHex;
-                            }
-                        }
                     }
 
-                    if (isNPM && !useGlobalRoughness && !(hasOverrides && overrides?.roughness != null)) {
-                        targetRoughness = 0.05;
-                    }
-                    if (isNPM && !useGlobalMetalness && !(hasOverrides && overrides?.metalness != null)) {
-                        targetMetalness = 0.1;
-                    }
-                    if (targetRefraction != null && 'ior' in std) {
-                        std.ior = targetRefraction;
-                        std.userData.refraction = targetRefraction;
-                    }
-
-                    if (!targetAttenuationColorHex) {
-                        targetAttenuationColorHex = normalizeHexColor(targetColorHex, null);
-                    } else {
-                        targetAttenuationColorHex = normalizeHexColor(targetAttenuationColorHex, targetColorHex);
-                    }
-                    if (isNPM && !useGlobalTransmission && !(hasOverrides && overrides?.transmission != null)) {
-                        targetTransmission = 1;
-                        targetAttenuationDistance = 0.1;
-                        targetAttenuationColorHex = normalizeHexColor(targetColorHex, targetAttenuationColorHex);
-                    }
-
-                    if (targetColorHex) {
-                        try { std.color.set(targetColorHex); } catch (_) {}
-                    }
-
-                    const finalOpacity = clamp01(targetOpacity);
-                    std.opacity = finalOpacity;
+                    std.opacity = clamp01(targetOpacity);
                     if (!std.metalnessMap) std.metalness = clamp01(targetMetalness);
                     if (!std.roughnessMap) std.roughness = clamp01(targetRoughness);
-                    std.envMapIntensity = targetEnvIntensity;
-                    if (std.isMeshPhysicalMaterial) {
-                        const transmission = clamp01(targetTransmission ?? 0);
-                        std.transmission = transmission;
-                        std.transparent = transmission > 0.01 || finalOpacity < 0.999;
-                        std.opacity = finalOpacity;
-                        std.thickness = Number.isFinite(std.thickness) ? std.thickness : 0.2;
-                        std.ior = Number.isFinite(std.ior) ? std.ior : 1.5;
-                        if (targetAttenuationColorHex) {
-                            try {
-                                if (std.attenuationColor?.isColor) std.attenuationColor.set(targetAttenuationColorHex);
-                                else std.attenuationColor = new THREE.Color(targetAttenuationColorHex);
-                            } catch (_) {}
-                        }
-                        if (targetAttenuationDistance != null) {
-                            const dist = Math.max(0, targetAttenuationDistance);
-                            std.attenuationDistance = dist;
-                            if ('thickness' in std) std.thickness = dist;
-                        }
-                    }
 
-                    const globalOverrideActive = useGlobalOpacity || useGlobalRoughness || useGlobalMetalness || useGlobalReflect || useGlobalColor || useGlobalTransmission || useGlobalIor || useGlobalAttenDist || useGlobalAttenColor;
-                    const infoSource = hasOverrides ? 'override' : (globalOverrideActive ? 'ui' : (glassParams ? 'geojson' : 'ui'));
-                    const infoColorHex = normalizeHexColor(targetColorHex ?? (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null), null);
+                    const usingOverrides = overrides && Object.keys(overrides).length > 0;
+                    const infoSource = usingOverrides ? 'override' : (glassParams ? 'geojson' : 'ui');
                     const info = {
-                        opacity: finalOpacity,
-                        transparency: finalOpacity,
+                        opacity: std.opacity,
+                        transparency: std.opacity,
                         roughness: std.roughness,
                         metalness: std.metalness,
-                        envIntensity: targetEnvIntensity,
+                        envIntensity: std.envMapIntensity,
                         source: infoSource,
-                        colorHex: infoColorHex,
-                        transmission: std.isMeshPhysicalMaterial ? clamp01(std.transmission ?? 0) : 0,
-                        attenuationDistance: std.attenuationDistance,
-                        attenuationColor: targetAttenuationColorHex,
+                        colorHex: std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null,
                     };
                     if (targetRefraction != null) info.refraction = targetRefraction;
                     std.userData.glassInfo = info;
@@ -5638,331 +4405,9 @@ function getSMOffset(meta) {
             requestRender();
         }
 
-        function resetGlassToOriginal() {
-            let firstOriginal = null;
-
-            world.traverse(o => {
-                if (o.userData?.isCollision) return;
-                if (!o.isMesh || !o.material) return;
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
-                mats.forEach((m, i) => {
-                    const nameStr = `${m.name || ''} ${o.name || ''}`;
-                    const geomSuffix = findGeomSuffix(nameStr);
-                    const glass = isGlassByName(nameStr) || isGlassGeomSuffix(geomSuffix);
-                    if (!glass) return;
-
-                    const std = toStandard(m);
-                    std.userData ||= {};
-
-                    const original = std.userData.glassOriginal;
-                    if (!original) return;
-                    if (!firstOriginal) firstOriginal = { ...original };
-
-                    if (std.userData.glassOverrides) delete std.userData.glassOverrides;
-
-                    if (original.opacity != null) std.opacity = clamp01(original.opacity);
-                    if (!std.metalnessMap && original.metalness != null) std.metalness = clamp01(original.metalness);
-                    if (!std.roughnessMap && original.roughness != null) std.roughness = clamp01(original.roughness);
-                    if (original.envIntensity != null) std.envMapIntensity = original.envIntensity;
-                    if (original.color) {
-                        const colorHex = normalizeHexColor(original.color, null);
-                        if (colorHex) {
-                            try { std.color.set(colorHex); } catch (_) {}
-                        }
-                    }
-                    if (original.refraction != null && 'ior' in std) {
-                        std.ior = original.refraction;
-                        std.userData.refraction = original.refraction;
-                    }
-                    if (original.transmission != null && 'transmission' in std) {
-                        std.transmission = clamp01(original.transmission);
-                        std.transparent = std.transmission > 0.01 || std.opacity < 0.999;
-                    }
-                    if (original.attenuationDistance != null && 'attenuationDistance' in std) {
-                        std.attenuationDistance = original.attenuationDistance;
-                    }
-                    if (original.attenuationColor) {
-                        const attHex = normalizeHexColor(original.attenuationColor, original.color || null);
-                        if (attHex) {
-                            try {
-                                if (std.attenuationColor?.isColor) std.attenuationColor.set(attHex);
-                                else std.attenuationColor = new THREE.Color(attHex);
-                            } catch (_) {}
-                        }
-                    }
-
-                    std.needsUpdate = true;
-
-                    if (Array.isArray(o.material)) { o.material[i] = std; } else { o.material = std; }
-                });
-            });
-
-            if (firstOriginal) {
-                if (glassOpacityEl && firstOriginal.opacity != null) {
-                    glassOpacityEl.value = clamp01(firstOriginal.opacity).toFixed(2);
-                    delete glassOpacityEl.dataset.userSet;
-                }
-                if (glassReflectEl && firstOriginal.envIntensity != null) {
-                    const min = Number.isFinite(parseFloat(glassReflectEl.min)) ? parseFloat(glassReflectEl.min) : 0;
-                    const max = Number.isFinite(parseFloat(glassReflectEl.max)) ? parseFloat(glassReflectEl.max) : 5;
-                    const val = Number.isFinite(firstOriginal.envIntensity) ? firstOriginal.envIntensity : parseFloat(glassReflectEl.value ?? '1');
-                    const clamped = Math.min(max, Math.max(min, val));
-                    glassReflectEl.value = clamped.toFixed(2);
-                    delete glassReflectEl.dataset.userSet;
-                }
-                if (glassMetalEl && firstOriginal.metalness != null) {
-                    glassMetalEl.value = clamp01(firstOriginal.metalness).toFixed(2);
-                    delete glassMetalEl.dataset.userSet;
-                }
-                if (glassRoughEl && firstOriginal.roughness != null) {
-                    glassRoughEl.value = clamp01(firstOriginal.roughness).toFixed(2);
-                    delete glassRoughEl.dataset.userSet;
-                }
-                if (glassIorEl && firstOriginal.refraction != null) {
-                    const safe = Math.min(Math.max(firstOriginal.refraction, 1.0), 2.5);
-                    glassIorEl.value = safe.toFixed(2);
-                    delete glassIorEl.dataset.userSet;
-                }
-                if (glassTransmissionEl && firstOriginal.transmission != null) {
-                    glassTransmissionEl.value = clamp01(firstOriginal.transmission).toFixed(2);
-                    delete glassTransmissionEl.dataset.userSet;
-                }
-                if (glassAttenDistEl && firstOriginal.attenuationDistance != null) {
-                    glassAttenDistEl.value = Number(firstOriginal.attenuationDistance).toFixed(2);
-                    delete glassAttenDistEl.dataset.userSet;
-                }
-                if (glassAttenColorEl) {
-                    const attHex = normalizeHexColor(firstOriginal.attenuationColor, '#FFFFFF') || '#FFFFFF';
-                    glassAttenColorEl.value = attHex;
-                    delete glassAttenColorEl.dataset.userSet;
-                }
-                if (glassColorEl) {
-                    const colorHex = normalizeHexColor(firstOriginal.color, '#FFFFFF') || '#FFFFFF';
-                    glassColorEl.value = colorHex;
-                    delete glassColorEl.dataset.userSet;
-                }
-            } else if (glassColorEl) {
-                delete glassColorEl.dataset.userSet;
-                glassOpacityEl && delete glassOpacityEl.dataset.userSet;
-                glassMetalEl && delete glassMetalEl.dataset.userSet;
-                glassReflectEl && delete glassReflectEl.dataset.userSet;
-                glassRoughEl && delete glassRoughEl.dataset.userSet;
-                glassIorEl && delete glassIorEl.dataset.userSet;
-                glassTransmissionEl && delete glassTransmissionEl.dataset.userSet;
-                glassAttenDistEl && delete glassAttenDistEl.dataset.userSet;
-                glassAttenColorEl && delete glassAttenColorEl.dataset.userSet;
-            }
-
-            updateAllGlassDisplays();
-            applyGlassControlsToScene();
-            schedulePanelRefresh();
-        }
-
-
-        if (sunHourEl && sunHourInputEl) {
-            sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
-            sunHourEl.addEventListener('input', () => {
-                sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
-            });
-            sunHourInputEl.addEventListener('change', () => {
-                const parsed = parseSunHour(sunHourInputEl.value);
-                if (parsed == null) {
-                    sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
-                    return;
-                }
-                sunHourEl.value = String(parsed);
-                sunHourInputEl.value = formatSunHour(parsed);
-                sunHourEl.dispatchEvent(new Event('input', { bubbles: true }));
-            });
-        }
-
-        if (sunIntensityEl && sunIntensityInputEl && dirLight) {
-            sunIntensityEl.value = String(dirLight.intensity);
-            sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
-            sunIntensityEl.addEventListener('input', () => {
-                const value = clampNumericInput(parseFloat(sunIntensityEl.value), parseFloat(sunIntensityEl.min) || 0, parseFloat(sunIntensityEl.max) || 20);
-                if (value == null) return;
-                dirLight.intensity = value;
-                sunIntensityEl.value = String(value);
-                sunIntensityInputEl.value = formatSunIntensity(value);
-                requestRender();
-            });
-            sunIntensityInputEl.addEventListener('change', () => {
-                let value = clampNumericInput(parseFloat(sunIntensityInputEl.value), parseFloat(sunIntensityInputEl.min) || 0, parseFloat(sunIntensityInputEl.max) || 20);
-                if (value == null) {
-                    sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
-                    return;
-                }
-                sunIntensityEl.value = String(value);
-                sunIntensityInputEl.value = formatSunIntensity(value);
-                dirLight.intensity = value;
-                requestRender();
-            });
-        }
-
-        const handleGlobalGlassInput = () => {
-            applyGlassControlsToScene();
-            schedulePanelRefresh();
-            requestRender();
-        };
-
-        function clampValueToSlider(slider, value) {
-            let next = value;
-            const minAttr = slider.getAttribute('min');
-            const maxAttr = slider.getAttribute('max');
-            const min = minAttr !== null && minAttr !== '' ? parseFloat(minAttr) : null;
-            const max = maxAttr !== null && maxAttr !== '' ? parseFloat(maxAttr) : null;
-            if (Number.isFinite(min)) next = Math.max(next, min);
-            if (Number.isFinite(max)) next = Math.min(next, max);
-            return next;
-        }
-
-        function snapValueToStep(slider, value) {
-            const stepAttr = slider.getAttribute('step');
-            if (!stepAttr || stepAttr === 'any') return value;
-            const step = parseFloat(stepAttr);
-            if (!Number.isFinite(step) || step <= 0) return value;
-            const minAttr = slider.getAttribute('min');
-            const origin = minAttr !== null && minAttr !== '' ? parseFloat(minAttr) : 0;
-            const steps = Math.round((value - origin) / step);
-            return origin + steps * step;
-        }
-
-        const commitGlassDisplayInput = (id) => {
-            const entry = glassValueDisplays.get(id);
-            if (!entry) return;
-            const { input: slider, display } = entry;
-            if (!slider || !(display instanceof HTMLInputElement)) return;
-
-            if (slider.type === 'color') {
-                const normalized = normalizeHexColor(display.value, null);
-                if (!normalized) {
-                    updateGlassDisplay(id);
-                    return;
-                }
-                if (slider.value === normalized) {
-                    slider.dataset.userSet = '1';
-                    updateGlassDisplay(id);
-                    return;
-                }
-                slider.value = normalized;
-                display.value = normalized;
-                slider.dataset.userSet = '1';
-                updateGlassDisplay(id);
-                handleGlobalGlassInput();
-                return;
-            }
-
-            const raw = display.value.replace(',', '.').trim();
-            const parsed = parseFloat(raw);
-            if (!Number.isFinite(parsed)) {
-                updateGlassDisplay(id);
-                return;
-            }
-
-            let next = clampValueToSlider(slider, parsed);
-            next = snapValueToStep(slider, next);
-            next = clampValueToSlider(slider, next);
-
-            const decimals = sliderStepDecimals(slider);
-            const formatted = Number.isFinite(decimals) ? next.toFixed(decimals) : String(next);
-
-            if (slider.value === formatted) {
-                slider.dataset.userSet = '1';
-                updateGlassDisplay(id);
-                return;
-            }
-
-            slider.value = formatted;
-            display.value = formatted;
-            slider.dataset.userSet = '1';
-            updateGlassDisplay(id);
-            handleGlobalGlassInput();
-        };
-
-        function attachGlassDisplayInputs() {
-            glassValueDisplays.forEach(({ display }, id) => {
-                if (!(display instanceof HTMLInputElement)) return;
-                const commit = () => commitGlassDisplayInput(id);
-                display.addEventListener('change', commit);
-                display.addEventListener('blur', commit);
-                display.addEventListener('keydown', (event) => {
-                    if (event.key === 'Enter') {
-                        event.preventDefault();
-                        commit();
-                    } else if (event.key === 'Escape') {
-                        updateGlassDisplay(id);
-                        display.blur();
-                    }
-                });
-            });
-        }
-        attachGlassDisplayInputs();
-
-        if (glassOpacityEl) {
-            glassOpacityEl.addEventListener('input', () => {
-                glassOpacityEl.dataset.userSet = '1';
-                updateGlassDisplay('glassOpacity');
-                handleGlobalGlassInput();
-            });
-        }
-        if (glassReflectEl) {
-            glassReflectEl.addEventListener('input', () => {
-                glassReflectEl.dataset.userSet = '1';
-                updateGlassDisplay('glassReflect');
-                handleGlobalGlassInput();
-            });
-        }
-        if (glassMetalEl) {
-            glassMetalEl.addEventListener('input', () => {
-                glassMetalEl.dataset.userSet = '1';
-                updateGlassDisplay('glassMetal');
-                handleGlobalGlassInput();
-            });
-        }
-        if (glassRoughEl) {
-            glassRoughEl.addEventListener('input', () => {
-                glassRoughEl.dataset.userSet = '1';
-                updateGlassDisplay('glassRough');
-                handleGlobalGlassInput();
-            });
-        }
-        if (glassIorEl) {
-            glassIorEl.addEventListener('input', () => {
-                glassIorEl.dataset.userSet = '1';
-                updateGlassDisplay('glassIor');
-                handleGlobalGlassInput();
-            });
-        }
-        if (glassTransmissionEl) {
-            glassTransmissionEl.addEventListener('input', () => {
-                glassTransmissionEl.dataset.userSet = '1';
-                updateGlassDisplay('glassTransmission');
-                handleGlobalGlassInput();
-            });
-        }
-        if (glassAttenDistEl) {
-            glassAttenDistEl.addEventListener('input', () => {
-                glassAttenDistEl.dataset.userSet = '1';
-                updateGlassDisplay('glassAttenDist');
-                handleGlobalGlassInput();
-            });
-        }
-        if (glassAttenColorEl) {
-            glassAttenColorEl.addEventListener('input', () => {
-                glassAttenColorEl.dataset.userSet = '1';
-                updateGlassDisplay('glassAttenColor');
-                handleGlobalGlassInput();
-            });
-        }
-        if (glassColorEl) {
-            glassColorEl.addEventListener('input', () => {
-                glassColorEl.dataset.userSet = '1';
-                updateGlassDisplay('glassColor');
-                handleGlobalGlassInput();
-            });
-        }
-        glassResetBtn?.addEventListener('click', resetGlassToOriginal);
+        [glassOpacityEl, glassReflectEl, glassMetalEl].forEach(el => {
+            el?.addEventListener('input', applyGlassControlsToScene);
+        });
 
         // =====================
         // Auto-bind based on filenames
@@ -6242,7 +4687,7 @@ function getSMOffset(meta) {
                         mat.transparent = false;             // маска, не блендинг
                         mat.depthWrite = true;
                         mat.alphaTest = Math.max(0.001, mat.alphaTest || 0.4);
-                        if (renderer.capabilities?.isWebGL2) mat.alphaToCoverage = true;
+                        if (renderer.capabilities.isWebGL2) mat.alphaToCoverage = true;
 
                         const common = { map: mat.map, alphaTest: mat.alphaTest, side: THREE.FrontSide };
                         o.customDepthMaterial    = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, ...common });
@@ -6311,8 +4756,6 @@ function getSMOffset(meta) {
 
             await Promise.all(bindOps);
             requestRender();
-            panelNeedsFullRefresh = true;
-            schedulePanelRefresh();
         }
 
 
@@ -6497,10 +4940,9 @@ function getSMOffset(meta) {
         function collectMaterialsFromWorld() {
             const out = [];
             world.traverse(o => {
-                if (!o.isMesh) return;
+                if (!o.isMesh || !o.material) return;
                 if (o.userData?.isCollision) return; // 👈 не показываем UCX в выпадающем списке
-                const mats = getPanelMaterials(o);
-                if (!mats.length) return;
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
                 mats.forEach((m, i) => {
                     const humanIdx = i + 1;
                     const label = `${o.name || o.type} · ${m.type}${m.name ? ` (${m.name})` : ''}${mats.length > 1 ? ` [${humanIdx}]` : ''}`;
@@ -6519,32 +4961,27 @@ function getSMOffset(meta) {
         const fileInput = document.getElementById('fileInput');
         const openBtn = document.getElementById('openBtn');
 
-        const registerFileOpenTrigger = (el) => {
-            if (!el || !fileInput) return;
-            el.addEventListener('click', () => fileInput.click());
-        };
-        registerFileOpenTrigger(openBtn);
-        registerFileOpenTrigger(emptyHintEl);
-
         // =====================
         // LIGHT CONTROLL
         // =====================
-        if (hemiIntEl) {
-            hemiIntEl.addEventListener('input', (e) => {
-                hemiLight.intensity = parseFloat(e.target.value);
-            });
+        document.getElementById('hemiInt').addEventListener('input', e => {
+            hemiLight.intensity = parseFloat(e.target.value);
+        });
+
+        document.getElementById('hemiSky').addEventListener('input', e => {
+            hemiLight.color.set(e.target.value);
+        });
+
+        document.getElementById('hemiGround').addEventListener('input', e => {
+            hemiLight.groundColor.set(e.target.value);
+        });
+
+        if (openBtn && fileInput) {
+            openBtn.addEventListener('click', () => fileInput.click());
         }
 
-        if (hemiSkyEl) {
-            hemiSkyEl.addEventListener('input', (e) => {
-                hemiLight.color.set(e.target.value);
-            });
-        }
-
-        if (hemiGroundEl) {
-            hemiGroundEl.addEventListener('input', (e) => {
-                hemiLight.groundColor.set(e.target.value);
-            });
+        if (emptyHintEl && fileInput) {
+            emptyHintEl.addEventListener('click', () => fileInput.click());
         }
 
         if (fileInput) {
@@ -6600,7 +5037,6 @@ function getSMOffset(meta) {
                 if (sampleSelect) sampleSelect.disabled = true;
                 setStatusMessage(`Загрузка примера: ${sample.label}`);
                 setEmptyHintVisible(false);
-                hideSidePanel();
 
                 const downloadedFiles = [];
                 for (const url of sample.files) {
@@ -6634,7 +5070,6 @@ function getSMOffset(meta) {
          */
         async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null) {
         logSessionHeader(`FBX: ${file.name}`);
-        hideSidePanel();
 
         // если zipKind не передали из handleZIPFile — определим по имени ZIP здесь
         if (!zipKind && groupName) {
@@ -6818,7 +5253,6 @@ function getSMOffset(meta) {
         setImportedLightsEnabled(importedLightsEnabled, obj, { silent: true });
         applyGlassControlsToScene();
         setEmptyHintVisible(false);
-        markSceneStatsDirty();
 
         schedulePanelRefresh();
         requestRender();
@@ -6831,7 +5265,6 @@ function getSMOffset(meta) {
         async function handleZIPFile(file) {
             logSessionHeader(`ZIP: ${file.name}`);
             setStatusMessage(`Чтение ZIP: ${file.name}…`);
-            hideSidePanel();
 
             const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
             const zip = await JSZip.loadAsync(file);
@@ -6908,7 +5341,11 @@ function getSMOffset(meta) {
 
             ensureZipCollisionsHidden(file.name);
 
-            setStatusMessage(`Готово: ${file.name}`);
+            setStatusMessage('');
+
+            // statusEl/appbarStatus — по желанию
+            // statusEl.textContent = `Готово: ${file.name}`;
+            // appbarStatusEl.textContent = statusEl.textContent;
         }
 
         /**
@@ -6922,7 +5359,7 @@ function getSMOffset(meta) {
             const needGalleryRefresh = galleryNeedsRefresh;
 
             if (!hasNewModels && !needGalleryRefresh) {
-                setStatusMessage('Готово');
+                setStatusMessage('');
                 setEmptyHintVisible(loadedModels.length === 0);
                 return;
             }
@@ -6944,7 +5381,7 @@ function getSMOffset(meta) {
             if (hasNewModels) {
                 if (iblChk.checked) {
                     await loadHDRBase();
-                    await buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
+                    buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
                 }
 
                 ensureBgMesh();
@@ -7000,7 +5437,7 @@ function getSMOffset(meta) {
                     syncCollisionButtons();
                 }
 
-                setStatusMessage('Готово');
+                setStatusMessage('');
                 setEmptyHintVisible(loadedModels.length === 0);
             };
 
@@ -7042,11 +5479,6 @@ function getSMOffset(meta) {
             const controlsChanged = controls.update();
             if (controlsChanged) needsRender = true;
 
-            if (USE_WEBGPU && !rendererReady) {
-                updateStatsOverlay();
-                return;
-            }
-
             if (!needsRender) {
                 updateStatsOverlay();
                 return;
@@ -7059,15 +5491,6 @@ function getSMOffset(meta) {
 
             needsRender = false;
             renderer.render(scene, camera);
-            const info = renderer.info || {};
-            lastRenderStats = {
-                render: info.render ? { ...info.render } : {},
-                memory: info.memory ? { ...info.memory } : {},
-                programs: info.programs != null ? (Array.isArray(info.programs) ? info.programs.length : info.programs) : 0,
-            };
-            if (info.reset && renderer.info && renderer.info.autoReset === false) {
-                info.reset();
-            }
             updateStatsOverlay();
         }
         animate();
