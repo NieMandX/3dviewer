@@ -580,7 +580,7 @@ body.side-hidden { --sideW: 0px; }
     top: calc(var(--appbarH) + 12px);
     left: 16px;
     background: transparent;
-    color: #fff;
+    color: #3f3f3f;
     padding: 10px 14px;
     border-radius: 10px;
     font-size: 12px;
@@ -687,3 +687,5 @@ body.side-hidden { --sideW: 0px; }
     align-items: center;
     gap: 12px;
 }
+
+.appbar .order-btn { margin-left: auto; margin-right: 0; }
