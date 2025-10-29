@@ -2787,7 +2787,7 @@ function clearBeautyWire(mesh) {
         if (statsBtn) {
             statsBtn.addEventListener('click', () => setStatsVisible(!statsVisible));
         }
-        setStatsVisible(false);
+        setStatsVisible(true);
 
         iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl?.addEventListener('input', () => {
