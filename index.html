@@ -3,80 +3,27 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mini FBX Viewer — Refactored</title>
+    <title>Mini FBX Viewer — WebGPU</title>
     <link rel="stylesheet" href="./styles/viewer.css">
 </head>
-<body>
+<body class="side-hidden">
+    <script>
+        window.__LPMVIEW_RENDERER = 'webgpu';
+    </script>
 
     <!--
-        Refactored single-file viewer.
-        - Весь JS разделён на блоки и подробно прокомментирован.
-        - Отступы — 4 пробела.
-        - Функционал сохранён.
+        WebGPU-вариант refactored viewer.
+        Разметка и стили совпадают с основной страницей, но рендерер принудительно WebGPU.
     -->
 
     <div class="appbar">
         <button id="toggleSideBtn" class="btn" title="Показать/скрыть боковую панель">☰</button>
-        <button id="shadowDbgBtn" class="btn" title="Параметры теней">Shadows ⚙️</button>
 
         <!-- Files -->
-        <button id="openBtn" class="btn">Открыть FBX</button>
-        <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
-            <option value="">Примеры…</option>
-        </select>
-        <button id="shadowHelpersBtn" class="btn" title="Показать объём теней">Shadow box</button>
-        <button id="lightHelpersBtn" class="btn" title="Показать/скрыть хелперы источников света">Light helpers</button>
-        <button id="lightEmittersBtn" class="btn" title="Включить/выключить импортированные источники света">Lights on/off</button>
-        <button id="statsBtn" class="btn" title="Показать статистику сцены">Stats</button>
+        
         <input id="fileInput" type="file" accept=".fbx,.zip" multiple hidden />
-
-        <label>point size
-            <input type="range" id="pointSize" min="1" max="10" step="1" value="3" />
-        </label>
-
-        <!-- IBL / controls -->
-        <div class="row">
-            <label><input type="checkbox" id="hdriChk" checked /></label>
-            <label>HDRI
-                <select id="hdriPreset">
-                    <option value="">— выберите —</option>
-                </select>
-            </label>
-            <label>Hemi&nbsp;int
-                <input id="hemiInt" type="range" min="0" max="10" step="0.05" value="1" />
-            </label>
-            <label>Sky
-                <input id="hemiSky" type="color" value="#ffffff" />
-            </label>
-            <label>Ground
-                <input id="hemiGround" type="color" value="#cfd8dc" />
-            </label>
-
-        <!-- SUN CONTROL -->
-
-        <label>☀
-            <input id="sunEnabled" type="checkbox" checked />
-        </label>
-        <div class="row" id="sunControls">
-            <label>Часы
-                <input id="sunHour" type="range" min="0" max="24" step="0.25" value="12" />
-            </label>
-            <label>День <input id="sunDay" type="number" min="1" max="31" value="1" style="width:60px" /></label>
-            <label>Месяц <input id="sunMonth" type="number" min="1" max="12" value="6" style="width:60px" /></label>
-            <label>Север
-                <input id="sunNorth" type="range" min="0" max="360" step="1" value="0" />
-            </label>
-        </div>
-
-            <label>bg&nbsp;α <input id="bgAlpha" type="range" min="0" max="1" step="0.01" value="0.00" /></label>
-            <label>intensity <input id="iblInt" type="range" min="0" max="5" step="0.05" value="1.5" /></label>
-            <label>gamma <input id="iblGamma" type="range" min="0.2" max="3" step="0.05" value="1.0" /></label>
-            <label>tint <input id="iblTint" type="color" value="#ffffff" /></label>
-            <label>rot&nbsp;<input id="iblRot" type="range" min="0" max="360" step="1" value="0" /></label>
-            
-            
-
-            <label>shading
+        <div class="row appbar-shading">
+            <label>
                 <select id="shadingMode" title="Режим шейдинга">
                     <option value="pbr" selected>PBR</option>
                     <option value="backface">Backface (white/red)</option>
@@ -97,27 +44,9 @@
                     <option value="points">Points (Vertices)</option>
                 </select>
             </label>
-
-            <label>
-                <select id="axisSelect" title="Ось вверх">
-                    <option value="Y" selected>Y ↑</option>
-                    <option value="Z">Z ↑</option>
-                </select>
-            </label>
         </div>
 
-        <!-- Glass controls -->
-        <div class="row" id="glassTopControls">
-            <label title="Прозрачность стекла (opacity)">Glass&nbsp;α
-                <input id="glassOpacity" type="range" min="0" max="1" step="0.01" value="0.20" />
-            </label>
-            <label title="Интенсивность отражений у стекла (envMapIntensity)">Reflect
-                <input id="glassReflect" type="range" min="0" max="3" step="0.05" value="3.00" />
-            </label>
-            <label title="Metalness для стекла (если нет карты)">Metal
-                <input id="glassMetal" type="range" min="0" max="1" step="0.01" value="1.0" />
-            </label>
-        </div>
+        <a class="btn order-btn" href="https://lpmview.ru/#order" target="_blank" rel="noopener">Заказать модель</a>
 
     </div>
 
@@ -152,6 +81,7 @@
         <option>1024</option>
         <option>2048</option>
         <option selected>4096</option>
+        <option>8192</option>
       </select>
     </label>
   </div>
@@ -177,23 +107,227 @@
 <!--- -------------------------- -->
 
     <div class="side">
-        <div class="list" id="out"></div>
+        <div class="list">
+            <div id="out"></div>
 
-        <details id="imagesDetails" open style="margin:8px">
-            <summary>Текстуры · <span id="texCount" class="chip">0</span></summary>
-            <div class="row" style="margin:6px 0">
-                <select id="matSelect" title="Материал для привязки">
-                    <option value="">— выберите материал —</option>
-                </select>
-                <span class="muted" style="font-size:12px">Выберите материал, затем щёлкните на миниатюре → Привязать…</span>
-            </div>
-            <div id="gallery"></div>
-        </details>
+            <details id="imagesDetails" open>
+                <summary>Текстуры · <span id="texCount" class="chip">0</span></summary>
+                <div class="row" style="margin:6px 0">
+                    <select id="matSelect" title="Материал для привязки">
+                        <option value="">— выберите материал —</option>
+                    </select>
+                    <span class="muted" style="font-size:12px">Выберите материал, затем щёлкните на миниатюре → Привязать…</span>
+                </div>
+                <div id="gallery"></div>
+            </details>
 
-        <details id="bindLogDetails" open style="margin:8px">
-            <summary>Лог автопривязки</summary>
-            <div id="bindLog" style="font-size:13px; line-height:1.4; padding:6px; max-height:220px; overflow:auto; white-space:pre-wrap; background:#fafafa; border:1px solid var(--border); border-radius:6px;">— пока пусто —</div>
-        </details>
+            <details id="lightGlobalDetails" open>
+                <summary>Global Light Control</summary>
+                <div class="light-controls">
+                    <div class="light-section">
+                        <div class="light-section-title">SUN</div>
+                        <div class="light-grid">
+                            <div class="light-row light-row-sun">
+                                <label class="light-checkbox light-checkbox-toggle" title="Включить солнце">
+                                    <input type="checkbox" id="sunEnabled" checked />
+                                </label>
+                                <div class="light-sun-date">
+                                    <label class="light-date-field">D
+                                        <input id="sunDay" type="number" min="1" max="31" value="1" />
+                                    </label>
+                                    <label class="light-date-field">M
+                                        <input id="sunMonth" type="number" min="1" max="12" value="6" />
+                                    </label>
+                                </div>
+                                <div class="light-sun-hour">
+                                    <input id="sunHour" type="range" min="0" max="24" step="0.25" value="12" />
+                                    <input id="sunHourInput" type="text" value="12:00" />
+                                </div>
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Sun int</span>
+                                <input id="sunIntensity" type="range" min="0" max="20" step="0.1" value="10" />
+                                <input id="sunIntensityInput" class="light-sun-int-input" type="number" min="0" max="20" step="0.1" value="10.0" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Север</span>
+                                <input id="sunNorth" type="range" min="0" max="360" step="1" value="0" />
+                            </div>
+                        
+                        </div>
+
+                        <div class="light-section-title">HDRI</div>
+                        <div class="light-grid">
+                            <div class="light-row light-row-hdri">
+                                <label class="light-checkbox light-checkbox-toggle" title="Использовать HDRI">
+                                    <input type="checkbox" id="hdriChk" checked />
+                                </label>
+                                <select id="hdriPreset">
+                                    <option value="">— выберите —</option>
+                                </select>
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Intensity</span>
+                                <input id="iblInt" type="range" min="0" max="5" step="0.05" value="1.5" />
+                                <input class="glass-value glass-value-input" data-light-value-for="iblInt" type="number" min="0" max="5" step="0.05" value="1.50" inputmode="decimal" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">BG α</span>
+                                <input id="bgAlpha" type="range" min="0" max="1" step="0.01" value="0.00" />
+                                <input class="glass-value glass-value-input" data-light-value-for="bgAlpha" type="number" min="0" max="1" step="0.01" value="0.00" inputmode="decimal" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Gamma</span>
+                                <input id="iblGamma" type="range" min="0.9" max="1.1" step="0.01" value="1.0" />
+                                <input class="glass-value glass-value-input" data-light-value-for="iblGamma" type="number" min="0.9" max="1.1" step="0.01" value="1.00" inputmode="decimal" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Exposure</span>
+                                <input id="hdriExposure" type="range" min="0" max="2" step="0.01" value="1" />
+                                <input id="hdriExposureInput" class="glass-value glass-value-input" data-light-value-for="hdriExposure" type="number" min="0" max="2" step="0.01" value="1.00" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Saturation</span>
+                                <input id="hdriSaturation" type="range" min="0" max="2" step="0.01" value="1" />
+                                <input id="hdriSaturationInput" class="glass-value glass-value-input" data-light-value-for="hdriSaturation" type="number" min="0" max="2" step="0.01" value="1.00" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Blur</span>
+                                <input id="hdriBlur" type="range" min="0" max="1" step="0.01" value="0" />
+                                <input id="hdriBlurInput" class="glass-value glass-value-input" data-light-value-for="hdriBlur" type="number" min="0" max="1" step="0.01" value="0.00" />
+                            </div>
+                            <div class="light-row">
+                                <span class="light-label">Rotation</span>
+                                <input id="iblRot" type="range" min="0" max="360" step="1" value="0" />
+                                <input class="glass-value glass-value-input" data-light-value-for="iblRot" type="number" min="0" max="360" step="1" value="0" inputmode="numeric" />
+                            </div>
+                            <!--
+                            <div class="light-row">
+                                <span class="light-label">Tint</span>
+                                <input id="iblTint" type="color" value="#ffffff" />
+                            </div>
+                            -->
+                            <div class="light-section-title">Ambient</div>
+
+                            <div class="light-row">
+                                <div class="light-duo">
+                                    <span class="light-label">Ground</span>
+                                    <input id="hemiGround" type="color" value="#cfd8dc" />
+                                </div>
+                                <div class="light-duo">
+                                    <span class="light-label">Sky</span>
+                                    <input id="hemiSky" type="color" value="#ffffff" />
+                                </div>
+                                <div class="light-hemi">
+                                    <span class="light-label">Hemi int</span>
+                                    <input id="hemiInt" type="range" min="0" max="10" step="0.05" value="1" />
+                                    <input class="glass-value glass-value-input" data-light-value-for="hemiInt" type="number" min="0" max="10" step="0.05" value="1.00" inputmode="decimal" />
+                                </div>
+                            </div>
+                            <div class="light-section-title">Lights</div>
+                            <div class="light-actions">
+                                <button id="shadowDbgBtn" class="btn" title="Параметры теней">Shadows</button>
+                                <button id="shadowHelpersBtn" class="btn" title="Показать объём теней">Shadow box</button>
+                                <button id="lightHelpersBtn" class="btn" title="Показать/скрыть хелперы источников света">Light helpers</button>
+                                <button id="lightEmittersBtn" class="btn" title="Включить/выключить импортированные источники света">Lights on/off</button>
+                            </div>        
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+                        
+<details id="glassGlobalDetails" open>
+                <summary>Global Glass Control</summary>
+                <div class="glass-controls glass-global-controls">
+                    <div class="glass-group">
+                        <label title="Прозрачность стекла (opacity)">
+                            <span>Opacity</span>
+                            <input id="glassOpacity" type="range" min="0" max="1" step="0.01" value="0.10" />
+                            <input class="glass-value glass-value-input" data-value-for="glassOpacity" type="number" min="0" max="1" step="0.01" value="0.10" inputmode="decimal" />
+                        </label>
+                    </div>
+                    <div class="glass-group">
+                        <label title="Показатель преломления (ior)">
+                            <span>IOR</span>
+                            <input id="glassIor" type="range" min="1" max="4" step="0.01" value="1.50" />
+                            <input class="glass-value glass-value-input" data-value-for="glassIor" type="number" min="1" max="4" step="0.01" value="1.50" inputmode="decimal" />
+                        </label>
+                    </div>
+                    <div class="glass-group">
+                        <label title="Transmission (доля проходящего света)">
+                            <span>Transmission</span>
+                            <input id="glassTransmission" type="range" min="0" max="1" step="0.01" value="1.0" />
+                            <input class="glass-value glass-value-input" data-value-for="glassTransmission" type="number" min="0" max="1" step="0.01" value="1.00" inputmode="decimal" />
+                        </label>
+                    </div>
+                    <div class="glass-group">
+                        <label title="Интенсивность отражений у стекла (envMapIntensity)">
+                            <span>Reflect</span>
+                            <input id="glassReflect" type="range" min="0" max="3" step="0.05" value="3.00" />
+                            <input class="glass-value glass-value-input" data-value-for="glassReflect" type="number" min="0" max="3" step="0.05" value="3.00" inputmode="decimal" />
+                        </label>
+                    </div>
+                    <div class="glass-group">
+                        <label title="Шероховатость стекла (roughness)">
+                            <span>Rough</span>
+                            <input id="glassRough" type="range" min="0" max="1" step="0.01" value="0.05" />
+                            <input class="glass-value glass-value-input" data-value-for="glassRough" type="number" min="0" max="1" step="0.01" value="0.05" inputmode="decimal" />
+                        </label>
+                    </div>
+                    <div class="glass-group">
+                        <label title="Metalness для стекла (если нет карты)">
+                            <span>Metal</span>
+                            <input id="glassMetal" type="range" min="0" max="1" step="0.01" value="1.0" />
+                            <input class="glass-value glass-value-input" data-value-for="glassMetal" type="number" min="0" max="1" step="0.01" value="1.00" inputmode="decimal" />
+                        </label>
+                    </div>
+                    <div class="glass-group">
+                        <label title="Толщина стекла (attenuation distance)">
+                            <span>Thickness</span>
+                            <input id="glassAttenDist" type="range" min="0" max="2" step="0.01" value="0.20" />
+                            <input class="glass-value glass-value-input" data-value-for="glassAttenDist" type="number" min="0" max="2" step="0.01" value="0.20" inputmode="decimal" />
+                        </label>
+                    </div>
+                    <div class="glass-group">
+                        <label title="Цвет затухания (attenuation color)">
+                            <span>Atten</span>
+                            <input id="glassAttenColor" type="color" value="#FFFFFF" />
+                            <input class="glass-value glass-value-input" data-value-for="glassAttenColor" type="text" value="#FFFFFF" spellcheck="false" inputmode="text" />
+                        </label>
+                    </div>
+                    <div class="glass-group">
+                        <label title="Цвет стекла">
+                            <span>Color</span>
+                            <input id="glassColor" type="color" value="#FFFFFF" />
+                            <input class="glass-value glass-value-input" data-value-for="glassColor" type="text" value="#FFFFFF" spellcheck="false" inputmode="text" />
+                        </label>
+                    </div>
+                    <div class="glass-actions">
+                        <button id="glassReset" class="btn" type="button" title="Сбросить значения стекла к исходным">Сбросить</button>
+                    </div>
+                </div>
+            </details>
+
+            <details id="futureDevDetails" open>
+                <summary>Future Dev</summary>
+                <div class="future-controls">
+                    <div class="future-row">
+                        <span class="light-label">Samples</span>
+                        <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
+                            <option value="">Примеры…</option>
+                        </select>
+                    </div>
+                    <button id="loadParcelsBtn" class="btn" type="button" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
+                    <button id="statsBtn" class="btn" title="Показать статистику сцены">Stats</button>
+                </div>
+            </details>
+
+            <details id="bindLogDetails" open>
+                <summary>Лог автопривязки</summary>
+                <div id="bindLog" style="font-size:13px; line-height:1.4; padding:6px; max-height:220px; overflow:auto; white-space:pre-wrap; background:#fafafa; border:1px solid var(--border); border-radius:6px;">— пока пусто —</div>
+            </details>
+        </div>
     </div>
 
     <div id="drop" class="drop">Бросайте сюда один или несколько .fbx .zip</div>
@@ -233,13 +367,27 @@
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.180.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.180.0/examples/jsm/"
+                "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/src/Three.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+                "three/src/": "https://cdn.jsdelivr.net/npm/three@0.180.0/src/"
             }
         }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        (function () {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const renderer = params.get('renderer');
+                if (renderer) {
+                    window.__LPMVIEW_RENDERER = renderer;
+                }
+            } catch (_) {
+                /* ignore */
+            }
+        })();
+    </script>
 
     <script type="module" src="./scripts/viewer-app.js"></script>
 </body>
-</html> 
+</html>
