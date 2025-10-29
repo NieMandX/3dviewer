@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
-import { readFBXTreeFromArrayBuffer } from './fbx-tree-parser.js';
 
 class ViewerApp {
     constructor() {
@@ -25,7 +24,24 @@ class ViewerApp {
         const rootEl          = document.getElementById('viewer');
         const dropEl          = document.getElementById('drop');
         const statusEl        = document.getElementById('status');
-        const appbarStatusEl  = document.getElementById('appbarStatus');
+        const appbarStatusEl  = document.getElementById('appbarStatus') || statusEl;
+        const emptyHintEl     = document.getElementById('emptyHint');
+
+        const setStatusMessage = (message = '') => {
+            if (!statusEl) return;
+            const hasMessage = !!(message && message.trim());
+            statusEl.textContent = hasMessage ? message : '';
+            statusEl.hidden = !hasMessage;
+            if (appbarStatusEl && appbarStatusEl !== statusEl) {
+                appbarStatusEl.textContent = statusEl.textContent;
+            }
+        };
+
+        const setEmptyHintVisible = (visible) => {
+            if (!emptyHintEl) return;
+            emptyHintEl.hidden = !visible;
+            emptyHintEl.style.opacity = visible ? '1' : '0';
+        };
         const shadingSel      = document.getElementById('shadingMode');
 
         
@@ -46,9 +62,13 @@ class ViewerApp {
         const iblChk          = document.getElementById('hdriChk');
         const hdriPresetSel   = document.getElementById('hdriPreset');
         const iblIntEl        = document.getElementById('iblInt');
+        const iblGammaEl      = document.getElementById('iblGamma');
+        const iblTintEl       = document.getElementById('iblTint');
         const iblRotEl        = document.getElementById('iblRot');
         const axisSel         = document.getElementById('axisSelect');
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
+        const statsBtn        = document.getElementById('statsBtn');
+        const statsOverlayEl  = document.getElementById('statsOverlay');
 
         const glassOpacityEl  = document.getElementById('glassOpacity');
         const glassReflectEl  = document.getElementById('glassReflect');
@@ -68,11 +88,27 @@ class ViewerApp {
 
         let didInitialRebase = false;
         let currentShadingMode = 'pbr';
+        let galleryNeedsRefresh = false;
+        let galleryRenderedCount = 0;
+        let gallerySpacerEl = null;
+        let lastFinalizedModelIndex = 0;
+        let needsRender = true;
+        const panelState = {
+            rootDetails: null,
+            ungroupedMarker: null,
+            groups: new Map(),
+            renderedModels: new Set(),
+        };
+        let statsVisible = false;
+        let lastStatsUpdate = 0;
+        let fpsEstimate = 0;
+        let lastFrameTime = 0;
         app.dom = {
             rootEl,
             dropEl,
             statusEl,
             appbarStatusEl,
+            emptyHintEl,
             shadingSel,
             sunHourEl,
             sunDayEl,
@@ -83,6 +119,8 @@ class ViewerApp {
             iblChk,
             hdriPresetSel,
             iblIntEl,
+            iblGammaEl,
+            iblTintEl,
             iblRotEl,
             axisSel,
             toggleSideBtn,
@@ -96,8 +134,14 @@ class ViewerApp {
             bindLogEl,
             bgAlphaEl,
             sampleSelect,
+            statsBtn,
+            statsOverlayEl,
         };
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
+
+        function requestRender() {
+            needsRender = true;
+        }
 
 
 
@@ -131,6 +175,7 @@ class ViewerApp {
         
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
+        controls.addEventListener('change', requestRender);
 
         // Простое освещение и сетка
         const hemiLight = new THREE.HemisphereLight(0xffffff, 0xcfd8dc, 1);
@@ -149,7 +194,7 @@ class ViewerApp {
 
 
 
-        const grid = new THREE.GridHelper(1000, 100, 0x666666, 0x999999);
+        const grid = new THREE.GridHelper(100, 100, 0x666666, 0x999999);
         grid.material.transparent = true;
         grid.material.opacity = 0.5;
         grid.userData.excludeFromBounds = true; // ← исключать из bbox
@@ -261,7 +306,7 @@ class ViewerApp {
                 if (shadowAutoFrustum) fitSunShadowToScene(false);
 
                 dirLight.shadow.needsUpdate = true;
-                renderer.render(scene, camera);
+                requestRender();
                 }
 
                 $('shadowApply')?.addEventListener('click', applyShadowUIToLight);
@@ -334,8 +379,7 @@ class ViewerApp {
             } else {
                 unmountSunControls();
             }
-
-            renderer.render(scene, camera);
+            requestRender();
         }
 
         // инициализация тумблера
@@ -350,16 +394,97 @@ class ViewerApp {
         const textureLoader  = new THREE.TextureLoader();
         const texLd          = new THREE.TextureLoader(); // for small helper textures
 
+        const fbxWorkerUrl = (() => {
+            try { return new URL('./fbx-worker.js', import.meta.url); }
+            catch (_) { return null; }
+        })();
+        let fbxWorkerSupported = typeof Worker !== 'undefined' && !!fbxWorkerUrl;
+        let fbxWorkerInstance = null;
+        let fbxWorkerReqId = 0;
+        const fbxWorkerPending = new Map();
+
+        function ensureFBXWorker() {
+            if (!fbxWorkerSupported) return null;
+            if (fbxWorkerInstance) return fbxWorkerInstance;
+            try {
+                fbxWorkerInstance = new Worker(fbxWorkerUrl, { type: 'module' });
+                fbxWorkerInstance.onmessage = (event) => {
+                    const { id, ok, json, error, duration, fbxTree } = event.data || {};
+                    const job = fbxWorkerPending.get(id);
+                    if (!job) return;
+                    fbxWorkerPending.delete(id);
+                    if (ok) job.resolve({ json, duration, fbxTree });
+                    else job.reject(new Error(error || 'FBX worker error'));
+                };
+                fbxWorkerInstance.onerror = (event) => {
+                    event.preventDefault?.();
+                    const err = event?.error || event?.message || new Error('FBX worker error');
+                    fbxWorkerPending.forEach(({ reject }) => reject(err));
+                    fbxWorkerPending.clear();
+                    fbxWorkerInstance?.terminate?.();
+                    fbxWorkerInstance = null;
+                    fbxWorkerSupported = false;
+                };
+            } catch (err) {
+                console.warn('FBX worker init failed', err);
+                fbxWorkerSupported = false;
+                fbxWorkerInstance = null;
+            }
+            return fbxWorkerInstance;
+        }
+
+        async function parseFBXInWorker(buffer) {
+            const worker = ensureFBXWorker();
+            if (!worker) throw new Error('worker not available');
+            const id = ++fbxWorkerReqId;
+            const promise = new Promise((resolve, reject) => {
+                fbxWorkerPending.set(id, { resolve, reject });
+            });
+            worker.postMessage({ id, buffer }, [buffer]);
+            const { json, duration } = await promise;
+            const loader = new THREE.ObjectLoader();
+            const parsed = loader.parse(json);
+            if (json.animations?.length) {
+                const clips = json.animations.map(THREE.AnimationClip.parse).filter(Boolean);
+                if (clips.length) parsed.animations = clips;
+            }
+            return { obj: parsed, duration: duration || 0 };
+        }
+
+        function parseFBXOnMainThread(buffer) {
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const parsed = fbxLoader.parse(buffer, '');
+            const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (fbxLoader?.fbxTree) {
+                (parsed.userData ||= {}).fbxTree = fbxLoader.fbxTree;
+            }
+            return { obj: parsed, duration: end - now };
+        }
+
         let pmremGen     = app.pmremGen     = null;      // PMREM generator (lazy)
         let hdrBaseTex   = app.hdrBaseTex   = null;      // original equirect HDR (DataTexture)
         const HDRI_LIBRARY = [
-            { name: "Royal Esplanade", url: "https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
-            { name: "Venice Sunset",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr" },
-            { name: "Studio Small",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" }
+            { name: "Royal Esplanade",    url: "https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
+            { name: "Venice Sunset",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr" },
+            { name: "Blouberg Sunrise",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/blouberg_sunrise_1k.hdr" },
+            { name: "Tropical Beach",     url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tropical_beach_1k.hdr" },
+            { name: "Country Field",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/country_field_1k.hdr" },
+            { name: "Construction Site",  url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/construction_1k.hdr" },
+            { name: "Skyline Rooftop",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/roof_garden_1k.hdr" },
+            { name: "City Overpass",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/urban_overpass_1k.hdr" },
+            { name: "Forest Trail",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/forest_trail_1k.hdr" },
+            { name: "Rocky Ridge",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/rocky_ridge_1k.hdr" },
+            { name: "Mountain Sunset",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/mountain_sunset_1k.hdr" },
+            { name: "Industrial Yard",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/industrial_pipe_1k.hdr" },
+            { name: "Tokyo Night",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tokyo_neon_1k.hdr" },
+            { name: "Small Hangar",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hangar_1k.hdr" },
+            { name: "Studio Small",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" }
         ];
         let currentEnv   = app.currentEnv   = null;      // pmrem result (for scene.environment)
-        let currentBg    = app.currentBg    = null;      // shifted equirect (for background sphere)
+        let currentBg    = app.currentBg    = null;      // shifted equirect (для фона)
         let currentRotDeg = app.currentRotDeg = 0;        // rotation slider value
+        let currentBgTint = new THREE.Color(0xffffff);
+        let currentExposure = 1;
 
         // =====================================================================
         // Asset Loading · Shared State
@@ -501,6 +626,7 @@ class ViewerApp {
             renderer.setSize(w, h);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
+            requestRender();
         }
 
         window.addEventListener('resize', layout);
@@ -540,10 +666,10 @@ class ViewerApp {
                     }
 
                     let shadowAutoFrustum = true;
-                    let shadowFrustumScale = 1.0;
+                    let shadowFrustumScale = 1;
 
                     /** Подгоняет orthographic frustum для directional light под текущую сцену. */
-                    function fitSunShadowToScene(recenterTarget = false, margin = 1.25) {
+                    function fitSunShadowToScene(recenterTarget = false, margin = 1.5) {
                         if (!dirLight || !dirLight.shadow || !dirLight.shadow.camera) return;
 
                         const box = computeSceneBounds();
@@ -646,6 +772,7 @@ class ViewerApp {
             camera.far = dist * 1000;
             camera.updateProjectionMatrix();
             controls.update();
+            requestRender();
         }
 
         function fitAll() {
@@ -664,6 +791,7 @@ class ViewerApp {
             camera.near = Math.max(dist / 1000, 0.01);
             camera.far  = dist * 1000;
             camera.updateProjectionMatrix();
+            requestRender();
         }
 
         function computeWorldCenter() {
@@ -763,6 +891,7 @@ class ViewerApp {
 
             // Подгоняем фрустум (НЕ меняем ни target, ни позицию света)
             fitSunShadowToScene(false); // передаём флажок: не ресентрить таргет
+            requestRender();
         }
 
 
@@ -770,21 +899,20 @@ class ViewerApp {
         function shiftEquirectColumns(srcTex, fracU) {
             const img = srcTex.image;
             const w = img.width, h = img.height;
-            const ch = 4; // RGBA / RGBE
             const data = img.data;
+            const channels = Math.max(3, Math.round(data.length / Math.max(1, w * h)) || 4);
             const out = new (data.constructor)(data.length);
 
             const shift = Math.round(((fracU % 1 + 1) % 1) * w);
             for (let y = 0; y < h; y++) {
-                const rowOff = y * w * ch;
+                const rowOff = y * w * channels;
                 for (let x = 0; x < w; x++) {
                     const sx = (x - shift + w) % w;
-                    const si = rowOff + sx * ch;
-                    const di = rowOff + x * ch;
-                    out[di] = data[si];
-                    out[di + 1] = data[si + 1];
-                    out[di + 2] = data[si + 2];
-                    out[di + 3] = data[si + 3];
+                    const si = rowOff + sx * channels;
+                    const di = rowOff + x * channels;
+                    for (let c = 0; c < channels; c++) {
+                        out[di + c] = data[si + c];
+                    }
                 }
             }
 
@@ -797,6 +925,58 @@ class ViewerApp {
             return tex;
         }
 
+        function syncEnvAdjustmentsState() {
+            const gamma = Math.max(0.01, parseFloat(iblGammaEl?.value) || 1.0);
+            const tintHex = (iblTintEl?.value && /^#/u.test(iblTintEl.value)) ? iblTintEl.value : '#ffffff';
+            const tintLinear = new THREE.Color(tintHex).convertSRGBToLinear();
+            const state = { gamma, tintHex, tintLinear };
+            app.envAdjustments = state;
+            return state;
+        }
+
+        function applyHDRAdjustments(dataTex, gamma = 1.0, tintColor = null) {
+            if (!dataTex?.image?.data) return dataTex;
+            const { data, width, height } = dataTex.image;
+            if (!width || !height) return dataTex;
+
+            const strideFloat = data.length / Math.max(1, width * height);
+            const stride = Number.isFinite(strideFloat) && strideFloat >= 3 ? Math.round(strideFloat) : 3;
+            const hasGamma = Math.abs(gamma - 1.0) > 1e-3;
+            const hasTint = !!tintColor && (
+                Math.abs(tintColor.r - 1) > 1e-3 ||
+                Math.abs(tintColor.g - 1) > 1e-3 ||
+                Math.abs(tintColor.b - 1) > 1e-3
+            );
+
+            if (!hasGamma && !hasTint) return dataTex;
+
+            const gammaPow = hasGamma ? (1 / gamma) : 1.0;
+
+            for (let i = 0; i < data.length; i += stride) {
+                let r = data[i];
+                let g = data[i + 1];
+                let b = data[i + 2];
+
+                if (hasGamma) {
+                    r = Math.pow(Math.max(r, 0), gammaPow);
+                    g = Math.pow(Math.max(g, 0), gammaPow);
+                    b = Math.pow(Math.max(b, 0), gammaPow);
+                }
+                if (hasTint) {
+                    r *= tintColor.r;
+                    g *= tintColor.g;
+                    b *= tintColor.b;
+                }
+
+                data[i] = r;
+                data[i + 1] = g;
+                data[i + 2] = b;
+            }
+
+            dataTex.needsUpdate = true;
+            return dataTex;
+        }
+
         /** Генерирует PMREM из повернутого HDRI и применяет к окружению/фону. */
         function buildAndApplyEnvFromRotation(deg) {
             currentRotDeg = deg;
@@ -806,6 +986,7 @@ class ViewerApp {
                 app.pmremGen = pmremGen;
             }
 
+            const { gamma, tintLinear } = syncEnvAdjustmentsState();
             const frac = ((deg % 360) + 360) % 360 / 360;
             if (bgMesh) {
                 bgMesh.rotation.y = THREE.MathUtils.degToRad(deg);
@@ -816,6 +997,7 @@ class ViewerApp {
 
             // shift source HDR and generate PMREM
             const shifted = shiftEquirectColumns(hdrBaseTex, frac);
+            applyHDRAdjustments(shifted, gamma, tintLinear);
             currentBg = shifted;
             app.currentBg = currentBg;
             const rt = pmremGen.fromEquirectangular(shifted);
@@ -824,6 +1006,11 @@ class ViewerApp {
 
             scene.environment = iblChk.checked ? currentEnv : null;
             applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
+            ensureBgMesh();
+            if (bgMesh) {
+                bgMesh.material.map = currentBg;
+                bgMesh.material.needsUpdate = true;
+            }
         }
 
         /** Включает/выключает окружение (HDRI) и обновляет фон + стекло. */
@@ -851,7 +1038,48 @@ class ViewerApp {
                         m.needsUpdate = true;
                     }
                 });
-            });
+           });
+
+            requestRender();
+        }
+
+        function setStatsVisible(visible) {
+            statsVisible = !!visible;
+            statsBtn?.classList.toggle('active', statsVisible);
+            if (statsOverlayEl) {
+                statsOverlayEl.hidden = !statsVisible;
+                if (statsVisible) {
+                    updateStatsOverlay(true);
+                    requestRender();
+                }
+            }
+        }
+
+        function updateStatsOverlay(force = false) {
+            if (!statsVisible || !statsOverlayEl) return;
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (!force && now - lastStatsUpdate < 250) return;
+            lastStatsUpdate = now;
+
+            const info = renderer.info || {};
+            const renderInfo = info.render || {};
+            const mem = info.memory || {};
+            const programs = Array.isArray(info.programs) ? info.programs.length : (info.programs || 0);
+            const formatInt = (value) => (typeof value === 'number' ? value.toLocaleString('ru-RU') : String(value ?? 0));
+            const fpsText = fpsEstimate ? Math.round(fpsEstimate).toString() : '—';
+
+            const lines = [
+                `fps        : ${fpsText}`,
+                `draw calls : ${formatInt(renderInfo.calls || 0)}`,
+                `triangles  : ${formatInt(renderInfo.triangles || 0)}`,
+                `lines      : ${formatInt(renderInfo.lines || 0)}`,
+                `points     : ${formatInt(renderInfo.points || 0)}`,
+                `geometries : ${formatInt(mem.geometries || 0)}`,
+                `textures   : ${formatInt(mem.textures || 0)}`,
+            ];
+            if (programs) lines.push(`programs   : ${formatInt(programs)}`);
+
+            statsOverlayEl.textContent = lines.join('\n');
         }
 
         // helper textures
@@ -1334,6 +1562,7 @@ function clearBeautyWire(mesh) {
                 applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
                 applyGlassControlsToScene();
             }
+            requestRender();
             scheduleOnce();
         }
 
@@ -1372,6 +1601,7 @@ function clearBeautyWire(mesh) {
             const materials = Array.isArray(target.material) ? target.material : [target.material];
             materials.forEach(mat => { if (mat) mat.visible = visible; });
             target.visible = visible;
+            requestRender();
         }
 
         function updateMeshVisibilityFromMaterials(target) {
@@ -1565,6 +1795,7 @@ function clearBeautyWire(mesh) {
             bgMesh.material.opacity = parseFloat(bgAlphaEl.value || '1');
             bgMesh.material.transparent = bgMesh.material.opacity < 0.999;
             bgMesh.material.needsUpdate = true;
+            requestRender();
         }
 
         // Привязываем обработчики ghliodon
@@ -1574,9 +1805,28 @@ function clearBeautyWire(mesh) {
         updateSun();
 
 
+        syncEnvAdjustmentsState();
+
+        if (statsBtn) {
+            statsBtn.addEventListener('click', () => setStatsVisible(!statsVisible));
+        }
+        setStatsVisible(false);
+
         iblChk.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl.addEventListener('input', () => { if (iblChk.checked) applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value)); });
-        iblRotEl.addEventListener('input', async () => { if (!iblChk.checked) return; await loadHDRBase(); buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0); });
+        const rebuildEnvOnAdjustments = async () => {
+            syncEnvAdjustmentsState();
+            if (!iblChk.checked) return;
+            await loadHDRBase();
+            buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
+        };
+        iblGammaEl.addEventListener('input', rebuildEnvOnAdjustments);
+        iblTintEl.addEventListener('input', rebuildEnvOnAdjustments);
+        iblRotEl.addEventListener('input', async () => {
+            if (!iblChk.checked) return;
+            await loadHDRBase();
+            buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
+        });
         hdriPresetSel.addEventListener('change', async (e) => {
             const idx = parseInt(e.target.value, 10);
             if (isNaN(idx)) return;
@@ -1621,358 +1871,244 @@ function clearBeautyWire(mesh) {
         // Utilities
         // =====================
 
+        let showLightHelpers = false;
+        let importedLightsEnabled = false;
+        const LIGHT_HELPER_COLOR = 0xffc107;
+        const LIGHT_DIR_TMP = new THREE.Vector3();
+        const LIGHT_WORLD_POS = new THREE.Vector3();
+        const LIGHT_WORLD_QUAT = new THREE.Quaternion();
+        const TARGET_WORLD_POS = new THREE.Vector3();
+        const TEMP_BOX = new THREE.Box3();
+        const TEMP_SIZE = new THREE.Vector3();
+
         function disableShadowsOnImportedLights(root){
-            let cnt = 0;
-            let disabled = 0;
+            let shadowsOff = 0;
+            let intensityOff = 0;
+            let hidden = 0;
+
             root.traverse(o => {
-                if (!o || !o.isLight) return;
+                if (!o?.isLight) return;
+                if (!o.userData) o.userData = {};
+
                 if ('castShadow' in o && o.castShadow) {
                     o.castShadow = false;
-                    cnt++;
+                    shadowsOff++;
                 }
+
                 if ('intensity' in o && o.intensity !== 0) {
-                    if (o.userData._origIntensity === undefined) o.userData._origIntensity = o.intensity;
+                    if (o.userData._origIntensity === undefined) {
+                        o.userData._origIntensity = o.intensity;
+                    }
                     o.intensity = 0;
-                    disabled++;
+                    intensityOff++;
                 }
-                if ('power' in o && o.power !== 0) o.power = 0;
-                if ('visible' in o && o.visible) o.visible = false;
+
+                if ('power' in o && o.power !== 0) {
+                    if (o.userData._origPower === undefined) {
+                        o.userData._origPower = o.power;
+                    }
+                    o.power = 0;
+                }
+
+                if (o.visible) {
+                    if (o.userData._origVisible === undefined) {
+                        o.userData._origVisible = true;
+                    }
+                    o.visible = false;
+                    hidden++;
+                }
             });
-            if ((cnt || disabled) && typeof logBind === 'function') {
+
+            if ((shadowsOff || intensityOff || hidden) && typeof logBind === 'function') {
                 const parts = [];
-                if (cnt) parts.push(`тени → ${cnt}`);
-                if (disabled) parts.push(`intensity=0 → ${disabled}`);
+                if (shadowsOff) parts.push(`тени → ${shadowsOff}`);
+                if (intensityOff) parts.push(`intensity=0 → ${intensityOff}`);
+                if (hidden) parts.push(`hidden → ${hidden}`);
                 logBind(`Lights: ${parts.join(', ')}`, 'info');
             }
         }
 
-        const LIGHT_HELPER_COLOR = 0xffc107;
-        const ORIGINAL_MARKER_GEOMETRY = new THREE.SphereGeometry(0.1, 24, 24);
-        const ORIGINAL_MARKER_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xff4081 });
-        const ORIGINAL_MARKER_LABEL_FONT = '24px Inter, sans-serif';
-        const ORIGINAL_MARKER_LABEL_PADDING = 12;
-        const ORIGINAL_MARKER_LABEL_LINE_HEIGHT = 30;
-        const ORIGINAL_MARKER_LABEL_SCALE = 0.000643;
-        const LIGHT_DIR_TMP = new THREE.Vector3();
-        const LIGHT_POS_TMP = new THREE.Vector3();
-        const MARKER_SCENE_POS = new THREE.Vector3();
-        const MARKER_LOCAL_POS = new THREE.Vector3();
-
-        function disposeSprite(sprite) {
-            if (!sprite) return;
-            const material = sprite.material;
-            const map = material?.map;
-            if (map) {
-                map.dispose?.();
-            }
-            material?.dispose?.();
-            sprite.parent?.remove(sprite);
-        }
-
-        function createMarkerLabelSprite(text) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return null;
-            const lines = String(text || '').split('\n');
-            const padding = ORIGINAL_MARKER_LABEL_PADDING;
-            ctx.font = ORIGINAL_MARKER_LABEL_FONT;
-            let maxWidth = 0;
-            lines.forEach(line => {
-                const w = ctx.measureText(line).width;
-                if (w > maxWidth) maxWidth = w;
-            });
-
-            const width = Math.max(2, Math.ceil(maxWidth + padding * 2));
-            const height = Math.max(2, Math.ceil(lines.length * ORIGINAL_MARKER_LABEL_LINE_HEIGHT + padding * 2));
-            canvas.width = width;
-            canvas.height = height;
-
-            ctx.font = ORIGINAL_MARKER_LABEL_FONT;
-            ctx.fillStyle = 'rgba(20, 20, 20, 0.85)';
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-            ctx.lineWidth = 2;
-            const drawRoundedRect = () => {
-                if (typeof ctx.roundRect === 'function') {
-                    ctx.beginPath();
-                    ctx.roundRect(1, 1, width - 2, height - 2, 8);
-                    ctx.fill();
-                    ctx.stroke();
-                } else {
-                    ctx.fillRect(1, 1, width - 2, height - 2);
-                    ctx.strokeRect(1, 1, width - 2, height - 2);
-                }
-            };
-            drawRoundedRect();
-
-            ctx.fillStyle = '#ffffff';
-            ctx.textBaseline = 'middle';
-            ctx.textAlign = 'left';
-            lines.forEach((line, idx) => {
-                const y = padding + ORIGINAL_MARKER_LABEL_LINE_HEIGHT * idx + ORIGINAL_MARKER_LABEL_LINE_HEIGHT / 2;
-                ctx.fillText(line, padding, y);
-            });
-
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.colorSpace = THREE.SRGBColorSpace;
-            texture.needsUpdate = true;
-
-            const material = new THREE.SpriteMaterial({
-                map: texture,
-                transparent: true,
-                depthTest: false,
-                depthWrite: false,
-                sizeAttenuation: false
-            });
-
-            const sprite = new THREE.Sprite(material);
-            sprite.scale.set(width * ORIGINAL_MARKER_LABEL_SCALE, height * ORIGINAL_MARKER_LABEL_SCALE, 1);
-            sprite.renderOrder = 1000;
-            sprite.userData.excludeFromBounds = true;
-            sprite.userData.originalMarkerLabel = true;
-
-            return sprite;
-        }
-
-        function retargetSpotAndDirectionalLights(root){
+        function restoreLightTargetsFromOrientation(root) {
             if (!root) return;
+
             root.updateMatrixWorld(true);
 
-            root.traverse(node => {
-                if (!node?.isLight) return;
-                if (!(node.isSpotLight || node.isDirectionalLight)) return;
+            TEMP_BOX.setFromObject(root);
+            const sceneDiag = TEMP_BOX.getSize(TEMP_SIZE).length();
+            const defaultDistance = Number.isFinite(sceneDiag) && sceneDiag > 0.0001
+                ? THREE.MathUtils.clamp(sceneDiag * 0.25, 5, 500)
+                : 25;
 
-                let target = node.target;
-                if (!target) {
-                    target = new THREE.Object3D();
-                    node.target = target;
-                }
+            root.traverse(light => {
+                if (!light?.isLight) return;
+                const isDirectional = !!light.isDirectionalLight;
+                const isSpot = !!light.isSpotLight;
+                if (!isDirectional && !isSpot) return;
 
-                const host = root;
-                if (target.parent !== host) {
-                    node.target.updateMatrixWorld?.(true);
-                    node.target.getWorldPosition(LIGHT_TARGET_TMP_LOCAL);
-                    host.add(target);
-                    host.worldToLocal(LIGHT_TARGET_TMP_LOCAL);
-                    target.position.copy(LIGHT_TARGET_TMP_LOCAL);
-                }
+                const target = light.target || (light.target = new THREE.Object3D());
+                const host = target.parent || root;
+                if (target.parent !== host) host.add(target);
+                host.updateMatrixWorld(true);
 
-                node.getWorldPosition(LIGHT_POS_TMP);
+                light.getWorldPosition(LIGHT_WORLD_POS);
+                light.getWorldQuaternion(LIGHT_WORLD_QUAT);
 
-                LIGHT_DIR_TMP.set(0, 0, -1).applyQuaternion(node.quaternion).normalize();
+                LIGHT_DIR_TMP.set(0, -1, 0).applyQuaternion(LIGHT_WORLD_QUAT).normalize();
 
-                let distance = Number.isFinite(node.distance) ? node.distance : 0;
-                if (distance < 5) distance = 50;
+                let length = isDirectional ? defaultDistance : light.distance;
+                if (!Number.isFinite(length) || length <= 0.01) length = defaultDistance;
 
-                const worldTarget = LIGHT_POS_TMP.clone().addScaledVector(LIGHT_DIR_TMP, distance);
-                host.worldToLocal(worldTarget);
-                target.position.copy(worldTarget);
+                TARGET_WORLD_POS.copy(LIGHT_WORLD_POS).addScaledVector(LIGHT_DIR_TMP, length);
+
+                host.worldToLocal(TARGET_WORLD_POS);
+                target.position.copy(TARGET_WORLD_POS);
                 target.updateMatrixWorld(true);
 
-                const helper = node.userData?._lightHelper;
-                helper?.update?.();
-            });
-        }
-
-        function extractVectorFromProperty(entry) {
-            if (!Array.isArray(entry)) return null;
-            const values = entry.slice(4).map(Number).filter(v => Number.isFinite(v));
-            return values.length >= 3 ? values.slice(0, 3) : null;
-        }
-
-        function toArray3(value) {
-            if (!value) return null;
-            if (Array.isArray(value)) return value.slice(0, 3);
-            if (ArrayBuffer.isView(value)) return Array.from(value).slice(0, 3);
-            if (value.isVector3) return [value.x, value.y, value.z];
-            if (typeof value.toArray === 'function') {
-                const arr = value.toArray();
-                return Array.isArray(arr) ? arr.slice(0, 3) : null;
-            }
-            return null;
-        }
-
-        const FALLBACK_WORLD = new THREE.Vector3();
-
-        function cacheOriginalTransformData(root) {
-            root.updateMatrixWorld(true);
-            root.traverse(node => {
-                if (!node || typeof node !== 'object') return;
-                if (!node.userData) node.userData = {};
-                const transformData = node.userData.transformData || (node.userData.transformData = {});
-                const existingTranslation = transformData.translation;
-                if (existingTranslation && node.userData._origTranslation == null) {
-                    const copy = toArray3(existingTranslation);
-                    if (copy) node.userData._origTranslation = copy;
-                }
-
-                if (!transformData.translation) {
-                    const matrix = node.matrix;
-                    if (!matrix || !matrix.elements) return;
-                    const e = matrix.elements;
-                    const fallback = [e[12], e[13], e[14]].map(v => Number(v));
-                    if (fallback.every(v => Math.abs(v) < 1e-6) && node.getWorldPosition) {
-                        node.getWorldPosition(FALLBACK_WORLD);
-                        fallback[0] = FALLBACK_WORLD.x;
-                        fallback[1] = FALLBACK_WORLD.y;
-                        fallback[2] = FALLBACK_WORLD.z;
-                    }
-                    transformData.translation = fallback.slice();
-                    node.userData._origTranslation = fallback.slice();
-                    if (fallback.some(v => Math.abs(v) > 0.001) && console && console.debug) {
-                        console.debug('[FBX fallback]', root.userData?._fbxFileName || root.name || 'FBX', node.name || '(unnamed)', fallback);
-                    }
+                if (light.isSpotLight) {
+                    light.translateY(-1);
+                    light.updateMatrix();
+                    light.updateMatrixWorld(true);
                 }
             });
-
-            const fbxTree = root?.userData?.FBXTree;
-            const models = fbxTree?.Objects?.Model;
-            if (!models) return;
-
-            root.traverse(node => {
-                if (!node.userData) node.userData = {};
-                const transformData = node.userData.transformData || (node.userData.transformData = {});
-                const id = node.userData?.FBX_ID;
-                const model = id != null ? models[id] : null;
-                const props = model?.Properties70?.Property;
-                if (!Array.isArray(props)) return;
-
-                const findProp = (name) => {
-                    const entry = props.find(p => Array.isArray(p) && p[0] === name);
-                    return extractVectorFromProperty(entry);
-                };
-
-                const translation = findProp('Lcl Translation');
-                if (translation) {
-                    const copy = translation.slice();
-                    transformData.translation = copy;
-                    node.userData._origTranslation = copy.slice();
-                }
-
-                const preRot = findProp('PreRotation');
-                if (preRot) node.userData.preRot = preRot;
-
-                const postRot = findProp('PostRotation');
-                if (postRot) node.userData.postRot = postRot;
-            });
-
-            root.updateMatrixWorld(true);
         }
 
-        const formatArr = arr => Array.isArray(arr)
-            ? arr.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', ')
-            : '—';
-
-        const formatArrPrecise = (arr, decimals = 3) => {
-            if (Array.isArray(arr) || ArrayBuffer.isView(arr)) {
-                const source = Array.isArray(arr) ? arr : Array.from(arr);
-                return source.map(v => typeof v === 'number' ? v.toFixed(decimals) : v).join(', ');
-            }
-            return '—';
-        };
-
-        function ensureLightHelpers(root){
+        function ensureLightHelpers(root) {
             if (!root) return;
 
-            const sizeVec = new THREE.Vector3();
             const box = new THREE.Box3();
+            const sizeVec = new THREE.Vector3();
             box.setFromObject(root);
-            box.getSize(sizeVec);
-            const diag = sizeVec.length();
-            const rawSize = Number.isFinite(diag) && diag > 0 ? diag * 0.0005 : 1;
-            const baseSize = THREE.MathUtils.clamp(rawSize, 0.25, 10);
+            const diag = box.getSize(sizeVec).length() || 1;
+            const baseSize = THREE.MathUtils.clamp(diag * 0.02, 0.25, 10);
+
+            root.updateMatrixWorld(true);
 
             root.traverse(o => {
-                if (!o || !o.isLight) return;
-                if (o.userData?._lightHelper) {
-                    const helper = o.userData._lightHelper;
-                    helper?.update?.();
-                    return;
+                if (!o?.isLight) return;
+
+                let helper = o.userData?._lightHelper || null;
+                if (!helper || !helper.parent) {
+                    helper = null;
+                    if (o.isDirectionalLight) {
+                        helper = new THREE.DirectionalLightHelper(o, baseSize, LIGHT_HELPER_COLOR);
+                    } else if (o.isPointLight) {
+                        helper = new THREE.PointLightHelper(o, baseSize * 0.35, LIGHT_HELPER_COLOR);
+                    } else if (o.isSpotLight) {
+                        helper = new THREE.SpotLightHelper(o, LIGHT_HELPER_COLOR);
+                    } else if (o.isHemisphereLight) {
+                        helper = new THREE.HemisphereLightHelper(o, baseSize * 0.5, LIGHT_HELPER_COLOR);
+                    } else if (o.isRectAreaLight && typeof THREE.RectAreaLightHelper === 'function') {
+                        helper = new THREE.RectAreaLightHelper(o, LIGHT_HELPER_COLOR);
+                    }
+
+                    if (!helper) return;
+
+                    helper.userData.excludeFromBounds = true;
+                    helper.userData.lightHelper = true;
+                    helper.name = helper.name || `${o.name || o.type}-helper`;
+
+                    const host = o.parent || root;
+                    host.add(helper);
+                    helper.update?.();
+
+                    o.userData ||= {};
+                    o.userData._lightHelper = helper;
+                } else {
+                    helper.update?.();
                 }
 
-                let helper = null;
-                if (o.isDirectionalLight) {
-                    helper = new THREE.DirectionalLightHelper(o, baseSize, LIGHT_HELPER_COLOR);
-                } else if (o.isPointLight) {
-                    helper = new THREE.PointLightHelper(o, baseSize * 0.35, LIGHT_HELPER_COLOR);
-                } else if (o.isSpotLight) {
-                    helper = new THREE.SpotLightHelper(o, LIGHT_HELPER_COLOR);
-                } else if (o.isHemisphereLight) {
-                    helper = new THREE.HemisphereLightHelper(o, baseSize * 0.5, LIGHT_HELPER_COLOR);
-                } else if (o.isRectAreaLight && typeof THREE.RectAreaLightHelper === 'function') {
-                    helper = new THREE.RectAreaLightHelper(o, LIGHT_HELPER_COLOR);
+                if (o.isSpotLight) {
+                    const dist = (Number.isFinite(o.distance) && o.distance > 0.01) ? o.distance : 20;
+                    o.distance = dist;
+                    helper.cone.scale.set(20, 20, 20);
                 }
 
-                if (!helper) return;
-
-                helper.userData.excludeFromBounds = true;
-                helper.userData.lightHelper = true;
-                helper.name = helper.name || `${o.name || o.type}-helper`;
-
-                const host = o.parent || root;
-                host.add(helper);
-                o.userData._lightHelper = helper;
-                helper?.update?.();
+                helper.visible = showLightHelpers;
             });
         }
 
-        function debugDumpFBXStructure(root, opts = {}) {
-            if (!root || !console || typeof console.groupCollapsed !== 'function') return;
-            cacheOriginalTransformData(root);
-            const {
-                maxDepth = 4,
-                onlyLights = false,
-                label = root.userData?._fbxFileName || root.name || 'FBX'
-            } = opts;
-
-            const outLines = [];
-            const traverse = (node, depth = 0) => {
-                if (!node || depth > maxDepth) return;
-                const indent = '  '.repeat(depth);
-                const type = node.type || (node.isLight ? 'Light' : node.constructor?.name || 'Object3D');
-                let pos = '—';
-                let posWorld = '—';
-                let posOriginal = '—';
-                if (node.position) {
-                    const arr = node.position.toArray();
-                    pos = formatArr(arr);
-                    const wp = new THREE.Vector3();
-                    node.getWorldPosition(wp);
-                    posWorld = formatArr([wp.x, wp.y, wp.z]);
-                    const orig = node.userData?._origTranslation ?? node.userData?.transformData?.translation;
-                    posOriginal = formatArrPrecise(orig);
-                }
-                const rot = node.rotation
-                    ? node.rotation.toArray().map((v, i) => {
-                        if (i < 3 && typeof v === 'number') {
-                            return (THREE.MathUtils.radToDeg(v)).toFixed(2);
-                        }
-                        return v;
-                    }).join(', ')
-                    : '—';
-                const scale = node.scale ? formatArr(node.scale.toArray()) : '—';
-                if (!onlyLights || node.isLight) {
-                    const pr = node.userData?.preRot;
-                    const preRot = pr ? formatArr(pr) : '—';
-                    const postRot = node.userData?.postRot ? formatArr(node.userData.postRot) : '—';
-                    outLines.push(`${indent}${node.name || '(no name)'} [${type}] pos(${pos}) world(${posWorld}) original(${posOriginal}) rot(${rot}) scale(${scale}) preRot(${preRot}) postRot(${postRot})`);
-                    if (node.isLight && node.target) {
-                        const tPos = node.target.position ? node.target.position.toArray().map(v => v.toFixed(2)).join(', ') : '—';
-                        outLines.push(`${indent}  ↳ target: ${node.target.name || '(target)'} pos(${tPos})`);
+        function setLightHelpersVisible(visible) {
+            showLightHelpers = !!visible;
+            loadedModels.forEach(model => {
+                model.obj?.traverse(o => {
+                    if (o?.userData?._lightHelper) {
+                        o.userData._lightHelper.visible = showLightHelpers;
+                        o.userData._lightHelper.update?.();
                     }
-                }
-                node.children?.forEach(child => traverse(child, depth + 1));
-            };
+                });
+            });
+            requestRender();
+        }
 
-            traverse(root, 0);
+        function setImportedLightsEnabled(enabled, targetRoot = null, options = {}) {
+            const { silent = false } = options || {};
+            const roots = targetRoot
+                ? (Array.isArray(targetRoot) ? targetRoot : [targetRoot])
+                : loadedModels.map(m => m.obj).filter(Boolean);
 
-            if (typeof window !== 'undefined') {
-                const store = window.__fbxLightDumps ||= [];
-                store.push({ label, lines: outLines.slice(), timestamp: Date.now() });
+            let affected = 0;
+
+            roots.forEach(root => {
+                if (!root) return;
+                root.traverse(o => {
+                    if (!o?.isLight) return;
+                    o.userData ||= {};
+
+                    if (enabled) {
+                        if ('intensity' in o && o.userData._origIntensity !== undefined) {
+                            // o.intensity = o.userData._origIntensity;
+                            o.intensity = 1000;
+                        }
+                        if ('power' in o && o.userData._origPower !== undefined) {
+                            // o.power = o.userData._origPower;
+                            o.power = 1000;
+                        }
+                        const restoreVisible = o.userData._origVisible;
+                        o.visible = restoreVisible !== undefined ? restoreVisible : true;
+                    } else {
+                        if ('intensity' in o) {
+                            if (o.userData._origIntensity === undefined) o.userData._origIntensity = o.intensity;
+                            o.intensity = 0;
+                        }
+                        if ('power' in o) {
+                            if (o.userData._origPower === undefined) o.userData._origPower = o.power;
+                            o.power = 0;
+                        }
+                        if (o.userData._origVisible === undefined) o.userData._origVisible = o.visible;
+                        o.visible = false;
+                    }
+
+                    o.userData._lightEnabled = !!enabled;
+                    affected++;
+                });
+            });
+
+            importedLightsEnabled = !!enabled;
+
+            if (!silent && typeof logBind === 'function') {
+                logBind(`Lights: ${enabled ? 'включены' : 'выключены'} (${affected})`, 'info');
             }
+            requestRender();
+        }
 
-            if (console && typeof console.log === 'function') {
-                console.log(`\n[FBX dump] ${label}\n${outLines.join('\n')}`);
-            }
+        const lightHelpersBtn = document.getElementById('lightHelpersBtn');
+        if (lightHelpersBtn) {
+            lightHelpersBtn.addEventListener('click', () => {
+                const next = !showLightHelpers;
+                setLightHelpersVisible(next);
+                lightHelpersBtn.classList.toggle('active', next);
+            });
+            lightHelpersBtn.classList.toggle('active', showLightHelpers);
+        }
+
+        const lightEmittersBtn = document.getElementById('lightEmittersBtn');
+        if (lightEmittersBtn) {
+            lightEmittersBtn.addEventListener('click', () => {
+                const next = !importedLightsEnabled;
+                setImportedLightsEnabled(next);
+                lightEmittersBtn.classList.toggle('active', next);
+            });
+            lightEmittersBtn.classList.toggle('active', importedLightsEnabled);
         }
 
 
@@ -2077,48 +2213,6 @@ function clearBeautyWire(mesh) {
                 };
             } catch {
                 return null;
-            }
-        }
-
-        function debugLightDirections(root, label = 'FBX Lights') {
-            if (!root || !console || typeof console.log !== 'function') return;
-            cacheOriginalTransformData(root);
-            root.updateMatrixWorld(true);
-            const lines = [];
-            const lightPos = new THREE.Vector3();
-            const targetPos = new THREE.Vector3();
-            root.traverse(node => {
-                if (!node?.isLight) return;
-                node.getWorldPosition(lightPos);
-                if (node.target) {
-                    node.target.updateMatrixWorld?.(true);
-                    node.target.getWorldPosition(targetPos);
-                } else {
-                    targetPos.copy(lightPos);
-                }
-                const dir = targetPos.clone().sub(lightPos);
-                const rot = node.rotation
-                    ? node.rotation.toArray().map((v, i) => {
-                        if (i < 3 && typeof v === 'number') {
-                            return (THREE.MathUtils.radToDeg(v)).toFixed(2);
-                        }
-                        return v;
-                    }).join(', ')
-                    : '—';
-                const localPos = node.position ? node.position.toArray() : [];
-                const original = node.userData?._origTranslation || node.userData?.transformData?.translation;
-                const origPos = Array.isArray(original)
-                    ? original.map(v => typeof v === 'number' ? Number(v).toFixed(3) : v).join(', ')
-                    : '—';
-                const matrixWorld = node.matrixWorld ? node.matrixWorld.clone() : null;
-                const matrixValues = matrixWorld ? matrixWorld.elements.map(v => v.toFixed(3)) : null;
-                const preRot = node.userData?.preRot ? formatArr(node.userData.preRot) : '—';
-                const postRot = node.userData?.postRot ? formatArr(node.userData.postRot) : '—';
-                const matrixStr = matrixValues ? `[${matrixValues.join(', ')}]` : '—';
-                lines.push(`${node.name || '(light)'} @ local(${formatArr(localPos)}) world(${formatArr(lightPos.toArray())}) original(${origPos}) -> ${formatArr(targetPos.toArray())} dir ${formatArr(dir.toArray())} rot ${rot} preRot(${preRot}) postRot(${postRot}) matrixWorld=${matrixStr}`);
-            });
-            if (lines.length) {
-                console.log(`\n[Light directions] ${label}\n${lines.join('\n')}`);
             }
         }
 
@@ -2237,199 +2331,25 @@ function clearBeautyWire(mesh) {
             }
         }
 
-        const LIGHT_TARGET_TMP_WORLD = new THREE.Vector3();
-        const LIGHT_TARGET_TMP_LOCAL = new THREE.Vector3();
-        const ORIGINAL_WORLD = new THREE.Vector3();
-        const LOCAL_VEC = new THREE.Vector3();
-        const PARENT_INV = new THREE.Matrix4();
-
-        const ROT_X_NEG_90 = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
-        const ROT_X_POS_90 = new THREE.Matrix4().makeRotationX(Math.PI / 2);
-        const ROT_Y_POS_180 = new THREE.Matrix4().makeRotationY(Math.PI);
-        const ROT_Y_NEG_180 = new THREE.Matrix4().makeRotationY(-Math.PI);
-
-        function convertOriginalToWorld(vec, orientationType) {
-            ORIGINAL_WORLD.set(vec[0] || 0, vec[1] || 0, vec[2] || 0);
-            switch (orientationType) {
-                case 2: // Z-up right-handed → apply same rotation as normalization
-                    ORIGINAL_WORLD.applyMatrix4(ROT_X_NEG_90);
-                    break;
-                case 3: // Z-up left-handed → -90°X then +180°Y
-                    ORIGINAL_WORLD.applyMatrix4(ROT_X_NEG_90);
-                    ORIGINAL_WORLD.applyMatrix4(ROT_Y_POS_180);
-                    break;
-                case 4: // Y-up left-handed → +180°Y
-                    ORIGINAL_WORLD.applyMatrix4(ROT_Y_POS_180);
-                    break;
-                default:
-                    break;
-            }
-            return ORIGINAL_WORLD;
-        }
-
-        function computeLocalFromWorld(worldVec, parent) {
-            if (parent) {
-                parent.updateMatrixWorld(true);
-                PARENT_INV.copy(parent.matrixWorld).invert();
-                LOCAL_VEC.copy(worldVec).applyMatrix4(PARENT_INV);
-                return LOCAL_VEC;
-            }
-            LOCAL_VEC.copy(worldVec);
-            return LOCAL_VEC;
-        }
-
-        function restoreLightOriginalPositions(root, orientationType) {
-            if (!root) return;
-            root.traverse(node => {
-                if (!node?.isLight) return;
-                const orig = node.userData?._origTranslation;
-                if (!orig) return;
-                const source = Array.isArray(orig) ? orig : Array.from(orig);
-                if (source.length < 3) return;
-                const worldVec = convertOriginalToWorld(source, orientationType);
-                const localVec = computeLocalFromWorld(worldVec, node.parent);
-                node.position.set(localVec.x, localVec.y, localVec.z);
-                node.updateMatrixWorld(true);
-                node.userData?._lightHelper?.update?.();
-                if (console?.debug) {
-                    console.debug('[FBX light]', root.userData?._fbxFileName || root.name || 'FBX', node.name || '(light)', 'orig', source, 'world', worldVec.toArray(), 'local', node.position.toArray());
-                }
-            });
-        }
-
-        function placeOriginalMarkers(root, orientationType) {
-            if (!root) return;
-            console.log('[FBX markers] placing', root.userData?._fbxFileName || root.name || 'FBX', 'orientationType', orientationType);
-
-            const existing = root.userData._originalMarkers;
-            if (Array.isArray(existing)) {
-                existing.forEach(marker => marker?.parent?.remove(marker));
-            }
-            const existingLabels = root.userData._originalMarkerLabels;
-            if (Array.isArray(existingLabels)) {
-                existingLabels.forEach(label => disposeSprite(label));
-            }
-
-            const markers = root.userData._originalMarkers = [];
-            const labels = root.userData._originalMarkerLabels = [];
-            root.updateMatrixWorld(true);
-            world.updateMatrixWorld(true);
-            root.traverse(node => {
-                if (!node?.isLight) {
-                    return;
-                }
-                const orig = node.userData?._origTranslation;
-                if (!orig) {
-                    console.warn('[FBX markers] skip light without orig', node.name, node.position.toArray());
-                    return;
-                }
-                const source = Array.isArray(orig) ? orig : Array.from(orig);
-                if (source.length < 3) {
-                    console.warn('[FBX markers] skip light orig length <3', node.name, source);
-                    return;
-                }
-
-                const converted = convertOriginalToWorld(source, orientationType);
-                const convertedArray = converted.toArray([]);
-                MARKER_SCENE_POS.copy(converted);
-                if (worldOffset) {
-                    MARKER_SCENE_POS.sub(worldOffset);
-                }
-                const rebasedArray = MARKER_SCENE_POS.toArray();
-                MARKER_LOCAL_POS.copy(MARKER_SCENE_POS);
-                world.worldToLocal(MARKER_LOCAL_POS);
-                const markerMaterial = ORIGINAL_MARKER_MATERIAL.clone();
-                markerMaterial.depthTest = false;
-                markerMaterial.depthWrite = false;
-                markerMaterial.transparent = true;
-                markerMaterial.opacity = 0.75;
-
-                const marker = new THREE.Mesh(ORIGINAL_MARKER_GEOMETRY, markerMaterial);
-                marker.name = `${node.name || 'light'}-orig-marker`;
-                marker.userData.originalMarker = true;
-                marker.userData.excludeFromBounds = true;
-                marker.userData._originalTranslation = source.slice();
-                marker.userData._convertedOriginal = convertedArray;
-                marker.userData._originalWorldPosition = rebasedArray.slice();
-                marker.userData._lightUUID = node.uuid;
-                marker.renderOrder = 999;
-
-                marker.position.copy(MARKER_LOCAL_POS);
-                world.add(marker);
-
-                marker.layers.mask = world.layers.mask;
-                marker.updateMatrixWorld(true);
-                markers.push(marker);
-
-                const coords = rebasedArray.map(v => Number(v).toFixed(2)).join(', ');
-                const lightName = node.name || 'light';
-                const labelText = `${lightName}\n(${coords})`;
-                const labelSprite = createMarkerLabelSprite(labelText);
-                if (labelSprite) {
-                    labelSprite.position.copy(MARKER_LOCAL_POS);
-                    labelSprite.position.y += 0.18;
-                    labelSprite.layers.mask = world.layers.mask;
-                    world.add(labelSprite);
-                    labelSprite.updateMatrixWorld(true);
-                    labels.push(labelSprite);
-                    marker.userData._labelSprite = labelSprite;
-                }
-            });
-
-            if (console?.log) {
-                console.log('[FBX markers] total', markers.length);
-            }
-        }
-
-        function attachLightTargetsToRoot(root) {
-            if (!root) return;
-            root.updateMatrixWorld(true);
-            root.traverse(node => {
-                if (!node || !node.isLight || !node.target) return;
-                const target = node.target;
-                if (!target) return;
-                const parent = target.parent;
-                if (parent === root) return;
-                target.updateMatrixWorld?.(true);
-                target.getWorldPosition(LIGHT_TARGET_TMP_WORLD);
-                LIGHT_TARGET_TMP_LOCAL.copy(LIGHT_TARGET_TMP_WORLD);
-                root.worldToLocal(LIGHT_TARGET_TMP_LOCAL);
-                root.add(target);
-                target.position.copy(LIGHT_TARGET_TMP_LOCAL);
-                target.updateMatrixWorld?.(true);
-            });
-        }
-
-        function normalizeObjectOrientation(obj, orientationType, label = 'root') {
+        function normalizeObjectOrientation(obj, orientationType) {
             if (!obj) return;
-            if (orientationType == null || orientationType === 5) return;
-            const rotations = [];
-            obj.rotation.set(0, 0, 0);
+            // obj.rotation.set(0, 0, 0);
             switch (orientationType) {
                 case 1: // Y-up right-handed
                     break;
                 case 2: // Z-up right-handed
                     obj.rotateX(-Math.PI / 2);
-                    rotations.push({ axis: 'X', degrees: -90 });
                     break;
                 case 3: // Z-up left-handed
                     obj.rotateX(-Math.PI / 2);
                     obj.rotateY(Math.PI);
-                    rotations.push({ axis: 'X', degrees: -90 });
-                    rotations.push({ axis: 'Y', degrees: 180 });
                     break;
                 case 4: // Y-up left-handed
                     obj.rotateY(Math.PI);
-                    rotations.push({ axis: 'Y', degrees: 180 });
                     break;
                 default:
                     obj.rotateX(-Math.PI / 2);
-                    rotations.push({ axis: 'X', degrees: -90 });
                     break;
-            }
-            if (rotations.length && typeof logBind === 'function') {
-                const details = rotations.map(r => `${r.axis} ${r.degrees}°`).join(', ');
-                logBind(`FBX: ${label} → поворот ${details}`, 'info');
             }
         }
 
@@ -2439,7 +2359,6 @@ function clearBeautyWire(mesh) {
             obj.position.x = x;
             obj.position.y = z;
             obj.position.z = -y;
-
         }
 
         function readFBXOrientationFromTree(tree) {
@@ -3252,6 +3171,18 @@ function clearBeautyWire(mesh) {
                 }
             });
             if (changed && refresh) schedulePanelRefresh(() => syncCollisionButtons());
+            return changed;
+        }
+
+        function hideSMCollisions(syncUI = true) {
+            let changed = false;
+            loadedModels.forEach(model => {
+                if ((model.zipKind || '').toUpperCase() !== 'SM') return;
+                if (!model?.obj) return;
+                if (hideCollisions(model.obj, false)) changed = true;
+            });
+            if (changed && syncUI) syncCollisionButtons();
+            return changed;
         }
 
 
@@ -3587,87 +3518,226 @@ function getSMOffset(meta) {
             chunksArr.push(`</details><div class="collapsible-controls">${fileControls}</div></div>`);
         }     
 
+        function ensurePanelRoot() {
+            if (panelState.rootDetails && panelState.ungroupedMarker?.isConnected) {
+                return panelState.rootDetails;
+            }
+            panelState.groups.clear();
+            panelState.renderedModels.clear();
+            panelState.rootDetails = null;
+            panelState.ungroupedMarker = null;
+            if (outEl) outEl.innerHTML = '';
+            const rootDetails = document.createElement('details');
+            rootDetails.open = true;
+            rootDetails.dataset.level = 'root';
+            const summary = document.createElement('summary');
+            summary.textContent = 'Объекты';
+            rootDetails.appendChild(summary);
+            const marker = document.createComment('ungrouped-marker');
+            rootDetails.appendChild(marker);
+            outEl.appendChild(rootDetails);
+            panelState.rootDetails = rootDetails;
+            panelState.ungroupedMarker = marker;
+            return rootDetails;
+        }
+
+        function ensureGroupEntry(groupName, zipKind = '') {
+            const rootDetails = ensurePanelRoot();
+            if (panelState.groups.has(groupName)) {
+                return panelState.groups.get(groupName);
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'collapsible';
+            wrapper.dataset.level = 'group';
+
+            const details = document.createElement('details');
+            details.dataset.level = 'group';
+
+            const summary = document.createElement('summary');
+            const sumline = document.createElement('span');
+            sumline.className = 'sumline';
+
+            if (zipKind) {
+                const pill = document.createElement('span');
+                pill.className = 'pill';
+                pill.style.marginRight = '6px';
+                pill.textContent = zipKind === 'NPM' ? 'НПМ' : zipKind === 'SM' ? 'ВПМ' : zipKind;
+                sumline.appendChild(pill);
+            }
+
+            const label = document.createElement('span');
+            label.textContent = `📦 ${groupName}`;
+            sumline.appendChild(label);
+
+            summary.appendChild(sumline);
+            details.appendChild(summary);
+            wrapper.appendChild(details);
+
+            const controls = document.createElement('div');
+            controls.className = 'collapsible-controls';
+            const eyeBtn = document.createElement('button');
+            eyeBtn.type = 'button';
+            eyeBtn.className = 'eye';
+            eyeBtn.dataset.target = `group|${groupName}`;
+            eyeBtn.title = 'Показать/скрыть группу';
+            eyeBtn.textContent = '👁';
+            controls.appendChild(eyeBtn);
+            wrapper.appendChild(controls);
+
+            rootDetails.insertBefore(wrapper, panelState.ungroupedMarker);
+            attachPanelEvents(wrapper);
+
+            const entry = { wrapper, details, controls, groupName, hasCollisionButton: false, zipKind };
+            panelState.groups.set(groupName, entry);
+            return entry;
+        }
+
+        function appendNodesToRoot(nodes) {
+            const rootDetails = ensurePanelRoot();
+            nodes.forEach(node => {
+                rootDetails.insertBefore(node, panelState.ungroupedMarker);
+                attachPanelEvents(node);
+            });
+        }
+
+        function createNodesFromModel(model) {
+            const chunks = [];
+            renderOneModel(model, chunks);
+            const html = chunks.join('').trim();
+            if (!html) return [];
+            const template = document.createElement('template');
+            template.innerHTML = html;
+            return Array.from(template.content.children);
+        }
+
+        function appendModelToPanel(model, targetDetails) {
+            const nodes = createNodesFromModel(model);
+            if (!nodes.length) return;
+            nodes.forEach(node => {
+                targetDetails.appendChild(node);
+                attachPanelEvents(node);
+            });
+            panelState.renderedModels.add(model.obj.uuid);
+        }
+
+        function modelHasCollisions(model) {
+            let found = false;
+            model.obj?.traverse(o => {
+                if (!found && o.isMesh && o.userData?.isCollision) found = true;
+            });
+            return found;
+        }
+
+        function ensureGroupCollisionButton(entry, groupName) {
+            if (entry.hasCollisionButton) return;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'eye';
+            btn.dataset.target = `zipcoll|${groupName}`;
+            btn.dataset.iconOn = '🧱';
+            btn.dataset.iconOff = '🚫';
+            btn.title = 'Показать/скрыть коллизии группы';
+            btn.textContent = '🧱';
+            entry.controls.insertBefore(btn, entry.controls.firstChild);
+            attachPanelEvents(btn);
+            entry.hasCollisionButton = true;
+        }
+
+        function attachPanelEvents(root) {
+            if (!root) return;
+            const elements = [];
+            if (root instanceof Element) {
+                if (root.matches('.eye')) elements.push(root);
+                root.querySelectorAll('.eye').forEach(el => elements.push(el));
+            }
+            elements.forEach(bindEyeButton);
+
+            const docButtons = [];
+            if (root instanceof Element) {
+                if (root.matches('.doc')) docButtons.push(root);
+                root.querySelectorAll('.doc').forEach(el => docButtons.push(el));
+            }
+            docButtons.forEach(bindDocButton);
+
+            const glassSliders = [];
+            if (root instanceof Element) {
+                if (root.matches('.glass-slider')) glassSliders.push(root);
+                root.querySelectorAll('.glass-slider').forEach(el => glassSliders.push(el));
+            }
+            glassSliders.forEach(bindGlassSlider);
+
+            const glassColors = [];
+            if (root instanceof Element) {
+                if (root.matches('.glass-color-input')) glassColors.push(root);
+                root.querySelectorAll('.glass-color-input').forEach(el => glassColors.push(el));
+            }
+            glassColors.forEach(bindGlassColorInput);
+        }
+
+        function bindEyeButton(btn) {
+            if (!btn || btn.dataset.boundEye) return;
+            btn.dataset.boundEye = '1';
+            btn.style.cursor = 'pointer';
+            btn.addEventListener('click', () => handleEyeToggle(btn));
+        }
+
+        function bindDocButton(btn) {
+            if (!btn || btn.dataset.boundDoc) return;
+            btn.dataset.boundDoc = '1';
+            btn.style.cursor = 'pointer';
+            btn.addEventListener('click', ev => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const uuid = btn.dataset.uuid;
+                if (!uuid) return;
+                const mdl = loadedModels.find(m => m.obj.uuid === uuid);
+                const meta = mdl?.geojson || mdl?.obj?.userData?.geojson;
+                if (!meta) {
+                    alert('GeoJSON не найден для этого FBX');
+                    return;
+                }
+                openGeoModal(meta, mdl?.name || 'GeoJSON');
+            });
+        }
+
+        function bindGlassSlider(input) {
+            if (!input || input.dataset.boundGlassSlider) return;
+            input.dataset.boundGlassSlider = '1';
+            input.addEventListener('input', handleGlassSliderInput);
+        }
+
+        function bindGlassColorInput(input) {
+            if (!input || input.dataset.boundGlassColor) return;
+            input.dataset.boundGlassColor = '1';
+            input.addEventListener('input', handleGlassColorInput);
+            input.addEventListener('change', handleGlassColorInput);
+        }
+
         /**
          * Собирает данные по всем загруженным моделям и перерисовывает панель материалов.
          * Обновляет выпадающий список, интерактивные элементы и синхронизацию коллизий.
          */
         function renderMaterialsPanel() {
-            const chunks = [];
-            chunks.push('<details open><summary>Объекты</summary>');
+            const newModels = loadedModels.filter(m => !panelState.renderedModels.has(m.obj.uuid));
+            if (!newModels.length) return;
 
-            // Собираем модели по имени ZIP (group) + те, что без ZIP
-            const groupsMap = new Map();   // ← вместо "groups"
-            const ungrouped = [];
-
-            loadedModels.forEach(m => {
-                if (m.group) {
-                    if (!groupsMap.has(m.group)) groupsMap.set(m.group, []);
-                    groupsMap.get(m.group).push(m);
+            newModels.forEach(model => {
+                if (model.group) {
+                    const entry = ensureGroupEntry(model.group, model.zipKind || '');
+                    appendModelToPanel(model, entry.details);
+                    if (modelHasCollisions(model)) {
+                        ensureGroupCollisionButton(entry, model.group);
+                    }
                 } else {
-                    ungrouped.push(m);
+                    const nodes = createNodesFromModel(model);
+                    if (!nodes.length) return;
+                    appendNodesToRoot(nodes);
+                    panelState.renderedModels.add(model.obj.uuid);
                 }
             });
 
-            // Рендерим ZIP-группы
-            for (const [groupName, models] of groupsMap.entries()) {
-                const groupKind = models[0]?.zipKind || '';
-                const gBadge = groupKind === 'NPM' ? 'НПМ' : groupKind === 'SM' ? 'ВПМ' : '';
-                const groupId = `group|${groupName}`;
-                const groupCollId = `zipcoll|${groupName}`;
-
-                let groupHasCollisions = false;
-                models.forEach(model => {
-                    if (groupHasCollisions) return;
-                    model.obj?.traverse(o => { if (!groupHasCollisions && o.isMesh && o.userData?.isCollision) groupHasCollisions = true; });
-                });
-
-                const groupCollBtn = groupHasCollisions
-                    ? `<button type="button" class="eye" data-target="${groupCollId}" data-icon-on="🧱" data-icon-off="🚫" title="Показать/скрыть коллизии группы">🧱</button>`
-                    : '';
-
-                chunks.push(`
-                <div class="collapsible" data-level="group">
-                    <details data-level="group">
-                        <summary>
-                            <span class="sumline">
-                                ${gBadge ? `<span class="pill" style="margin-right:6px">${gBadge}</span>` : ''}
-                                <span>📦 ${groupName}</span>
-                            </span>
-                        </summary>
-                `);
-
-                models.forEach(model => renderOneModel(model, chunks));
-                chunks.push(`</details><div class="collapsible-controls">${groupCollBtn}<button type="button" class="eye" data-target="${groupId}" title="Показать/скрыть группу">👁</button></div></div>`);
-            }
-
-            // Модели без ZIP-группы
-            ungrouped.forEach(model => renderOneModel(model, chunks));
-
-            chunks.push('</details>');
-            outEl.innerHTML = chunks.join('\n');
             rebuildMaterialsDropdown();
-
-            // клики по «глазам»
-            outEl.querySelectorAll('.eye').forEach(el => {
-                el.style.cursor = 'pointer';
-                el.addEventListener('click', () => handleEyeToggle(el));
-            });
-
-            // клики по «бумажке» (GeoJSON)
-            outEl.querySelectorAll('.doc').forEach(el => {
-            el.style.cursor = 'pointer';
-            el.addEventListener('click', (ev) => {
-                ev.preventDefault();       // не даём <summary> схлопнуться/раскрыться
-                ev.stopPropagation();      // гасим всплытие
-                const uuid = el.dataset.uuid;
-                const mdl = loadedModels.find(m => m.obj.uuid === uuid);
-                const meta = mdl?.geojson || mdl?.obj?.userData?.geojson;
-                if (!meta) { alert('GeoJSON не найден для этого FBX'); return; }
-                openGeoModal(meta, mdl?.name || 'GeoJSON');
-            });
-            });
-
-            bindGlassControls();
             syncCollisionButtons();
         }
 
@@ -3686,13 +3756,7 @@ function getSMOffset(meta) {
 
         /** Навешивает обработчики на контролы стекла после перерисовки панели. */
         function bindGlassControls() {
-            outEl.querySelectorAll('.glass-slider').forEach(input => {
-                input.addEventListener('input', handleGlassSliderInput);
-            });
-            outEl.querySelectorAll('.glass-color-input').forEach(input => {
-                input.addEventListener('input', handleGlassColorInput);
-                input.addEventListener('change', handleGlassColorInput);
-            });
+            attachPanelEvents(outEl);
         }
 
         /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
@@ -3761,8 +3825,6 @@ function getSMOffset(meta) {
                 if (span) span.textContent = value.toFixed(2);
                 updateGlassSourceLabel(container, mat);
             }
-
-            renderer.render(scene, camera);
         }
 
         /** Обработчик выбора цвета стекла. */
@@ -3785,8 +3847,6 @@ function getSMOffset(meta) {
 
             const container = input.closest('.glass-controls');
             if (container) updateGlassSourceLabel(container, mat);
-
-            renderer.render(scene, camera);
         }
 
         /** Обновляет текстовое поле-источник для стеклянного материала. */
@@ -3808,33 +3868,93 @@ function getSMOffset(meta) {
          * Обновляет галерею текстур в боковой панели: миниатюры embedded/zip изображений.
          */
         function renderGallery(listAll) {
-            galleryEl.innerHTML = '';
             const total = Array.isArray(listAll) ? listAll.length : 0;
 
-            (listAll || []).forEach((e, i) => {
-                const div = document.createElement('div'); div.className = 'thumb';
-                const nm = document.createElement('div'); nm.className = 'nm';
-                nm.title = (e.full || e.short || '') + (e.fileName ? ` — ${e.fileName}` : '');
-                nm.textContent = (e.short || `(entry ${i})`);
-                const pill = document.createElement('span'); pill.className = 'pill';
-                pill.textContent = guessKindFromName(e.short) + (e.fileName ? ` · ${basename(e.fileName)}` : '');
+            if (!gallerySpacerEl || gallerySpacerEl.parentNode !== galleryEl) {
+                gallerySpacerEl = document.createElement('div');
+                gallerySpacerEl.className = 'gallery-spacer';
+            }
+
+            if (total === 0) {
+                galleryEl.innerHTML = '';
+                gallerySpacerEl = document.createElement('div');
+                gallerySpacerEl.className = 'gallery-spacer';
+                galleryEl.appendChild(gallerySpacerEl);
+                galleryRenderedCount = 0;
+                texCountEl.textContent = '0';
+                return;
+            }
+
+            if (total < galleryRenderedCount) {
+                galleryEl.innerHTML = '';
+                galleryRenderedCount = 0;
+            }
+
+            const fragment = document.createDocumentFragment();
+            for (let i = galleryRenderedCount; i < total; i++) {
+                const e = listAll[i];
+                const div = document.createElement('div');
+                div.className = 'thumb';
 
                 const imgWrap = document.createElement('div');
-                if (e && e.url) {
-                    const img = document.createElement('img'); img.loading = 'lazy'; img.decoding = 'async'; img.alt = e.short || ''; img.src = e.url;
-                    img.onerror = () => { div.classList.add('broken'); img.replaceWith(makePlaceholder(e)); };
+                if (e?.url) {
+                    const img = document.createElement('img');
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    img.alt = e.short || '';
+                    img.src = e.url;
+                    img.onerror = () => {
+                        div.classList.add('broken');
+                        img.replaceWith(makePlaceholder(e));
+                    };
                     imgWrap.appendChild(img);
-                } else { div.classList.add('broken'); imgWrap.appendChild(makePlaceholder(e)); }
+                } else {
+                    div.classList.add('broken');
+                    imgWrap.appendChild(makePlaceholder(e));
+                }
 
-                div.appendChild(imgWrap); div.appendChild(nm); div.appendChild(pill);
+                const nm = document.createElement('div');
+                nm.className = 'nm';
+                nm.title = (e.full || e.short || '') + (e.fileName ? ` — ${e.fileName}` : '');
+                nm.textContent = e.short || `(entry ${i})`;
+
+                const pill = document.createElement('span');
+                pill.className = 'pill';
+                pill.textContent = `${guessKindFromName(e.short)}${e.fileName ? ` · ${basename(e.fileName)}` : ''}`;
+
+                div.appendChild(imgWrap);
+                div.appendChild(nm);
+                div.appendChild(pill);
                 div.addEventListener('click', () => openTexModal(e));
-                galleryEl.appendChild(div);
 
-                function makePlaceholder(entry) { const ph = document.createElement('div'); ph.className = 'ph'; ph.textContent = entry?.mime ? entry.mime : 'preview error'; return ph; }
-            });
+                fragment.appendChild(div);
+            }
 
-            const spacer = document.createElement('div'); spacer.className = 'gallery-spacer'; galleryEl.appendChild(spacer);
+            if (fragment.childNodes.length) {
+                if (galleryRenderedCount === 0) {
+                    galleryEl.innerHTML = '';
+                }
+                if (gallerySpacerEl.parentNode !== galleryEl) {
+                    galleryEl.appendChild(gallerySpacerEl);
+                }
+                galleryEl.insertBefore(fragment, gallerySpacerEl);
+            }
+
+            if (gallerySpacerEl.parentNode !== galleryEl) {
+                galleryEl.appendChild(gallerySpacerEl);
+            }
+
+            galleryRenderedCount = total;
             texCountEl.textContent = String(total);
+
+            function makePlaceholder(entry) {
+                const ph = document.createElement('div');
+                ph.className = 'ph';
+                ph.textContent = entry?.mime ? entry.mime : 'preview error';
+                return ph;
+            }
+
+            galleryNeedsRefresh = false;
         }
 
         const texModal = document.getElementById('texModal');
@@ -4022,10 +4142,11 @@ function getSMOffset(meta) {
                     cacheOriginalMaterialFor(o, true);
                 });
             });
+            requestRender();
         }
 
         [glassOpacityEl, glassReflectEl, glassMetalEl].forEach(el => {
-            el?.addEventListener('input', () => { applyGlassControlsToScene(); renderer.render(scene, camera); });
+            el?.addEventListener('input', applyGlassControlsToScene);
         });
 
         // =====================
@@ -4374,6 +4495,7 @@ function getSMOffset(meta) {
             });
 
             await Promise.all(bindOps);
+            requestRender();
         }
 
 
@@ -4594,19 +4716,29 @@ function getSMOffset(meta) {
             hemiLight.groundColor.set(e.target.value);
         });
 
+        if (openBtn && fileInput) {
+            openBtn.addEventListener('click', () => fileInput.click());
+        }
 
-        openBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', async (e) => {
-            const files = [...(e.target.files || [])];
-            for (const f of files) {
-                if (/\.fbx$/i.test(f.name)) {
-                    await handleFBXFile(f);
-                } else if (/\.zip$/i.test(f.name)) {
-                    await handleZIPFile(f);
+        if (emptyHintEl && fileInput) {
+            emptyHintEl.addEventListener('click', () => fileInput.click());
+        }
+
+        if (fileInput) {
+            fileInput.addEventListener('change', async (e) => {
+                const files = [...(e.target.files || [])];
+                for (const f of files) {
+                    if (/\.fbx$/i.test(f.name)) {
+                        await handleFBXFile(f);
+                    } else if (/\.zip$/i.test(f.name)) {
+                        await handleZIPFile(f);
+                    }
                 }
-            }
-            await finalizeBatchAfterAllFiles();
-        });
+                if (fileInput) fileInput.value = '';
+                setEmptyHintVisible(loadedModels.length === 0);
+                await finalizeBatchAfterAllFiles();
+            });
+        }
 
         populateSampleSelect();
         if (sampleSelect) {
@@ -4643,8 +4775,8 @@ function getSMOffset(meta) {
             if (!statusEl) return;
             try {
                 if (sampleSelect) sampleSelect.disabled = true;
-                statusEl.textContent = `Загрузка примера: ${sample.label}`;
-                appbarStatusEl.textContent = statusEl.textContent;
+                setStatusMessage(`Загрузка примера: ${sample.label}`);
+                setEmptyHintVisible(false);
 
                 const downloadedFiles = [];
                 for (const url of sample.files) {
@@ -4658,12 +4790,12 @@ function getSMOffset(meta) {
                 for (const file of downloadedFiles) await handleZIPFile(file);
                 await finalizeBatchAfterAllFiles();
 
-                statusEl.textContent = `Загружен пример: ${sample.label}`;
-                appbarStatusEl.textContent = statusEl.textContent;
+                setStatusMessage('');
+                setEmptyHintVisible(loadedModels.length === 0);
             } catch (err) {
                 console.error(err);
-                statusEl.textContent = `Ошибка загрузки примера: ${err?.message || err}`;
-                appbarStatusEl.textContent = statusEl.textContent;
+                setStatusMessage(`Ошибка загрузки примера: ${err?.message || err}`);
+                setEmptyHintVisible(loadedModels.length === 0);
             } finally {
                 if (sampleSelect) {
                     sampleSelect.disabled = false;
@@ -4684,8 +4816,7 @@ function getSMOffset(meta) {
             zipKind = /^\d/.test(groupName) ? 'NPM' : (/^SM/i.test(groupName) ? 'SM' : null);
         }
 
-        const ab = await file.arrayBuffer();
-        const parsedTree = readFBXTreeFromArrayBuffer(ab);
+        let ab = await file.arrayBuffer();
         let orientationInfo = readFBXOrientationFromBuffer(ab);
         let orientationSource = orientationInfo?.source || null;
         let orientationMeta = determineOrientationType(orientationInfo);
@@ -4693,31 +4824,64 @@ function getSMOffset(meta) {
 
         const embedded = await extractImagesFromFBX(ab);
         embedded.forEach(e => e.fileName = file.name);
-        allEmbedded.push(...embedded);
-        renderGallery(allEmbedded);
-
-        let obj;
-        try {
-            obj = fbxLoader.parse(ab.slice(0), file.name || 'FBX');
-            console.debug('[FBX parse tree diagnostic]', file.name, !!fbxLoader.fbxTree, fbxLoader.fbxTree ? Object.keys(fbxLoader.fbxTree).slice(0, 5) : null);
-        } catch (err) {
-            statusEl.textContent = `Ошибка загрузки: ${file.name}`;
-            appbarStatusEl.textContent = statusEl.textContent;
-            logBind(`⚠️ Ошибка загрузки ${file.name}: ${err?.message || String(err)}`, 'warn');
-            throw err;
+        if (embedded.length) {
+            allEmbedded.push(...embedded);
+            galleryNeedsRefresh = true;
         }
 
-        // ★ NEW: имя FBX на объект
-        obj.userData._fbxFileName = file.name;
-        const loaderTree = parsedTree || fbxLoader?.fbxTree || fbxLoader?.FBXTree;
-        if (loaderTree) {
-            obj.userData.FBXTree = loaderTree;
-            obj.userData.fbxTree = loaderTree;
+        setStatusMessage(`Парсинг FBX: ${file.name}…`);
+
+        let parsedObj = null;
+        let parsedViaWorker = false;
+        let parseDuration = 0;
+
+        if (fbxWorkerSupported) {
+            try {
+                const workerResult = await parseFBXInWorker(ab);
+                parsedObj = workerResult.obj;
+                parsedViaWorker = true;
+                parseDuration = workerResult.duration;
+            } catch (err) {
+                logBind(`FBX: фон. парсер не сработал → ${err?.message || err}`, 'warn');
+                fbxWorkerSupported = false;
+                try {
+                    ab = await file.arrayBuffer();
+                } catch (reloadErr) {
+                    logBind(`FBX: повторное чтение файла не удалось → ${reloadErr?.message || reloadErr}`, 'warn');
+                    throw err;
+                }
+            }
         }
+
+        if (!parsedObj) {
+            try {
+                const mainResult = parseFBXOnMainThread(ab);
+                parsedObj = mainResult.obj;
+                parseDuration = mainResult.duration;
+            } catch (err) {
+                setStatusMessage(`Ошибка парсинга: ${file.name}`);
+                logBind(`⚠️ Ошибка парсинга ${file.name}: ${err?.message || String(err)}`, 'warn');
+                throw err;
+            }
+        }
+
+        const obj = parsedObj;
+        if (!obj) {
+            setStatusMessage(`Ошибка парсинга: ${file.name}`);
+            logBind(`⚠️ Парсер FBX вернул пустой объект для ${file.name}`, 'warn');
+            return;
+        }
+
+        setStatusMessage('Обработка сцены…');
+
         if (typeof window !== 'undefined') {
+            window.__fbxLoader = fbxLoader;
             window.__lastFBXLoaded = obj;
+            window.__fbxParsedInWorker = parsedViaWorker;
         }
-        cacheOriginalTransformData(obj);
+
+        obj.userData._fbxFileName = file.name;
+
         if (!orientationInfo && obj.userData?.fbxTree) {
             const infoFromTree = readFBXOrientationFromTree(obj.userData.fbxTree);
             if (infoFromTree) {
@@ -4749,25 +4913,22 @@ function getSMOffset(meta) {
             logBind(`FBX: ориентация — не найдена (тип: ${describeOrientationType(orientationType)})`, 'warn');
         }
 
+        if (parseDuration) {
+            logBind(`FBX: парсинг ${parsedViaWorker ? 'в воркере' : 'на UI-потоке'} занял ${Math.round(parseDuration)} мс`, 'info');
+        }
+
         obj.userData.orientationType = orientationType;
         obj.userData.orientationHandedness = orientationMeta.handedness;
         obj.userData.orientationUpAxis = orientationMeta.upAxis;
 
-        normalizeObjectOrientation(obj, orientationType, obj.userData?._fbxFileName || obj.name || 'root');
-        restoreLightOriginalPositions(obj, orientationType);
-
-            if (/Light/i.test(file.name)) {
-                debugDumpFBXStructure(obj, { onlyLights: false, maxDepth: 6 });
-            }
+        normalizeObjectOrientation(obj, orientationType);
 
         // ★ NEW: если это ВПМ и есть geojson — сохраним мету и применим смещение
         if ((zipKind || '').toUpperCase() === 'SM' && zipMeta) {
             obj.userData._geojsonMeta = zipMeta;
 
-            const fbxBase = file.name.replace(/\.[^.]+$/, '');
             const { x, y, z } = getSMOffset(zipMeta);
 
-            // XY из GeoJSON → XZ в сцене (Y = up), h_relief → Y
             applyGeoOffsetByOrientation(obj, orientationType, { x, y, z });
 
             logBind(`VPM: смещение для ${file.name} из GeoJSON → Δx=${x} Δy=${y} Δz=${z}`, 'ok');
@@ -4775,10 +4936,9 @@ function getSMOffset(meta) {
 
         world.add(obj);
 
+        restoreLightTargetsFromOrientation(obj);
         disableShadowsOnImportedLights(obj);
         ensureLightHelpers(obj);
-        retargetSpotAndDirectionalLights(obj);
-        placeOriginalMarkers(obj, orientationType);
 
         renameMaterialsByFBXObject(obj);
 
@@ -4808,13 +4968,10 @@ function getSMOffset(meta) {
         });
 
         markCollisionMeshes(obj);
-        hideCollisions(obj, false);
-        schedulePanelRefresh(() => syncCollisionButtons());
 
         if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
             splitAllMeshesByUDIM_SM(obj);
         }
-
         loadedModels.push({
             obj,
             name: file.name,
@@ -4832,9 +4989,13 @@ function getSMOffset(meta) {
         } else {
             autoBindByNamesForModel(obj, file.name, embedded);
         }
+        setImportedLightsEnabled(importedLightsEnabled, obj, { silent: true });
         applyGlassControlsToScene();
+        setEmptyHintVisible(false);
 
         schedulePanelRefresh();
+        requestRender();
+        setStatusMessage('');
         }
         /**
          * Обработка ZIP-архива: находит FBX/текстуры/GeoJSON, загружает FBX, сохраняет текстуры,
@@ -4842,8 +5003,7 @@ function getSMOffset(meta) {
          */
         async function handleZIPFile(file) {
             logSessionHeader(`ZIP: ${file.name}`);
-            statusEl.textContent = `Чтение ZIP: ${file.name}…`;
-            appbarStatusEl.textContent = statusEl.textContent;
+            setStatusMessage(`Чтение ZIP: ${file.name}…`);
 
             const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
             const zip = await JSZip.loadAsync(file);
@@ -4883,6 +5043,7 @@ function getSMOffset(meta) {
                 const ab = await entry.async("arraybuffer");
                 const fbxFile = new File([ab], basename(entry.name), { type: "model/fbx" });
                 await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta);
+                setEmptyHintVisible(false);
                 }
             }
 
@@ -4890,14 +5051,13 @@ function getSMOffset(meta) {
             for (const entry of entries) {
                 if (entry.dir) continue;
                 if (/\.(png|jpe?g|webp)$/i.test(entry.name)) {
-                const blob = await entry.async("blob");
-                const url = URL.createObjectURL(blob);
-                const short = basename(entry.name).toLowerCase();
-                allEmbedded.push({ short, url, full: entry.name, mime: blob.type || "image/png", source: "zip" });
+                    const blob = await entry.async("blob");
+                    const url = URL.createObjectURL(blob);
+                    const short = basename(entry.name).toLowerCase();
+                    allEmbedded.push({ short, url, full: entry.name, mime: blob.type || "image/png", source: "zip" });
+                    galleryNeedsRefresh = true;
                 }
             }
-
-            renderGallery(allEmbedded);
 
             // 4) если в ZIP был geojson — прикрепим его ко ВСЕМ FBX из этого ZIP
             if (zipGeoMeta) {
@@ -4917,6 +5077,11 @@ function getSMOffset(meta) {
                     logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
                 }
             }
+
+            ensureZipCollisionsHidden(file.name);
+
+            setStatusMessage('');
+
             // statusEl/appbarStatus — по желанию
             // statusEl.textContent = `Готово: ${file.name}`;
             // appbarStatusEl.textContent = statusEl.textContent;
@@ -4926,18 +5091,33 @@ function getSMOffset(meta) {
          * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
          */
         async function finalizeBatchAfterAllFiles() {
-                if (!loadedModels.length) return;
+            if (!loadedModels.length) return;
 
-                // — ребейз только один раз —
-                let firstTime = false;
-                if (!didInitialRebase) {
-                    const off = computeAutoOffsetHorizontalOnly(); // только XZ (при Y-up) или XY (при Z-up)
-                    setWorldOffset(off);                            // высоту не трогаем
-                    didInitialRebase = true;
-                    firstTime = true;
-                }
+            const newModels = loadedModels.slice(lastFinalizedModelIndex);
+            const hasNewModels = newModels.length > 0;
+            const needGalleryRefresh = galleryNeedsRefresh;
 
-                // IBL / фон — всегда
+            if (!hasNewModels && !needGalleryRefresh) {
+                setStatusMessage('');
+                setEmptyHintVisible(loadedModels.length === 0);
+                return;
+            }
+
+            if (needGalleryRefresh) {
+                renderGallery(allEmbedded);
+                galleryNeedsRefresh = false;
+            }
+
+            // — ребейз только один раз —
+            let firstTime = false;
+            if (!didInitialRebase && hasNewModels) {
+                const off = computeAutoOffsetHorizontalOnly();
+                setWorldOffset(off);
+                didInitialRebase = true;
+                firstTime = true;
+            }
+
+            if (hasNewModels) {
                 if (iblChk.checked) {
                     await loadHDRBase();
                     buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
@@ -4948,57 +5128,68 @@ function getSMOffset(meta) {
                 bgMesh.material.needsUpdate = true;
                 updateBgVisibility();
 
-                // материалы/стекло — всегда
                 applyGlassControlsToScene();
-
-                // тени/солнце — всегда
                 fitSunShadowToScene(true);
                 updateSun();
+            }
 
+            const newSmModels = newModels.filter(m => (m.zipKind || '').toUpperCase() === 'SM');
+            let modelsForBinding = newSmModels;
+            if (!modelsForBinding.length && needGalleryRefresh) {
+                modelsForBinding = loadedModels.filter(m => (m.zipKind || '').toUpperCase() === 'SM');
+            }
 
-                // --- VPM (SM) автопривязка ПОСЛЕ того как все картинки добавлены ---
+            if (modelsForBinding.length) {
                 try {
-                    const smModels = loadedModels.filter(m => (m.zipKind || '').toUpperCase() === 'SM');
-                    if (smModels.length) {
-                        const vpmIndex = buildVPMIndexFromImages(allEmbedded); // парсим T_..._Diffuse/ERM/Normal_Slot.UDIM.png
-                        for (const m of smModels) {
-                            await autoBindVPMForModel(m.obj, vpmIndex);
-                        }
+                    const vpmIndex = buildVPMIndex(allEmbedded);
+                    for (const m of modelsForBinding) {
+                        await autoBindVPMForModel(m.obj, vpmIndex);
                     }
                 } catch (e) {
                     logBind(`⚠️ VPM: ошибка автопривязки — ${e?.message || e}`, 'warn');
                 }
+            }
 
-                // камеру кадрируем только в самый первый раз, чтобы дальше не «прыгала»
+            if (hasNewModels) {
+                const smGroups = new Set();
+                newModels.forEach(model => {
+                    if ((model.zipKind || '').toUpperCase() !== 'SM') return;
+                    if (model.group) smGroups.add(model.group);
+                });
+                smGroups.forEach(groupName => ensureZipCollisionsHidden(groupName));
+
                 if (firstTime) {
                     fitAll();
                     focusOn(loadedModels.map(m => m.obj));
                 }
-
-                const vpmIndex = buildVPMIndex(allEmbedded);
-                for (const m of loadedModels) {
-                if ((m.zipKind || '').toUpperCase() === 'SM') {
-                    await autoBindVPMForModel(m.obj, vpmIndex);
-                }
-                }
-
-                applyShading(currentShadingMode, () => {
-                    outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
-                    if (firstTime) {
-                        if (imagesDetails) imagesDetails.open = false;
-                        if (bindLogDetails) bindLogDetails.open = false;
-                    }
-                });
-
-                Promise.resolve().then(() => {
-                    const smGroupsLate = new Set();
-                    loadedModels.forEach(model => {
-                        if ((model.zipKind || '').toUpperCase() !== 'SM') return;
-                        if (model.group) smGroupsLate.add(model.group);
-                    });
-                    smGroupsLate.forEach(groupName => ensureZipCollisionsHidden(groupName));
-                });
             }
+
+            const finalizeUI = () => {
+                outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
+                if (firstTime) {
+                    if (imagesDetails) imagesDetails.open = false;
+                    if (bindLogDetails) bindLogDetails.open = false;
+                }
+
+                const hiddenAgain = hasNewModels ? hideSMCollisions(false) : false;
+                if (hasNewModels || hiddenAgain) {
+                    syncCollisionButtons();
+                }
+
+                setStatusMessage('');
+                setEmptyHintVisible(loadedModels.length === 0);
+            };
+
+            if (hasNewModels) {
+                applyShading(currentShadingMode, finalizeUI);
+            } else {
+                finalizeUI();
+            }
+
+            if (hasNewModels) {
+                lastFinalizedModelIndex = loadedModels.length;
+            }
+        }
 
         
         app.api = Object.freeze({
@@ -5011,11 +5202,37 @@ function getSMOffset(meta) {
             layout,
             updateBgVisibility,
             computeWorldCenter,
+            setStatsVisible,
+            requestRender,
         });
 // =====================
         // Animation loop & init
         // =====================
-        (function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); })();
+        function animate() {
+            requestAnimationFrame(animate);
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (!lastFrameTime) lastFrameTime = now;
+            const delta = now - lastFrameTime;
+            lastFrameTime = now;
+
+            const controlsChanged = controls.update();
+            if (controlsChanged) needsRender = true;
+
+            if (!needsRender) {
+                updateStatsOverlay();
+                return;
+            }
+
+            if (delta > 0 && delta < 1000) {
+                const instant = 1000 / delta;
+                fpsEstimate = fpsEstimate ? (fpsEstimate * 0.9 + instant * 0.1) : instant;
+            }
+
+            needsRender = false;
+            renderer.render(scene, camera);
+            updateStatsOverlay();
+        }
+        animate();
         layout();
         HDRI_LIBRARY.forEach((h, i) => {
             const opt = document.createElement('option');
