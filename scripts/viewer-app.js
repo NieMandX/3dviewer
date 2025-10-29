@@ -34,6 +34,7 @@ let USE_WEBGPU = activeRendererMode === 'webgpu';
 let WebGPURendererCtor = null;
 let webgpuModuleError = null;
 let rendererModeNote = '';
+let backfaceNodeSupport = null;
 
 if (USE_WEBGPU) {
     try {
@@ -50,7 +51,38 @@ if (USE_WEBGPU) {
         activeRendererMode = 'webgl';
         rendererModeNote = 'fallback: init failed';
     }
-} else if (REQUESTED_RENDERER_MODE === 'webgpu') {
+}
+
+if (USE_WEBGPU) {
+    try {
+        const [
+            { default: MeshBasicNodeMaterial },
+            normalMod,
+            positionMod,
+            tslMod,
+        ] = await Promise.all([
+            import('./vendor/three/src/materials/nodes/MeshBasicNodeMaterial.js'),
+            import('./vendor/three/src/nodes/accessors/Normal.js'),
+            import('./vendor/three/src/nodes/accessors/Position.js'),
+            import('./vendor/three/src/nodes/tsl/TSLBase.js'),
+        ]);
+
+        if (MeshBasicNodeMaterial && normalMod?.normalView && positionMod?.positionViewDirection && tslMod?.float && tslMod?.vec3) {
+            backfaceNodeSupport = {
+                MeshBasicNodeMaterial,
+                normalView: normalMod.normalView,
+                positionViewDirection: positionMod.positionViewDirection,
+                floatNode: tslMod.float,
+                vec3Node: tslMod.vec3,
+            };
+        }
+    } catch (err) {
+        console.warn('Backface node support init failed', err);
+        backfaceNodeSupport = null;
+    }
+}
+
+if (!USE_WEBGPU && REQUESTED_RENDERER_MODE === 'webgpu') {
     rendererModeNote = 'fallback: unsupported';
 }
 
@@ -398,7 +430,7 @@ class ViewerApp {
         // THREE.js scene init
         // =====================
         const scene    = new THREE.Scene();
-        scene.background = new THREE.Color(0xf5f5f7);
+        scene.background = new THREE.Color(0xffffff);
 
         const world    = new THREE.Group();
         scene.add(world);
@@ -1900,55 +1932,214 @@ class ViewerApp {
 
         // === Backface debug (2-pass: front white + back red) ===
 
-// Делает MeshBasicMaterial с "угловым" затенением по взгляду.
-// power — крутизна кривой, min/max — диапазон яркости,
-// invert=true — затемнять к краям, false — подсвечивать к краям (Fresnel-рим).
+        /**
+         * Создаёт ShaderMaterial, повторяющий fresnel-подсветку из WebGL-варианта,
+         * но без onBeforeCompile, чтобы одинаково работать и в WebGPU, и в WebGL.
+         */
         function makeViewAngleShadedBasic(params = {}, { power = 2.0, min = 1.4, max = 2.0, invert = false } = {}) {
-        const mat = new THREE.MeshBasicMaterial(params);
+            const {
+                color = 0xffffff,
+                side = THREE.FrontSide,
+                transparent = false,
+                opacity = 1.0,
+                alphaMap = null,
+                alphaTest = 0.0,
+                depthWrite = true,
+                depthTest = true,
+                blending = THREE.NormalBlending,
+                polygonOffset = false,
+                polygonOffsetFactor = 0,
+                polygonOffsetUnits = 0,
+                skinning = false,
+                morphTargets = false,
+                morphNormals = false,
+                morphColors = false,
+                vertexColors = false,
+            } = params;
 
-        mat.onBeforeCompile = (shader) => {
-            shader.uniforms.uPower  = { value: power };
-            shader.uniforms.uMin    = { value: min };
-            shader.uniforms.uMax    = { value: max };
-            shader.uniforms.uInvert = { value: invert ? 1 : 0 };
+            const baseColor = (params.color && params.color.isColor)
+                ? params.color.clone()
+                : new THREE.Color(color);
 
-            // Вершинный: пробрасываем нормаль и вектор к камере
-            shader.vertexShader =
-            /*glsl*/`
-            varying vec3 vN;
-            varying vec3 vV;
-            ` + shader.vertexShader.replace(
-                '#include <begin_vertex>',
-                /*glsl*/`
-                #include <begin_vertex>
-                vN = normalize( normalMatrix * normal );
-                vec4 mvPos = modelViewMatrix * vec4( transformed, 1.0 );
-                vV = -mvPos.xyz;
-                `
-            );
+            if (USE_WEBGPU && backfaceNodeSupport) {
+                const {
+                    MeshBasicNodeMaterial,
+                    normalView,
+                    positionViewDirection,
+                    floatNode,
+                    vec3Node,
+                } = backfaceNodeSupport;
 
-            // Фрагментный: считаем фактор по углу и умножаем цвет
-            shader.fragmentShader =
-            /*glsl*/`
-            uniform float uPower, uMin, uMax;
-            uniform int   uInvert;
-            varying vec3  vN;
-            varying vec3  vV;
-            ` + shader.fragmentShader.replace(
-                '#include <dithering_fragment>',
-                /*glsl*/`
-                float ndv  = clamp( abs( dot( normalize(vN), normalize(vV) ) ), 0.0, 1.0 );
-                float fres = pow( 1.0 - ndv, uPower );        // 0 (фронт) → 1 (скользящий взгляд)
-                float t    = (uInvert == 1) ? (1.0 - fres) : fres;
-                float fac  = mix( uMin, uMax, t );
-                gl_FragColor.rgb *= fac;
-                #include <dithering_fragment>
-                `
-            );
-        };
+                try {
+                    const nodeParams = {
+                        side,
+                        transparent,
+                        depthWrite,
+                        depthTest,
+                        blending,
+                        polygonOffset,
+                        polygonOffsetFactor,
+                        polygonOffsetUnits,
+                        alphaTest,
+                        vertexColors,
+                    };
+                    if (alphaMap && alphaMap.isTexture) nodeParams.alphaMap = alphaMap;
 
-        mat.needsUpdate = true;
-        return mat;
+                    const material = new MeshBasicNodeMaterial(nodeParams);
+                    material.name = params.name || 'ViewAngleBackface';
+                    material.opacity = opacity;
+                    material.toneMapped = false;
+                    material.fog = true;
+                    material.color.copy(baseColor);
+                    material.polygonOffset = polygonOffset;
+                    material.polygonOffsetFactor = polygonOffsetFactor;
+                    material.polygonOffsetUnits = polygonOffsetUnits;
+                    material.vertexColors = !!vertexColors;
+
+                    if (alphaMap && alphaMap.isTexture) {
+                        alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
+                        material.alphaMap = alphaMap;
+                    }
+
+                    const normalNode = normalView.normalize();
+                    const viewDirNode = positionViewDirection;
+                    const ndv = normalNode.dot(viewDirNode).abs().clamp();
+                    const fresBase = floatNode(1.0).sub(ndv).max(floatNode(1e-5));
+                    const fres = fresBase.pow(floatNode(power));
+                    const tNode = invert ? floatNode(1.0).sub(fres) : fres;
+                    const fresFactor = floatNode(min).mix(floatNode(max), tNode.clamp());
+                    const colorNode = vec3Node(baseColor.r, baseColor.g, baseColor.b).mul(fresFactor);
+
+                    material.colorNode = colorNode;
+                    material.opacityNode = floatNode(opacity);
+                    material.needsUpdate = true;
+                    return material;
+                } catch (err) {
+                    console.warn('Backface node material build failed', err);
+                }
+            }
+
+            if (USE_WEBGPU) {
+                const mat = new THREE.MeshBasicMaterial({
+                    color: baseColor,
+                    side,
+                    transparent,
+                    opacity,
+                    alphaMap,
+                    alphaTest,
+                    depthWrite,
+                    depthTest,
+                    blending,
+                });
+                mat.polygonOffset = polygonOffset;
+                mat.polygonOffsetFactor = polygonOffsetFactor;
+                mat.polygonOffsetUnits = polygonOffsetUnits;
+                mat.skinning = !!skinning;
+                mat.morphTargets = !!morphTargets;
+                mat.morphNormals = !!morphNormals;
+                mat.morphColors = !!morphColors;
+                mat.vertexColors = !!vertexColors;
+                mat.needsUpdate = true;
+                return mat;
+            }
+
+            const baseLib = THREE.ShaderLib?.basic;
+            if (!baseLib) {
+                console.warn('ShaderLib.basic отсутствует, backface fallback');
+                return new THREE.MeshBasicMaterial({
+                    color: baseColor,
+                    side,
+                    transparent,
+                    opacity,
+                    alphaMap,
+                    alphaTest,
+                    depthWrite,
+                    depthTest,
+                    blending,
+                });
+            }
+            const uniforms = THREE.UniformsUtils.clone(baseLib.uniforms);
+
+            uniforms.diffuse.value.copy(baseColor);
+            uniforms.opacity.value = opacity;
+            uniforms.uPower = { value: power };
+            uniforms.uMin = { value: min };
+            uniforms.uMax = { value: max };
+            uniforms.uInvert = { value: invert ? 1 : 0 };
+
+            if (alphaMap && alphaMap.isTexture) {
+                uniforms.alphaMap.value = alphaMap;
+                alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
+                if (alphaMap.matrix) {
+                    uniforms.alphaMapTransform.value.copy(alphaMap.matrix);
+                }
+            }
+
+            const vertexShader = baseLib.vertexShader
+                .replace(
+                    '#include <fog_pars_vertex>',
+                    '#include <fog_pars_vertex>\nvarying vec3 vViewDir;\nvarying vec3 vPosView;'
+                )
+                .replace(
+                    '#include <project_vertex>',
+                    '#include <project_vertex>\n\tvViewDir = -mvPosition.xyz;\n\tvPosView = mvPosition.xyz;'
+                );
+
+            const fragmentShader = baseLib.fragmentShader
+                .replace(
+                    'uniform float opacity;',
+                    'uniform float opacity;\nuniform float uPower;\nuniform float uMin;\nuniform float uMax;\nuniform int uInvert;\nvarying vec3 vViewDir;\nvarying vec3 vPosView;'
+                )
+                .replace(
+                    'vec4 diffuseColor = vec4( diffuse, opacity );',
+                    `vec4 diffuseColor = vec4( diffuse, opacity );
+    vec3 viewDir = normalize( vViewDir );
+    vec3 normalDir = normalize( cross( dFdx( vPosView ), dFdy( vPosView ) ) );
+    normalDir *= ( gl_FrontFacing ? 1.0 : -1.0 );
+    float ndv = clamp( abs( dot( normalDir, viewDir ) ), 0.0, 1.0 );
+    float fres = pow( max( 1.0 - ndv, 1e-5 ), uPower );
+    float t = ( uInvert == 1 ) ? ( 1.0 - fres ) : fres;
+    float fresFactor = mix( uMin, uMax, clamp( t, 0.0, 1.0 ) );
+    diffuseColor.rgb *= fresFactor;`
+                );
+
+            const material = new THREE.ShaderMaterial({
+                uniforms,
+                vertexShader,
+                fragmentShader,
+                side,
+                transparent,
+                depthWrite,
+                depthTest,
+                blending,
+            });
+
+            if (alphaMap && alphaMap.isTexture) {
+                material.defines = {
+                    ...(material.defines || {}),
+                    USE_ALPHAMAP: '',
+                    USE_UV: '',
+                    ALPHAMAP_UV: 'vUv',
+                };
+            }
+
+            material.extensions = { ...(material.extensions || {}), derivatives: true };
+            material.name = params.name || 'ViewAngleBackface';
+            material.alphaTest = alphaTest;
+            material.toneMapped = false;
+            material.fog = true;
+            material.polygonOffset = polygonOffset;
+            material.polygonOffsetFactor = polygonOffsetFactor;
+            material.polygonOffsetUnits = polygonOffsetUnits;
+            material.skinning = !!skinning;
+            material.morphTargets = !!morphTargets;
+            material.morphNormals = !!morphNormals;
+            material.morphColors = !!morphColors;
+            material.vertexColors = !!vertexColors;
+            material.uniformsNeedUpdate = true;
+            material.needsUpdate = true;
+
+            return material;
         }
 
         function ensureBackfaceOverlay(mesh, origMat) {
@@ -1964,8 +2155,17 @@ class ViewerApp {
             opacity: origMat.opacity ?? 1,
             alphaMap: origMat.alphaMap || null,
             alphaTest: (origMat.alphaMap ? (origMat.alphaTest ?? 0.5) : (origMat.alphaTest ?? 0.0)),
-            depthWrite: true,
-            depthTest: true
+            depthWrite: origMat.depthWrite ?? true,
+            depthTest: origMat.depthTest ?? true,
+            blending: origMat.blending ?? THREE.NormalBlending,
+            polygonOffset: !!origMat.polygonOffset,
+            polygonOffsetFactor: origMat.polygonOffsetFactor ?? 0,
+            polygonOffsetUnits: origMat.polygonOffsetUnits ?? 0,
+            skinning: !!origMat.skinning,
+            morphTargets: !!origMat.morphTargets,
+            morphNormals: !!origMat.morphNormals,
+            morphColors: !!origMat.morphColors,
+            vertexColors: !!origMat.vertexColors,
         };
 
         // FRONT: белый + угловое затенение (рим-подсветка к краям)
@@ -1974,7 +2174,6 @@ class ViewerApp {
             { ...baseParams, side: THREE.FrontSide, color: 0xffffff },
             { power: 1.2, min: 0.55, max: 1.2, invert: true} // ярче на гранях
             );
-            if (front.alphaMap) front.alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
             mesh.userData._bfFront = front;
         }
 
@@ -1984,7 +2183,6 @@ class ViewerApp {
             { ...baseParams, side: THREE.BackSide, color: 0xff3333 },
             { power: 1.2, min: 0.55, max: 1.0, invert: false }
             );
-            if (back.alphaMap) back.alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
             mesh.userData._bfBack = back;
         }
 
@@ -2257,6 +2455,7 @@ function clearBeautyWire(mesh) {
             if (mode === 'backface') {
                 setPointsMode(false);
                 setBackfaceMode(true);
+                requestRender();
                 scheduleOnce();
                 return;
             } else {
