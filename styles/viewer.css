@@ -406,7 +406,7 @@ body {
     right: var(--sideW);
     bottom: 0;
     left: 0;
-    background: #fafafa;
+    background: #ffffff;
 }
 
 button.status-overlay {
@@ -687,5 +687,3 @@ body.side-hidden { --sideW: 0px; }
     align-items: center;
     gap: 12px;
 }
-
-.appbar .order-btn { margin-left: auto; }
