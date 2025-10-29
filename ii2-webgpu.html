@@ -25,7 +25,7 @@
 
 
         <div class="row appbar-shading">
-            <label>shading
+            <label>
                 <select id="shadingMode" title="Режим шейдинга">
                     <option value="pbr" selected>PBR</option>
                     <option value="backface">Backface (white/red)</option>
@@ -237,18 +237,7 @@
                 </div>
             </details>
 
-                        <details id="futureDevDetails" open>
-                <summary>Future Dev</summary>
-                <div class="future-controls">
-                    <div class="future-row">
-                        <span class="light-label">Samples</span>
-                        <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
-                            <option value="">Примеры…</option>
-                        </select>
-                    </div>
-                    <button id="loadParcelsBtn" class="btn" type="button" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
-                </div>
-            </details>
+                        
 <details id="glassGlobalDetails" open>
                 <summary>Global Glass Control</summary>
                 <div class="glass-controls glass-global-controls">
@@ -318,6 +307,19 @@
                     <div class="glass-actions">
                         <button id="glassReset" class="btn" type="button" title="Сбросить значения стекла к исходным">Сбросить</button>
                     </div>
+                </div>
+            </details>
+
+            <details id="futureDevDetails" open>
+                <summary>Future Dev</summary>
+                <div class="future-controls">
+                    <div class="future-row">
+                        <span class="light-label">Samples</span>
+                        <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
+                            <option value="">Примеры…</option>
+                        </select>
+                    </div>
+                    <button id="loadParcelsBtn" class="btn" type="button" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
                 </div>
             </details>
 
