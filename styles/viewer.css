@@ -688,4 +688,59 @@ body.side-hidden { --sideW: 0px; }
     gap: 12px;
 }
 
-.appbar .order-btn { margin-left: auto; margin-right: 0; }
+.appbar .bg-btn { margin-left: auto; }
+.appbar .bg-btn.active { background: var(--ink); color: #fff; }
+.appbar .order-btn { margin-left: 8px; }
+
+
+body.bg-black {
+    background-color: #000;
+    color: #fff;
+}
+body.bg-black .appbar {
+    background: #000;
+    border-bottom-color: #222;
+}
+body.bg-black .appbar .btn {
+    background: #000;
+    color: #fff;
+    border-color: #333;
+}
+body.bg-black .appbar .btn:hover {
+    border-color: #555;
+}
+body.bg-black .appbar .bg-btn.active {
+    background: #fff;
+    color: #000;
+}
+body.bg-black .appbar select {
+    background: #000;
+    color: #fff;
+    border-color: #333;
+}
+body.bg-black .side {
+    background: #000;
+    color: #fff;
+}
+body.bg-black .side .list {
+    background: #000;
+}
+body.bg-black .side details {
+    background: #000;
+    color: #fff;
+    border-color: #333;
+}
+body.bg-black .side details summary {
+    color: #fff;
+}
+body.bg-black .side .btn {
+    background: #000;
+    color: #fff;
+    border-color: #333;
+}
+body.bg-black .muted {
+    color: #bbb;
+}
+body.bg-black .stats-overlay {
+    color: #fff;
+}

@@ -185,6 +185,7 @@ class ViewerApp {
         const isZUp = () => false;
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
         const statsBtn        = document.getElementById('statsBtn');
+        const bgToggleBtn     = document.getElementById('bgToggleBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
 
         const glassOpacityEl      = document.getElementById('glassOpacity');
@@ -416,6 +417,7 @@ class ViewerApp {
             bgAlphaEl,
             sampleSelect,
             statsBtn,
+            bgToggleBtn,
             statsOverlayEl,
         };
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
@@ -430,7 +432,7 @@ class ViewerApp {
         // THREE.js scene init
         // =====================
         const scene    = new THREE.Scene();
-        scene.background = new THREE.Color(0xffffff);
+        // scene.background = null;
 
         const world    = new THREE.Group();
         scene.add(world);
@@ -501,6 +503,8 @@ class ViewerApp {
 
         let bgMesh = null; // background sphere used to show HDRI
         app.bgMesh = bgMesh;
+        let bgMode = 'white';
+        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
 
         const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
         camera.position.set(2.5, 1.5, 3.5);
@@ -1816,6 +1820,34 @@ class ViewerApp {
             requestRender();
         }
 
+        function setBackgroundMode(mode) {
+            const next = mode === 'black' ? 'black' : 'white';
+            bgMode = next;
+            if (next === 'black') {
+                if (typeof renderer.setClearColor === 'function') {
+                    renderer.setClearColor(0x000000, 1);
+                }
+                if (scene.background) scene.background.set(0x000000); else scene.background = new THREE.Color(0x000000);
+                bgToggleBtn?.classList.add('active');
+                if (bgToggleBtn) bgToggleBtn.textContent = 'Чёрный фон: вкл';
+                if (typeof document !== 'undefined' && document.body) {
+                    document.body.classList.add('bg-black');
+                }
+            } else {
+                if (typeof renderer.setClearColor === 'function') {
+                    renderer.setClearColor(whiteClearColor.clone(), 1);
+                }
+                scene.background = null;
+                bgToggleBtn?.classList.remove('active');
+                if (bgToggleBtn) bgToggleBtn.textContent = 'Чёрный фон: выкл';
+                if (typeof document !== 'undefined' && document.body) {
+                    document.body.classList.remove('bg-black');
+                }
+            }
+            updateBgVisibility();
+            requestRender();
+        }
+
         function setStatsVisible(visible) {
             statsVisible = !!visible;
             statsBtn?.classList.toggle('active', statsVisible);
@@ -2747,7 +2779,8 @@ function clearBeautyWire(mesh) {
 
         function updateBgVisibility() {
             if (!bgMesh) return;
-            bgMesh.visible = !!iblChk.checked;
+            const shouldShow = !!iblChk?.checked && bgMode !== 'black';
+            bgMesh.visible = shouldShow;
             bgMesh.material.opacity = parseFloat(bgAlphaEl.value || '1');
             bgMesh.material.transparent = bgMesh.material.opacity < 0.999;
             bgMesh.material.needsUpdate = true;
@@ -2788,6 +2821,11 @@ function clearBeautyWire(mesh) {
             statsBtn.addEventListener('click', () => setStatsVisible(!statsVisible));
         }
         setStatsVisible(true);
+
+        bgToggleBtn?.addEventListener('click', () => {
+            setBackgroundMode(bgMode === 'black' ? 'white' : 'black');
+        });
+        setBackgroundMode('white');
 
         iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl?.addEventListener('input', () => {
