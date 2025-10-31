@@ -507,7 +507,7 @@ class ViewerApp {
         const whiteClearColor = new THREE.Color().setRGB(10, 10, 10);
 
         const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
-        camera.position.set(2.5, 1.5, 3.5);
+        camera.position.set(0, 1.5, -5);
 
         const renderer = USE_WEBGPU && WebGPURendererCtor
             ? new WebGPURendererCtor({ antialias: true })
