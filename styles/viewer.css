@@ -758,3 +758,41 @@ body.bg-black .bind-log {
     color: #fff;
     border-color: #333;
 }
+
+.app-footer {
+    position: fixed;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    font-size: 12px;
+    z-index: 5;
+    pointer-events: none;
+}
+.app-footer a {
+    pointer-events: auto;
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+}
+.app-footer a:hover {
+    background: #ffffff;
+    color: var(--ink);
+    border-color: #d0d7de;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+body.bg-black .app-footer a {
+    background: rgba(0,0,0,0.85);
+    color: #ffffff;
+    border-color: #444;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+}
+body.bg-black .app-footer a:hover {
+    background: rgba(0,0,0,0.95);
+    border-color: #666;
+}
