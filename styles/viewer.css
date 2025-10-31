@@ -689,6 +689,8 @@ body.side-hidden { --sideW: 0px; }
 }
 
 .appbar .bg-btn { margin-right: auto; }
+.appbar .bg-btn.white-mode { background: #fff; color: #000; border-color: #ddd; }
+.appbar .bg-btn.black-mode { background: #000; color: #fff; border-color: #333; }
 .appbar .order-btn { margin-left: 8px; }
 
 
@@ -708,14 +710,7 @@ body.bg-black .appbar .btn {
 body.bg-black .appbar .btn:hover {
     border-color: #555;
 }
-body.bg-black .appbar .bg-btn {
-    background: #111;
-    color: #fff;
-    border-color: #444;
-}
-body.bg-black .appbar .bg-btn:hover {
-    border-color: #666;
-}
+
 body.bg-black .appbar .bg-btn.active {
     background: #fff;
     color: #000;

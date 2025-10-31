@@ -1829,7 +1829,11 @@ class ViewerApp {
                 }
                 if (scene.background) scene.background.set(0x000000); else scene.background = new THREE.Color(0x000000);
                 bgToggleBtn?.classList.add('active');
-                if (bgToggleBtn) bgToggleBtn.textContent = 'White';
+                if (bgToggleBtn) {
+                    bgToggleBtn.textContent = 'White';
+                    bgToggleBtn.classList.remove('white-mode');
+                    bgToggleBtn.classList.add('black-mode');
+                }
                 if (typeof document !== 'undefined' && document.body) {
                     document.body.classList.add('bg-black');
                 }
@@ -1839,7 +1843,11 @@ class ViewerApp {
                 }
                 scene.background = null;
                 bgToggleBtn?.classList.remove('active');
-                if (bgToggleBtn) bgToggleBtn.textContent = 'Black';
+                if (bgToggleBtn) {
+                    bgToggleBtn.textContent = 'Black';
+                    bgToggleBtn.classList.remove('black-mode');
+                    bgToggleBtn.classList.add('white-mode');
+                }
                 if (typeof document !== 'undefined' && document.body) {
                     document.body.classList.remove('bg-black');
                 }
@@ -2826,6 +2834,7 @@ function clearBeautyWire(mesh) {
             setBackgroundMode(bgMode === 'black' ? 'white' : 'black');
         });
         setBackgroundMode('white');
+        if (bgToggleBtn) bgToggleBtn.classList.add('white-mode');
 
         iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl?.addEventListener('input', () => {
