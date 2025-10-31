@@ -746,3 +746,9 @@ body.bg-black .muted {
 body.bg-black .stats-overlay {
     color: #fff;
 }
+
+body.bg-black #bindLog {
+    background: #000;
+    color: #fff;
+    border-color: #333;
+}
