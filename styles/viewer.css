@@ -412,7 +412,8 @@ body {
 button.status-overlay {
     position: fixed;
     left: 50%;
-    bottom: 100px;
+    bottom: 50%;
+    transform: translate(-50%, 50%);
     transform: translateX(-50%);
     background: rgba(17, 17, 17, 0.8);
     color: #fff;
@@ -432,7 +433,8 @@ button.status-overlay {
 #status.status-overlay {
     position: fixed;
     left: 50%;
-    bottom: 100px;
+    bottom: 50%;
+    transform: translate(-50%, 50%);
     transform: translateX(-50%);
     background: rgba(17, 17, 17, 0.8);
     color: #fff;
