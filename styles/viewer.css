@@ -712,8 +712,8 @@ body.bg-black .appbar .btn:hover {
 }
 
 body.bg-black .appbar .bg-btn.active {
-    background: #fff;
-    color: #000;
+    background: #000000;
+    color: #ffffff;
 }
 body.bg-black .appbar select {
     background: #000;
