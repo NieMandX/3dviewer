@@ -688,7 +688,7 @@ body.side-hidden { --sideW: 0px; }
     gap: 12px;
 }
 
-.appbar .bg-btn { margin-left: auto; }
+.appbar .bg-btn { margin-right: auto; }
 .appbar .order-btn { margin-left: 8px; }
 
 
