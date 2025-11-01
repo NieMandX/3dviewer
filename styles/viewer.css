@@ -389,7 +389,6 @@ body {
     white-space: nowrap;
 }
 .appbar select {
-    background: transparent;
     border-color: rgba(17,17,17,0.2);
     color: var(--ink);
 }
