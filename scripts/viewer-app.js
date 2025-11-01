@@ -200,6 +200,7 @@ class ViewerApp {
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
         const statsBtn        = document.getElementById('statsBtn');
         const bgToggleBtn     = document.getElementById('bgToggleBtn');
+        const gridToggleBtn   = document.getElementById('gridToggleBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
 
         const glassOpacityEl      = document.getElementById('glassOpacity');
@@ -432,6 +433,7 @@ class ViewerApp {
             sampleSelect,
             statsBtn,
             bgToggleBtn,
+            gridToggleBtn,
             statsOverlayEl,
         };
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
@@ -518,6 +520,7 @@ class ViewerApp {
         let bgMesh = null; // background sphere used to show HDRI
         app.bgMesh = bgMesh;
         let bgMode = 'white';
+        let gridVisible = true;
         const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
 
         const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
@@ -1870,6 +1873,21 @@ class ViewerApp {
             requestRender();
         }
 
+        function setGridVisible(visible) {
+            gridVisible = !!visible;
+            const gridHelper = app.grid;
+            if (gridHelper) {
+                gridHelper.visible = gridVisible;
+            }
+            app.gridVisible = gridVisible;
+            if (gridToggleBtn) {
+                gridToggleBtn.classList.toggle('active', gridVisible);
+                gridToggleBtn.textContent = gridVisible ? 'Grid off' : 'Grid on';
+                gridToggleBtn.setAttribute('aria-pressed', gridVisible ? 'true' : 'false');
+            }
+            requestRender();
+        }
+
         function setStatsVisible(visible) {
             statsVisible = !!visible;
             statsBtn?.classList.toggle('active', statsVisible);
@@ -2849,6 +2867,11 @@ function clearBeautyWire(mesh) {
         });
         setBackgroundMode('white');
         if (bgToggleBtn) bgToggleBtn.classList.add('white-mode');
+
+        gridToggleBtn?.addEventListener('click', () => {
+            setGridVisible(!gridVisible);
+        });
+        setGridVisible(true);
 
         iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl?.addEventListener('input', () => {
@@ -4066,21 +4089,19 @@ function clearBeautyWire(mesh) {
             geoModal.id = 'geoModal';
             geoModal.className = 'modal';
             geoModal.innerHTML = `
-            <div class="sheet">
+            <div class="sheet sheet-geo">
                 <div class="head">
-                <div class="row" style="gap:8px; align-items:center">
-                    <b id="geoTitle"></b>
-                    <span class="muted" id="geoInfo" style="font-size:12px"></span>
-                </div>
-                <button id="geoClose" class="btn" title="Закрыть">×</button>
-                </div>
-                <div class="body" style="grid-template-columns: 1fr">
-                <div class="side" style="max-height:70vh; overflow:auto">
-                    <pre id="geoPre" style="margin:0; white-space:pre; font-size:12px; line-height:1.35; tab-size:2"></pre>
-                    <div class="row" style="margin-top:8px">
-                    <a id="geoDl" class="btn" download>Скачать GeoJSON</a>
+                    <div class="row head-line">
+                        <b id="geoTitle"></b>
+                        <span class="muted" id="geoInfo"></span>
                     </div>
+                    <button id="geoClose" class="btn" title="Закрыть">×</button>
                 </div>
+                <div class="sheet-body">
+                    <pre id="geoPre"></pre>
+                    <div class="row geo-actions">
+                        <a id="geoDl" class="btn" download>Скачать GeoJSON</a>
+                    </div>
                 </div>
             </div>
             `;
@@ -4772,7 +4793,7 @@ function getSMOffset(meta) {
             const fileTitlePieces = [];
             if (kindBadge) fileTitlePieces.push(kindBadge);
             const displayName = formatPanelLabel(model.name);
-            fileTitlePieces.push(`<span title="${escapeHtml(model.name)}">${escapeHtml(displayName)}</span>`);
+            fileTitlePieces.push(`<span>${escapeHtml(displayName)}</span>`);
 
             const fileTitle = fileTitlePieces.join('');
             chunksArr.push(`
