@@ -771,11 +771,13 @@ body.bg-black .bind-log {
 .app-footer {
     position: fixed;
     left: 50%;
-    bottom: 12px;
+    bottom: 0;
     transform: translateX(-50%);
     font-size: 12px;
     z-index: 5;
     pointer-events: none;
+    padding-bottom: 8px;
+    width: max(60%, 320px);
 }
 .app-footer a {
     pointer-events: auto;
