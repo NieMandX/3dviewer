@@ -797,14 +797,15 @@ body.bg-black .bind-log {
     border-color: rgba(255,255,255,0.6);
 }
 body.bg-black .app-footer a {
-    background: transparent;
-    color: #ffffff;
-    border-color: rgba(255,255,255,0.4);
+    background-color: black;
+    color: #b3b3b3;
+    /* border-color: rgba(255,255,255,0.4); */
+    border: none;
 }
 body.bg-black .app-footer a:hover {
-    background: rgba(255,255,255,0.1);
+    background: rgb(28, 28, 28);
     color: #ffffff;
-    border-color: rgba(255,255,255,0.6);
+    border-color: black;
 }
 
 body.bg-black .thumb { background: #000; border-color: rgba(255,255,255,0.25); }
@@ -832,4 +833,9 @@ body.bg-black input[type="range"]::-moz-range-track,
 body.bg-black input[type="range"]::-ms-track {
     background: rgba(255,255,255,0.35);
     height: 2px;
+}
+
+#geoModal pre {
+    max-height: 50vh;
+    overflow: auto;
 }
