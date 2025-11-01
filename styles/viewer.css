@@ -62,7 +62,7 @@ body {
     margin-left: 8px;
     padding: 0;
     border: 0;
-    background: transparent;
+    /* background: transparent; */
     font: inherit;
     line-height: 1;
     cursor: pointer;
@@ -375,6 +375,7 @@ body {
 }
 
 .appbar .row {
+    background: transparent;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -386,6 +387,14 @@ body {
     align-items: center;
     gap: 6px;
     white-space: nowrap;
+}
+.appbar select {
+    background: transparent;
+    border-color: rgba(17,17,17,0.2);
+    color: var(--ink);
+}
+.appbar select:hover {
+    border-color: rgba(17,17,17,0.4);
 }
 
 .btn {
@@ -406,7 +415,7 @@ body {
     right: var(--sideW);
     bottom: 0;
     left: 0;
-    background: #ffffff;
+    background: transparent;
 }
 
 button.status-overlay {
@@ -414,7 +423,6 @@ button.status-overlay {
     left: 50%;
     bottom: 50%;
     transform: translate(-50%, 50%);
-    transform: translateX(-50%);
     background: rgba(17, 17, 17, 0.8);
     color: #fff;
     padding: 8px 18px;
@@ -435,7 +443,6 @@ button.status-overlay {
     left: 50%;
     bottom: 50%;
     transform: translate(-50%, 50%);
-    transform: translateX(-50%);
     background: rgba(17, 17, 17, 0.8);
     color: #fff;
     padding: 8px 18px;
@@ -705,12 +712,13 @@ body.bg-black .appbar {
     border-bottom-color: #222;
 }
 body.bg-black .appbar .btn {
-    background: #000;
+    background: transparent;
     color: #fff;
-    border-color: #333;
+    border-color: rgba(255,255,255,0.35);
 }
 body.bg-black .appbar .btn:hover {
-    border-color: #555;
+    border-color: rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.12);
 }
 
 body.bg-black .appbar .bg-btn.active {
@@ -718,9 +726,9 @@ body.bg-black .appbar .bg-btn.active {
     color: #ffffff;
 }
 body.bg-black .appbar select {
-    background: #000;
+    background: transparent;
     color: #fff;
-    border-color: #333;
+    border-color: rgba(255,255,255,0.35);
 }
 body.bg-black .side {
     background: #000;
@@ -765,7 +773,6 @@ body.bg-black .bind-log {
     position: fixed;
     left: 50%;
     bottom: 12px;
-    transform: translateX(-50%);
     font-size: 12px;
     z-index: 5;
     pointer-events: none;
