@@ -803,3 +803,7 @@ body.bg-black .app-footer a:hover {
     color: #ffffff;
     border-color: rgba(255,255,255,0.6);
 }
+
+body.bg-black .thumb { background: #000; border-color: rgba(255,255,255,0.25); }
+body.bg-black .thumb .ph { background: rgba(255,255,255,0.08); color: #ccc; }
+body.bg-black .thumb.broken { border-color: rgba(255,0,0,0.35); background: rgba(255,0,0,0.1); }
