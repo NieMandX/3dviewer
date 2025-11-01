@@ -22,7 +22,7 @@ body {
     margin: 0;
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     color: var(--ink);
-    background: transparent;
+    background: rgba(255,255,255,0.9);
 }
 
 /* <!-- --------------------------- -->
@@ -62,7 +62,7 @@ body {
     margin-left: 8px;
     padding: 0;
     border: 0;
-    /* background: transparent; */
+    /* background: rgba(255,255,255,0.9); */
     font: inherit;
     line-height: 1;
     cursor: pointer;
@@ -368,14 +368,14 @@ body {
     gap: 10px;
     flex-wrap: wrap;
     padding: 0 10px;
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     border-bottom: none;
     z-index: 5;
     min-height: 48px;
 }
 
 .appbar .row {
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -414,7 +414,7 @@ body {
     right: var(--sideW);
     bottom: 0;
     left: 0;
-    background: transparent;
+    background: rgba(255,255,255,0.9);
 }
 
 button.status-overlay {
@@ -464,7 +464,7 @@ button.status-overlay {
     bottom: 0;
     width: var(--sideW);
     border-left: none;
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
@@ -574,7 +574,7 @@ input[type="range"] { width: 120px; }
     font-size: 14px;
     user-select: none;
     border: 0;
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     cursor: pointer;
     padding: 0;
     line-height: 1;
@@ -587,7 +587,7 @@ body.side-hidden { --sideW: 0px; }
     position: fixed;
     top: calc(var(--appbarH) + 12px);
     left: 16px;
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     color: #3f3f3f;
     padding: 10px 14px;
     border-radius: 10px;
@@ -707,11 +707,11 @@ body.bg-black {
     color: #fff;
 }
 body.bg-black .appbar {
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     border-bottom: none;
 }
 body.bg-black .appbar .btn {
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     color: #fff;
     border-color: rgba(255,255,255,0.35);
 }
@@ -785,26 +785,24 @@ body.bg-black .bind-log {
     display: inline-block;
     padding: 6px 14px;
     border-radius: 999px;
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     color: var(--muted);
-    border: 1px solid rgba(255,255,255,0.4);
+    border: none;
     text-decoration: none;
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    transition: none;
 }
 .app-footer a:hover {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255,255,255,1);
     color: var(--ink);
-    border-color: rgba(255,255,255,0.6);
 }
 body.bg-black .app-footer a {
-    background: transparent;
+    background: rgba(255,255,255,0.9);
     color: #ffffff;
     border-color: rgba(255,255,255,0.4);
 }
 body.bg-black .app-footer a:hover {
-    background: rgba(255,255,255,0.1);
+    background: rgba(0,0,0,0.95);
     color: #ffffff;
-    border-color: rgba(255,255,255,0.6);
 }
 
 body.bg-black .thumb { background: #000; border-color: rgba(255,255,255,0.25); }
@@ -812,7 +810,7 @@ body.bg-black .thumb .ph { background: rgba(255,255,255,0.08); color: #ccc; }
 body.bg-black .thumb.broken { border-color: rgba(255,0,0,0.35); background: rgba(255,0,0,0.1); }
 
 body.bg-black input[type="range"] {
-    background: transparent;
+    background: rgba(255,255,255,0.9);
 }
 body.bg-black input[type="range"]::-webkit-slider-runnable-track {
     background: rgba(255,255,255,0.35);
