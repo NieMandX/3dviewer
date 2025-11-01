@@ -22,7 +22,7 @@ body {
     margin: 0;
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     color: var(--ink);
-    background: var(--bg);
+    background: transparent;
 }
 
 /* <!-- --------------------------- -->
