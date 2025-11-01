@@ -545,7 +545,7 @@ class ViewerApp {
             renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
         }
         if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
-        if ('toneMapping' in renderer) renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        if ('toneMapping' in renderer) renderer.toneMapping = THREE.NoToneMapping;
         if ('toneMappingExposure' in renderer) renderer.toneMappingExposure = 1.0;
         rootEl.appendChild(renderer.domElement);
 
