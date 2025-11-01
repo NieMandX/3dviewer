@@ -368,8 +368,8 @@ body {
     gap: 10px;
     flex-wrap: wrap;
     padding: 0 10px;
-    background: #fff;
-    border-bottom: 1px solid var(--border);
+    background: transparent;
+    border-bottom: 1px solid rgba(255,255,255,0.2);
     z-index: 5;
     min-height: 48px;
 }
@@ -775,26 +775,24 @@ body.bg-black .bind-log {
     display: inline-block;
     padding: 6px 14px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.9);
+    background: transparent;
     color: var(--muted);
-    border: 1px solid var(--border);
+    border: 1px solid rgba(255,255,255,0.4);
     text-decoration: none;
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 .app-footer a:hover {
-    background: #ffffff;
+    background: rgba(255,255,255,0.1);
     color: var(--ink);
-    border-color: #d0d7de;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    border-color: rgba(255,255,255,0.6);
 }
 body.bg-black .app-footer a {
-    background: rgba(0,0,0,0.85);
+    background: transparent;
     color: #ffffff;
-    border-color: #444;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+    border-color: rgba(255,255,255,0.4);
 }
 body.bg-black .app-footer a:hover {
-    background: rgba(0,0,0,0.95);
-    border-color: #666;
+    background: rgba(255,255,255,0.1);
+    color: #ffffff;
+    border-color: rgba(255,255,255,0.6);
 }
