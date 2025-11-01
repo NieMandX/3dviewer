@@ -108,15 +108,29 @@ class ViewerApp {
         const dropEl          = document.getElementById('drop');
         const statusEl        = document.getElementById('status');
         const appbarStatusEl  = document.getElementById('appbarStatus') || statusEl;
+        let statusClearTimer = null;
         const emptyHintEl     = document.getElementById('emptyHint');
 
         const setStatusMessage = (message = '') => {
             if (!statusEl) return;
+            if (statusClearTimer) {
+                clearTimeout(statusClearTimer);
+                statusClearTimer = null;
+            }
             const hasMessage = !!(message && message.trim());
             statusEl.textContent = hasMessage ? message : '';
             statusEl.hidden = !hasMessage;
             if (appbarStatusEl && appbarStatusEl !== statusEl) {
                 appbarStatusEl.textContent = statusEl.textContent;
+            }
+            if (hasMessage) {
+                const norm = message.trim().toLowerCase();
+                if (norm.startsWith('готово')) {
+                    statusClearTimer = setTimeout(() => {
+                        statusClearTimer = null;
+                        setStatusMessage('');
+                    }, 2000);
+                }
             }
         };
 
