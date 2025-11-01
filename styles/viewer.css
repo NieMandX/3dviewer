@@ -809,11 +809,24 @@ body.bg-black .thumb .ph { background: rgba(255,255,255,0.08); color: #ccc; }
 body.bg-black .thumb.broken { border-color: rgba(255,0,0,0.35); background: rgba(255,0,0,0.1); }
 
 body.bg-black input[type="range"] {
-    background: linear-gradient(to right, rgba(255,255,255,0.25), rgba(255,255,255,0.25)) no-repeat center;
-    background-size: calc(100% - 12px) 2px;
+    background: transparent;
 }
-body.bg-black input[type="range"]::-webkit-slider-runnable-track,
+body.bg-black input[type="range"]::-webkit-slider-runnable-track {
+    background: rgba(255,255,255,0.35);
+    height: 2px;
+    border-radius: 2px;
+}
+body.bg-black input[type="range"]::-webkit-slider-thumb {
+    background: #fff;
+    border: 2px solid #000;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    margin-top: -6px;
+    -webkit-appearance: none;
+}
 body.bg-black input[type="range"]::-moz-range-track,
 body.bg-black input[type="range"]::-ms-track {
-    background: transparent;
+    background: rgba(255,255,255,0.35);
+    height: 2px;
 }
