@@ -725,7 +725,7 @@ body.bg-black .appbar .bg-btn.active {
     color: #ffffff;
 }
 body.bg-black .appbar select {
-    background: transparent;
+    background: #000000;
     color: #fff;
     border-color: rgba(255,255,255,0.35);
 }
