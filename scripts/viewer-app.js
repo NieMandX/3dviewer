@@ -1241,7 +1241,7 @@ class ViewerApp {
 
             // 2) compute canvas size (side panel overlays, so use full width)
             const w = Math.max(1, window.innerWidth);
-            const h = Math.max(1, window.innerHeight - appH);
+            const h = Math.max(1, window.innerHeight);
             renderer.setSize(w, h);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();

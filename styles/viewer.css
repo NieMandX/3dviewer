@@ -411,7 +411,7 @@ body {
 
 #viewer {
     position: fixed;
-    top: var(--appbarH);
+    top: 0;
     right: var(--sideW);
     bottom: 0;
     left: 0;
