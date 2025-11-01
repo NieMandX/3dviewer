@@ -422,8 +422,8 @@ button.status-overlay {
     left: 50%;
     bottom: calc(50% + 100px);
     transform: translate(-50%, 50%);
-    background: rgba(17, 17, 17, 0.8);
-    color: #fff;
+    background: rgba(255, 255, 255, 0.8);
+    color: #000000;
     padding: 8px 18px;
     border-radius: 999px;
     font-size: 13px;
