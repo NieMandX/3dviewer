@@ -4,7 +4,7 @@
     - сохранил визуальную структуру оригинала
 */
 :root {
-    --bg: #fff;
+    --bg: transparent;
     --ink: #111;
     --muted: #667;
     --border: #e5e7eb;
