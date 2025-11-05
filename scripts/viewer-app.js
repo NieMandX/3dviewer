@@ -1953,51 +1953,6 @@ class ViewerApp {
             return _checkerTex;
         }
 
-        // =====================================================================
-        // Rendering Modes · Points/Beauty Wire helpers
-        // =====================================================================
-
-        /** Гарантирует наличие Points-объекта и материала для указанного меша. */
-        function ensurePointsForMesh(mesh, size = 3, color = 0x00aaff) {
-            if (!mesh.isMesh || !mesh.geometry || !mesh.parent) return null;
-
-            if (!mesh.userData._pointsObj) {
-                const pm = new THREE.PointsMaterial({ size, sizeAttenuation: false, color, depthTest: true, depthWrite: false });
-                const pts = new THREE.Points(mesh.geometry, pm);
-                pts.name = (mesh.name || mesh.type) + ' (points)';
-                pts.renderOrder = (mesh.renderOrder || 0) + 1;
-                pts.visible = false;
-
-                mesh.parent.add(pts);
-                pts.position.copy(mesh.position);
-                pts.quaternion.copy(mesh.quaternion);
-                pts.scale.copy(mesh.scale);
-
-                mesh.userData._pointsObj = pts;
-                mesh.userData._pointsMat = pm;
-            } else {
-                const pm = mesh.userData._pointsMat;
-                if (pm) { pm.size = size; pm.color = new THREE.Color(color); pm.needsUpdate = true; }
-            }
-            return mesh.userData._pointsObj;
-        }
-
-        /** Переключает режим отображения вершин: прячет исходные меши и показывает Points. */
-        function setPointsMode(enabled, { size = 0.5, color = 0x666666 } = {}) {
-            let changed = false;
-            world.traverse(o => {
-                if (!o.isMesh) return;
-                const pts = ensurePointsForMesh(o, size, color);
-                if (!pts) return;
-                const prevMeshVisible = o.visible;
-                const prevPtsVisible = pts.visible;
-                o.visible = !enabled;
-                pts.visible = enabled;
-                if (prevMeshVisible !== o.visible || prevPtsVisible !== pts.visible) changed = true;
-            });
-            if (changed) markSceneStatsDirty();
-        }
-
         // ================================
         // Edges (wireframe без диагоналей)
         // ================================
@@ -2406,21 +2361,6 @@ function clearBeautyWire(mesh) {
             const map = orig.map || null;
 
             switch (mode) {
-                case 'lambert':
-                    return new THREE.MeshLambertMaterial({ ...common, color, map });
-
-                case 'phong':
-                    return new THREE.MeshPhongMaterial({
-                        ...common,
-                        color,
-                        map,
-                        shininess: 50,
-                        specular: new THREE.Color(0x111111)
-                    });
-
-                case 'toon':
-                    return new THREE.MeshToonMaterial({ ...common, color, map });
-
                 case 'normal':
                     // у NormalMaterial нет alphaMap, но можно сохранить прозрачность
                     return new THREE.MeshNormalMaterial({
@@ -2471,18 +2411,6 @@ function clearBeautyWire(mesh) {
                         map: getChecker()
                     });
 
-                case 'depth':
-                    return new THREE.MeshDepthMaterial({
-                        depthPacking: THREE.RGBADepthPacking
-                        // alphaMap тут не поддерживается
-                    });
-
-                case 'vcol':
-                    return new THREE.MeshBasicMaterial({
-                        ...common,
-                        vertexColors: true
-                    });
-
                 case 'roughOnly': {
                     const tex = orig.roughnessMap || null;
                     if (tex) return new THREE.MeshBasicMaterial({ ...common, color: 0xffffff, map: tex });
@@ -2508,7 +2436,7 @@ function clearBeautyWire(mesh) {
 
         /**
          * Главный переключатель режимов шейдинга. Кэширует исходные материалы (для PBR),
-         * управляет режимами точек/beauty wire и обновляет панель материалов.
+         * управляет режимом beauty wire и обновляет панель материалов.
          */
         function applyShading(mode, afterRender) {
             currentShadingMode = mode;
@@ -2520,12 +2448,8 @@ function clearBeautyWire(mesh) {
                 afterRender = undefined;
             };
 
-            // выключаем точки, если были
-            if (mode !== 'points') setPointsMode(false);
-
             // backface — отдельный режим (двухпроходный), его не делаем через makeVariantFrom
             if (mode === 'backface') {
-                setPointsMode(false);
                 setBackfaceMode(true);
                 requestRender();
                 scheduleOnce();
@@ -2534,26 +2458,19 @@ function clearBeautyWire(mesh) {
                 // выходим из backface при любом другом режиме
                 setBackfaceMode(false);
             }
-
-            if (mode === 'points') {
-                setPointsMode(true, { size: 3, color: 0x00aaff });
+            if (mode === 'beautywire') {
+                // включаем beautywire у всех мешей
+                world.traverse(o => {
+                    if (o.userData?.isCollision) return; // не переписывать материал коллизий
+                    if (!o.isMesh) return;
+                    ensureBeautyWire(o, BEAUTY_WIRE_ANGLE_DEG);
+                });
+                scheduleOnce();
                 return;
             } else {
-                setPointsMode(false);
+                // выходим из beautywire, если он был включён
+                world.traverse(o => { if (o.isMesh) clearBeautyWire(o); });
             }
-                if (mode === 'beautywire') {
-                    // включаем beautywire у всех мешей
-                    world.traverse(o => {
-                        if (o.userData?.isCollision) return; // не переписывать материал коллизий
-                        if (!o.isMesh) return;
-                        ensureBeautyWire(o, BEAUTY_WIRE_ANGLE_DEG);
-                    });
-                    scheduleOnce();
-                    return;
-                } else {
-                    // выходим из beautywire, если он был включён
-                    world.traverse(o => { if (o.isMesh) clearBeautyWire(o); });
-                }
             world.traverse(obj => {
                 if (obj.userData?.isCollision) return; // не переписывать материал коллизий
                 if (!obj.isMesh || !obj.material) return;
