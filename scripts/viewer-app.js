@@ -198,6 +198,8 @@ class ViewerApp {
         const axisSel         = null;
         const isZUp = () => false;
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
+        const resetViewerBtn  = document.getElementById('resetViewerBtn');
+        const fullscreenBtn   = document.getElementById('fullscreenBtn');
         const statsBtn        = document.getElementById('statsBtn');
         const bgToggleBtn     = document.getElementById('bgToggleBtn');
         const gridToggleBtn   = document.getElementById('gridToggleBtn');
@@ -434,6 +436,8 @@ class ViewerApp {
             statsBtn,
             bgToggleBtn,
             gridToggleBtn,
+            resetViewerBtn,
+            fullscreenBtn,
             statsOverlayEl,
         };
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
@@ -2789,6 +2793,22 @@ function clearBeautyWire(mesh) {
             setGridVisible(!gridVisible);
         });
         setGridVisible(true);
+
+        resetViewerBtn?.addEventListener('click', () => {
+            window.location.reload();
+        });
+
+        fullscreenBtn?.addEventListener('click', () => {
+            const elem = document.documentElement;
+            const fullscreenEl = document.fullscreenElement || document.webkitFullscreenElement;
+            if (!fullscreenEl) {
+                if (elem.requestFullscreen) elem.requestFullscreen();
+                else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            }
+        });
 
         iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl?.addEventListener('input', () => {

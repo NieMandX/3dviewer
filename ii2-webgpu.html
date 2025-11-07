@@ -18,8 +18,17 @@
 
     <div class="appbar">
         <button id="toggleSideBtn" class="btn" title="Показать/скрыть боковую панель">☰</button>
-        <button id="gridToggleBtn" class="btn grid-btn" type="button">Grid off</button>
-
+        <button id="fullscreenBtn" class="btn" type="button">⤢</button>
+        <button id="resetViewerBtn" class="btn" type="button">Reset</button>
+        <div class="row appbar-samples">
+            <label>
+                <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
+                    <option value="">Примеры…</option>
+                </select>
+            </label>
+        </div>
+        
+        
         <!-- Files -->
         
         <input id="fileInput" type="file" accept=".fbx,.zip" multiple hidden />
@@ -307,12 +316,7 @@
             <details id="futureDevDetails" open>
                 <summary>Future Dev</summary>
                 <div class="future-controls">
-                    <div class="future-row">
-                        <span class="light-label">Samples</span>
-                        <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
-                            <option value="">Примеры…</option>
-                        </select>
-                    </div>
+                    <button id="gridToggleBtn" class="btn grid-btn" type="button">Grid off</button>
                     <button id="loadParcelsBtn" class="btn" type="button" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
                     <button id="statsBtn" class="btn" title="Показать статистику сцены">Stats</button>
                 </div>
