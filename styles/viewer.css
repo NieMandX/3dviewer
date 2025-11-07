@@ -584,7 +584,7 @@ input[type="range"] { width: 120px; }
 
 .gallery-spacer { grid-column: 1 / -1; height: 1px; }
 
-.drop { position: fixed; inset: var(--appbarH) 0 0 0; display:none; place-items:center; background:rgba(0,0,0,.04); border:3px dashed rgba(0,0,0,.2); font-size:18px; z-index:4 }
+.drop { position: fixed; inset: var(--appbarH) 0 0 0; display:none; place-items:center; background:rgba(0,0,0,.04); border:3px dashed rgba(0,0,0,.2); font-size:18px; z-index:4; pointer-events:none }
 .drop.show { display: grid; }
 
 .modal { position: fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.45); z-index:50 }
