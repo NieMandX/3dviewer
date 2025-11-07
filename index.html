@@ -18,7 +18,17 @@
 
     <div class="appbar">
         <button id="toggleSideBtn" class="btn" title="Показать/скрыть боковую панель">☰</button>
-
+        <button id="fullscreenBtn" class="btn" type="button">⤢</button>
+        <button id="resetViewerBtn" class="btn" type="button">Reset</button>
+        <div class="row appbar-samples">
+            <label>
+                <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
+                    <option value="">Примеры…</option>
+                </select>
+            </label>
+        </div>
+        
+        
         <!-- Files -->
         
         <input id="fileInput" type="file" accept=".fbx,.zip" multiple hidden />
@@ -27,9 +37,6 @@
                 <select id="shadingMode" title="Режим шейдинга">
                     <option value="pbr" selected>PBR</option>
                     <option value="backface">Backface (white/red)</option>
-                    <option value="lambert">Lambert</option>
-                    <option value="phong">Phong</option>
-                    <option value="toon">Toon</option>
                     <option value="normal">Normal</option>
                     <option value="basic">Unlit</option>
                     <option value="wire">Wireframe</option>
@@ -37,15 +44,12 @@
                     <option value="matcap">Matcap</option>
                     <option value="xray">X-Ray</option>
                     <option value="uv">UV Checker</option>
-                    <option value="depth">Depth</option>
-                    <option value="vcol">Vertex Color</option>
                     <option value="roughOnly">Roughness Only</option>
                     <option value="metalOnly">Metalness Only</option>
-                    <option value="points">Points (Vertices)</option>
                 </select>
             </label>
         </div>
-
+        <button id="bgToggleBtn" class="btn bg-btn" type="button">White</button>
         <a class="btn order-btn" href="https://lpmview.ru/#order" target="_blank" rel="noopener">Заказать модель</a>
 
     </div>
@@ -312,12 +316,7 @@
             <details id="futureDevDetails" open>
                 <summary>Future Dev</summary>
                 <div class="future-controls">
-                    <div class="future-row">
-                        <span class="light-label">Samples</span>
-                        <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
-                            <option value="">Примеры…</option>
-                        </select>
-                    </div>
+                    <button id="gridToggleBtn" class="btn grid-btn" type="button">Grid off</button>
                     <button id="loadParcelsBtn" class="btn" type="button" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
                     <button id="statsBtn" class="btn" title="Показать статистику сцены">Stats</button>
                 </div>
@@ -325,7 +324,7 @@
 
             <details id="bindLogDetails" open>
                 <summary>Лог автопривязки</summary>
-                <div id="bindLog" style="font-size:13px; line-height:1.4; padding:6px; max-height:220px; overflow:auto; white-space:pre-wrap; background:#fafafa; border:1px solid var(--border); border-radius:6px;">— пока пусто —</div>
+                <div id="bindLog" class="bind-log" style="font-size:13px; line-height:1.4; padding:6px; max-height:220px; overflow:auto; white-space:pre-wrap;">— пока пусто —</div>
             </details>
         </div>
     </div>
@@ -363,6 +362,8 @@
             </div>
         </div>
     </div>
+
+    <footer class="app-footer"><a href="https://yaroslavakimov.com" target="_blank" rel="noopener">AGR model 3D viewer · Designed by Yaroslav Akimov · 2025</a></footer>
 
     <script type="importmap">
         {

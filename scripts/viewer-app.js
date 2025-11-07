@@ -108,15 +108,29 @@ class ViewerApp {
         const dropEl          = document.getElementById('drop');
         const statusEl        = document.getElementById('status');
         const appbarStatusEl  = document.getElementById('appbarStatus') || statusEl;
+        let statusClearTimer = null;
         const emptyHintEl     = document.getElementById('emptyHint');
 
         const setStatusMessage = (message = '') => {
             if (!statusEl) return;
+            if (statusClearTimer) {
+                clearTimeout(statusClearTimer);
+                statusClearTimer = null;
+            }
             const hasMessage = !!(message && message.trim());
             statusEl.textContent = hasMessage ? message : '';
             statusEl.hidden = !hasMessage;
             if (appbarStatusEl && appbarStatusEl !== statusEl) {
                 appbarStatusEl.textContent = statusEl.textContent;
+            }
+            if (hasMessage) {
+                const norm = message.trim().toLowerCase();
+                if (norm.startsWith('готово')) {
+                    statusClearTimer = setTimeout(() => {
+                        statusClearTimer = null;
+                        setStatusMessage('');
+                    }, 2000);
+                }
             }
         };
 
@@ -184,7 +198,11 @@ class ViewerApp {
         const axisSel         = null;
         const isZUp = () => false;
         const toggleSideBtn   = document.getElementById('toggleSideBtn');
+        const resetViewerBtn  = document.getElementById('resetViewerBtn');
+        const fullscreenBtn   = document.getElementById('fullscreenBtn');
         const statsBtn        = document.getElementById('statsBtn');
+        const bgToggleBtn     = document.getElementById('bgToggleBtn');
+        const gridToggleBtn   = document.getElementById('gridToggleBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
 
         const glassOpacityEl      = document.getElementById('glassOpacity');
@@ -416,6 +434,10 @@ class ViewerApp {
             bgAlphaEl,
             sampleSelect,
             statsBtn,
+            bgToggleBtn,
+            gridToggleBtn,
+            resetViewerBtn,
+            fullscreenBtn,
             statsOverlayEl,
         };
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
@@ -430,7 +452,7 @@ class ViewerApp {
         // THREE.js scene init
         // =====================
         const scene    = new THREE.Scene();
-        scene.background = new THREE.Color(0xffffff);
+        // scene.background = null;
 
         const world    = new THREE.Group();
         scene.add(world);
@@ -501,9 +523,12 @@ class ViewerApp {
 
         let bgMesh = null; // background sphere used to show HDRI
         app.bgMesh = bgMesh;
+        let bgMode = 'white';
+        let gridVisible = true;
+        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
 
         const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
-        camera.position.set(2.5, 1.5, 3.5);
+        camera.position.set(0, 1.5, -5);
 
         const renderer = USE_WEBGPU && WebGPURendererCtor
             ? new WebGPURendererCtor({ antialias: true })
@@ -541,7 +566,7 @@ class ViewerApp {
             renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
         }
         if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
-        if ('toneMapping' in renderer) renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        if ('toneMapping' in renderer) renderer.toneMapping = THREE.NoToneMapping;
         if ('toneMappingExposure' in renderer) renderer.toneMappingExposure = 1.0;
         rootEl.appendChild(renderer.domElement);
 
@@ -1237,7 +1262,7 @@ class ViewerApp {
 
             // 2) compute canvas size (side panel overlays, so use full width)
             const w = Math.max(1, window.innerWidth);
-            const h = Math.max(1, window.innerHeight - appH);
+            const h = Math.max(1, window.innerHeight);
             renderer.setSize(w, h);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
@@ -1816,6 +1841,57 @@ class ViewerApp {
             requestRender();
         }
 
+        function setBackgroundMode(mode) {
+            const next = mode === 'black' ? 'black' : 'white';
+            bgMode = next;
+            if (next === 'black') {
+                if (typeof renderer.setClearColor === 'function') {
+                    renderer.setClearColor(0x000000, 1);
+                }
+                if (scene.background) scene.background.set(0x000000); else scene.background = new THREE.Color(0x000000);
+                bgToggleBtn?.classList.add('active');
+                if (bgToggleBtn) {
+                    bgToggleBtn.textContent = 'White';
+                    bgToggleBtn.classList.remove('white-mode');
+                    bgToggleBtn.classList.add('black-mode');
+                }
+                if (typeof document !== 'undefined' && document.body) {
+                    document.body.classList.add('bg-black');
+                }
+            } else {
+                if (typeof renderer.setClearColor === 'function') {
+                    renderer.setClearColor(whiteClearColor.clone(), 1);
+                }
+                scene.background = null;
+                bgToggleBtn?.classList.remove('active');
+                if (bgToggleBtn) {
+                    bgToggleBtn.textContent = 'Black';
+                    bgToggleBtn.classList.remove('black-mode');
+                    bgToggleBtn.classList.add('white-mode');
+                }
+                if (typeof document !== 'undefined' && document.body) {
+                    document.body.classList.remove('bg-black');
+                }
+            }
+            updateBgVisibility();
+            requestRender();
+        }
+
+        function setGridVisible(visible) {
+            gridVisible = !!visible;
+            const gridHelper = app.grid;
+            if (gridHelper) {
+                gridHelper.visible = gridVisible;
+            }
+            app.gridVisible = gridVisible;
+            if (gridToggleBtn) {
+                gridToggleBtn.classList.toggle('active', gridVisible);
+                gridToggleBtn.textContent = gridVisible ? 'Grid off' : 'Grid on';
+                gridToggleBtn.setAttribute('aria-pressed', gridVisible ? 'true' : 'false');
+            }
+            requestRender();
+        }
+
         function setStatsVisible(visible) {
             statsVisible = !!visible;
             statsBtn?.classList.toggle('active', statsVisible);
@@ -1879,51 +1955,6 @@ class ViewerApp {
                 const maxAniso = renderer.capabilities?.getMaxAnisotropy?.();
                 _checkerTex.anisotropy = maxAniso || 1;
             return _checkerTex;
-        }
-
-        // =====================================================================
-        // Rendering Modes · Points/Beauty Wire helpers
-        // =====================================================================
-
-        /** Гарантирует наличие Points-объекта и материала для указанного меша. */
-        function ensurePointsForMesh(mesh, size = 3, color = 0x00aaff) {
-            if (!mesh.isMesh || !mesh.geometry || !mesh.parent) return null;
-
-            if (!mesh.userData._pointsObj) {
-                const pm = new THREE.PointsMaterial({ size, sizeAttenuation: false, color, depthTest: true, depthWrite: false });
-                const pts = new THREE.Points(mesh.geometry, pm);
-                pts.name = (mesh.name || mesh.type) + ' (points)';
-                pts.renderOrder = (mesh.renderOrder || 0) + 1;
-                pts.visible = false;
-
-                mesh.parent.add(pts);
-                pts.position.copy(mesh.position);
-                pts.quaternion.copy(mesh.quaternion);
-                pts.scale.copy(mesh.scale);
-
-                mesh.userData._pointsObj = pts;
-                mesh.userData._pointsMat = pm;
-            } else {
-                const pm = mesh.userData._pointsMat;
-                if (pm) { pm.size = size; pm.color = new THREE.Color(color); pm.needsUpdate = true; }
-            }
-            return mesh.userData._pointsObj;
-        }
-
-        /** Переключает режим отображения вершин: прячет исходные меши и показывает Points. */
-        function setPointsMode(enabled, { size = 0.5, color = 0x666666 } = {}) {
-            let changed = false;
-            world.traverse(o => {
-                if (!o.isMesh) return;
-                const pts = ensurePointsForMesh(o, size, color);
-                if (!pts) return;
-                const prevMeshVisible = o.visible;
-                const prevPtsVisible = pts.visible;
-                o.visible = !enabled;
-                pts.visible = enabled;
-                if (prevMeshVisible !== o.visible || prevPtsVisible !== pts.visible) changed = true;
-            });
-            if (changed) markSceneStatsDirty();
         }
 
         // ================================
@@ -2334,21 +2365,6 @@ function clearBeautyWire(mesh) {
             const map = orig.map || null;
 
             switch (mode) {
-                case 'lambert':
-                    return new THREE.MeshLambertMaterial({ ...common, color, map });
-
-                case 'phong':
-                    return new THREE.MeshPhongMaterial({
-                        ...common,
-                        color,
-                        map,
-                        shininess: 50,
-                        specular: new THREE.Color(0x111111)
-                    });
-
-                case 'toon':
-                    return new THREE.MeshToonMaterial({ ...common, color, map });
-
                 case 'normal':
                     // у NormalMaterial нет alphaMap, но можно сохранить прозрачность
                     return new THREE.MeshNormalMaterial({
@@ -2399,18 +2415,6 @@ function clearBeautyWire(mesh) {
                         map: getChecker()
                     });
 
-                case 'depth':
-                    return new THREE.MeshDepthMaterial({
-                        depthPacking: THREE.RGBADepthPacking
-                        // alphaMap тут не поддерживается
-                    });
-
-                case 'vcol':
-                    return new THREE.MeshBasicMaterial({
-                        ...common,
-                        vertexColors: true
-                    });
-
                 case 'roughOnly': {
                     const tex = orig.roughnessMap || null;
                     if (tex) return new THREE.MeshBasicMaterial({ ...common, color: 0xffffff, map: tex });
@@ -2436,7 +2440,7 @@ function clearBeautyWire(mesh) {
 
         /**
          * Главный переключатель режимов шейдинга. Кэширует исходные материалы (для PBR),
-         * управляет режимами точек/beauty wire и обновляет панель материалов.
+         * управляет режимом beauty wire и обновляет панель материалов.
          */
         function applyShading(mode, afterRender) {
             currentShadingMode = mode;
@@ -2448,12 +2452,8 @@ function clearBeautyWire(mesh) {
                 afterRender = undefined;
             };
 
-            // выключаем точки, если были
-            if (mode !== 'points') setPointsMode(false);
-
             // backface — отдельный режим (двухпроходный), его не делаем через makeVariantFrom
             if (mode === 'backface') {
-                setPointsMode(false);
                 setBackfaceMode(true);
                 requestRender();
                 scheduleOnce();
@@ -2462,26 +2462,19 @@ function clearBeautyWire(mesh) {
                 // выходим из backface при любом другом режиме
                 setBackfaceMode(false);
             }
-
-            if (mode === 'points') {
-                setPointsMode(true, { size: 3, color: 0x00aaff });
+            if (mode === 'beautywire') {
+                // включаем beautywire у всех мешей
+                world.traverse(o => {
+                    if (o.userData?.isCollision) return; // не переписывать материал коллизий
+                    if (!o.isMesh) return;
+                    ensureBeautyWire(o, BEAUTY_WIRE_ANGLE_DEG);
+                });
+                scheduleOnce();
                 return;
             } else {
-                setPointsMode(false);
+                // выходим из beautywire, если он был включён
+                world.traverse(o => { if (o.isMesh) clearBeautyWire(o); });
             }
-                if (mode === 'beautywire') {
-                    // включаем beautywire у всех мешей
-                    world.traverse(o => {
-                        if (o.userData?.isCollision) return; // не переписывать материал коллизий
-                        if (!o.isMesh) return;
-                        ensureBeautyWire(o, BEAUTY_WIRE_ANGLE_DEG);
-                    });
-                    scheduleOnce();
-                    return;
-                } else {
-                    // выходим из beautywire, если он был включён
-                    world.traverse(o => { if (o.isMesh) clearBeautyWire(o); });
-                }
             world.traverse(obj => {
                 if (obj.userData?.isCollision) return; // не переписывать материал коллизий
                 if (!obj.isMesh || !obj.material) return;
@@ -2747,7 +2740,8 @@ function clearBeautyWire(mesh) {
 
         function updateBgVisibility() {
             if (!bgMesh) return;
-            bgMesh.visible = !!iblChk.checked;
+            const shouldShow = !!iblChk?.checked && bgMode !== 'black';
+            bgMesh.visible = shouldShow;
             bgMesh.material.opacity = parseFloat(bgAlphaEl.value || '1');
             bgMesh.material.transparent = bgMesh.material.opacity < 0.999;
             bgMesh.material.needsUpdate = true;
@@ -2788,6 +2782,33 @@ function clearBeautyWire(mesh) {
             statsBtn.addEventListener('click', () => setStatsVisible(!statsVisible));
         }
         setStatsVisible(true);
+
+        bgToggleBtn?.addEventListener('click', () => {
+            setBackgroundMode(bgMode === 'black' ? 'white' : 'black');
+        });
+        setBackgroundMode('white');
+        if (bgToggleBtn) bgToggleBtn.classList.add('white-mode');
+
+        gridToggleBtn?.addEventListener('click', () => {
+            setGridVisible(!gridVisible);
+        });
+        setGridVisible(true);
+
+        resetViewerBtn?.addEventListener('click', () => {
+            window.location.reload();
+        });
+
+        fullscreenBtn?.addEventListener('click', () => {
+            const elem = document.documentElement;
+            const fullscreenEl = document.fullscreenElement || document.webkitFullscreenElement;
+            if (!fullscreenEl) {
+                if (elem.requestFullscreen) elem.requestFullscreen();
+                else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            }
+        });
 
         iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl?.addEventListener('input', () => {
@@ -4005,21 +4026,19 @@ function clearBeautyWire(mesh) {
             geoModal.id = 'geoModal';
             geoModal.className = 'modal';
             geoModal.innerHTML = `
-            <div class="sheet">
+            <div class="sheet sheet-geo">
                 <div class="head">
-                <div class="row" style="gap:8px; align-items:center">
-                    <b id="geoTitle"></b>
-                    <span class="muted" id="geoInfo" style="font-size:12px"></span>
-                </div>
-                <button id="geoClose" class="btn" title="Закрыть">×</button>
-                </div>
-                <div class="body" style="grid-template-columns: 1fr">
-                <div class="side" style="max-height:70vh; overflow:auto">
-                    <pre id="geoPre" style="margin:0; white-space:pre; font-size:12px; line-height:1.35; tab-size:2"></pre>
-                    <div class="row" style="margin-top:8px">
-                    <a id="geoDl" class="btn" download>Скачать GeoJSON</a>
+                    <div class="row head-line">
+                        <b id="geoTitle"></b>
+                        <span class="muted" id="geoInfo"></span>
                     </div>
+                    <button id="geoClose" class="btn" title="Закрыть">×</button>
                 </div>
+                <div class="sheet-body">
+                    <pre id="geoPre"></pre>
+                    <div class="row geo-actions">
+                        <a id="geoDl" class="btn" download>Скачать GeoJSON</a>
+                    </div>
                 </div>
             </div>
             `;
@@ -4711,7 +4730,7 @@ function getSMOffset(meta) {
             const fileTitlePieces = [];
             if (kindBadge) fileTitlePieces.push(kindBadge);
             const displayName = formatPanelLabel(model.name);
-            fileTitlePieces.push(`<span title="${escapeHtml(model.name)}">${escapeHtml(displayName)}</span>`);
+            fileTitlePieces.push(`<span>${escapeHtml(displayName)}</span>`);
 
             const fileTitle = fileTitlePieces.join('');
             chunksArr.push(`
