@@ -6592,12 +6592,37 @@ function getSMOffset(meta) {
             });
         }
 
-        ['dragenter','dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); dropEl.classList.add('show'); }));
-        ['dragleave','drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); if (ev === 'drop') return; dropEl.classList.remove('show'); }));
+        const dragTargets = [window, document, document?.body, rootEl, dropEl].filter(Boolean);
+        let dragHoverCount = 0;
+        const addDragListener = (type, handler) => {
+            dragTargets.forEach(target => target.addEventListener(type, handler, { passive: false }));
+        };
 
-        window.addEventListener('drop', async e => {
-            e.preventDefault(); dropEl.classList.remove('show');
+        const handleDragEnter = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dragHoverCount++;
+            if (dropEl) dropEl.classList.add('show');
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        };
+        const handleDragOver = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        };
+        const handleDragLeave = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dragHoverCount = Math.max(0, dragHoverCount - 1);
+            if (dragHoverCount === 0 && dropEl) dropEl.classList.remove('show');
+        };
+        const handleDrop = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dragHoverCount = 0;
+            if (dropEl) dropEl.classList.remove('show');
             const files = [...(e.dataTransfer?.files || [])];
+            if (!files.length) return;
             for (const f of files) {
                 if (/\.fbx$/i.test(f.name)) {
                     await handleFBXFile(f);
@@ -6606,7 +6631,12 @@ function getSMOffset(meta) {
                 }
             }
             await finalizeBatchAfterAllFiles();
-        });
+        };
+
+        addDragListener('dragenter', handleDragEnter);
+        addDragListener('dragover', handleDragOver);
+        addDragListener('dragleave', handleDragLeave);
+        addDragListener('drop', handleDrop);
 
         // =====================================================================
         // Asset Loading · Core Procedures
