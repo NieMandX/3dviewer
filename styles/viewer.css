@@ -611,6 +611,7 @@ input[type="range"] { width: 120px; }
     cursor: pointer;
     padding: 0;
     line-height: 1;
+    color: inherit;
 }
 .eye:hover { opacity: .75; }
 
@@ -764,11 +765,11 @@ body.bg-black .appbar select {
     border-color: rgba(255,255,255,0.35);
 }
 body.bg-black .side {
-    background: #000;
+    background: transparent;
     color: #fff;
 }
 body.bg-black .side .list {
-    background: #000;
+    background: transparent;
 }
 body.bg-black .side details {
     background: #000;
@@ -782,6 +783,9 @@ body.bg-black .side .btn {
     background: #000;
     color: #fff;
     border-color: #333;
+}
+body.bg-black .eye {
+    color: #fff;
 }
 body.bg-black .muted {
     color: #bbb;
