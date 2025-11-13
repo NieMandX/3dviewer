@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-const ROWS = 100;
-const COLS = 100;
+
+const ROWS = 50;
+const COLS = 50;
 const GRID_WIDTH = 1100;
 const GRID_DEPTH = 1600;
 const CAMERA_HEIGHT = -250; // высота камеры над плоскостью
@@ -176,9 +177,10 @@ export function KineticSculpture() {
             <canvas ref={canvasRef} className="block w-full" style={{ height: 360 }} />
           </div>
 
-          <div className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
-            <label className="flex flex-col gap-2">
-              <span className="text-zinc-500">Α {Math.round(amplitude)}</span>
+          <div className="mt-6 flex flex-wrap items-center gap-6 text-sm">
+            <label className="flex items-center gap-3">
+              <span className="min-w-14 text-zinc-500"></span>
+              {/* <span className="min-w-14 text-zinc-500">Α {Math.round(amplitude)}</span> */}
               <input
                 type="range"
                 min="0"
@@ -186,11 +188,11 @@ export function KineticSculpture() {
                 step="1"
                 value={amplitude}
                 onChange={(e) => setAmplitude(Number(e.target.value))}
-                className="accent-zinc-900"
+                className="slider"
               />
             </label>
-            <label className="flex flex-col gap-2">
-              <span className="text-zinc-500">Φ</span>
+            <label className="flex items-center gap-3">
+              <span className="min-w-14 text-zinc-500"></span>
               <input
                 type="range"
                 min="1"
@@ -198,11 +200,12 @@ export function KineticSculpture() {
                 step="0.5"
                 value={frequency * 10000}
                 onChange={(e) => setFrequency(Number(e.target.value) / 10000)}
-                className="accent-zinc-900"
+                className="slider"
               />
             </label>
-            <label className="flex flex-col gap-2">
-              <span className="text-zinc-500">w1 {rowPhaseFactor.toFixed(2)}</span>
+            <label className="flex items-center gap-3">
+              <span className="min-w-14 text-zinc-500"></span>
+              {/* <span className="min-w-14 text-zinc-500">w1 {rowPhaseFactor.toFixed(2)}</span> */}
               <input
                 type="range"
                 min="0"
@@ -210,11 +213,12 @@ export function KineticSculpture() {
                 step="0.01"
                 value={rowPhaseFactor}
                 onChange={(e) => setRowPhaseFactor(Number(e.target.value))}
-                className="accent-zinc-900"
+                className="slider"
               />
             </label>
-            <label className="flex flex-col gap-2">
-              <span className="text-zinc-500">w2 {colPhaseFactor.toFixed(2)}</span>
+            <label className="flex items-center gap-3">
+              <span className="min-w-14 text-zinc-500"></span>
+              {/* <span className="min-w-14 text-zinc-500">w2 {colPhaseFactor.toFixed(2)}</span> */}
               <input
                 type="range"
                 min="0"
@@ -222,7 +226,7 @@ export function KineticSculpture() {
                 step="0.01"
                 value={colPhaseFactor}
                 onChange={(e) => setColPhaseFactor(Number(e.target.value))}
-                className="accent-zinc-900"
+                className="slider"
               />
             </label>
           </div>
