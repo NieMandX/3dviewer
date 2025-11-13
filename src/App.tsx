@@ -7,6 +7,7 @@ import { ModelsSection } from './components/ModelsSection';
 import { AboutSection } from './components/AboutSection';
 import { ContactSection } from './components/ContactSection';
 import { SEOHead } from './components/SEOHead';
+import { KineticSculpture } from './components/KineticSculpture';
 
 type Theme = 'light' | 'dark';
 
@@ -43,6 +44,7 @@ export default function App() {
         <Header />
         <Navigation />
         <main>
+          <KineticSculpture />
           <HeroSection />
           <GallerySection />
           <ModelsSection />
