@@ -6,8 +6,8 @@ const COLS = 50;
 const GRID_WIDTH = 1100;
 const GRID_DEPTH = 1600;
 const CAMERA_HEIGHT = -250; // высота камеры над плоскостью
-const CAMERA_OFFSET = 650; // расстояние от камеры до начала сетки
-const PLANE_TILT = -0.3; // наклон плоскости пола
+const CAMERA_OFFSET = 930; // расстояние от камеры до начала сетки
+const PLANE_TILT = -0.4; // наклон плоскости пола
 
 interface Point {
   x: number;
@@ -37,10 +37,11 @@ export function KineticSculpture() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sizeRef = useRef({ width: 0, height: 0, dpr: 1 });
   const rafRef = useRef<number>();
-  const [amplitude, setAmplitude] = useState(35);
-  const [frequency, setFrequency] = useState(0.0004);
-  const [rowPhaseFactor, setRowPhaseFactor] = useState(0.2);
-  const [colPhaseFactor, setColPhaseFactor] = useState(0.05);
+  const [amplitude, setAmplitude] = useState(120);
+  const [frequency, setFrequency] = useState(0.0001);
+  const [rowPhaseFactor, setRowPhaseFactor] = useState(0.05);
+  const [colPhaseFactor, setColPhaseFactor] = useState(0.07);
+  const [controlsVisible, setControlsVisible] = useState(false);
   const amplitudeRef = useRef(amplitude);
   const frequencyRef = useRef(frequency);
   const rowPhaseRef = useRef(rowPhaseFactor);
@@ -61,6 +62,17 @@ export function KineticSculpture() {
   useEffect(() => {
     colPhaseRef.current = colPhaseFactor;
   }, [colPhaseFactor]);
+
+  useEffect(() => {
+    const handleHotkey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'l') {
+        setControlsVisible(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleHotkey);
+    return () => window.removeEventListener('keydown', handleHotkey);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -164,72 +176,67 @@ export function KineticSculpture() {
 
   return (
     <section
-      className="relative overflow-hidden bg-white dark:bg-zinc-950"
+      className="relative overflow-hidden bg-white dark:bg-zinc-950 transition-colors duration-300"
       style={{ minHeight: 520 }}
       aria-hidden="true"
     >
-      <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 py-24">
+       <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 py-24">
         <div
           data-kinetic-wrapper
-          className="relative w-full max-w-5xl rounded-3xl bg-zinc-100 p-8 shadow-[0_30px_80px_rgba(15,23,42,0.12)] dark:bg-zinc-900"
+          className="relative w-full max-w-5xl rounded-3xl shadow-[0_30px_80px_rgba(15,23,42,0.12)]"
         >
-          <div className="rounded-2xl bg-zinc-50 dark:bg-zinc-950">
+          <div className="rounded-2xl bg-transparent">
             <canvas ref={canvasRef} className="block w-full" style={{ height: 360 }} />
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center gap-6 text-sm">
-            <label className="flex items-center gap-3">
-              <span className="min-w-14 text-zinc-500"></span>
-              {/* <span className="min-w-14 text-zinc-500">Α {Math.round(amplitude)}</span> */}
-              <input
-                type="range"
-                min="0"
-                max="80"
-                step="1"
-                value={amplitude}
-                onChange={(e) => setAmplitude(Number(e.target.value))}
-                className="slider"
-              />
-            </label>
-            <label className="flex items-center gap-3">
-              <span className="min-w-14 text-zinc-500"></span>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                step="0.5"
-                value={frequency * 10000}
-                onChange={(e) => setFrequency(Number(e.target.value) / 10000)}
-                className="slider"
-              />
-            </label>
-            <label className="flex items-center gap-3">
-              <span className="min-w-14 text-zinc-500"></span>
-              {/* <span className="min-w-14 text-zinc-500">w1 {rowPhaseFactor.toFixed(2)}</span> */}
-              <input
-                type="range"
-                min="0"
-                max="0.5"
-                step="0.01"
-                value={rowPhaseFactor}
-                onChange={(e) => setRowPhaseFactor(Number(e.target.value))}
-                className="slider"
-              />
-            </label>
-            <label className="flex items-center gap-3">
-              <span className="min-w-14 text-zinc-500"></span>
-              {/* <span className="min-w-14 text-zinc-500">w2 {colPhaseFactor.toFixed(2)}</span> */}
-              <input
-                type="range"
-                min="0"
-                max="0.5"
-                step="0.01"
-                value={colPhaseFactor}
-                onChange={(e) => setColPhaseFactor(Number(e.target.value))}
-                className="slider"
-              />
-            </label>
-          </div>
+          {controlsVisible && (
+            <div className="mt-6 flex flex-wrap items-center gap-6 text-sm">
+              <label className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="0"
+                  max="120"
+                  step="1"
+                  value={amplitude}
+                  onChange={(e) => setAmplitude(Number(e.target.value))}
+                  className="slider"
+                />
+              </label>
+              <label className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="0.5"
+                  value={frequency * 10000}
+                  onChange={(e) => setFrequency(Number(e.target.value) / 10000)}
+                  className="slider"
+                />
+              </label>
+              <label className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="0"
+                  max="0.5"
+                  step="0.01"
+                  value={rowPhaseFactor}
+                  onChange={(e) => setRowPhaseFactor(Number(e.target.value))}
+                  className="slider"
+                />
+              </label>
+              <label className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="0"
+                  max="0.5"
+                  step="0.01"
+                  value={colPhaseFactor}
+                  onChange={(e) => setColPhaseFactor(Number(e.target.value))}
+                  className="slider"
+                />
+              </label>
+            </div>
+          )}
         </div>
       </div>
     </section>

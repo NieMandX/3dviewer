@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 
 export function HeroSection() {
   return (
-    <section className="min-h-screen flex items-center justify-center relative overflow-hidden pt-20">
+    <section className="relative overflow-hidden py-2 md:py-32 flex items-center justify-center">
       {/* Abstract line animation background */}
       <div className="absolute inset-0 opacity-5 dark:opacity-10">
         <svg className="w-full h-full" viewBox="0 0 1000 1000">
