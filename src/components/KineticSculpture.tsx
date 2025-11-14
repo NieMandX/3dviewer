@@ -183,7 +183,7 @@ export function KineticSculpture() {
        <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 py-24">
         <div
           data-kinetic-wrapper
-          className="relative w-full max-w-5xl rounded-3xl shadow-[0_30px_80px_rgba(15,23,42,0.12)]"
+          className="relative w-full max-w-5xl rounded-3xl"
         >
           <div className="rounded-2xl bg-transparent">
             <canvas ref={canvasRef} className="block w-full" style={{ height: 360 }} />
