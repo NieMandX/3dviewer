@@ -36,7 +36,7 @@ export function KineticSculpture() {
   const points = useMemo(() => createPoints(), []);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sizeRef = useRef({ width: 0, height: 0, dpr: 1 });
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | null>(null);
   const [amplitude, setAmplitude] = useState(120);
   const [frequency, setFrequency] = useState(0.0001);
   const [rowPhaseFactor, setRowPhaseFactor] = useState(0.05);
