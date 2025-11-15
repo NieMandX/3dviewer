@@ -2,14 +2,14 @@ import React from 'react';
 import { motion } from 'motion/react';
 
 const stats = [
-  { value: '230+', label: 'проектов и конкурсов' },
-  { value: '58', label: 'пакетов АГР для МКА' },
+  { value: '300+', label: 'проектов и конкурсов' },
+  { value: '40+', label: 'моделей АГР для МКА' },
   { value: '12', label: 'постоянных партнёров' }
 ];
 
 export function HeroSection() {
   return (
-    <section className="relative -mt-12 lg:-mt-16 overflow-hidden pt-10 pb-28 md:pt-16 md:pb-36">
+    <section className="relative -mt-12 lg:-mt-16 overflow-hidden pt-8 pb-36 md:pt-8 md:pb-36">
       {/* Abstract line animation background */}
       <div className="absolute inset-0 opacity-5 dark:opacity-10">
         <svg className="w-full h-full" viewBox="0 0 1000 1000">
@@ -67,27 +67,32 @@ export function HeroSection() {
         <div className="max-w-4xl mx-auto">
           <div>
             <motion.h1
-              className="font-black leading-tight tracking-tight text-zinc-900 dark:text-zinc-50"
-              style={{ fontSize: 'clamp(2.75rem, 5vw, 6.5rem)' }}
+              className="text-3xl sm:text-3xl md:text-3xl lg:text-4xl xl:text-4xl font-extrabold text-left leading-tight tracking-tight text-zinc-900 dark:text-zinc-50"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.1 }}
             >
-              Архитектурная визуализация и анимация. АГР модели для МКА. Код.
+              <div className = "space-y-2">
+                <p>Архитектурная визуализация и анимация.</p>
+              </div>
+
+              <div className = "space-y-2 text-right pt-4">
+                <p>АГР модели для МКА.</p>
+              </div>
+              
             </motion.h1>
 
             <motion.p
-              className="mt-6 text-lg leading-relaxed text-zinc-600 dark:text-zinc-300"
+              className="pb-8 mt-6 text-[16px] text-lg leading-relaxed text-zinc-600 dark:text-zinc-300"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
             >
-              Совмещаем визуализацию, изготовление 3D моделей для подготовку полного пакета АГР. 
-              Синхронная работа команд исключает расхождения между слайдами альбома и АГР моделями.
+              Объединив разработку АГР 3D-моделей и архитектурную визуализацию, сохраняется единый визуальный язык проекта. Исключаются расхождения между АГР материалами.
             </motion.p>
 
             <motion.div
-              className="mt-10 grid gap-6 sm:grid-cols-3"
+              className="mt-10 grid gap-6 grid-cols-3"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.5 }}
@@ -95,9 +100,9 @@ export function HeroSection() {
               {stats.map((item) => (
                 <div
                   key={item.label}
-                  className="rounded-2xl border border-zinc-200/80 bg-white/60 p-5 text-left shadow-[0_20px_45px_rgba(15,23,42,0.08)] dark:border-zinc-800/80 dark:bg-zinc-950/60 dark:shadow-[0_20px_45px_rgba(0,0,0,0.35)]"
+                  className="rounded-2xl border border-zinc-200/80 bg-white/60 p-3 text-left shadow-[0_20px_45px_rgba(15,23,42,0.08)] dark:border-zinc-800/80 dark:bg-zinc-950/60 dark:shadow-[0_20px_45px_rgba(0,0,0,0.35)]"
                 >
-                  <p className="text-3xl font-medium text-zinc-900 dark:text-white">{item.value}</p>
+                  <p className="text-2xl text-black font-semibold text-zinc-900 dark:text-white">{item.value}</p>
                   <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{item.label}</p>
                 </div>
               ))}

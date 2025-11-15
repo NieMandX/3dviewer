@@ -136,7 +136,7 @@ export function KineticSculpture() {
         const radius = Math.max(0.1, 4 * perspective);
 
         const shadeBase = 230 - (point.z / GRID_DEPTH) * 90;
-        const outerShade = Math.max(shadeBase - 60, 120);
+        const outerShade = Math.max(shadeBase - 120, 20);
         const gradient = ctx.createRadialGradient(
           screenX - radius * 0.35,
           screenY - radius * 0.35,
@@ -177,20 +177,20 @@ export function KineticSculpture() {
   return (
     <section
       className="relative overflow-hidden bg-white dark:bg-zinc-950 transition-colors duration-300"
-      style={{ minHeight: 520 }}
+      // style={{ minHeight: 20 }}
       aria-hidden="true"
     >
-       <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 py-24">
+       <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 pt-24 pb-20">
         <div
           data-kinetic-wrapper
           className="relative w-full max-w-5xl rounded-3xl"
         >
           <div className="rounded-2xl bg-transparent">
-            <canvas ref={canvasRef} className="block w-full" style={{ height: 360 }} />
+            <canvas ref={canvasRef} className="block w-full aspect-[16/9] max-h-[280px] md:max-h-[320px] lg:max-h-[320px]."  />
           </div>
 
           {controlsVisible && (
-            <div className="mt-6 flex flex-wrap items-center gap-6 text-sm">
+            <div className="mt-6 flex flex-wrap items-center gap-6 justify-between text-sm">
               <label className="flex items-center gap-3">
                 <input
                   type="range"
