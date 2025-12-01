@@ -12,7 +12,7 @@ export function AboutSection() {
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          О студии
+          <strong>О студии</strong>
         </motion.h2>
 
         <motion.div
@@ -25,11 +25,16 @@ export function AboutSection() {
           <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed">
             Мы специализируемся на создании качественной архитектурной визуализации, 3D анимации и разработкой высокополигональных/низкополигональных 3D моделей для прохождения АГР, в соответствии с самыми актуальными требованиями Москомархитектуры.
           </p>
+          <br />
           <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed">
             Наша команда состоит из архитекторов, 3D художников и программистов - разработчиков. Мы работаем в архитектурном пространстве Москвы с 2018. За плечами более 300 завершенных проектов разной степени сложности, для ведущих архитектурных и девелоперских компаний столицы.
           </p>
+          <br />
           <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed">
-            Нам доверяют: Sergey Skuratov Architects, APEX project buro, Capital Group и многие другие.
+            Нам доверяют:
+          </p>
+          <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed">
+            <strong>Sergey Skuratov Architects, APEX project buro, Capital Group</strong> и многие другие.
           </p>
         </motion.div>
       </div>
