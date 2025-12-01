@@ -83,12 +83,12 @@ export function HeroSection() {
             </motion.h1>
 
             <motion.p
-              className="pb-8 mt-6 text-[16px] text-lg leading-relaxed text-zinc-600 dark:text-zinc-300"
+              className="pt-6 pb-8 mt-6 text-[16px] text-lg leading-relaxed text-zinc-600 dark:text-zinc-300"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
             >
-              Объединив разработку АГР 3D-моделей и архитектурную визуализацию, сохраняется единый визуальный язык проекта. Исключаются расхождения между АГР материалами.
+              Совместная разработка АГР 3D-моделей и архитектурной визуализации, сохраняет единый визуальный язык проекта. Исключает расхождения между АГР материалами.
             </motion.p>
 
             <motion.div

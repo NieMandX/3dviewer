@@ -56,7 +56,7 @@ export function ModelsSection() {
     <section id="models" className="py-24 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
       <div className="container mx-auto px-6 max-w-7xl">
         <motion.h2
-          className="mb-16 text-center"
+          className="mb-16 text-center font-bold"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
@@ -65,30 +65,26 @@ export function ModelsSection() {
           3D Модели АГР
         </motion.h2>
 
-        <div className="max-w-4xl mx-auto mb-16 space-y-8">
-          <motion.div
-            className="p-8 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950"
+        <div className="max-w-4xl mx-auto mb-16 space-y-6">
+          <motion.p
+            className="text-zinc-700 dark:text-zinc-300 leading-relaxed"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6 }}
           >
-            <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed">
-              Мы занимаемся комплексной подготовкой материалов для подачи в Москомархитектуру (МКА). Процесс создания рендеров ведётся параллельно с разработкой высоко- и низкополигональных моделей, что позволяет исключить любые расхождения между изображениями в альбоме и 3D моделями.
-            </p>
-          </motion.div>
+            Мы занимаемся комплексной подготовкой материалов для подачи в Москомархитектуру (МКА). Процесс создания рендеров ведётся параллельно с разработкой высоко- и низкополигональных моделей, что позволяет исключить любые расхождения между изображениями в альбоме и 3D моделями.
+          </motion.p>
 
-          <motion.div
-            className="p-8 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950"
+          <motion.p
+            className="text-zinc-700 dark:text-zinc-300 leading-relaxed"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.1 }}
           >
-            <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed">
-              Мы также являемся авторами AGR WebViewer — простого, удобного и бесплатного инструмента для визуального анализа ошибок и погрешностей в АГР моделях. Достаточно открыть сайт AGRviewer и перетащить ZIP-архив с моделью прямо в окно браузера — система автоматически соберёт и отобразит модель максимально приближенно к тому, как её видят специалисты МКА и МГТ.
-            </p>
-          </motion.div>
+            Мы также являемся авторами AGR WebViewer — простого, удобного и бесплатного инструмента для визуального анализа ошибок и погрешностей в АГР моделях. Достаточно открыть сайт AGRviewer и перетащить ZIP-архив с моделью прямо в окно браузера — система автоматически соберёт и отобразит модель максимально приближенно к тому, как её видят специалисты МКА и МГТ.
+          </motion.p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

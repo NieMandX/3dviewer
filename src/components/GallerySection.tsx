@@ -1,34 +1,114 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 
-interface GalleryItem {
-  id: number;
-  url: string;
+type GalleryFolder = {
+  id: string;
   title: string;
-}
+  images: string[];
+  cover: string;
+};
 
-// Generate 30 gallery items with placeholder images
-const galleryItems: GalleryItem[] = Array.from({ length: 30 }, (_, i) => ({
-  id: i + 1,
-  url: i % 6 === 0 ? 'https://images.unsplash.com/photo-1749464251742-107093fc5650?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhcmNoaXRlY3R1cmFsJTIwdmlzdWFsaXphdGlvbnxlbnwxfHx8fDE3NjI5MTI4ODh8MA&ixlib=rb-4.1.0&q=80&w=1080'
-    : i % 6 === 1 ? 'https://images.unsplash.com/photo-1737555070365-cb948afc334c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBhcmNoaXRlY3R1cmUlMjByZW5kZXJ8ZW58MXx8fHwxNzYyOTU2NjY4fDA&ixlib=rb-4.1.0&q=80&w=1080'
-    : i % 6 === 2 ? 'https://images.unsplash.com/photo-1633355303026-28d096d08c42?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHwzZCUyMGFyY2hpdGVjdHVyZSUyMG1vZGVsfGVufDF8fHx8MTc2Mjk1NjY2OHww&ixlib=rb-4.1.0&q=80&w=1080'
-    : i % 6 === 3 ? 'https://images.unsplash.com/photo-1562957982-b1f25317aebd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxidWlsZGluZyUyMHdpcmVmcmFtZXxlbnwxfHx8fDE3NjI5NTY2Njh8MA&ixlib=rb-4.1.0&q=80&w=1080'
-    : i % 6 === 4 ? 'https://images.unsplash.com/photo-1542621334-a254cf47733d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhcmNoaXRlY3R1cmFsJTIwZHJhd2luZ3xlbnwxfHx8fDE3NjI5NTY2Njl8MA&ixlib=rb-4.1.0&q=80&w=1080'
-    : 'https://images.unsplash.com/photo-1549791084-5f78368b208b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYXJjaGl0ZWN0dXJlfGVufDF8fHx8MTc2MjkzNTEwNXww&ixlib=rb-4.1.0&q=80&w=1080',
-  title: `Проект ${i + 1}`
-}));
+const FOLDER_TITLES: Record<string, string> = {
+  'concept-tower': 'Концепция башни',
+  'atrium-light': 'Атриум и свет',
+  'riverfront-pier': 'Пирс и набережная'
+};
+
+const galleryModules = import.meta.glob<{ default: string }>(
+  '../assets/vis_img/*/*.{jpg,jpeg,png,webp}',
+  { eager: true }
+);
+
+const galleryFolders: GalleryFolder[] = (Object.entries(galleryModules) as [string, { default: string }][])
+  .reduce(
+  (acc, [path, mod]) => {
+    const match = path.match(/\.\.\/assets\/vis_img\/([^/]+)\//);
+    if (!match) return acc;
+    const [, folder] = match;
+    let target = acc.find(group => group.id === folder);
+    if (!target) {
+      target = {
+        id: folder,
+        title: FOLDER_TITLES[folder] ?? folder.replace(/-/g, ' '),
+        images: [],
+        cover: mod.default
+      };
+      acc.push(target);
+    }
+    target.images.push(mod.default);
+    target.cover = target.images[0];
+    return acc;
+  },
+  [] as GalleryFolder[]
+)
+  .map(folder => {
+    const sortedImages = [...folder.images].sort();
+    return {
+      ...folder,
+      images: sortedImages,
+      cover: sortedImages[0]
+    };
+  })
+  .sort((a, b) => a.title.localeCompare(b.title));
 
 export function GallerySection() {
-  const [selectedImage, setSelectedImage] = useState<GalleryItem | null>(null);
+  const [activeGallery, setActiveGallery] = useState<GalleryFolder | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const currentImage = useMemo(() => {
+    if (!activeGallery) return null;
+    return activeGallery.images[activeIndex] ?? null;
+  }, [activeGallery, activeIndex]);
+
+  const handleOpenGallery = (folder: GalleryFolder) => {
+    setActiveGallery(folder);
+    setActiveIndex(0);
+  };
+
+  const handleClose = () => {
+    setActiveGallery(null);
+    setActiveIndex(0);
+  };
+
+  const handleStep = (step: number) => {
+    if (!activeGallery) return;
+    setActiveIndex(prev => {
+      const total = activeGallery.images.length;
+      if (total === 0) return 0;
+      return (prev + step + total) % total;
+    });
+  };
+
+  useEffect(() => {
+    if (!activeGallery) return;
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (!activeGallery) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleClose();
+      }
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        handleStep(-1);
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        handleStep(1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [activeGallery]);
 
   return (
     <section id="gallery" className="py-24 border-t border-zinc-200 dark:border-zinc-800">
       <div className="container mx-auto px-6 max-w-7xl">
         <motion.h2
-          className="mb-16 text-center"
+          className="mb-16 text-center font-bold"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
@@ -38,22 +118,27 @@ export function GallerySection() {
         </motion.h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {galleryItems.map((item, index) => (
+          {galleryFolders.map((folder, index) => (
             <motion.div
-              key={item.id}
-              className="aspect-video bg-zinc-100 dark:bg-zinc-900 cursor-pointer overflow-hidden group"
+              key={folder.id}
+              className="relative aspect-video bg-zinc-100 dark:bg-zinc-900 cursor-pointer overflow-hidden group"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.4, delay: index * 0.02 }}
               whileHover={{ scale: 1.02 }}
-              onClick={() => setSelectedImage(item)}
+              onClick={() => handleOpenGallery(folder)}
             >
               <ImageWithFallback
-                src={item.url}
-                alt={item.title}
+                src={folder.cover}
+                alt={folder.title}
                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
               />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end">
+                <div className="p-4 text-white">
+                  <p className="text-sm font-medium">{folder.title}</p>
+                </div>
+              </div>
             </motion.div>
           ))}
         </div>
@@ -61,20 +146,45 @@ export function GallerySection() {
 
       {/* Lightbox Modal */}
       <AnimatePresence>
-        {selectedImage && (
+        {activeGallery && currentImage && (
           <motion.div
             className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setSelectedImage(null)}
+            onClick={handleClose}
           >
             <button
               className="absolute top-6 right-6 p-2 text-white hover:bg-white/10 rounded-full transition-colors"
-              onClick={() => setSelectedImage(null)}
+              onClick={handleClose}
             >
               <X className="w-6 h-6" />
             </button>
+
+            {activeGallery.images.length > 1 && (
+              <>
+                <button
+                  className="absolute left-8 top-1/2 -translate-y-1/2 p-3 text-white/80 hover:text-white transition"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStep(-1);
+                  }}
+                  aria-label="Предыдущее изображение"
+                >
+                  <ChevronLeft className="w-8 h-8" />
+                </button>
+                <button
+                  className="absolute right-8 top-1/2 -translate-y-1/2 p-3 text-white/80 hover:text-white transition"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStep(1);
+                  }}
+                  aria-label="Следующее изображение"
+                >
+                  <ChevronRight className="w-8 h-8" />
+                </button>
+              </>
+            )}
             
             <motion.div
               className="max-w-6xl w-full"
@@ -85,11 +195,13 @@ export function GallerySection() {
               onClick={(e) => e.stopPropagation()}
             >
               <ImageWithFallback
-                src={selectedImage.url}
-                alt={selectedImage.title}
+                src={currentImage}
+                alt={activeGallery.title}
                 className="w-full h-auto"
               />
-              <p className="text-white text-center mt-4">{selectedImage.title}</p>
+              <p className="text-white text-center mt-4">
+                {activeGallery.title} — кадр {activeIndex + 1} из {activeGallery.images.length}
+              </p>
             </motion.div>
           </motion.div>
         )}
