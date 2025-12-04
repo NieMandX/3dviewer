@@ -1,13 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-
+import React, { useEffect, useMemo, useState } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
 
 const ROWS = 50;
 const COLS = 50;
-const GRID_WIDTH = 1100;
-const GRID_DEPTH = 1600;
-const CAMERA_HEIGHT = -250; // высота камеры над плоскостью
-const CAMERA_OFFSET = 930; // расстояние от камеры до начала сетки
-const PLANE_TILT = -0.4; // наклон плоскости пола
+const GRID_WIDTH =1000;
+const GRID_DEPTH = 1000;
+const PLANE_TILT = 0; // наклон плоскости пола
 
 interface Point {
   x: number;
@@ -32,36 +31,89 @@ const createPoints = (): Point[] => {
   return nodes;
 };
 
+type WaveParams = {
+  amplitude: number;
+  frequency: number;
+  rowPhase: number;
+  colPhase: number;
+};
+
+function CameraRig({ position }: { position: [number, number, number] }) {
+  const { camera } = useThree();
+
+  useEffect(() => {
+    camera.position.set(position[0], position[1], position[2]);
+    camera.lookAt(0, 300, 0);
+    camera.updateProjectionMatrix();
+  }, [camera, position]);
+
+  return null;
+}
+
+function PointsField({
+  points,
+  params,
+  materialColor,
+}: { points: Point[]; params: WaveParams; materialColor: string }) {
+  const meshRef = React.useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const scales = useMemo(
+    () =>
+      points.map(() => ({
+        x: 4 + Math.random() * 4,
+        y: 4 + (Math.random() * 10) * (Math.random() * 10),
+        z: 4 + Math.random() * 4,
+      })),
+    [points]
+  );
+
+  useFrame(({ clock }) => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+
+    const time = clock.elapsedTime * 1000;
+    const { amplitude, frequency, rowPhase, colPhase } = params;
+    const sinTilt = Math.sin(PLANE_TILT);
+    const cosTilt = Math.cos(PLANE_TILT);
+
+    points.forEach((point, i) => {
+      const phase = (point.row * rowPhase + point.col * colPhase) * Math.PI;
+      const wave = Math.sin(time * frequency + phase) * amplitude;
+
+      const worldY = point.z * sinTilt + wave;
+      const worldZ = point.z * cosTilt;
+
+      dummy.position.set(point.x, worldY, -worldZ);
+      const s = scales[i];
+      dummy.scale.set(s.x, s.y, s.z);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, points.length]}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshBasicMaterial
+        color={materialColor}
+        transparent
+        opacity={0.6}
+        wireframe
+      />
+    </instancedMesh>
+  );
+}
+
 export function KineticSculpture() {
   const points = useMemo(() => createPoints(), []);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const sizeRef = useRef({ width: 0, height: 0, dpr: 1 });
-  const rafRef = useRef<number | null>(null);
-  const [amplitude, setAmplitude] = useState(120);
+  const [amplitude, setAmplitude] = useState(200);
   const [frequency, setFrequency] = useState(0.0001);
   const [rowPhaseFactor, setRowPhaseFactor] = useState(0.05);
-  const [colPhaseFactor, setColPhaseFactor] = useState(0.07);
+  const [colPhaseFactor, setColPhaseFactor] = useState(0.06);
   const [controlsVisible, setControlsVisible] = useState(false);
-  const amplitudeRef = useRef(amplitude);
-  const frequencyRef = useRef(frequency);
-  const rowPhaseRef = useRef(rowPhaseFactor);
-  const colPhaseRef = useRef(colPhaseFactor);
-
-  useEffect(() => {
-    amplitudeRef.current = amplitude;
-  }, [amplitude]);
-
-  useEffect(() => {
-    frequencyRef.current = frequency;
-  }, [frequency]);
-
-  useEffect(() => {
-    rowPhaseRef.current = rowPhaseFactor;
-  }, [rowPhaseFactor]);
-
-  useEffect(() => {
-    colPhaseRef.current = colPhaseFactor;
-  }, [colPhaseFactor]);
+  const [cameraPos, setCameraPos] = useState<[number, number, number]>([0, 500, 200]);
+  const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
     const handleHotkey = (event: KeyboardEvent) => {
@@ -75,127 +127,56 @@ export function KineticSculpture() {
   }, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const updateSize = () => {
-      const wrapper = canvas.closest('[data-kinetic-wrapper]');
-      const parent = wrapper instanceof HTMLElement ? wrapper : canvas.parentElement;
-      if (!parent) return;
-
-      const styles = window.getComputedStyle(parent);
-      const paddingX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
-      const paddingY = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
-      const width = parent.clientWidth - paddingX;
-      const height = parent.clientHeight - paddingY;
-      const dpr = window.devicePixelRatio || 1;
-      sizeRef.current = { width, height, dpr };
-
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const updateTheme = () => {
+      setIsDark(document.documentElement.classList.contains('dark'));
     };
-
-    const render = (time: number) => {
-      const { width, height } = sizeRef.current;
-      if (!width || !height) return;
-
-      ctx.clearRect(0, 0, width, height);
-
-      const focalLength = Math.min(width, height) * 1.6;
-      const horizon = height * 0.35;
-      const sinTilt = Math.sin(PLANE_TILT);
-      const cosTilt = Math.cos(PLANE_TILT);
-
-      const sortedPoints = [...points].sort((a, b) => b.z - a.z);
-
-      const freq = frequencyRef.current;
-      const amp = amplitudeRef.current;
-      const rowPhase = rowPhaseRef.current;
-      const colPhase = colPhaseRef.current;
-
-      sortedPoints.forEach(point => {
-        const phase = (point.row * rowPhase + point.col * colPhase) * Math.PI;
-        const wave = Math.sin(time * freq + phase) * amp;
-        const worldY = point.z * sinTilt + wave;
-        const worldZ = point.z * cosTilt;
-
-        const Xc = point.x;
-        const Yc = worldY - CAMERA_HEIGHT;
-        const Zc = worldZ + CAMERA_OFFSET;
-        if (Zc <= 0.1) return;
-
-        const perspective = focalLength / Zc;
-        const screenX = width / 2 + Xc * perspective;
-        const screenY = horizon + Yc * perspective;
-        const depthRatio = 1 - point.z / GRID_DEPTH;
-        const radius = Math.max(0.1, 4 * perspective);
-
-        const shadeBase = 230 - (point.z / GRID_DEPTH) * 90;
-        const outerShade = Math.max(shadeBase - 120, 20);
-        const gradient = ctx.createRadialGradient(
-          screenX - radius * 0.35,
-          screenY - radius * 0.35,
-          radius * 0.2,
-          screenX,
-          screenY,
-          radius
-        );
-        gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
-        gradient.addColorStop(0.5, `rgba(${shadeBase}, ${shadeBase}, ${shadeBase}, 0.92)`);
-        gradient.addColorStop(1, `rgba(${outerShade}, ${outerShade}, ${outerShade}, 0.85)`);
-
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-        ctx.fillStyle = gradient;
-        ctx.fill();
-      });
-    };
-
-    const handleResize = () => {
-      updateSize();
-    };
-
-    updateSize();
-    const loop = (t: number) => {
-      render(t);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [points]);
+    updateTheme();
+    const observer = new MutationObserver(updateTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section
       className="relative overflow-hidden bg-white dark:bg-zinc-950 transition-colors duration-300"
-      // style={{ minHeight: 20 }}
+      style={{ minHeight: 520 }}
       aria-hidden="true"
     >
-       <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 pt-24 pb-20">
+      <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 pt-24 pb-20">
         <div
           data-kinetic-wrapper
-          className="relative w-full max-w-5xl rounded-3xl"
+          className="relative w-full max-w-5xl rounded-3xl overflow-hidden"
         >
-          <div className="rounded-2xl bg-transparent">
-            <canvas ref={canvasRef} className="block w-full aspect-[16/9] max-h-[280px] md:max-h-[320px] lg:max-h-[320px]."  />
+          <div className="h-[360px] sm:h-[420px] md:h-[480px] w-full">
+            <Canvas
+              className="h-full w-full"
+              style={{ width: '100%', height: '100%' }}
+              camera={{ position: cameraPos, near: 1, far: 10000, fov: 75 }}
+              dpr={[1, 1.5]}
+            >
+              <CameraRig position={cameraPos} />
+              <ambientLight intensity={0.8} />
+              <directionalLight position={[200, 2000, 2000]} intensity={0.6} />
+              <PointsField
+                points={points}
+                params={{
+                  amplitude,
+                  frequency,
+                  rowPhase: rowPhaseFactor,
+                  colPhase: colPhaseFactor,
+                }}
+                materialColor={isDark ? '#d8d8db' : '#0f0f0f'}
+              />
+            </Canvas>
           </div>
 
           {controlsVisible && (
-            <div className="mt-6 flex flex-wrap items-center gap-6 justify-between text-sm">
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-6 text-sm">
               <label className="flex items-center gap-3">
                 <input
                   type="range"
                   min="0"
-                  max="120"
+                  max="250"
                   step="1"
                   value={amplitude}
                   onChange={(e) => setAmplitude(Number(e.target.value))}
@@ -232,6 +213,51 @@ export function KineticSculpture() {
                   step="0.01"
                   value={colPhaseFactor}
                   onChange={(e) => setColPhaseFactor(Number(e.target.value))}
+                  className="slider"
+                />
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">Cam X</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="5000"
+                  step="10"
+                  value={cameraPos[0]}
+                  onChange={(e) => {
+                    const x = Number(e.target.value);
+                    setCameraPos(([_, y, z]) => [x, y, z]);
+                  }}
+                  className="slider"
+                />
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">Cam Y</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="5000"
+                  step="10"
+                  value={cameraPos[1]}
+                  onChange={(e) => {
+                    const y = Number(e.target.value);
+                    setCameraPos(([x, _, z]) => [x, y, z]);
+                  }}
+                  className="slider"
+                />
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">Cam Z</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="5000"
+                  step="10"
+                  value={cameraPos[2]}
+                  onChange={(e) => {
+                    const z = Number(e.target.value);
+                    setCameraPos(([x, y, _]) => [x, y, z]);
+                  }}
                   className="slider"
                 />
               </label>
