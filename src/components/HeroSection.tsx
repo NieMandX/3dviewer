@@ -67,23 +67,23 @@ export function HeroSection() {
         <div className="max-w-4xl mx-auto">
           <div>
             <motion.h1
-              className="text-3xl sm:text-3xl md:text-3xl lg:text-4xl xl:text-4xl font-extrabold text-left leading-tight tracking-tight text-zinc-900 dark:text-zinc-50"
+              className="text-3xl sm:text-3xl md:text-3xl lg:text-4xl xl:text-4xl font-flex text-left leading-tight tracking-tight text-zinc-510 dark:text-zinc-50"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.1 }}
             >
-              <div className = "space-y-2">
-                <p className="outline-heading">Архитектурная визуализация и анимация.</p>
+              <div className="space-y-2">
+                <p>Архитектурная визуализация и анимация.</p>
               </div>
 
-              <div className = "space-y-2 text-right pt-4">
-                <p className="outline-heading">АГР модели для МКА.</p>
+              <div className="space-y-2 text-right pt-4">
+                <p>АГР модели для МКА.</p>
               </div>
-              
+
             </motion.h1>
 
             <motion.p
-              className="pt-6 pb-8 mt-6 text-[16px] text-lg leading-relaxed text-zinc-600 dark:text-zinc-300"
+              className="pt-2 pb-2 mt-6 text-[16px] text-lg leading-relaxed text-zinc-600 dark:text-zinc-300"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
@@ -92,7 +92,7 @@ export function HeroSection() {
             </motion.p>
 
             <motion.div
-              className="mt-10 grid gap-6 grid-cols-3"
+              className="mt-6 grid gap-6 grid-cols-3"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.5 }}

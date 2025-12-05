@@ -210,10 +210,10 @@ export function KineticSculpture() {
   return (
     <section
       className="relative overflow-hidden bg-white dark:bg-zinc-950 transition-colors duration-300"
-      style={{ minHeight: 520 }}
+      style={{ minHeight: 400 }}
       aria-hidden="true"
     >
-      <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 pt-24 pb-20">
+      <div className="relative mx-auto flex w-full max-w-6xl justify-center px-6 pt-10 pb-16">
         <div
           data-kinetic-wrapper
           className="relative w-full max-w-5xl rounded-3xl overflow-hidden"
