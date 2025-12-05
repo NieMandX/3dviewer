@@ -246,3 +246,13 @@ body {
   height: 1px;
   background: transparent;
 }
+
+.outline-heading {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 1px black;
+  text-shadow: 0 0 0 currentColor; /* лёгкий fallback */
+}
+.dark .outline-heading {
+  -webkit-text-stroke-color: #e5e7eb;
+}

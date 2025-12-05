@@ -73,11 +73,11 @@ export function HeroSection() {
               transition={{ duration: 0.8, delay: 0.1 }}
             >
               <div className = "space-y-2">
-                <p>Архитектурная визуализация и анимация.</p>
+                <p className="outline-heading">Архитектурная визуализация и анимация.</p>
               </div>
 
               <div className = "space-y-2 text-right pt-4">
-                <p>АГР модели для МКА.</p>
+                <p className="outline-heading">АГР модели для МКА.</p>
               </div>
               
             </motion.h1>
