@@ -107,15 +107,14 @@ export function GallerySection() {
   return (
     <section id="gallery" className="py-24 border-t border-zinc-200 dark:border-zinc-800">
       <div className="container mx-auto px-6 max-w-7xl">
-        <motion.h2
+        {/* <motion.h2
           className="mb-16 text-center font-bold"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          Визуализация и Анимация
-        </motion.h2>
+        </motion.h2> */}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {galleryFolders.map((folder, index) => (

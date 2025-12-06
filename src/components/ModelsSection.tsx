@@ -55,7 +55,7 @@ export function ModelsSection() {
   return (
     <section id="models" className="py-24 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
       <div className="container mx-auto px-6 max-w-7xl">
-        <motion.h2
+        {/* <motion.h2
           className="mb-16 text-center font-bold"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -63,7 +63,7 @@ export function ModelsSection() {
           transition={{ duration: 0.6 }}
         >
           3D Модели АГР
-        </motion.h2>
+        </motion.h2> */}
 
         <div className="mx-auto mb-16 space-y-6 max-w-6xl">
           <motion.p
