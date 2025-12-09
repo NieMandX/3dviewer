@@ -10,7 +10,9 @@ export function Logo() {
       </div>
       
       {/* Logo Text */}
-      <span className="tracking-tight transition-colors">Images Models Animations</span>
+      <span className="text-lg tracking-[0.35em] transition-colors">
+        VISION
+      </span>
     </a>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -55,7 +55,8 @@ function PointsField({
   params,
   materialColor,
 }: { points: Point[]; params: WaveParams; materialColor: string }) {
-  const meshRef = React.useRef<THREE.InstancedMesh>(null);
+  const materialVariants = 3;
+  const meshRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const scales = useMemo(
     () =>
@@ -66,113 +67,191 @@ function PointsField({
       })),
     [points]
   );
-  const material = useMemo(() => {
+  const groupIndex = useMemo(
+    () => points.map(() => Math.floor(Math.random() * materialVariants)),
+    [points]
+  );
+  const groups = useMemo(() => {
+    const buckets: number[][] = Array.from({ length: materialVariants }, () => []);
+    points.forEach((_, idx) => {
+      buckets[groupIndex[idx]].push(idx);
+    });
+    return buckets;
+  }, [groupIndex, materialVariants, points]);
+
+  const materials = useMemo(() => {
     const base = new THREE.Color(materialColor);
     const highlight = base.clone().multiplyScalar(1.25);
-    return new THREE.ShaderMaterial({
-      side: THREE.DoubleSide,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: true,
-      uniforms: {
-        colorA: { value: highlight },
-        colorB: { value: base },
-        opacity: { value: 0.85 },
-        stripeFreq: { value: 0.07 },
-        stripeSpeed: { value: 0.0 },
-        time: { value: 0 },
-        cameraPos: { value: new THREE.Vector3() },
-        fadeDistance: { value: 1400.0 },
-        stripeOffset: { value: -10.5}
-      },
-      vertexShader: `
-        varying float vY;
-        varying vec3 vNormal;
-        varying vec3 vWorldPos;
-        void main() {
-          vec3 scaledPos = (instanceMatrix * vec4(position, 0.0)).xyz;
-          vY = scaledPos.y;
-          vec4 worldPos = instanceMatrix * vec4(position, 1.0);
+    const fragmentStripe = `
+      uniform vec3 colorA;
+      uniform vec3 colorB;
+      uniform float opacity;
+      uniform float stripeFreq;
+      uniform float stripeSpeed;
+      uniform float time;
+      uniform vec3 cameraPos;
+      uniform float fadeDistance;
+      varying float vY;
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+      uniform float stripeOffset;
+      void main() {
+        if (abs(vNormal.y) > 0.6) {
+          discard;
+        }
+        float stripePhase = fract((abs(vY) + stripeOffset) * stripeFreq + time * stripeSpeed);
+        float stripe = smoothstep(0.45, 0.65, stripePhase);
+        vec3 color = mix(colorA, colorB, stripe);
+        float alpha = opacity * (0.6 - stripe);
+        float distFade = clamp(1.0 - length(vWorldPos - cameraPos) / fadeDistance, 0.0, 1.0);
+        alpha *= distFade;
+        gl_FragColor = vec4(color, alpha);
+      }
+    `;
+
+    const fragmentChecker = `
+      uniform vec3 colorA;
+      uniform vec3 colorB;
+      uniform float opacity;
+      uniform float stripeFreq;
+      uniform float stripeSpeed;
+      uniform float time;
+      uniform vec3 cameraPos;
+      uniform float fadeDistance;
+      uniform float checkerFreq;
+      uniform float checkerOffset;
+      varying float vY;
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+      uniform float stripeOffset;
+      void main() {
+        if (abs(vNormal.y) > 0.6) {
+          discard;
+        }
+        float px = step(0.5, fract((vWorldPos.x + checkerOffset) * checkerFreq));
+        float pz = step(0.5, fract((vWorldPos.z + checkerOffset) * checkerFreq));
+        float checker = abs(px - pz);
+        vec3 color = mix(colorA, colorB, checker);
+        float alpha = opacity * (0.6 - checker);
+        float distFade = clamp(1.0 - length(vWorldPos - cameraPos) / fadeDistance, 0.0, 1.0);
+        alpha *= distFade;
+        gl_FragColor = vec4(color, alpha);
+      }
+    `;
+
+    const makeMat = (
+      contrast: number,
+      opacity: number,
+      pattern: 'stripe' | 'checker' = 'stripe',
+      cfg?: { stripeFreq?: number; stripeOffset?: number; checkerFreq?: number; checkerOffset?: number }
+    ) =>
+      new THREE.ShaderMaterial({
+        side: THREE.DoubleSide,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: true,
+        uniforms: {
+          colorA: { value: highlight.clone().multiplyScalar(contrast) },
+          colorB: { value: base.clone().multiplyScalar(contrast) },
+          opacity: { value: opacity },
+          stripeFreq: { value: cfg?.stripeFreq ?? 0.07 },
+          stripeSpeed: { value: 0.0 },
+          time: { value: 0 },
+          cameraPos: { value: new THREE.Vector3() },
+          fadeDistance: { value: 1400.0 },
+          stripeOffset: { value: cfg?.stripeOffset ?? -10.5 },
+          checkerFreq: { value: 0.08 },
+          checkerOffset: { value: 0.5 }
+        },
+        vertexShader: `
+          varying float vY;
+          varying vec3 vNormal;
+          varying vec3 vWorldPos;
+          void main() {
+            vec3 scaledPos = (instanceMatrix * vec4(position, 0.0)).xyz;
+            vY = scaledPos.y;
+            vec4 worldPos = instanceMatrix * vec4(position, 1.0);
           vWorldPos = worldPos.xyz;
           vNormal = normalize(mat3(instanceMatrix) * normal);
           gl_Position = projectionMatrix * modelViewMatrix * worldPos;
         }
-      `,
-      fragmentShader: `
-        uniform vec3 colorA;
-        uniform vec3 colorB;
-        uniform float opacity;
-        uniform float stripeFreq;
-        uniform float stripeSpeed;
-        uniform float time;
-        uniform vec3 cameraPos;
-        uniform float fadeDistance;
-        varying float vY;
-        varying vec3 vNormal;
-        varying vec3 vWorldPos;
-        uniform float stripeOffset;
-        void main() {
-          // Прозрачный верх/низ
-          if (abs(vNormal.y) > 0.6) {
-            discard;
-          }
-          float stripePhase = fract((abs(vY) + stripeOffset) * stripeFreq + time * stripeSpeed);
-          float stripe = smoothstep(0.45, 0.65, stripePhase);
-          vec3 color = mix(colorA, colorB, stripe);
-          float alpha = opacity * (0.6 - stripe);
-          float distFade = clamp(1.0 - length(vWorldPos - cameraPos) / fadeDistance, 0.0, 1.0);
-          alpha *= distFade;
-          gl_FragColor = vec4(color, alpha);
-        }
-      `,
-    });
+        `,
+        fragmentShader: pattern === 'checker' ? fragmentChecker : fragmentStripe,
+      });
+
+    return [
+      makeMat(1.0, 0.85, 'stripe', { stripeFreq: 0.07, stripeOffset: -10.5 }),
+      makeMat(0.9, 0.8, 'checker', { checkerFreq: 0.08, checkerOffset: -5.0 }),
+      makeMat(1.2, 0.9, 'stripe', { stripeFreq: 0.07, stripeOffset: -10.5 })
+    ];
   }, [materialColor]);
 
   useEffect(() => {
-    if (!material) return;
+    if (!materials.length) return;
     const base = new THREE.Color(materialColor);
     const highlight = base.clone().multiplyScalar(1.25);
-    material.uniforms.colorA.value = highlight;
-    material.uniforms.colorB.value = base;
-  }, [material, materialColor]);
+    materials.forEach((mat, idx) => {
+      const contrast = idx === 1 ? 0.75 : idx === 2 ? 1.2 : 1;
+      mat.uniforms.colorA.value = highlight.clone().multiplyScalar(contrast);
+      mat.uniforms.colorB.value = base.clone().multiplyScalar(contrast);
+    });
+  }, [materialColor, materials]);
 
   const { camera } = useThree();
 
   useFrame(({ clock }) => {
-    const mesh = meshRef.current;
-    if (!mesh) return;
-
     const time = clock.elapsedTime * 1000;
     const { amplitude, frequency, rowPhase, colPhase } = params;
     const sinTilt = Math.sin(PLANE_TILT);
     const cosTilt = Math.cos(PLANE_TILT);
-    if (material) {
-      material.uniforms.time.value = time;
-      material.uniforms.cameraPos.value.copy(camera.position);
-    }
-
-    points.forEach((point, i) => {
-      const phase = (point.row * rowPhase + point.col * colPhase) * Math.PI;
-      const wave = Math.sin(time * frequency + phase) * amplitude;
-
-      const worldY = point.z * sinTilt + wave;
-      const worldZ = point.z * cosTilt;
-
-      dummy.position.set(point.x, worldY, -worldZ);
-      const s = scales[i];
-      dummy.scale.set(s.x, s.y, s.z);
-      // dummy.rotation.set(-Math.PI / 2, 0, 0);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
+    materials.forEach((mat) => {
+      mat.uniforms.time.value = time;
+      mat.uniforms.cameraPos.value.copy(camera.position);
     });
-    mesh.instanceMatrix.needsUpdate = true;
+
+    groups.forEach((indices, groupIdx) => {
+      const mesh = meshRefs.current[groupIdx];
+      if (!mesh) return;
+      indices.forEach((pointIdx, localIdx) => {
+        const point = points[pointIdx];
+        const phase = (point.row * rowPhase + point.col * colPhase) * Math.PI;
+        const wave = Math.sin(time * frequency + phase) * amplitude;
+
+        const worldY = point.z * sinTilt + wave;
+        const worldZ = point.z * cosTilt;
+
+        dummy.position.set(point.x, worldY, -worldZ);
+        const s = scales[pointIdx];
+        if (s.y < 50) {
+          dummy.scale.set(0, 0, 0);
+        } else {
+          dummy.scale.set(s.x, s.y, s.z);
+        }
+        dummy.updateMatrix();
+        mesh.setMatrixAt(localIdx, dummy.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+    });
   });
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, points.length]}>
-      <boxGeometry args={[12, 1, 8]} />
-      <primitive object={material} attach="material" />
-    </instancedMesh>
+    <>
+      {groups.map((indices, idx) =>
+        indices.length > 0 ? (
+          <instancedMesh
+            // eslint-disable-next-line react/no-array-index-key
+            key={idx}
+            ref={(el) => {
+              meshRefs.current[idx] = el;
+            }}
+            args={[undefined, undefined, indices.length]}
+          >
+            <boxGeometry args={[12, 1, 8]} />
+            <primitive object={materials[idx]} attach="material" />
+          </instancedMesh>
+        ) : null
+      )}
+    </>
   );
 }
 
