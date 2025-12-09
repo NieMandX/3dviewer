@@ -67,7 +67,7 @@ export function HeroSection() {
         <div className="max-w-4xl mx-auto">
           <div>
             <motion.h1
-              className="text-3xl sm:text-3xl md:text-3xl lg:text-4xl xl:text-4xl font-flex text-left leading-tight tracking-tight text-zinc-510 dark:text-zinc-50"
+              className="text-2xl sm:text-3xl md:text-3xl lg:text-4xl xl:text-4xl font-flex text-left leading-tight tracking-tight text-zinc-510 dark:text-zinc-50"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.1 }}

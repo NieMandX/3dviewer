@@ -54,7 +54,7 @@ export default function App() {
         <footer className="border-t border-zinc-200 dark:border-zinc-800 py-12">
           <div className="container mx-auto px-6 max-w-7xl">
             <p className="text-center text-zinc-500 dark:text-zinc-400">
-              © 2025 IMA Studio. Все права защищены.
+              © 2025 IMA Vision. Все права защищены.
             </p>
           </div>
         </footer>

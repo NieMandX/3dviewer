@@ -29,24 +29,6 @@ const modelCards: ModelCard[] = [
     title: 'AGR модели МКА',
     description: 'Соответствие требованиям Москомархитектуры'
   },
-  {
-    id: 4,
-    url: 'https://images.unsplash.com/photo-1542621334-a254cf47733d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhcmNoaXRlY3R1cmFsJTIwZHJhd2luZ3xlbnwxfHx8fDE3NjI5NTY2Njl8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    title: 'Технический контроль',
-    description: 'Проверка моделей на соответствие стандартам'
-  },
-  {
-    id: 5,
-    url: 'https://images.unsplash.com/photo-1737555070365-cb948afc334c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBhcmNoaXRlY3R1cmUlMjByZW5kZXJ8ZW58MXx8fHwxNzYyOTU2NjY4fDA&ixlib=rb-4.1.0&q=80&w=1080',
-    title: 'Web визуализация',
-    description: 'Интерактивные 3D модели для браузера'
-  },
-  {
-    id: 6,
-    url: 'https://images.unsplash.com/photo-1549791084-5f78368b208b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYXJjaGl0ZWN0dXJlfGVufDF8fHx8MTc2MjkzNTEwNXww&ixlib=rb-4.1.0&q=80&w=1080',
-    title: 'AGR WebViewer',
-    description: 'Бесплатный инструмент анализа моделей'
-  }
 ];
 
 export function ModelsSection() {

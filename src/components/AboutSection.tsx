@@ -12,7 +12,6 @@ export function AboutSection() {
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          <strong>О студии</strong>
         </motion.h2>
 
         <motion.div
