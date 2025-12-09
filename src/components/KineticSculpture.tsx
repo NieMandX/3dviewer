@@ -54,7 +54,8 @@ function PointsField({
   points,
   params,
   materialColor,
-}: { points: Point[]; params: WaveParams; materialColor: string }) {
+  isDark,
+}: { points: Point[]; params: WaveParams; materialColor: string; isDark: boolean }) {
   const materialVariants = 3;
   const meshRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -67,10 +68,14 @@ function PointsField({
       })),
     [points]
   );
-  const groupIndex = useMemo(
-    () => points.map(() => Math.floor(Math.random() * materialVariants)),
-    [points]
-  );
+  const groupIndex = useMemo(() => {
+    return points.map(() => {
+      const r = Math.random();
+      if (r < 0.8) return 0;      // 80% первый шейдер
+      if (r < 0.9) return 1;      // 10% чекер
+      return 2;                  // 10% вертикальный
+    });
+  }, [points]);
   const groups = useMemo(() => {
     const buckets: number[][] = Array.from({ length: materialVariants }, () => []);
     points.forEach((_, idx) => {
@@ -91,20 +96,27 @@ function PointsField({
       uniform float time;
       uniform vec3 cameraPos;
       uniform float fadeDistance;
+      uniform float stripeInvert; // 0: opaque dark, 1: opaque light
+      uniform int stripeSolid;
+      uniform int stripeAxis; // 0: Y, 1: X, 2: Z, 3: XZ
       varying float vY;
       varying vec3 vNormal;
       varying vec3 vWorldPos;
+      varying vec3 vLocalPos;
       uniform float stripeOffset;
       void main() {
         if (abs(vNormal.y) > 0.6) {
           discard;
         }
-        float stripePhase = fract((abs(vY) + stripeOffset) * stripeFreq + time * stripeSpeed);
+        float coord = stripeAxis == 1 ? vLocalPos.x : stripeAxis == 2 ? vLocalPos.z : stripeAxis == 3 ? 0.5 * (abs(vLocalPos.x) + abs(vLocalPos.z)) : vLocalPos.y;
+        float stripePhase = fract((abs(coord) + stripeOffset) * stripeFreq + time * stripeSpeed);
         float stripe = smoothstep(0.45, 0.65, stripePhase);
         vec3 color = mix(colorA, colorB, stripe);
-        float alpha = opacity * (0.6 - stripe);
-        float distFade = clamp(1.0 - length(vWorldPos - cameraPos) / fadeDistance, 0.0, 1.0);
-        alpha *= distFade;
+        float alpha = stripeSolid == 1 ? opacity : opacity * mix(stripe, 0.8 - stripe, stripeInvert);
+        if (stripeSolid == 0) {
+          float distFade = clamp(1.0 - length(vWorldPos - cameraPos) / fadeDistance, 0.0, 1.0);
+          alpha *= distFade;
+        }
         gl_FragColor = vec4(color, alpha);
       }
     `;
@@ -118,19 +130,21 @@ function PointsField({
       uniform float time;
       uniform vec3 cameraPos;
       uniform float fadeDistance;
-      uniform float checkerFreq;
+      uniform vec3 checkerFreq;
       uniform float checkerOffset;
       varying float vY;
       varying vec3 vNormal;
       varying vec3 vWorldPos;
+      varying vec3 vLocalPos;
       uniform float stripeOffset;
       void main() {
         if (abs(vNormal.y) > 0.6) {
           discard;
         }
-        float px = step(0.5, fract((vWorldPos.x + checkerOffset) * checkerFreq));
-        float pz = step(0.5, fract((vWorldPos.z + checkerOffset) * checkerFreq));
-        float checker = abs(px - pz);
+        float px = step(0.5, fract((vLocalPos.x + checkerOffset) * checkerFreq.x));
+        float py = step(0.5, fract((vLocalPos.y + checkerOffset) * checkerFreq.y));
+        float pz = step(0.5, fract((vLocalPos.z + checkerOffset) * checkerFreq.z));
+        float checker = mod(px + py + pz, 2.0);
         vec3 color = mix(colorA, colorB, checker);
         float alpha = opacity * (0.6 - checker);
         float distFade = clamp(1.0 - length(vWorldPos - cameraPos) / fadeDistance, 0.0, 1.0);
@@ -143,12 +157,26 @@ function PointsField({
       contrast: number,
       opacity: number,
       pattern: 'stripe' | 'checker' = 'stripe',
-      cfg?: { stripeFreq?: number; stripeOffset?: number; checkerFreq?: number; checkerOffset?: number }
+      cfg?: {
+        stripeFreq?: number;
+        stripeOffset?: number;
+        stripeSolid?: boolean;
+        checkerFreq?: number;
+        checkerFreqX?: number;
+        checkerFreqY?: number;
+        checkerFreqZ?: number;
+        checkerOffset?: number;
+      }
     ) =>
       new THREE.ShaderMaterial({
         side: THREE.DoubleSide,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
+        transparent: pattern === 'stripe' ? cfg?.stripeSolid !== true : true,
+        blending:
+          pattern === 'stripe'
+            ? cfg?.stripeSolid === true
+              ? THREE.NormalBlending
+              : THREE.AdditiveBlending
+            : THREE.AdditiveBlending,
         depthWrite: true,
         uniforms: {
           colorA: { value: highlight.clone().multiplyScalar(contrast) },
@@ -160,31 +188,56 @@ function PointsField({
           cameraPos: { value: new THREE.Vector3() },
           fadeDistance: { value: 1400.0 },
           stripeOffset: { value: cfg?.stripeOffset ?? -10.5 },
-          checkerFreq: { value: 0.08 },
+          stripeInvert: { value: isDark ? 1.0 : 0.0 },
+          stripeSolid: { value: cfg?.stripeSolid ? 1 : 0 },
+          stripeAxis: {
+            value:
+              cfg?.stripeAxis === 'x'
+                ? 1
+                : cfg?.stripeAxis === 'z'
+                  ? 2
+                  : cfg?.stripeAxis === 'xz'
+                    ? 3
+                    : 0,
+          },
+          checkerFreq: {
+            value: new THREE.Vector3(
+              cfg?.checkerFreqX ?? cfg?.checkerFreq ?? 0.01,
+              cfg?.checkerFreqY ?? cfg?.checkerFreq ?? 0.01,
+              cfg?.checkerFreqZ ?? cfg?.checkerFreq ?? 0.08
+            ),
+          },
           checkerOffset: { value: 0.5 }
         },
         vertexShader: `
-          varying float vY;
-          varying vec3 vNormal;
-          varying vec3 vWorldPos;
-          void main() {
-            vec3 scaledPos = (instanceMatrix * vec4(position, 0.0)).xyz;
-            vY = scaledPos.y;
-            vec4 worldPos = instanceMatrix * vec4(position, 1.0);
-          vWorldPos = worldPos.xyz;
-          vNormal = normalize(mat3(instanceMatrix) * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * worldPos;
-        }
+      varying float vY;
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+      varying vec3 vLocalPos;
+      void main() {
+        vec3 scaledPos = (instanceMatrix * vec4(position, 0.0)).xyz;
+        vLocalPos = scaledPos;
+        vY = scaledPos.y;
+        vec4 worldPos = instanceMatrix * vec4(position, 1.0);
+        vWorldPos = worldPos.xyz;
+        vNormal = normalize(mat3(instanceMatrix) * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * worldPos;
+      }
         `,
         fragmentShader: pattern === 'checker' ? fragmentChecker : fragmentStripe,
       });
 
     return [
-      makeMat(1.0, 0.85, 'stripe', { stripeFreq: 0.07, stripeOffset: -10.5 }),
-      makeMat(0.9, 0.8, 'checker', { checkerFreq: 0.08, checkerOffset: -5.0 }),
-      makeMat(1.2, 0.9, 'stripe', { stripeFreq: 0.07, stripeOffset: -10.5 })
+      makeMat(1.0, 0.85, 'stripe', { stripeFreq: 0.07, stripeOffset: -10.5, stripeSolid: false }),
+      makeMat(0.9, 0.8, 'checker', {
+        checkerFreq: 0.1,
+        checkerFreqY: 0.01,
+        checkerFreqZ: 0.1,
+        checkerOffset: -5.0,
+      }),
+      makeMat(1.0, 0.85, 'stripe', { stripeFreq: 0.4, stripeOffset: -10.5, stripeSolid: false, stripeAxis: 'xz' })
     ];
-  }, [materialColor]);
+  }, [isDark, materialColor]);
 
   useEffect(() => {
     if (!materials.length) return;
