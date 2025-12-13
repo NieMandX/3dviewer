@@ -2073,7 +2073,18 @@ class ViewerApp {
             }
             world.traverse(o => {
                 if (!o.isMesh || !o.material) return;
-                const mats = getPanelMaterials(o);
+                const matsSet = new Set();
+                const add = (mat) => {
+                    if (!mat) return;
+                    if (Array.isArray(mat)) {
+                        mat.forEach(add);
+                        return;
+                    }
+                    matsSet.add(mat);
+                };
+                add(o.material);
+                if (o.userData?._origMaterial) add(o.userData._origMaterial);
+                const mats = Array.from(matsSet);
                 mats.forEach(m => {
                     if (m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) {
                         if (m.envMap !== env) {
@@ -2525,6 +2536,68 @@ const BEAUTY_WIRE_ANGLE_DEG = 25;   // угол между нормалями, >
 const BEAUTY_WIRE_COLOR     = 0x111111;
 const BEAUTY_WIRE_OPACITY   = 0.9;
 
+// === Wireframe helpers (WebGPU fallback) ===
+const WIREFRAME_COLOR = 0x666666;
+const WIREFRAME_OPACITY = 0.3;
+
+/** Эмулирует wireframe через LineSegments (material.wireframe в WebGPU не работает). */
+function ensureWireframeOverlay(mesh) {
+    if (!mesh.isMesh || !mesh.geometry) return null;
+
+    if (!mesh.userData._origMaterial) mesh.userData._origMaterial = mesh.material;
+
+    if (!mesh.userData._wireBase) {
+        // depth-only подложка, чтобы линии не "просвечивали" сквозь модель
+        const base = new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0.0,
+            colorWrite: false,
+            depthWrite: true,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1,
+        });
+        mesh.userData._wireBase = base;
+    }
+
+    let line = mesh.userData._wireOverlay;
+    if (!line) {
+        const geo = new THREE.WireframeGeometry(mesh.geometry);
+        const mat = new THREE.LineBasicMaterial({
+            color: WIREFRAME_COLOR,
+            transparent: true,
+            opacity: WIREFRAME_OPACITY,
+        });
+        mat.depthWrite = false;
+        line = new THREE.LineSegments(geo, mat);
+        line.name = (mesh.name || mesh.type) + ' (wireframe)';
+        line.renderOrder = (mesh.renderOrder || 0) + 1;
+        line.userData.excludeFromBounds = true;
+        line.userData._geoId = mesh.geometry.id;
+        mesh.add(line);
+        mesh.userData._wireOverlay = line;
+    } else if (line.userData._geoId !== mesh.geometry.id) {
+        line.geometry?.dispose?.();
+        line.geometry = new THREE.WireframeGeometry(mesh.geometry);
+        line.userData._geoId = mesh.geometry.id;
+    }
+
+    mesh.material = mesh.userData._wireBase;
+    line.visible = true;
+    return line;
+}
+
+function clearWireframeOverlay(mesh) {
+    if (!mesh.isMesh) return;
+    if (mesh.userData._origMaterial) {
+        mesh.material = mesh.userData._origMaterial;
+    }
+    if (mesh.userData._wireOverlay) {
+        mesh.userData._wireOverlay.visible = false;
+    }
+}
+
 /** Готовит красочную обводку (beauty wire) для заданного меша. */
 function ensureBeautyWire(mesh, angleDeg = BEAUTY_WIRE_ANGLE_DEG) {
     if (!mesh.isMesh || !mesh.geometry) return null;
@@ -2701,8 +2774,14 @@ function clearBeautyWire(mesh) {
                 afterRender = undefined;
             };
 
+            if (USE_WEBGPU && mode !== 'wire') {
+                world.traverse(o => { if (o.isMesh) clearWireframeOverlay(o); });
+            }
+
             // backface — отдельный режим (двухпроходный), его не делаем через makeVariantFrom
             if (mode === 'backface') {
+                // если ранее был включён beautywire — выключаем его при входе в backface
+                world.traverse(o => { if (o.isMesh) clearBeautyWire(o); });
                 setBackfaceMode(true);
                 requestRender();
                 scheduleOnce();
@@ -2718,11 +2797,23 @@ function clearBeautyWire(mesh) {
                     if (!o.isMesh) return;
                     ensureBeautyWire(o, BEAUTY_WIRE_ANGLE_DEG);
                 });
+                requestRender();
                 scheduleOnce();
                 return;
             } else {
                 // выходим из beautywire, если он был включён
                 world.traverse(o => { if (o.isMesh) clearBeautyWire(o); });
+            }
+
+            if (mode === 'wire' && USE_WEBGPU) {
+                world.traverse(o => {
+                    if (o.userData?.isCollision) return;
+                    if (!o.isMesh) return;
+                    ensureWireframeOverlay(o);
+                });
+                requestRender();
+                scheduleOnce();
+                return;
             }
             world.traverse(obj => {
                 if (obj.userData?.isCollision) return; // не переписывать материал коллизий
@@ -5647,7 +5738,11 @@ function getSMOffset(meta) {
         // =====================
         function cacheOriginalMaterialFor(obj, force = false) {
             if (!obj) return;
-            if (!force && currentShadingMode !== 'pbr') return;
+            if (currentShadingMode !== 'pbr') {
+                // Не затираем исходный PBR-материал временными материалами из режимов (beautywire/backface/wire и т.п.).
+                if (obj.userData?._origMaterial) return;
+                if (!force) return;
+            }
             obj.userData._origMaterial = obj.material;
         }
 
