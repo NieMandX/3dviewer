@@ -1130,9 +1130,197 @@ class ViewerApp {
         ];
         let currentEnv   = app.currentEnv   = null;      // pmrem result (for scene.environment)
         let currentBg    = app.currentBg    = null;      // shifted equirect (для фона)
-        let currentRotDeg = app.currentRotDeg = 0;        // rotation slider value
+        let currentRotDeg = app.currentRotDeg = (parseFloat(iblRotEl?.value) || 0);        // rotation slider value
         let currentBgTint = new THREE.Color(0xffffff);
         let currentExposure = 1;
+        const ENV_REBUILD_DEBOUNCE_MS = 150;
+        let envDirty = true;
+        let envRebuildTimer = null;
+        let envRebuildPromise = null;
+        let envRebuildQueued = false;
+        const envMaterials = new Set();
+
+        function cloneEquirectDataTexture(srcTex) {
+            if (!srcTex) return null;
+            const img = srcTex.image;
+            const data = img?.data;
+            const width = img?.width;
+            const height = img?.height;
+            if (!data || !width || !height) {
+                const clone = srcTex.clone?.() || srcTex;
+                if (clone && clone !== srcTex) clone.needsUpdate = true;
+                return clone;
+            }
+
+            const copied = data.slice ? data.slice() : new data.constructor(data);
+            const tex = new THREE.DataTexture(copied, width, height, srcTex.format, srcTex.type);
+
+            tex.name = srcTex.name || tex.name;
+            tex.mapping = srcTex.mapping;
+            tex.wrapS = srcTex.wrapS;
+            tex.wrapT = srcTex.wrapT;
+            tex.magFilter = srcTex.magFilter;
+            tex.minFilter = srcTex.minFilter;
+            tex.anisotropy = srcTex.anisotropy;
+            tex.generateMipmaps = srcTex.generateMipmaps;
+            tex.flipY = srcTex.flipY;
+            if ('colorSpace' in srcTex && 'colorSpace' in tex) tex.colorSpace = srcTex.colorSpace;
+            if ('encoding' in srcTex && 'encoding' in tex) tex.encoding = srcTex.encoding;
+            if ('premultiplyAlpha' in srcTex && 'premultiplyAlpha' in tex) tex.premultiplyAlpha = srcTex.premultiplyAlpha;
+            if ('unpackAlignment' in srcTex && 'unpackAlignment' in tex) tex.unpackAlignment = srcTex.unpackAlignment;
+            tex.needsUpdate = true;
+            return tex;
+        }
+
+        function setEnvironmentRotation(deg) {
+            const safeDeg = Number.isFinite(deg) ? deg : 0;
+            currentRotDeg = safeDeg;
+            app.currentRotDeg = currentRotDeg;
+            const rad = THREE.MathUtils.degToRad(currentRotDeg);
+
+            if (scene.environmentRotation?.isEuler) {
+                scene.environmentRotation.set(0, rad, 0);
+            }
+            if (scene.backgroundRotation?.isEuler) {
+                scene.backgroundRotation.set(0, rad, 0);
+            }
+
+            if (bgMesh) {
+                bgMesh.rotation.y = rad;
+            }
+
+            envMaterials.forEach((mat) => {
+                if (!mat) return;
+                if (mat.envMapRotation?.isEuler) {
+                    mat.envMapRotation.set(0, rad, 0);
+                }
+            });
+
+            requestRender();
+        }
+
+        function applyBuiltEnvironment() {
+            if (!iblChk?.checked) return;
+            if (!currentEnv || !currentBg) return;
+
+            scene.environment = currentEnv;
+            applyEnvToMaterials(scene.environment, parseFloat(iblIntEl?.value) || 1.0);
+
+            ensureBgMesh();
+            if (bgMesh) {
+                bgMesh.material.map = currentBg;
+                bgMesh.material.needsUpdate = true;
+            }
+
+            setEnvironmentRotation(parseFloat(iblRotEl?.value) || currentRotDeg || 0);
+            updateBgVisibility();
+            requestRender();
+        }
+
+        function requestEnvironmentRebuild({ immediate = false } = {}) {
+            envDirty = true;
+            if (!iblChk?.checked) return;
+            if (envRebuildTimer) {
+                clearTimeout(envRebuildTimer);
+                envRebuildTimer = null;
+            }
+            const delay = immediate ? 0 : ENV_REBUILD_DEBOUNCE_MS;
+            envRebuildTimer = setTimeout(() => {
+                envRebuildTimer = null;
+                void rebuildEnvironment({ force: true });
+            }, delay);
+        }
+
+        async function rebuildEnvironmentOnce() {
+            if (!iblChk?.checked) return;
+            if (!envDirty && currentEnv && currentBg) {
+                applyBuiltEnvironment();
+                return;
+            }
+
+            if (USE_WEBGPU) {
+                try {
+                    await rendererInitPromise;
+                } catch (err) {
+                    console.error('WebGPU init failed before env build', err);
+                    return;
+                }
+            }
+
+            const base = await loadHDRBase();
+            if (!base) return;
+
+            const { gamma, tintLinear, exposure, saturation, blur } = syncEnvAdjustmentsState();
+
+            const nextBg = cloneEquirectDataTexture(base);
+            if (!nextBg) return;
+
+            applyHDRAdjustments(nextBg, { gamma, tintColor: tintLinear, exposure, saturation, blur });
+            nextBg.mapping = THREE.EquirectangularReflectionMapping;
+            if ('colorSpace' in nextBg) {
+                nextBg.colorSpace = THREE.LinearSRGBColorSpace;
+            }
+            nextBg.needsUpdate = true;
+
+            let nextEnv = null;
+            if (USE_WEBGPU) {
+                nextBg.needsPMREMUpdate = true;
+                nextEnv = nextBg;
+            } else {
+                if (!pmremGen) {
+                    pmremGen = new THREE.PMREMGenerator(renderer);
+                    app.pmremGen = pmremGen;
+                }
+                const rt = pmremGen.fromEquirectangular(nextBg);
+                nextEnv = rt.texture;
+            }
+
+            if (!nextEnv) {
+                nextBg.dispose?.();
+                return;
+            }
+
+            const prevEnv = currentEnv;
+            const prevBg = currentBg;
+
+            currentEnv = nextEnv;
+            currentBg = nextBg;
+            app.currentEnv = currentEnv;
+            app.currentBg = currentBg;
+
+            envDirty = false;
+
+            if (prevEnv && prevEnv !== base && prevEnv !== prevBg) prevEnv.dispose?.();
+            if (prevBg && prevBg !== base) prevBg.dispose?.();
+
+            applyBuiltEnvironment();
+        }
+
+        async function rebuildEnvironment({ force = false } = {}) {
+            if (!iblChk?.checked) return;
+            if (!force && !envDirty && currentEnv && currentBg) {
+                applyBuiltEnvironment();
+                return;
+            }
+
+            envDirty = true;
+
+            if (envRebuildPromise) {
+                envRebuildQueued = true;
+                return envRebuildPromise;
+            }
+
+            envRebuildPromise = (async () => {
+                do {
+                    envRebuildQueued = false;
+                    await rebuildEnvironmentOnce();
+                } while (envRebuildQueued);
+            })().finally(() => {
+                envRebuildPromise = null;
+            });
+
+            return envRebuildPromise;
+        }
 
         // =====================================================================
         // Asset Loading · Shared State
@@ -1735,85 +1923,27 @@ class ViewerApp {
             return dataTex;
         }
 
-        /** Генерирует PMREM из повернутого HDRI и применяет к окружению/фону. */
+        /**
+         * Legacy wrapper: теперь поворот окружения делается через `scene.environmentRotation` /
+         * `material.envMapRotation` + `bgMesh.rotation`, а пересборка (PMREM/adjustments) —
+         * только при изменении HDRI/настроек.
+         */
         async function buildAndApplyEnvFromRotation(deg) {
-            currentRotDeg = deg;
-            app.currentRotDeg = currentRotDeg;
-            if (USE_WEBGPU) {
-                try {
-                    await rendererInitPromise;
-                } catch (err) {
-                    console.error('WebGPU init failed before env build', err);
-                    return;
-                }
-            }
-            const { gamma, tintLinear, exposure, saturation, blur } = syncEnvAdjustmentsState();
-            const frac = ((deg % 360) + 360) % 360 / 360;
-            if (bgMesh) {
-                bgMesh.rotation.y = THREE.MathUtils.degToRad(deg);
-            }
-
-            if (currentEnv) { currentEnv.dispose?.(); currentEnv = null; app.currentEnv = null; }
-            if (currentBg && currentBg !== hdrBaseTex) { currentBg.dispose?.(); }
-            currentBg = null;
-            currentEnv = null;
-
-            const shifted = shiftEquirectColumns(hdrBaseTex, frac);
-            applyHDRAdjustments(shifted, { gamma, tintColor: tintLinear, exposure, saturation, blur });
-            shifted.mapping = THREE.EquirectangularReflectionMapping;
-            if ('colorSpace' in shifted) {
-                shifted.colorSpace = THREE.LinearSRGBColorSpace;
-            }
-            shifted.needsUpdate = true;
-
-            if (USE_WEBGPU) {
-                shifted.needsPMREMUpdate = true;
-                currentBg = shifted;
-                currentEnv = shifted;
-                app.currentBg = currentBg;
-                app.currentEnv = currentEnv;
-
-                scene.environment = iblChk.checked ? currentEnv : null;
-                scene.environmentRotation.set(0, THREE.MathUtils.degToRad(deg), 0);
-                scene.backgroundRotation.set(0, THREE.MathUtils.degToRad(deg), 0);
-                if (iblChk.checked) {
-                    ensureBgMesh();
-                    if (bgMesh) {
-                        bgMesh.material.map = currentBg;
-                        bgMesh.material.needsUpdate = true;
-                        bgMesh.visible = true;
-                    }
-                }
-                applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
-                return;
-            }
-
-            if (!pmremGen) {
-                pmremGen = new THREE.PMREMGenerator(renderer);
-                app.pmremGen = pmremGen;
-            }
-
-            currentBg = shifted;
-            app.currentBg = currentBg;
-            const rt = pmremGen.fromEquirectangular(shifted);
-            currentEnv = rt.texture;
-            app.currentEnv = currentEnv;
-
-            scene.environment = iblChk.checked ? currentEnv : null;
-            applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
-            ensureBgMesh();
-            if (bgMesh) {
-                bgMesh.material.map = currentBg;
-                bgMesh.material.needsUpdate = true;
-            }
+            setEnvironmentRotation(deg);
+            await rebuildEnvironment({ force: false });
         }
 
         /** Включает/выключает окружение (HDRI) и обновляет фон + стекло. */
         async function setEnvironmentEnabled(on) {
-            await loadHDRBase();
             if (on) {
-                await buildAndApplyEnvFromRotation(currentRotDeg || 0);
+                if (!currentEnv || !currentBg) envDirty = true;
+                await rebuildEnvironment({ force: false });
             } else {
+                if (envRebuildTimer) {
+                    clearTimeout(envRebuildTimer);
+                    envRebuildTimer = null;
+                }
+                envRebuildQueued = false;
                 scene.environment = null;
                 applyEnvToMaterials(null, 1.0);
                 if (bgMesh) bgMesh.visible = false;
@@ -1826,14 +1956,20 @@ class ViewerApp {
             if (USE_WEBGPU && scene) {
                 scene.environmentIntensity = intensity;
             }
+            if (!env) {
+                envMaterials.clear();
+            }
             world.traverse(o => {
                 if (!o.isMesh || !o.material) return;
                 const mats = getPanelMaterials(o);
                 mats.forEach(m => {
                     if (m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) {
-                        m.envMap = env;
+                        if (m.envMap !== env) {
+                            m.envMap = env;
+                            m.needsUpdate = true;
+                        }
                         m.envMapIntensity = intensity;
-                        m.needsUpdate = true;
+                        if (env) envMaterials.add(m);
                     }
                 });
            });
@@ -2813,23 +2949,23 @@ function clearBeautyWire(mesh) {
 
         iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
         iblIntEl?.addEventListener('input', () => {
-            if (iblChk?.checked) applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
+            if (!iblChk?.checked) return;
+            const env = scene.environment || currentEnv;
+            if (!env) return;
+            applyEnvToMaterials(env, parseFloat(iblIntEl.value));
         });
-        const rebuildEnvOnAdjustments = async () => {
+        const scheduleEnvRebuildFromUI = () => {
             syncEnvAdjustmentsState();
-            if (!iblChk?.checked) return;
-            await loadHDRBase();
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
+            requestEnvironmentRebuild({ immediate: false });
         };
-        iblGammaEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        iblTintEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        hdriExposureEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        hdriSaturationEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        hdriBlurEl?.addEventListener('input', rebuildEnvOnAdjustments);
-        iblRotEl?.addEventListener('input', async () => {
-            if (!iblChk?.checked) return;
-            await loadHDRBase();
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
+        iblGammaEl?.addEventListener('input', scheduleEnvRebuildFromUI);
+        iblTintEl?.addEventListener('input', scheduleEnvRebuildFromUI);
+        hdriExposureEl?.addEventListener('input', scheduleEnvRebuildFromUI);
+        hdriSaturationEl?.addEventListener('input', scheduleEnvRebuildFromUI);
+        hdriBlurEl?.addEventListener('input', scheduleEnvRebuildFromUI);
+
+        iblRotEl?.addEventListener('input', () => {
+            setEnvironmentRotation(parseFloat(iblRotEl?.value) || 0);
         });
         hdriPresetSel?.addEventListener('change', async (e) => {
             const idx = parseInt(e.target.value, 10);
@@ -2837,13 +2973,18 @@ function clearBeautyWire(mesh) {
             const entry = HDRI_LIBRARY[idx];
             if (!entry) return;
 
+            const prevBase = hdrBaseTex;
             hdrBaseTex = await loadEquirectTexture(entry.url);
             app.hdrBaseTex = hdrBaseTex;
 
-            await buildAndApplyEnvFromRotation(parseFloat(iblRotEl?.value) || 0);
-            ensureBgMesh();
-            bgMesh.material.map = currentBg;
-            bgMesh.material.needsUpdate = true;
+            envDirty = true;
+            if (prevBase && prevBase !== hdrBaseTex && prevBase !== currentBg) {
+                prevBase.dispose?.();
+            }
+
+            if (iblChk?.checked) {
+                await rebuildEnvironment({ force: true });
+            }
         });
         // =====================
         // Axis toggle
