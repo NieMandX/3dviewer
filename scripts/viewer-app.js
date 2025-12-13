@@ -2285,9 +2285,10 @@ function ensureBeautyWire(mesh, angleDeg = BEAUTY_WIRE_ANGLE_DEG) {
     if (!mesh.userData._origMaterial) mesh.userData._origMaterial = mesh.material;
 
     if (!mesh.userData._beautyBase) {
-        const base = new THREE.MeshMatcapMaterial({
+        const base = new THREE.MeshStandardMaterial({
             color: 0xffffff,
-            matcap: getMatcap(), // у тебя уже есть getMatcap()
+            roughness: 0.15,
+            metalness: 0.0,
             polygonOffset: true,
             polygonOffsetFactor: 1,
             polygonOffsetUnits: 1
