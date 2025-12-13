@@ -1053,11 +1053,11 @@ class ViewerApp {
             try {
                 fbxWorkerInstance = new Worker(fbxWorkerUrl, { type: 'module' });
                 fbxWorkerInstance.onmessage = (event) => {
-                    const { id, ok, json, error, duration, fbxTree } = event.data || {};
+                    const { id, ok, json, error, duration, embedded, orientation } = event.data || {};
                     const job = fbxWorkerPending.get(id);
                     if (!job) return;
                     fbxWorkerPending.delete(id);
-                    if (ok) job.resolve({ json, duration, fbxTree });
+                    if (ok) job.resolve({ json, duration, embedded, orientation });
                     else job.reject(new Error(error || 'FBX worker error'));
                 };
                 fbxWorkerInstance.onerror = (event) => {
@@ -1077,22 +1077,22 @@ class ViewerApp {
             return fbxWorkerInstance;
         }
 
-        async function parseFBXInWorker(buffer) {
+        async function parseFBXInWorker(buffer, features = null) {
             const worker = ensureFBXWorker();
             if (!worker) throw new Error('worker not available');
             const id = ++fbxWorkerReqId;
             const promise = new Promise((resolve, reject) => {
                 fbxWorkerPending.set(id, { resolve, reject });
             });
-            worker.postMessage({ id, buffer }, [buffer]);
-            const { json, duration } = await promise;
+            worker.postMessage({ id, buffer, features: features || { embedded: true, orientation: true } }, [buffer]);
+            const { json, duration, embedded, orientation } = await promise;
             const loader = new THREE.ObjectLoader();
             const parsed = loader.parse(json);
             if (json.animations?.length) {
                 const clips = json.animations.map(THREE.AnimationClip.parse).filter(Boolean);
                 if (clips.length) parsed.animations = clips;
             }
-            return { obj: parsed, duration: duration || 0 };
+            return { obj: parsed, duration: duration || 0, embedded: embedded || [], orientationInfo: orientation || null };
         }
 
         function parseFBXOnMainThread(buffer) {
@@ -1103,6 +1103,118 @@ class ViewerApp {
                 (parsed.userData ||= {}).fbxTree = fbxLoader.fbxTree;
             }
             return { obj: parsed, duration: end - now };
+        }
+
+        const zipWorkerUrl = (() => {
+            try { return new URL('./zip-worker.js', import.meta.url); }
+            catch (_) { return null; }
+        })();
+        let zipWorkerSupported = typeof Worker !== 'undefined' && !!zipWorkerUrl;
+        let zipWorkerInstance = null;
+        let zipWorkerReqId = 0;
+        const zipWorkerPending = new Map();
+
+        function ensureZIPWorker() {
+            if (!zipWorkerSupported) return null;
+            if (zipWorkerInstance) return zipWorkerInstance;
+            try {
+                zipWorkerInstance = new Worker(zipWorkerUrl, { type: 'module' });
+                zipWorkerInstance.onmessage = (event) => {
+                    const msg = event.data || {};
+                    const job = zipWorkerPending.get(msg.id);
+                    if (!job) return;
+                    job.chain = job.chain
+                        .then(() => job.handleMessage(msg))
+                        .catch((err) => {
+                            zipWorkerPending.delete(msg.id);
+                            job.reject(err);
+                        });
+                };
+                zipWorkerInstance.onerror = (event) => {
+                    event.preventDefault?.();
+                    const err = event?.error || event?.message || new Error('ZIP worker error');
+                    zipWorkerPending.forEach((job) => job.reject(err));
+                    zipWorkerPending.clear();
+                    zipWorkerInstance?.terminate?.();
+                    zipWorkerInstance = null;
+                    zipWorkerSupported = false;
+                };
+            } catch (err) {
+                console.warn('ZIP worker init failed', err);
+                zipWorkerSupported = false;
+                zipWorkerInstance = null;
+            }
+            return zipWorkerInstance;
+        }
+
+        function unpackZIPInWorker(file, handlers = {}) {
+            const worker = ensureZIPWorker();
+            if (!worker) return null;
+            const id = ++zipWorkerReqId;
+
+            const promise = new Promise((resolve, reject) => {
+                const job = {
+                    id,
+                    resolve,
+                    reject,
+                    chain: Promise.resolve(),
+                    async handleMessage(msg) {
+                        if (msg.type === 'error') {
+                            zipWorkerPending.delete(id);
+                            reject(new Error(msg.error || 'ZIP worker error'));
+                            return;
+                        }
+                        if (msg.type === 'done') {
+                            zipWorkerPending.delete(id);
+                            resolve(msg);
+                            return;
+                        }
+                        if (msg.type === 'progress') {
+                            try { handlers.onProgress?.(msg); } catch (_) {}
+                            return;
+                        }
+                        if (msg.type === 'meta') {
+                            try { handlers.onMeta?.(msg); } catch (_) {}
+                            return;
+                        }
+                        if (msg.type === 'geojson') {
+                            await handlers.onGeoJSON?.(msg);
+                            return;
+                        }
+                        if (msg.type === 'fbx') {
+                            try {
+                                await handlers.onFBX?.(msg);
+                            } finally {
+                                worker.postMessage({ id, type: 'ack', seq: msg.seq });
+                            }
+                            return;
+                        }
+                        if (msg.type === 'image') {
+                            try {
+                                await handlers.onImage?.(msg);
+                            } finally {
+                                worker.postMessage({ id, type: 'ack', seq: msg.seq });
+                            }
+                            return;
+                        }
+                    },
+                };
+                zipWorkerPending.set(id, job);
+            });
+
+            (async () => {
+                try {
+                    const buffer = await file.arrayBuffer();
+                    worker.postMessage({ id, zipName: file.name, buffer }, [buffer]);
+                } catch (err) {
+                    const job = zipWorkerPending.get(id);
+                    zipWorkerPending.delete(id);
+                    if (job) job.reject(err);
+                    else handlers.onError?.(err);
+                }
+            })();
+
+            return promise;
         }
 
         let pmremGen     = app.pmremGen     = null;      // PMREM generator (lazy)
@@ -6824,7 +6936,7 @@ function getSMOffset(meta) {
          * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
          * извлекает embedded текстуры, выполняет автопривязку и обновляет панель/шейдинг.
          */
-        async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null) {
+        async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, options = null) {
         logSessionHeader(`FBX: ${file.name}`);
         hideSidePanel();
 
@@ -6833,18 +6945,14 @@ function getSMOffset(meta) {
             zipKind = /^\d/.test(groupName) ? 'NPM' : (/^SM/i.test(groupName) ? 'SM' : null);
         }
 
-        let ab = await file.arrayBuffer();
-        let orientationInfo = readFBXOrientationFromBuffer(ab);
-        let orientationSource = orientationInfo?.source || null;
-        let orientationMeta = determineOrientationType(orientationInfo);
-        let orientationType = orientationMeta.type;
+        const bufferOverride = options?.buffer || null;
+        let ab = bufferOverride || await file.arrayBuffer();
+        let embedded = [];
 
-        const embedded = await extractImagesFromFBX(ab);
-        embedded.forEach(e => e.fileName = file.name);
-        if (embedded.length) {
-            allEmbedded.push(...embedded);
-            galleryNeedsRefresh = true;
-        }
+        let orientationInfo = null;
+        let orientationSource = null;
+        let orientationMeta = determineOrientationType(null);
+        let orientationType = orientationMeta.type;
 
         setStatusMessage(`Парсинг FBX: ${file.name}…`);
 
@@ -6854,10 +6962,27 @@ function getSMOffset(meta) {
 
         if (fbxWorkerSupported) {
             try {
-                const workerResult = await parseFBXInWorker(ab);
+                const workerResult = await parseFBXInWorker(ab, { embedded: true, orientation: true });
                 parsedObj = workerResult.obj;
                 parsedViaWorker = true;
                 parseDuration = workerResult.duration;
+                orientationInfo = workerResult.orientationInfo || null;
+                orientationSource = orientationInfo?.source || null;
+
+                const embeddedRaw = Array.isArray(workerResult.embedded) ? workerResult.embedded : [];
+                embedded = embeddedRaw.map((entry) => {
+                    const buf = entry?.buffer;
+                    const mime = entry?.mime || (buf ? sniffImage(new Uint8Array(buf)).mime : 'application/octet-stream');
+                    const url = buf ? URL.createObjectURL(new Blob([buf], { type: mime })) : null;
+                    return {
+                        short: entry?.short || basename(entry?.full || '')?.toLowerCase?.() || '',
+                        url,
+                        full: entry?.full || entry?.short || '',
+                        mime,
+                        source: 'embedded',
+                        fileName: file.name,
+                    };
+                }).filter((e) => e && e.url);
             } catch (err) {
                 logBind(`FBX: фон. парсер не сработал → ${err?.message || err}`, 'warn');
                 fbxWorkerSupported = false;
@@ -6875,11 +7000,20 @@ function getSMOffset(meta) {
                 const mainResult = parseFBXOnMainThread(ab);
                 parsedObj = mainResult.obj;
                 parseDuration = mainResult.duration;
+
+                // embedded-извлечение (fallback на UI-потоке)
+                embedded = await extractImagesFromFBX(ab);
+                embedded.forEach(e => e.fileName = file.name);
             } catch (err) {
                 setStatusMessage(`Ошибка парсинга: ${file.name}`);
                 logBind(`⚠️ Ошибка парсинга ${file.name}: ${err?.message || String(err)}`, 'warn');
                 throw err;
             }
+        }
+
+        if (embedded.length) {
+            allEmbedded.push(...embedded);
+            galleryNeedsRefresh = true;
         }
 
         const obj = parsedObj;
@@ -6898,6 +7032,11 @@ function getSMOffset(meta) {
         }
 
         obj.userData._fbxFileName = file.name;
+
+        if (orientationInfo) {
+            orientationMeta = determineOrientationType(orientationInfo);
+            orientationType = orientationMeta.type;
+        }
 
         if (!orientationInfo && obj.userData?.fbxTree) {
             const infoFromTree = readFBXOrientationFromTree(obj.userData.fbxTree);
@@ -7026,6 +7165,80 @@ function getSMOffset(meta) {
             hideSidePanel();
 
             const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
+            let zipGeoMeta = null;
+
+            const workerRun = unpackZIPInWorker(file, {
+                onMeta: (msg) => {
+                    if (zipKind === 'SM') {
+                        const hasGeo = (msg?.counts?.geojson || 0) > 0;
+                        if (!hasGeo) {
+                            logBind(`GeoJSON: в «${file.name}» не найден (ВПМ без меты)`, 'info');
+                        }
+                    }
+                },
+                onProgress: (msg) => {
+                    const phaseLabel = msg.phase === 'fbx' ? 'FBX' : msg.phase === 'image' ? 'IMG' : msg.phase;
+                    const name = basename(msg.name || '');
+                    setStatusMessage(`ZIP ${phaseLabel}: ${msg.index}/${msg.total} · ${name}`);
+                },
+                onGeoJSON: async (msg) => {
+                    if (zipKind !== 'SM') return;
+                    try {
+                        zipGeoMeta = makeGeoJsonMeta(file.name, msg.name, msg.text);
+                        logBind(`GeoJSON: найден в «${file.name}» → ${msg.name}`, 'ok');
+                    } catch (err) {
+                        logBind(`GeoJSON: не удалось обработать (${msg.name}) → ${err?.message || err}`, 'warn');
+                        zipGeoMeta = null;
+                    }
+                },
+                onFBX: async (msg) => {
+                    const blob = msg.blob;
+                    if (!blob) return;
+                    const fbxFile = new File([blob], msg.fileName || basename(msg.name), { type: blob.type || 'model/fbx' });
+                    await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta);
+                    setEmptyHintVisible(false);
+                },
+                onImage: async (msg) => {
+                    const blob = msg.blob;
+                    if (!blob) return;
+                    const url = URL.createObjectURL(blob);
+                    const short = basename(msg.name).toLowerCase();
+                    allEmbedded.push({ short, url, full: msg.name, mime: msg.mime || blob.type || "image/png", source: "zip" });
+                    galleryNeedsRefresh = true;
+                },
+            });
+
+            if (workerRun) {
+                try {
+                    await workerRun;
+
+                    // 4) если в ZIP был geojson — прикрепим его ко ВСЕМ FBX из этого ZIP
+                    if (zipGeoMeta) {
+                        let attached = 0;
+                        loadedModels
+                            .filter(m => m.group === file.name)
+                            .forEach(m => {
+                                m.geojson = zipGeoMeta;
+                                (m.obj.userData ||= {}).geojson = zipGeoMeta;
+                                attached++;
+                            });
+
+                        if (attached) {
+                            logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount!=null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
+                            schedulePanelRefresh();
+                        } else {
+                            logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
+                        }
+                    }
+
+                    ensureZipCollisionsHidden(file.name);
+                    setStatusMessage(`Готово: ${file.name}`);
+                    return;
+                } catch (err) {
+                    logBind(`ZIP worker: не удалось обработать «${file.name}» → fallback на main thread (${err?.message || err})`, 'warn');
+                }
+            }
+
             const zip = await JSZip.loadAsync(file);
             const entries = Object.values(zip.files);
 
@@ -7039,7 +7252,6 @@ function getSMOffset(meta) {
 
 
             // ↓↓↓ ТОЛЬКО ДЛЯ ВПМ
-            let zipGeoMeta = null;
             if (zipKind === 'SM') {
                 const geoEntries = entries.filter(e => !e.dir && /\.geojson$/i.test(e.name));
                 if (geoEntries.length) {
