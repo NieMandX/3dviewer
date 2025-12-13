@@ -1404,7 +1404,7 @@ class ViewerApp {
             world.position.set(-offset.x, -offset.y, -offset.z);
             world.updateMatrixWorld(true);
 
-            if (bgMesh) bgMesh.position.set(0,0,0);
+            if (bgMesh) bgMesh.position.copy(camera.position);
             dirLight.target.position.set(0,0,0);
             dirLight.target.updateMatrixWorld();
 
@@ -2868,10 +2868,11 @@ function clearBeautyWire(mesh) {
             });
             bgMesh = new THREE.Mesh(geo, mat);
             app.bgMesh = bgMesh;
-            bgMesh.userData.excludeFromBounds = true;   // ⬅️ добавь
-            scene.add(camera);      // гарантируем, что камера в сцене
-            camera.add(bgMesh);     // фон “следует” за камерой
-            bgMesh.position.set(0,0,0);
+            bgMesh.userData.excludeFromBounds = true;
+            bgMesh.frustumCulled = false;
+            bgMesh.renderOrder = -1000;
+            scene.add(bgMesh);
+            bgMesh.position.copy(camera.position);
             return bgMesh;
         }
 
@@ -7232,6 +7233,10 @@ function getSMOffset(meta) {
 
             const controlsChanged = controls.update();
             if (controlsChanged) needsRender = true;
+
+            if (bgMesh) {
+                bgMesh.position.copy(camera.position);
+            }
 
             if (USE_WEBGPU && !rendererReady) {
                 updateStatsOverlay();
