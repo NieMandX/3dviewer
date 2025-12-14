@@ -20,6 +20,7 @@ import { createFBXWorkerClient } from './modules/workers/fbx-worker-client.js';
 import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
+import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import {
     detectSlotFromMatOrObj,
     detectSlotFromMaterialName,
@@ -422,14 +423,12 @@ class ViewerApp {
         let needsRender = true;
         let parcelsGroup = null;
         let parcelsOrigin = null;
-        const panelState = {
-            rootDetails: null,
-            ungroupedMarker: null,
-            groups: new Map(),
-            renderedModels: new Set(),
-        };
-        let statsVisible = false;
-	        let lastStatsUpdate = 0;
+	        const panelState = {
+	            rootDetails: null,
+	            ungroupedMarker: null,
+	            groups: new Map(),
+	            renderedModels: new Set(),
+	        };
 	        let fpsEstimate = 0;
 	        let lastFrameTime = 0;
 	        let lastRenderStats = null;
@@ -1955,59 +1954,39 @@ class ViewerApp {
             requestRender();
         }
 
-        function setGridVisible(visible) {
-            gridVisible = !!visible;
-            const gridHelper = app.grid;
-            if (gridHelper) {
-                gridHelper.visible = gridVisible;
-            }
-            app.gridVisible = gridVisible;
-            if (gridToggleBtn) {
-                gridToggleBtn.classList.toggle('active', gridVisible);
-                gridToggleBtn.textContent = gridVisible ? 'Grid off' : 'Grid on';
-                gridToggleBtn.setAttribute('aria-pressed', gridVisible ? 'true' : 'false');
-            }
-            requestRender();
-        }
+	        function setGridVisible(visible) {
+	            gridVisible = !!visible;
+	            const gridHelper = app.grid;
+	            if (gridHelper) {
+	                gridHelper.visible = gridVisible;
+	            }
+	            app.gridVisible = gridVisible;
+	            if (gridToggleBtn) {
+	                gridToggleBtn.classList.toggle('active', gridVisible);
+	                gridToggleBtn.textContent = gridVisible ? 'Grid off' : 'Grid on';
+	                gridToggleBtn.setAttribute('aria-pressed', gridVisible ? 'true' : 'false');
+	            }
+	            requestRender();
+	        }
 
-        function setStatsVisible(visible) {
-            statsVisible = !!visible;
-            statsBtn?.classList.toggle('active', statsVisible);
-            if (statsOverlayEl) {
-                statsOverlayEl.hidden = !statsVisible;
-                if (statsVisible) {
-                    updateStatsOverlay(true);
-                    requestRender();
-                }
-            }
-        }
+	        const statsOverlayController = createStatsOverlayController({
+	            statsBtn,
+	            statsOverlayEl,
+	            renderer,
+	            requestRender,
+	            getFpsEstimate: () => fpsEstimate,
+	            getLastRenderStats: () => lastRenderStats,
+	            getSceneGeometryStats,
+	            getRendererMode: () => app.activeRendererMode,
+	        });
 
-        function updateStatsOverlay(force = false) {
-            if (!statsVisible || !statsOverlayEl) return;
-            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-            if (!force && now - lastStatsUpdate < 250) return;
-            lastStatsUpdate = now;
+	        function setStatsVisible(visible) {
+	            statsOverlayController.setVisible(visible);
+	        }
 
-            const info = renderer.info || {};
-            const renderInfo = lastRenderStats?.render || info.render || {};
-            const mem = lastRenderStats?.memory || info.memory || {};
-            const programsRaw = lastRenderStats?.programs ?? info.programs ?? 0;
-            const programs = Array.isArray(programsRaw) ? programsRaw.length : programsRaw;
-            const formatInt = (value) => (typeof value === 'number' ? value.toLocaleString('ru-RU') : String(value ?? 0));
-            const fpsText = fpsEstimate ? Math.round(fpsEstimate).toString() : '—';
-            const sceneStats = getSceneGeometryStats();
-
-            const modeLabel = (app.activeRendererMode || 'webgl').toUpperCase();
-            const lines = [
-                `fps        : ${fpsText}`,
-                `draw calls : ${formatInt(renderInfo.drawCalls ?? renderInfo.calls ?? 0)}`,
-                `scene tris : ${formatInt(sceneStats.triangles || 0)}`,
-            ];
-            if (programs) lines.push(`programs   : ${formatInt(programs)}`);
-
-            const html = [`<span class="stats-mode">${(app.activeRendererMode || 'webgl').toUpperCase()}</span>`, ...lines].join('<br>');
-            statsOverlayEl.innerHTML = html;
-        }
+	        function updateStatsOverlay(force = false) {
+	            statsOverlayController.update(force);
+	        }
 
         // helper textures
         let _matcapTex = null;
@@ -2812,7 +2791,7 @@ class ViewerApp {
         };
 
         if (statsBtn) {
-            statsBtn.addEventListener('click', () => setStatsVisible(!statsVisible));
+            statsBtn.addEventListener('click', () => setStatsVisible(!statsOverlayController.isVisible()));
         }
         setStatsVisible(true);
 
