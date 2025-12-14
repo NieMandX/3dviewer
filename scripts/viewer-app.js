@@ -23,6 +23,7 @@ import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
+import { createTextureModalController } from './modules/ui/texture-modal.js';
 import {
     detectSlotFromMatOrObj,
     detectSlotFromMaterialName,
@@ -4128,99 +4129,64 @@ class ViewerApp {
             return `${to255(color.r)}/${to255(color.g)}/${to255(color.b)}`;
         }
 
-	        // =====================
-	        // Gallery / modal
-	        // =====================
-	        const textureGallery = createTextureGalleryController({
-	            galleryEl,
-	            texCountEl,
+		        // =====================
+		        // Gallery / modal
+		        // =====================
+	        const texModal = document.getElementById('texModal');
+	        const mClose = document.getElementById('mClose');
+	        const mImg = document.getElementById('mImg');
+	        const mTitle = document.getElementById('mTitle');
+	        const mFile = document.getElementById('mFile');
+	        const mKind = document.getElementById('mKind');
+	        const mMime = document.getElementById('mMime');
+	        const dlLink = document.getElementById('dlLink');
+	        const bindBtn = document.getElementById('bindBtn');
+	        const slotSelect = document.getElementById('slotSelect');
+
+	        const textureModal = createTextureModalController({
+	            texModalEl: texModal,
+	            closeBtnEl: mClose,
+	            imgEl: mImg,
+	            titleEl: mTitle,
+	            fileEl: mFile,
+	            kindEl: mKind,
+	            mimeEl: mMime,
+	            downloadLinkEl: dlLink,
+	            bindBtnEl: bindBtn,
+	            slotSelectEl: slotSelect,
+	            matSelectEl: matSelect,
 	            basename,
 	            guessKindFromName,
-	            onOpen: openTexModal,
+	            getSelectedMaterialLink,
+	            textureLoader,
+	            toStandard,
+	            copyTextureSettings,
+	            getEnvironment: () => scene.environment,
+	            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
+	            cacheOriginalMaterialFor,
+	            applyGlassControlsToScene,
+	            schedulePanelRefresh,
+	            logBind,
+	            colorSpaces: {
+	                linear: THREE.LinearSRGBColorSpace,
+	                srgb: THREE.SRGBColorSpace,
+	            },
 	        });
-	        /**
-	         * Обновляет галерею текстур в боковой панели: миниатюры embedded/zip изображений.
-	         */
-	        function renderGallery(listAll) {
-	            textureGallery.render(listAll);
-	            galleryNeedsRefresh = false;
-	        }
 
-        const texModal = document.getElementById('texModal');
-        const mClose = document.getElementById('mClose');
-        const mImg = document.getElementById('mImg');
-        const mTitle = document.getElementById('mTitle');
-        const mFile = document.getElementById('mFile');
-        const mKind = document.getElementById('mKind');
-        const mMime = document.getElementById('mMime');
-        const dlLink = document.getElementById('dlLink');
-        const bindBtn = document.getElementById('bindBtn');
-        const slotSelect = document.getElementById('slotSelect');
-
-        let modalTex = null;
-        function openTexModal(entry) {
-            modalTex = entry;
-            mImg.src = entry.url;
-            mTitle.textContent = (entry.full || entry.short) + (entry.fileName ? ` — ${entry.fileName}` : '');
-            mFile.textContent = entry.short;
-            mKind.textContent = guessKindFromName(entry.short);
-            mMime.textContent = entry.mime || '';
-            dlLink.href = entry.url; dlLink.download = basename(entry.short);
-            texModal.classList.add('show');
-
-            if (matSelect && (matSelect.value === '' || matSelect.selectedIndex <= 0) && matSelect.options.length > 1) { matSelect.selectedIndex = 1; }
-
-            const k = guessKindFromName(entry.short);
-            slotSelect.value = k === 'base' ? 'map' : k === 'alpha' ? 'alphaMap' : k === 'normal' ? 'normalMap' : k === 'ao' ? 'aoMap' : (k === 'roughness' || k === 'gloss') ? 'roughnessMap' : k === 'metalness' ? 'metalnessMap' : 'map';
-        }
-
-        mClose.addEventListener('click', () => texModal.classList.remove('show'));
-        texModal.addEventListener('click', (e) => { if (e.target === texModal) texModal.classList.remove('show'); });
-
-        bindBtn.addEventListener('click', () => {
-            if (!modalTex) return;
-
-            const link = getSelectedMaterialLink();
-            if (!link || !link.mat) { alert('Выберите материал в списке'); return; }
-
-            const { obj, index } = link;
-            const slot   = slotSelect.value;
-            const linear = !(slot === 'map' || slot === 'emissiveMap');
-
-            const t = textureLoader.load(modalTex.url);
-            const humanName = basename(modalTex.full || modalTex.short);
-            t.name = humanName; (t.userData ||= {}).origName = humanName;
-            t.colorSpace = linear ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace;
-
-            // делаем PBR-эквивалент и назначаем карту на НОВЫЙ материал
-            let std = toStandard(link.mat);
-
-            let prevTex = null;
-            if (slot === 'roughnessMap') { prevTex = std.roughnessMap || null; std.roughnessMap = t; std.roughness = 0.6; }
-            else if (slot === 'metalnessMap') { prevTex = std.metalnessMap || null; std.metalnessMap = t; std.metalness = 1.0; }
-            else if (slot === 'alphaMap') { prevTex = std.alphaMap || null; std.alphaMap = t; std.alphaTest = 0.5; std.transparent = false; std.depthWrite = true; }
-            else { prevTex = std[slot] || null; std[slot] = t; }
-
-            copyTextureSettings(prevTex, t);
-
-            if (scene.environment) {
-                std.envMap = scene.environment;
-                std.envMapIntensity = parseFloat(iblIntEl.value);
-            }
-            std.needsUpdate = true;
-
-            // ВАЖНО: подменяем материал у меша
-            if (Array.isArray(obj.material)) {
-                obj.material[index] = std;
-            } else {
-                obj.material = std;
-            }
-            cacheOriginalMaterialFor(obj, true);
-
-            applyGlassControlsToScene();  // опционально
-            schedulePanelRefresh();
-            logBind(`${modalTex.short} → ${std.name || 'материал'}.${slot}`, 'ok');
-        });
+		        const textureGallery = createTextureGalleryController({
+		            galleryEl,
+		            texCountEl,
+		            basename,
+		            guessKindFromName,
+		            onOpen: textureModal.open,
+		        });
+		        /**
+		         * Обновляет галерею текстур в боковой панели: миниатюры embedded/zip изображений.
+		         */
+		        function renderGallery(listAll) {
+		            textureGallery.render(listAll);
+		            galleryNeedsRefresh = false;
+		        }
 
         // =====================
         // Glass controls
