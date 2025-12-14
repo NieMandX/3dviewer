@@ -19,6 +19,7 @@ import { getSMOffset } from './modules/geo/sm-offset.js';
 import { createFBXWorkerClient } from './modules/workers/fbx-worker-client.js';
 import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
+import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import {
     detectSlotFromMatOrObj,
     detectSlotFromMaterialName,
@@ -428,12 +429,11 @@ class ViewerApp {
             renderedModels: new Set(),
         };
         let statsVisible = false;
-        let lastStatsUpdate = 0;
-        let fpsEstimate = 0;
-        let lastFrameTime = 0;
-        let lastRenderStats = null;
-        let sceneStatsDirty = true;
-        let cachedSceneStats = { triangles: 0 };
+	        let lastStatsUpdate = 0;
+	        let fpsEstimate = 0;
+	        let lastFrameTime = 0;
+	        let lastRenderStats = null;
+	        let sceneGeometryStats = null;
         app.dom = {
             rootEl,
             dropEl,
@@ -490,72 +490,18 @@ class ViewerApp {
         const scene    = new THREE.Scene();
         // scene.background = null;
 
-        const world    = new THREE.Group();
-        scene.add(world);
+	        const world    = new THREE.Group();
+	        scene.add(world);
 
-        function markSceneStatsDirty() {
-            sceneStatsDirty = true;
-        }
+	        sceneGeometryStats = createSceneGeometryStats({ world });
 
-        function isObjectGloballyVisible(obj) {
-            let current = obj;
-            while (current) {
-                if (current.visible === false) return false;
-                current = current.parent;
-            }
-            return true;
-        }
-
-        function estimateTrianglesForMesh(mesh) {
-            const geometry = mesh.geometry;
-            if (!geometry) return 0;
-
-            const instanceMultiplier = mesh.isInstancedMesh ? Math.max(0, mesh.count || 0) : 1;
-
-            if (Array.isArray(mesh.material) && geometry.groups?.length) {
-                let grouped = 0;
-                geometry.groups.forEach(group => {
-                    if (!group || typeof group.count !== 'number' || group.count <= 0) return;
-                    const mat = mesh.material[group.materialIndex];
-                    if (!mat || mat.visible === false) return;
-                    grouped += group.count / 3;
-                });
-                if (grouped > 0 && Number.isFinite(grouped)) {
-                    return Math.max(0, Math.floor(grouped)) * instanceMultiplier;
-                }
-            }
-
-            if (geometry.index && geometry.index.count) {
-                return Math.max(0, Math.floor(geometry.index.count / 3)) * instanceMultiplier;
-            }
-            const position = geometry.attributes?.position;
-            if (position && position.count) {
-                return Math.max(0, Math.floor(position.count / 3)) * instanceMultiplier;
-            }
-            return 0;
-        }
-
-        function getSceneGeometryStats() {
-            if (!sceneStatsDirty && cachedSceneStats) return cachedSceneStats;
-            const stats = { triangles: 0 };
-            if (!world) {
-                cachedSceneStats = stats;
-                sceneStatsDirty = false;
-                return stats;
-            }
-            world.traverse(obj => {
-                if (!obj?.isMesh) return;
-                if (obj.userData?._isBackfaceOverlay) return;
-                if (!isObjectGloballyVisible(obj)) return;
-                if (obj.material && Array.isArray(obj.material) && obj.material.every(mat => mat && mat.visible === false)) return;
-                if (obj.material && !Array.isArray(obj.material) && obj.material.visible === false) return;
-                const triCount = estimateTrianglesForMesh(obj);
-                if (triCount > 0) stats.triangles += triCount;
-            });
-            cachedSceneStats = stats;
-            sceneStatsDirty = false;
-            return stats;
-        }
+	        function markSceneStatsDirty() {
+	            sceneGeometryStats?.markDirty?.();
+	        }
+	
+	        function getSceneGeometryStats() {
+	            return sceneGeometryStats?.getStats?.() || { triangles: 0 };
+	        }
 
         let bgMesh = null; // background sphere used to show HDRI
         app.bgMesh = bgMesh;
