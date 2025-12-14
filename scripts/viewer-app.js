@@ -23,6 +23,14 @@ import {
     parseOrientationFromNode,
     readFBXOrientationFromTree,
 } from './modules/fbx/orientation.js';
+import { splitAllMeshesByUDIM_SM } from './modules/fbx/udim-split.js';
+import {
+    BEAUTY_WIRE_ANGLE_DEG,
+    clearBeautyWire,
+    clearWireframeOverlay,
+    ensureBeautyWire,
+    ensureWireframeOverlay,
+} from './modules/render/wire-overlays.js';
 
 const REQUESTED_RENDERER_MODE = (() => {
     const forced = globalThis.__LPMVIEW_RENDERER;
@@ -2381,135 +2389,8 @@ class ViewerApp {
 
 
 
-        // === Beauty wire helpers ===
-const BEAUTY_WIRE_ANGLE_DEG = 25;   // угол между нормалями, > исключит мягкие рёбра/диагонали
-const BEAUTY_WIRE_COLOR     = 0x111111;
-const BEAUTY_WIRE_OPACITY   = 0.9;
-
-// === Wireframe helpers (WebGPU fallback) ===
-const WIREFRAME_COLOR = 0x666666;
-const WIREFRAME_OPACITY = 0.3;
-
-/** Эмулирует wireframe через LineSegments (material.wireframe в WebGPU не работает). */
-function ensureWireframeOverlay(mesh) {
-    if (!mesh.isMesh || !mesh.geometry) return null;
-
-    if (!mesh.userData._origMaterial) mesh.userData._origMaterial = mesh.material;
-
-    if (!mesh.userData._wireBase) {
-        // depth-only подложка, чтобы линии не "просвечивали" сквозь модель
-        const base = new THREE.MeshBasicMaterial({
-            transparent: true,
-            opacity: 0.0,
-            colorWrite: false,
-            depthWrite: true,
-            side: THREE.DoubleSide,
-            polygonOffset: true,
-            polygonOffsetFactor: 1,
-            polygonOffsetUnits: 1,
-        });
-        mesh.userData._wireBase = base;
-    }
-
-    let line = mesh.userData._wireOverlay;
-    if (!line) {
-        const geo = new THREE.WireframeGeometry(mesh.geometry);
-        const mat = new THREE.LineBasicMaterial({
-            color: WIREFRAME_COLOR,
-            transparent: true,
-            opacity: WIREFRAME_OPACITY,
-        });
-        mat.depthWrite = false;
-        line = new THREE.LineSegments(geo, mat);
-        line.name = (mesh.name || mesh.type) + ' (wireframe)';
-        line.renderOrder = (mesh.renderOrder || 0) + 1;
-        line.userData.excludeFromBounds = true;
-        line.userData._geoId = mesh.geometry.id;
-        mesh.add(line);
-        mesh.userData._wireOverlay = line;
-    } else if (line.userData._geoId !== mesh.geometry.id) {
-        line.geometry?.dispose?.();
-        line.geometry = new THREE.WireframeGeometry(mesh.geometry);
-        line.userData._geoId = mesh.geometry.id;
-    }
-
-    mesh.material = mesh.userData._wireBase;
-    line.visible = true;
-    return line;
-}
-
-function clearWireframeOverlay(mesh) {
-    if (!mesh.isMesh) return;
-    if (mesh.userData._origMaterial) {
-        mesh.material = mesh.userData._origMaterial;
-    }
-    if (mesh.userData._wireOverlay) {
-        mesh.userData._wireOverlay.visible = false;
-    }
-}
-
-/** Готовит красочную обводку (beauty wire) для заданного меша. */
-function ensureBeautyWire(mesh, angleDeg = BEAUTY_WIRE_ANGLE_DEG) {
-    if (!mesh.isMesh || !mesh.geometry) return null;
-
-    // базовая подложка — нейтральный matcap, слегка "утопим" полигоны, чтоб не мерцали с линиями
-    if (!mesh.userData._origMaterial) mesh.userData._origMaterial = mesh.material;
-
-    if (!mesh.userData._beautyBase) {
-        const base = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            roughness: 0.15,
-            metalness: 0.0,
-            polygonOffset: true,
-            polygonOffsetFactor: 1,
-            polygonOffsetUnits: 1
-        });
-        mesh.userData._beautyBase = base;
-    }
-
-    // линии рёбер
-    let line = mesh.userData._beautyWire;
-    if (!line) {
-        const edges = new THREE.EdgesGeometry(mesh.geometry, angleDeg);
-        const mat   = new THREE.LineBasicMaterial({ color: BEAUTY_WIRE_COLOR, transparent: true, opacity: BEAUTY_WIRE_OPACITY });
-        line = new THREE.LineSegments(edges, mat);
-        line.name = (mesh.name || mesh.type) + ' (beautywire)';
-        line.renderOrder = (mesh.renderOrder || 0) + 1;
-        line.userData.excludeFromBounds = true; // не влияeт на fit/shadows
-        mesh.add(line);
-        mesh.userData._beautyWire = line;
-        line.userData._angle = angleDeg;
-    } else if (line.userData._angle !== angleDeg) {
-        // обновим геометрию при смене угла
-        line.geometry?.dispose?.();
-        line.geometry = new THREE.EdgesGeometry(mesh.geometry, angleDeg);
-        line.userData._angle = angleDeg;
-    }
-
-    // применить базовый материал подложки
-    mesh.material = mesh.userData._beautyBase;
-    line.visible = true;
-    return line;
-}
-
-/** Возвращает меш из режима beauty wire к исходному материалу. */
-function clearBeautyWire(mesh) {
-    if (!mesh.isMesh) return;
-    // вернуть исходный материал
-    if (mesh.userData._origMaterial) {
-        mesh.material = mesh.userData._origMaterial;
-    }
-    // скрыть (или удалить) линии
-    if (mesh.userData._beautyWire) {
-        mesh.userData._beautyWire.visible = false; // мягко: прячем
-        // если хочется удалять:
-        // mesh.remove(mesh.userData._beautyWire);
-        // mesh.userData._beautyWire.geometry?.dispose?.();
-        // mesh.userData._beautyWire.material?.dispose?.();
-        // delete mesh.userData._beautyWire;
-    }
-    // подложку можно оставить кешированной
-}
+	        // Wire/beauty overlays
+	        // (moved to `scripts/modules/render/wire-overlays.js`)
         // =====================
         // Shading modes
         // =====================
@@ -3279,157 +3160,18 @@ function clearBeautyWire(mesh) {
         }
 
         const lightEmittersBtn = document.getElementById('lightEmittersBtn');
-        if (lightEmittersBtn) {
-            lightEmittersBtn.addEventListener('click', () => {
-                const next = !importedLightsEnabled;
-                setImportedLightsEnabled(next);
-                lightEmittersBtn.classList.toggle('active', next);
-            });
-            lightEmittersBtn.classList.toggle('active', importedLightsEnabled);
-        }
-        // =====================
-        // UDIM split (для ВПМ/SM)
-        // =====================
-
-        function udimTile(ud) {
-            const i = ud - 1001;
-            return { tu: i % 10, tv: Math.floor(i / 10) };
-        }
-
-        // UDIM для треугольника по средним UV
-        function triUDIM(u1,v1, u2,v2, u3,v3){
-            const u = (u1+u2+u3)/3, v = (v1+v2+v3)/3;
-            const tu = Math.max(0, Math.floor(u));   // не уходим в отрицательные тайлы
-            const tv = Math.max(0, Math.floor(v));
-            return 1001 + tu + tv*10;
-        }
-
-        // Разбить МЕШ на подподузлы по UDIM; вернёт true, если реально был сплит
-        function splitMeshByUDIM(mesh){
-            const g0 = mesh.geometry;
-            if (!g0 || !g0.getAttribute?.('uv')) return false;
-
-            // UCX/коллизии не трогаем
-            const nm = (mesh.name || '').toLowerCase();
-            if (/^ucx/.test(nm)) return false;
-
-            // Разворачиваем индексы — так проще резать по треугольникам
-            const g = g0.index ? g0.toNonIndexed() : g0.clone();
-            const pos = g.getAttribute('position').array;
-            const uv  = g.getAttribute('uv').array;
-            const nrmAttr = g.getAttribute('normal');
-
-            // Разложим треугольники по «ведёркам» UDIM
-            const buckets = new Map(); // udim -> {pos:[], uv:[], nrm:[], tu, tv}
-            const ensure = (ud) => {
-                let b = buckets.get(ud);
-                if (!b) {
-                    const {tu,tv} = udimTile(ud);
-                    b = { pos:[], uv:[], nrm:[], tu, tv };
-                    buckets.set(ud, b);
-                }
-                return b;
-            };
-
-            const triCount = pos.length / 9;
-            for (let t=0; t<triCount; t++){
-                const pBase = t*9, uBase = t*6;
-                const ud = triUDIM(
-                    uv[uBase], uv[uBase+1],
-                    uv[uBase+2], uv[uBase+3],
-                    uv[uBase+4], uv[uBase+5]
-                );
-                const b = ensure(ud);
-
-                // копируем 3 вершины
-                for (let k=0;k<9;k++) b.pos.push(pos[pBase+k]);
-                // for (let k=0;k<6;k++) b.uv.push(uv[uBase+k]);
-
-                // UV: «сдвигаем» тайл к [0..1] вычитая целую часть
-                b.uv.push(
-                    uv[uBase]   - b.tu, uv[uBase+1] - b.tv,
-                    uv[uBase+2] - b.tu, uv[uBase+3] - b.tv,
-                    uv[uBase+4] - b.tu, uv[uBase+5] - b.tv
-                );
-
-                if (nrmAttr){
-                    const nrm = nrmAttr.array;
-                    for (let k=0;k<9;k++) b.nrm.push(nrm[pBase+k]);
-                }
-            }
-
-            if (buckets.size <= 1) return false; // весь меш в одном UDIM — нечего делить
-
-            // Контейнер на месте старого меша
-            const holder = new THREE.Group();
-            holder.name = 'UDIM';
-            holder.userData.udimHolder = true;
-
-            // переносим трансформ меша на holder; дети — с единичными трансформами
-            holder.position.copy(mesh.position);
-            holder.quaternion.copy(mesh.quaternion);
-            holder.scale.copy(mesh.scale);
-
-            // На каждый UDIM — свой узел с дочерним Mesh
-            for (const [ud, b] of buckets){
-                const gg = new THREE.BufferGeometry();
-                gg.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
-                gg.setAttribute('uv',       new THREE.Float32BufferAttribute(b.uv,  2));
-                if (b.nrm.length) gg.setAttribute('normal', new THREE.Float32BufferAttribute(b.nrm, 3));
-                else gg.computeVertexNormals();
-
-                const tileGroup = new THREE.Group();
-                tileGroup.name = `UDIM ${ud}`;
-                tileGroup.userData.udim = ud;
-
-                // ✅ делаем уникальный материал для КАЖДОГО UDIM
-                let childMat;
-                const srcMat = mesh.material;
-                if (Array.isArray(srcMat)) {
-                    childMat = srcMat.map((m, i) => {
-                        const c = m.clone();
-                        c.name = (m.name || mesh.name || 'Material') +
-                                ` · UDIM ${ud}` +
-                                (srcMat.length > 1 ? `_${i+1}` : '');
-                        return c;
-                    });
-                } else {
-                    childMat = srcMat.clone();
-                    childMat.name = (srcMat.name || mesh.name || 'Material') + ` · UDIM ${ud}`;
-                }
-
-                const child = new THREE.Mesh(gg, childMat);
-                child.name = `${mesh.name || mesh.type} · UDIM ${ud}`;
-                child.castShadow = mesh.castShadow;
-                child.receiveShadow = mesh.receiveShadow;
-                child.userData.udim = ud;
-
-                tileGroup.add(child);
-                holder.add(tileGroup);
-            }
-
-            // Подменяем меш на holder у того же родителя (сохраним местоположение в списке детей)
-            const parent = mesh.parent;
-            const i = parent.children.indexOf(mesh);
-            parent.remove(mesh);
-            parent.children.splice(i, 0, holder);
-            holder.parent = parent;
-
-            // Чистим исходную геометрию, если она нам больше не нужна
-            g0.dispose?.();
-
-            return true;
-        }
-
-        // Запустить сплит по всему FBX-объекту (только для ВПМ/SM)
-        function splitAllMeshesByUDIM_SM(root){
-            const list = [];
-            root.traverse(o => {
-                if (o.isMesh && o.geometry?.getAttribute?.('uv')) list.push(o);
-            });
-            // важнo: менять дерево после обхода
-            list.forEach(m => splitMeshByUDIM(m));
-        }
+	        if (lightEmittersBtn) {
+	            lightEmittersBtn.addEventListener('click', () => {
+	                const next = !importedLightsEnabled;
+	                setImportedLightsEnabled(next);
+	                lightEmittersBtn.classList.toggle('active', next);
+	            });
+	            lightEmittersBtn.classList.toggle('active', importedLightsEnabled);
+	        }
+	        // =====================
+	        // UDIM split (для ВПМ/SM)
+	        // (moved to `scripts/modules/fbx/udim-split.js`)
+	        // =====================
 
         /**
          * Пытается уменьшить количество draw call'ов для стекла:
