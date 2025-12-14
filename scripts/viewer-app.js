@@ -21,6 +21,7 @@ import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
+import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
 import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import {
@@ -420,19 +421,13 @@ class ViewerApp {
 	        let currentShadingMode = 'pbr';
 	        let galleryNeedsRefresh = false;
 	        let lastFinalizedModelIndex = 0;
-        let needsRender = true;
-        let parcelsGroup = null;
-        let parcelsOrigin = null;
-	        const panelState = {
-	            rootDetails: null,
-	            ungroupedMarker: null,
-	            groups: new Map(),
-	            renderedModels: new Set(),
-	        };
-	        let fpsEstimate = 0;
-	        let lastFrameTime = 0;
-	        let lastRenderStats = null;
-	        let sceneGeometryStats = null;
+	        let needsRender = true;
+	        let parcelsGroup = null;
+	        let parcelsOrigin = null;
+		        let fpsEstimate = 0;
+		        let lastFrameTime = 0;
+		        let lastRenderStats = null;
+		        let sceneGeometryStats = null;
         app.dom = {
             rootEl,
             dropEl,
@@ -3001,14 +2996,29 @@ class ViewerApp {
 
 
 
-        // =====================================================================
-        // UI · Materials Panel & Gallery
-        // =====================================================================
+	        // =====================================================================
+	        // UI · Materials Panel & Gallery
+	        // =====================================================================
 
-        let panelRefreshPending = false;
-        const panelRefreshCallbacks = [];
-        const PANEL_TEX_KEYS = ['map','alphaMap','normalMap','bumpMap','aoMap','emissiveMap','specularMap','roughnessMap','metalnessMap'];
-        let panelNeedsFullRefresh = false;
+	        const materialsPanel = createMaterialsPanelController({
+	            world,
+	            loadedModels,
+	            outEl,
+	            matSelect,
+	            requestRender,
+	            handleEyeToggle,
+	            updateEyeButtonsForTarget,
+	            openGeoModal,
+	            handleGlassSliderInput,
+	            handleGlassColorInput,
+	            texInfo,
+	            formatColorForDisplay,
+	        });
+
+	        let panelRefreshPending = false;
+	        const panelRefreshCallbacks = [];
+	        const PANEL_TEX_KEYS = ['map','alphaMap','normalMap','bumpMap','aoMap','emissiveMap','specularMap','roughnessMap','metalnessMap'];
+	        let panelNeedsFullRefresh = false;
 
         function resetMaterialsPanelState() {
             panelState.groups.forEach(entry => entry?.wrapper?.remove?.());
@@ -3022,20 +3032,9 @@ class ViewerApp {
             panelNeedsFullRefresh = false;
         }
 
-        function schedulePanelRefresh(afterRender) {
-            if (typeof afterRender === 'function') panelRefreshCallbacks.push(afterRender);
-            if (panelRefreshPending) return;
-            panelRefreshPending = true;
-            Promise.resolve().then(() => {
-                panelRefreshPending = false;
-                if (panelNeedsFullRefresh) resetMaterialsPanelState();
-                renderMaterialsPanel();
-                const callbacks = panelRefreshCallbacks.splice(0);
-                callbacks.forEach(cb => {
-                    try { cb(); } catch (err) { console.error('panel refresh callback failed', err); }
-                });
-            });
-        }
+	        function schedulePanelRefresh(afterRender) {
+	            materialsPanel.scheduleRefresh(afterRender);
+	        }
 
         function getPanelMaterials(obj) {
             if (!obj) return [];
@@ -3525,65 +3524,20 @@ class ViewerApp {
             syncCollisionButtons();
         }
 
-        /** Возвращает { mesh, mat, index } по UUID и индексу материала для стеклянных контролов. */
-        function resolveGlassMaterial(uuid, matIndex) {
-            if (!uuid) return null;
-            const mesh = world.getObjectByProperty('uuid', uuid);
-            if (!mesh || !mesh.material) return null;
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-            const index = Number.isInteger(matIndex) ? matIndex : (Number.isFinite(matIndex) ? matIndex : 0);
-            const safeIndex = (index >= 0 && index < mats.length) ? index : 0;
-            const mat = mats[safeIndex];
-            if (!mat) return null;
-            return { mesh, mat, index: safeIndex };
-        }
+	        /** Возвращает { mesh, mat, index } по UUID и индексу материала для стеклянных контролов. */
+	        function resolveGlassMaterial(uuid, matIndex) {
+	            return materialsPanel.resolveGlassMaterial(uuid, matIndex);
+	        }
 
         /** Навешивает обработчики на контролы стекла после перерисовки панели. */
         function bindGlassControls() {
             attachPanelEvents(outEl);
         }
 
-        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
-        function syncCollisionButtons() {
-            if (!outEl) return;
-
-            loadedModels.forEach(model => {
-                const root = model.obj;
-                if (!root) return;
-                let hasAny = false;
-                let anyVisible = false;
-                root.traverse(o => {
-                    if (o.userData?.isCollision) {
-                        hasAny = true;
-                        if (o.visible !== false) anyVisible = true;
-                    }
-                });
-                if (hasAny) updateEyeButtonsForTarget(`colgrp|${root.uuid}`, anyVisible);
-            });
-
-            const grouped = new Map();
-            loadedModels.forEach(model => {
-                if (!model.group) return;
-                if (!grouped.has(model.group)) grouped.set(model.group, []);
-                grouped.get(model.group).push(model);
-            });
-
-            grouped.forEach((models, groupName) => {
-                let hasAny = false;
-                let anyVisible = false;
-                models.forEach(model => {
-                    const root = model.obj;
-                    if (!root) return;
-                    root.traverse(o => {
-                        if (o.userData?.isCollision) {
-                            hasAny = true;
-                            if (o.visible !== false) anyVisible = true;
-                        }
-                    });
-                });
-                if (hasAny) updateEyeButtonsForTarget(`zipcoll|${groupName}`, anyVisible);
-            });
-        }
+	        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
+	        function syncCollisionButtons() {
+	            materialsPanel.syncCollisionButtons();
+	        }
 
         /** Обработчик изменения значений слайдеров стекла (α/rough/metal). */
         function handleGlassSliderInput(ev) {
@@ -4680,11 +4634,11 @@ class ViewerApp {
                 }
             });
 
-            await Promise.all(bindOps);
-            requestRender();
-            panelNeedsFullRefresh = true;
-            schedulePanelRefresh();
-        }
+	            await Promise.all(bindOps);
+	            requestRender();
+	            materialsPanel.markNeedsFullRefresh();
+	            schedulePanelRefresh();
+	        }
 
 
 
