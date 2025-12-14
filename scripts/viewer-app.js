@@ -11,6 +11,9 @@ import {
     getVPMReferenceHeight,
     parseGeoNumber,
 } from './modules/parcels.js';
+import { basename } from './modules/utils/path.js';
+import { makeGeoJsonMeta } from './modules/geo/geojson-meta.js';
+import { getSMOffset } from './modules/geo/sm-offset.js';
 import { createFBXWorkerClient } from './modules/workers/fbx-worker-client.js';
 import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
@@ -3467,39 +3470,17 @@ class ViewerApp {
             return col;
             }
 
-        function basename(p) { return (p || '').split(/[\\\/]/).pop(); }
-        
-
-        // helper: формируем метаданные GeoJSON (url для скачивания, prettified текст, подсчёт features)
-        // =====================================================================
-        // GeoJSON & Glass parameters
-        // =====================================================================
+	        // helper: формируем метаданные GeoJSON (url для скачивания, prettified текст, подсчёт features)
+	        // =====================================================================
+	        // GeoJSON & Glass parameters
+	        // =====================================================================
 
         /**
          * Формирует удобную структуру с распарсенным GeoJSON, количеством features
          * и blob-URL для скачивания. Используется для SM (ВПМ) проектов.
          */
-        function makeGeoJsonMeta(zipName, entryName, text){
-            let parsed = null, featureCount = null;
-            try {
-                parsed = JSON.parse(text);
-                if (parsed?.type === 'FeatureCollection' && Array.isArray(parsed.features)) {
-                    featureCount = parsed.features.length;
-                }
-            } catch(_) {}
-
-            const blob = new Blob([text], { type: 'application/geo+json' });
-            const url  = URL.createObjectURL(blob);
-
-            return {
-                zipName,
-                entryName: basename(entryName),
-                text,           // исходный JSON-текст
-                parsed,         // распарсенный объект (если получилось)
-                featureCount,   // число features (если это FeatureCollection)
-                url             // blob-url для кнопки "Скачать"
-            };
-        }
+	        // `basename` moved to `scripts/modules/utils/path.js`
+	        // `makeGeoJsonMeta` moved to `scripts/modules/geo/geojson-meta.js`
 
         /** Безопасно переводит строку вида "0,1" → число, возвращает fallback при ошибке. */
         /** Ограничивает значение диапазоном [0,1], не выбрасывая NaN. */
@@ -3974,36 +3955,7 @@ class ViewerApp {
         // ----------------------------------
 
 
-function getSMOffset(meta) {
-    function log(msg, level){ try{ typeof logBind==='function'?logBind(msg,level||'info'):console.log(msg); }catch(_){ console.log(msg); } }
-    const src = meta?.parsed ?? meta?.json ?? meta?.text ?? meta;
-    let data = null;
-    try { data = (typeof src === 'string') ? JSON.parse(src) : src; }
-    catch(e){ log(`GeoJSON parse error: ${e?.message||e} → Δ=0`, 'warn'); return {x:0,y:0,z:0}; }
-    if (!data || typeof data!=='object'){ log('GeoJSON: empty → Δ=0','warn'); return {x:0,y:0,z:0}; }
-
-    // ищем первый узел с geometry.type === 'Point'
-    let node = null;
-    (function find(o){
-        if (node || !o || typeof o!=='object') return;
-        if (o.geometry && o.geometry.type==='Point' && Array.isArray(o.geometry.coordinates)) { node = o; return; }
-        for (const k in o){ const v=o[k]; if (v && typeof v==='object') find(v); if (node) break; }
-    })(data);
-    if (!node){ log('GeoJSON: Point not found → Δ=0','warn'); return {x:0,y:0,z:0}; }
-
-    const c = node.geometry.coordinates;
-    const toNum = v => (typeof v==='number'&&isFinite(v))?v: (typeof v==='string'? parseFloat(v.replace(/\s+/g,'').replace(',','.')):NaN);
-    const X = toNum(c[0]) || 0;
-    const Y = toNum(c[1]) || 0;
-    let Z = 0;
-    if (node.properties && node.properties.h_relief != null) {
-        const hr = toNum(node.properties.h_relief);
-        if (isFinite(hr)) Z = hr;
-    }
-    log(`VPM: GeoJSON offset → Δx=${X} Δy=${Y} Δz=${Z}`,'ok');
-    if (Number.isFinite(Z)) setVPMReferenceHeight(Z);
-    return { x:X, y:Y, z:Z };
-}
+	        // `getSMOffset` moved to `scripts/modules/geo/sm-offset.js`
 
 
 
@@ -6303,7 +6255,10 @@ function getSMOffset(meta) {
         if ((zipKind || '').toUpperCase() === 'SM' && zipMeta) {
             obj.userData._geojsonMeta = zipMeta;
 
-            const { x, y, z } = getSMOffset(zipMeta);
+	            const { x, y, z } = getSMOffset(zipMeta, {
+	                log: (msg, level) => logBind(msg, level),
+	                setVPMReferenceHeight,
+	            });
 
             applyGeoOffsetByOrientation(obj, orientationType, { x, y, z });
 
