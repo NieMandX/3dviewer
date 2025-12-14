@@ -18,6 +18,14 @@ import { createFBXWorkerClient } from './modules/workers/fbx-worker-client.js';
 import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
 import {
+    detectSlotFromMatOrObj,
+    detectSlotFromMaterialName,
+    findGeomSuffix,
+    GEOM_SUFFIXES,
+    isGlassByName,
+    isGlassGeomSuffix,
+} from './modules/material/naming.js';
+import {
     applyGeoOffsetByOrientation,
     describeFBXOrientation,
     describeOrientationType,
@@ -3901,51 +3909,7 @@ class ViewerApp {
             }
         }
 
-        const GEOM_SUFFIXES = ['mainglass', 'main', 'groundglass', 'groundelglass', 'groundel', 'ground', 'flora'];
-
-        function findGeomSuffix(label) {
-            const s = (label || '').toLowerCase();
-            for (const g of GEOM_SUFFIXES) {
-                const re = new RegExp(`(?:^|[^a-z0-9])${g}(?:[^a-z0-9]|$)`, 'i');
-                if (re.test(s)) return g;
-            }
-            return null;
-        }
-
-        // Определяем номер слота из имени материала/объекта.
-        // Ищем паттерн вида "..._Main_1" / "..._MainGlass_2" / "..._Ground_3" и пр.
-        function detectSlotFromMaterialName(name) {
-            if (!name) return null;
-            const s = String(name);
-
-            // Явный случай: _<GeomSuffix>_<slot> в конце
-            // GEOM_SUFFIXES = ['mainglass','main','groundglass','groundelglass','groundel','ground','flora']
-            const rx = new RegExp(`_(?:${GEOM_SUFFIXES.join('|')})_(\\d{1,3})(?!\\d)\\s*$`, 'i');
-            const m1 = s.match(rx);
-            if (m1) return parseInt(m1[1], 10);
-
-            // Защита: не трогаем имена, заканчивающиеся на "UDIM 1005" и т.п.
-            if (/UDIM\s*\d{4}\s*$/i.test(s)) return null;
-
-            // Бэкап: если в самом конце просто "_<число>", берём его (например "M_..._1")
-            const m2 = s.match(/_(\d{1,3})\s*$/);
-            if (m2) return parseInt(m2[1], 10);
-
-            return null;
-        }
-
-        // Используем её и для объекта, и для материала
-        function detectSlotFromMatOrObj(obj, mat){
-            const byMat = detectSlotFromMaterialName(mat?.name);
-            if (byMat != null) return byMat;
-            const byObj = detectSlotFromMaterialName(obj?.name);
-            if (byObj != null) return byObj;
-            return 1; // запасной вариант
-        }
-
-
-        function isGlassGeomSuffix(geomSuffix) { return /^(mainglass|groundglass|groundelglass)$/.test((geomSuffix || '').toLowerCase()); }
-        function isGlassByName(name) { return /\b(mainglass|groundglass|groundelglass)\b/.test((name || '').toLowerCase()); }
+	        // `GEOM_SUFFIXES`/slot + glass name helpers moved to `scripts/modules/material/naming.js`
 
 
 
