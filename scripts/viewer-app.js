@@ -21,6 +21,7 @@ import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
+import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import {
     detectSlotFromMatOrObj,
     detectSlotFromMaterialName,
@@ -414,12 +415,10 @@ class ViewerApp {
         const sampleSelect    = document.getElementById('sampleSelect');
 
 
-        let didInitialRebase = false;
-        let currentShadingMode = 'pbr';
-        let galleryNeedsRefresh = false;
-        let galleryRenderedCount = 0;
-        let gallerySpacerEl = null;
-        let lastFinalizedModelIndex = 0;
+	        let didInitialRebase = false;
+	        let currentShadingMode = 'pbr';
+	        let galleryNeedsRefresh = false;
+	        let lastFinalizedModelIndex = 0;
         let needsRender = true;
         let parcelsGroup = null;
         let parcelsOrigin = null;
@@ -4308,101 +4307,23 @@ class ViewerApp {
             return `${to255(color.r)}/${to255(color.g)}/${to255(color.b)}`;
         }
 
-        // =====================
-        // Gallery / modal
-        // =====================
-        /**
-         * Обновляет галерею текстур в боковой панели: миниатюры embedded/zip изображений.
-         */
-        function renderGallery(listAll) {
-            const total = Array.isArray(listAll) ? listAll.length : 0;
-
-            if (!gallerySpacerEl || gallerySpacerEl.parentNode !== galleryEl) {
-                gallerySpacerEl = document.createElement('div');
-                gallerySpacerEl.className = 'gallery-spacer';
-            }
-
-            if (total === 0) {
-                galleryEl.innerHTML = '';
-                gallerySpacerEl = document.createElement('div');
-                gallerySpacerEl.className = 'gallery-spacer';
-                galleryEl.appendChild(gallerySpacerEl);
-                galleryRenderedCount = 0;
-                texCountEl.textContent = '0';
-                return;
-            }
-
-            if (total < galleryRenderedCount) {
-                galleryEl.innerHTML = '';
-                galleryRenderedCount = 0;
-            }
-
-            const fragment = document.createDocumentFragment();
-            for (let i = galleryRenderedCount; i < total; i++) {
-                const e = listAll[i];
-                const div = document.createElement('div');
-                div.className = 'thumb';
-
-                const imgWrap = document.createElement('div');
-                if (e?.url) {
-                    const img = document.createElement('img');
-                    img.loading = 'lazy';
-                    img.decoding = 'async';
-                    img.alt = e.short || '';
-                    img.src = e.url;
-                    img.onerror = () => {
-                        div.classList.add('broken');
-                        img.replaceWith(makePlaceholder(e));
-                    };
-                    imgWrap.appendChild(img);
-                } else {
-                    div.classList.add('broken');
-                    imgWrap.appendChild(makePlaceholder(e));
-                }
-
-                const nm = document.createElement('div');
-                nm.className = 'nm';
-                nm.title = (e.full || e.short || '') + (e.fileName ? ` — ${e.fileName}` : '');
-                nm.textContent = e.short || `(entry ${i})`;
-
-                const pill = document.createElement('span');
-                pill.className = 'pill';
-                pill.textContent = `${guessKindFromName(e.short)}${e.fileName ? ` · ${basename(e.fileName)}` : ''}`;
-
-                div.appendChild(imgWrap);
-                div.appendChild(nm);
-                div.appendChild(pill);
-                div.addEventListener('click', () => openTexModal(e));
-
-                fragment.appendChild(div);
-            }
-
-            if (fragment.childNodes.length) {
-                if (galleryRenderedCount === 0) {
-                    galleryEl.innerHTML = '';
-                }
-                if (gallerySpacerEl.parentNode !== galleryEl) {
-                    galleryEl.appendChild(gallerySpacerEl);
-                }
-                galleryEl.insertBefore(fragment, gallerySpacerEl);
-            }
-
-            if (gallerySpacerEl.parentNode !== galleryEl) {
-                galleryEl.appendChild(gallerySpacerEl);
-            }
-
-            galleryRenderedCount = total;
-            texCountEl.textContent = String(total);
-
-            function makePlaceholder(entry) {
-                const ph = document.createElement('div');
-                ph.className = 'ph';
-                ph.textContent = entry?.mime ? entry.mime : 'preview error';
-                return ph;
-            }
-
-            galleryNeedsRefresh = false;
-        }
+	        // =====================
+	        // Gallery / modal
+	        // =====================
+	        const textureGallery = createTextureGalleryController({
+	            galleryEl,
+	            texCountEl,
+	            basename,
+	            guessKindFromName,
+	            onOpen: openTexModal,
+	        });
+	        /**
+	         * Обновляет галерею текстур в боковой панели: миниатюры embedded/zip изображений.
+	         */
+	        function renderGallery(listAll) {
+	            textureGallery.render(listAll);
+	            galleryNeedsRefresh = false;
+	        }
 
         const texModal = document.getElementById('texModal');
         const mClose = document.getElementById('mClose');
