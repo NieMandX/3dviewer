@@ -37,6 +37,7 @@ import {
     parseOrientationFromNode,
     readFBXOrientationFromTree,
 } from './modules/fbx/orientation.js';
+import { createCollisionVisibilityHelpers, markCollisionMeshes } from './modules/fbx/collisions.js';
 import { splitAllMeshesByUDIM_SM } from './modules/fbx/udim-split.js';
 import {
     BEAUTY_WIRE_ANGLE_DEG,
@@ -3673,110 +3674,14 @@ class ViewerApp {
         // =====================
 
 
-        // === COLLISIONS (UCX) =========================================
-        const COLLISION_MAT_BASE = new THREE.MeshBasicMaterial({
-            color: 0xff3333,
-            transparent: true,
-            opacity: 0.25,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-            toneMapped: false
-        });
-
-        function isUCXName(s){ return /^ucx/i.test(String(s||'')); }
-
-        function getNearestUCXName(obj){
-            for (let p = obj; p; p = p.parent){
-                if (isUCXName(p.name)) return p.name;
-                if (p.geometry && isUCXName(p.geometry.name)) return p.geometry.name;
-            }
-            return null;
-        }
-
-        /**
-         * Помечает UCX-меши, задаёт им красный прозрачный материал (с именем UCX-объекта)
-         * и отключает тени у коллизий.
-         */
-        function markCollisionMeshes(root){
-            root.traverse(o => {
-                if (!o.isMesh) return;
-                const ucxBase = getNearestUCXName(o);
-                if (!ucxBase) return;
-
-                o.userData.isCollision = true;
-                o.castShadow = false;
-                o.receiveShadow = false;
-
-                const nm = ucxBase || o.name || o.geometry?.name || '__COLLISION__';
-                const m = COLLISION_MAT_BASE.clone();
-                m.name = nm;
-
-                if (Array.isArray(o.material)) {
-                    o.material = o.material.map(() => m);
-                } else {
-                    o.material = m;
-                }
-
-                // Чтобы рисовались поверх, но без мерцания
-                o.renderOrder = Math.max(o.renderOrder || 0, 999);
-                o.visible = false;
-                o.userData._origMaterial = o.material;
-            });
-        }
-
-        /** Если в группе ZIP остались видимые коллизии, скрывает их и синхронизирует кнопки. */
-        function ensureZipCollisionsHidden(groupName) {
-            if (!groupName) return;
-            const models = loadedModels.filter(m => m.group === groupName);
-            if (!models.length) return;
-
-            let anyCollision = false;
-            models.forEach(model => {
-                if (!model?.obj) return;
-                model.obj.traverse(o => {
-                    if (!o.isMesh || !o.userData?.isCollision) return;
-                    anyCollision = true;
-                    if (o.visible !== false) {
-                        setMeshAndMaterialsVisibility(o, false);
-                    }
-                });
-            });
-
-            if (!anyCollision) return;
-
-            schedulePanelRefresh(() => {
-                updateEyeButtonsForTarget(`zipcoll|${groupName}`, false);
-                models.forEach(model => {
-                    if (model?.obj?.uuid) updateEyeButtonsForTarget(`colgrp|${model.obj.uuid}`, false);
-                });
-                syncCollisionButtons();
-            });
-        }
-
-        function hideCollisions(root, refresh = true) {
-            let changed = false;
-            root.traverse(o => {
-                if (o.userData?.isCollision) {
-                    if (o.visible !== false) {
-                        setMeshAndMaterialsVisibility(o, false);
-                        changed = true;
-                    }
-                }
-            });
-            if (changed && refresh) schedulePanelRefresh(() => syncCollisionButtons());
-            return changed;
-        }
-
-        function hideSMCollisions(syncUI = true) {
-            let changed = false;
-            loadedModels.forEach(model => {
-                if ((model.zipKind || '').toUpperCase() !== 'SM') return;
-                if (!model?.obj) return;
-                if (hideCollisions(model.obj, false)) changed = true;
-            });
-            if (changed && syncUI) syncCollisionButtons();
-            return changed;
-        }
+	        // === COLLISIONS (UCX) =========================================
+	        const { ensureZipCollisionsHidden, hideSMCollisions } = createCollisionVisibilityHelpers({
+	            loadedModels,
+	            schedulePanelRefresh,
+	            updateEyeButtonsForTarget,
+	            setMeshAndMaterialsVisibility,
+	            syncCollisionButtons,
+	        });
 
 
         function toStandard(m) {
