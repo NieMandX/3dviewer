@@ -12,6 +12,8 @@ import {
     parseGeoNumber,
 } from './modules/parcels.js';
 import { basename } from './modules/utils/path.js';
+import { clamp01 } from './modules/utils/math.js';
+import { geoColorToHex, normalizeHexColor } from './modules/utils/color.js';
 import { makeGeoJsonMeta } from './modules/geo/geojson-meta.js';
 import { getSMOffset } from './modules/geo/sm-offset.js';
 import { createFBXWorkerClient } from './modules/workers/fbx-worker-client.js';
@@ -633,11 +635,10 @@ class ViewerApp {
         scene.add(northPointer);
         app.northPointer = northPointer;
 
-        const _northTmpDir = new THREE.Vector3();
-        const _northBaseVec = new THREE.Vector3();
-        const _northUpVec = new THREE.Vector3();
-        const _northPlaneVec2 = new THREE.Vector2();
-        const _glassTmpColor = new THREE.Color();
+	        const _northTmpDir = new THREE.Vector3();
+	        const _northBaseVec = new THREE.Vector3();
+	        const _northUpVec = new THREE.Vector3();
+	        const _northPlaneVec2 = new THREE.Vector2();
 
         function createNorthPointer() {
             const color = 0xff3d00;
@@ -3490,57 +3491,8 @@ class ViewerApp {
 	        // `basename` moved to `scripts/modules/utils/path.js`
 	        // `makeGeoJsonMeta` moved to `scripts/modules/geo/geojson-meta.js`
 
-        /** Безопасно переводит строку вида "0,1" → число, возвращает fallback при ошибке. */
-        /** Ограничивает значение диапазоном [0,1], не выбрасывая NaN. */
-        function clamp01(v) {
-            const num = Number.isFinite(v) ? v : 0;
-            return Math.min(1, Math.max(0, num));
-        }
-
-        /** Нормализует hex-цвет в формат #RRGGBB или возвращает fallback. */
-        function normalizeHexColor(value, fallback = null) {
-            if (typeof value !== 'string') return fallback;
-            let hex = value.trim();
-            if (!hex) return fallback;
-            if (!hex.startsWith('#')) hex = `#${hex}`;
-            if (/^#[0-9a-fA-F]{3}$/.test(hex)) {
-                hex = `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
-            }
-            if (/^#[0-9a-fA-F]{8}$/.test(hex)) {
-                hex = hex.slice(0, 7);
-            }
-            if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
-                return hex.toUpperCase();
-            }
-            return fallback;
-        }
-
-        /** Преобразует объект цвета GeoJSON в hex-строку. */
-        function geoColorToHex(colorObj) {
-            if (!colorObj) return null;
-            try {
-                if (Array.isArray(colorObj) && colorObj.length >= 3) {
-                    _glassTmpColor.setRGB(
-                        clamp01(colorObj[0]),
-                        clamp01(colorObj[1]),
-                        clamp01(colorObj[2])
-                    );
-                } else if (typeof colorObj === 'object' && colorObj !== null && 'r' in colorObj) {
-                    _glassTmpColor.setRGB(
-                        clamp01(colorObj.r ?? 0),
-                        clamp01(colorObj.g ?? 0),
-                        clamp01(colorObj.b ?? 0)
-                    );
-                } else if (typeof colorObj === 'string') {
-                    _glassTmpColor.set(colorObj);
-                } else {
-                    return null;
-                }
-                return `#${_glassTmpColor.getHexString().toUpperCase()}`;
-            } catch (_) {
-                return null;
-            }
-        }
+	        // `clamp01` moved to `scripts/modules/utils/math.js`
+	        // `normalizeHexColor` / `geoColorToHex` moved to `scripts/modules/utils/color.js`
 
         /** Приводит имя стеклянного материала к нормализованному ключу (lowercase). */
         function normalizeGlassKey(name) {
