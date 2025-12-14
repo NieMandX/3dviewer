@@ -24,6 +24,8 @@ import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
 import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
+import { createFBXFileHandler } from './modules/io/fbx-file.js';
+import { createZIPFileHandler } from './modules/io/zip-file.js';
 import {
     detectSlotFromMatOrObj,
     detectSlotFromMaterialName,
@@ -4987,387 +4989,78 @@ class ViewerApp {
          * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
          * извлекает embedded текстуры, выполняет автопривязку и обновляет панель/шейдинг.
          */
+        const handleFBXFileImpl = createFBXFileHandler({
+            THREE,
+            fbxLoader,
+            basename,
+            logSessionHeader,
+            logBind,
+            hideSidePanel,
+            setStatusMessage,
+            requestRender,
+            schedulePanelRefresh,
+            parseFBXInWorker,
+            parseFBXOnMainThread,
+            isWorkerSupported: () => fbxWorkerSupported,
+            setWorkerSupported: (next) => { fbxWorkerSupported = next; },
+            disableWorker: (err) => { try { fbxWorkerClient.disable(err); } catch (_) {} },
+            extractImagesFromFBX,
+            sniffImage,
+            allEmbedded,
+            markGalleryNeedsRefresh: () => { galleryNeedsRefresh = true; },
+            world,
+            loadedModels,
+            determineOrientationType,
+            describeOrientationType,
+            describeFBXOrientation,
+            readFBXOrientationFromTree,
+            parseOrientationFromNode,
+            normalizeObjectOrientation,
+            getSMOffset,
+            applyGeoOffsetByOrientation,
+            setVPMReferenceHeight,
+            restoreLightTargetsFromOrientation,
+            disableShadowsOnImportedLights,
+            ensureLightHelpers,
+            renameMaterialsByFBXObject,
+            markCollisionMeshes,
+            splitAllMeshesByUDIM_SM,
+            optimizeGlassMeshes,
+            autoBindByNamesForModel,
+            setImportedLightsEnabled,
+            getImportedLightsEnabled: () => importedLightsEnabled,
+            applyGlassControlsToScene,
+            setEmptyHintVisible,
+            markSceneStatsDirty,
+        });
+
+        const handleZIPFileImpl = createZIPFileHandler({
+            basename,
+            unpackZIPInWorker,
+            makeGeoJsonMeta,
+            handleFBXFile: handleFBXFileImpl,
+            logSessionHeader,
+            logBind,
+            hideSidePanel,
+            setStatusMessage,
+            schedulePanelRefresh,
+            ensureZipCollisionsHidden,
+            setEmptyHintVisible,
+            allEmbedded,
+            markGalleryNeedsRefresh: () => { galleryNeedsRefresh = true; },
+            loadedModels,
+            JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
+        });
+
         async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, options = null) {
-        logSessionHeader(`FBX: ${file.name}`);
-        hideSidePanel();
-
-        // если zipKind не передали из handleZIPFile — определим по имени ZIP здесь
-        if (!zipKind && groupName) {
-            zipKind = /^\d/.test(groupName) ? 'NPM' : (/^SM/i.test(groupName) ? 'SM' : null);
-        }
-
-        const bufferOverride = options?.buffer || null;
-        let ab = bufferOverride || await file.arrayBuffer();
-        let embedded = [];
-
-        let orientationInfo = null;
-        let orientationSource = null;
-        let orientationMeta = determineOrientationType(null);
-        let orientationType = orientationMeta.type;
-
-        setStatusMessage(`Парсинг FBX: ${file.name}…`);
-
-        let parsedObj = null;
-        let parsedViaWorker = false;
-        let parseDuration = 0;
-
-        if (fbxWorkerSupported) {
-            try {
-                const workerResult = await parseFBXInWorker(ab, { embedded: true, orientation: true });
-                parsedObj = workerResult.obj;
-                parsedViaWorker = true;
-                parseDuration = workerResult.duration;
-                orientationInfo = workerResult.orientationInfo || null;
-                orientationSource = orientationInfo?.source || null;
-
-                const embeddedRaw = Array.isArray(workerResult.embedded) ? workerResult.embedded : [];
-                embedded = embeddedRaw.map((entry) => {
-                    const buf = entry?.buffer;
-                    const mime = entry?.mime || (buf ? sniffImage(new Uint8Array(buf)).mime : 'application/octet-stream');
-                    const url = buf ? URL.createObjectURL(new Blob([buf], { type: mime })) : null;
-                    return {
-                        short: entry?.short || basename(entry?.full || '')?.toLowerCase?.() || '',
-                        url,
-                        full: entry?.full || entry?.short || '',
-                        mime,
-                        source: 'embedded',
-                        fileName: file.name,
-                    };
-                }).filter((e) => e && e.url);
-            } catch (err) {
-                logBind(`FBX: фон. парсер не сработал → ${err?.message || err}`, 'warn');
-                fbxWorkerSupported = false;
-                try { fbxWorkerClient.disable(err); } catch (_) {}
-                try {
-                    ab = await file.arrayBuffer();
-                } catch (reloadErr) {
-                    logBind(`FBX: повторное чтение файла не удалось → ${reloadErr?.message || reloadErr}`, 'warn');
-                    throw err;
-                }
-            }
-        }
-
-        if (!parsedObj) {
-            try {
-                const mainResult = parseFBXOnMainThread(ab);
-                parsedObj = mainResult.obj;
-                parseDuration = mainResult.duration;
-
-                // embedded-извлечение (fallback на UI-потоке)
-                embedded = await extractImagesFromFBX(ab);
-                embedded.forEach(e => e.fileName = file.name);
-            } catch (err) {
-                setStatusMessage(`Ошибка парсинга: ${file.name}`);
-                logBind(`⚠️ Ошибка парсинга ${file.name}: ${err?.message || String(err)}`, 'warn');
-                throw err;
-            }
-        }
-
-        if (embedded.length) {
-            allEmbedded.push(...embedded);
-            galleryNeedsRefresh = true;
-        }
-
-        const obj = parsedObj;
-        if (!obj) {
-            setStatusMessage(`Ошибка парсинга: ${file.name}`);
-            logBind(`⚠️ Парсер FBX вернул пустой объект для ${file.name}`, 'warn');
-            return;
-        }
-
-        setStatusMessage('Обработка сцены…');
-
-        if (typeof window !== 'undefined') {
-            window.__fbxLoader = fbxLoader;
-            window.__lastFBXLoaded = obj;
-            window.__fbxParsedInWorker = parsedViaWorker;
-        }
-
-        obj.userData._fbxFileName = file.name;
-
-        if (orientationInfo) {
-            orientationMeta = determineOrientationType(orientationInfo);
-            orientationType = orientationMeta.type;
-        }
-
-        if (!orientationInfo && obj.userData?.fbxTree) {
-            const infoFromTree = readFBXOrientationFromTree(obj.userData.fbxTree);
-            if (infoFromTree) {
-                orientationInfo = infoFromTree;
-                orientationSource = infoFromTree.source || 'tree';
-                orientationMeta = determineOrientationType(orientationInfo);
-                orientationType = orientationMeta.type;
-            }
-        }
-        if (!orientationInfo) {
-            const infoFromGeom = parseOrientationFromNode(obj);
-            if (infoFromGeom) {
-                orientationInfo = infoFromGeom;
-                orientationSource = infoFromGeom.source || 'geometry';
-                orientationMeta = determineOrientationType(orientationInfo);
-                orientationType = orientationMeta.type;
-            }
-        }
-
-        if (orientationInfo) {
-            orientationInfo.type = orientationType;
-            orientationInfo.handedness = orientationMeta.handedness;
-            orientationInfo.upAxisResolved = orientationMeta.upAxis;
-            obj.userData.orientation = orientationInfo;
-            const sourceLabels = { binary: 'GlobalSettings', tree: 'fbxTree' };
-            const src = sourceLabels[orientationSource] || orientationSource || 'unknown';
-            logBind(`FBX: ориентация (${src}; ${describeOrientationType(orientationType)}) — ${describeFBXOrientation(orientationInfo)}`, 'info');
-        } else {
-            logBind(`FBX: ориентация — не найдена (тип: ${describeOrientationType(orientationType)})`, 'warn');
-        }
-
-        if (parseDuration) {
-            logBind(`FBX: парсинг ${parsedViaWorker ? 'в воркере' : 'на UI-потоке'} занял ${Math.round(parseDuration)} мс`, 'info');
-        }
-
-        obj.userData.orientationType = orientationType;
-        obj.userData.orientationHandedness = orientationMeta.handedness;
-        obj.userData.orientationUpAxis = orientationMeta.upAxis;
-
-        normalizeObjectOrientation(obj, orientationType);
-
-        // ★ NEW: если это ВПМ и есть geojson — сохраним мету и применим смещение
-        if ((zipKind || '').toUpperCase() === 'SM' && zipMeta) {
-            obj.userData._geojsonMeta = zipMeta;
-
-	            const { x, y, z } = getSMOffset(zipMeta, {
-	                log: (msg, level) => logBind(msg, level),
-	                setVPMReferenceHeight,
-	            });
-
-            applyGeoOffsetByOrientation(obj, orientationType, { x, y, z });
-
-            logBind(`VPM: смещение для ${file.name} из GeoJSON → Δx=${x} Δy=${y} Δz=${z}`, 'ok');
-        }
-
-        world.add(obj);
-
-        restoreLightTargetsFromOrientation(obj);
-        disableShadowsOnImportedLights(obj);
-        ensureLightHelpers(obj);
-
-        renameMaterialsByFBXObject(obj);
-
-        obj.traverse(o => {
-            if (!o.isMesh) return;
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
-
-            let willCast = false;
-            mats.forEach(m => {
-                if (m.side === THREE.DoubleSide) m.shadowSide = THREE.FrontSide;
-
-                const hasMask = !!m.alphaMap || (m.alphaTest > 0);
-                const trulyTransparent = m.transparent && !hasMask;
-
-                if (hasMask) {
-                    m.transparent = false;
-                    m.alphaTest = Math.max(0.001, m.alphaTest || 0.5);
-                    m.depthWrite = true;
-                    willCast = true;
-                } else if (!trulyTransparent) {
-                    willCast = true;
-                }
-            });
-
-            o.castShadow = willCast;
-            o.receiveShadow = true;
-        });
-
-        markCollisionMeshes(obj);
-
-        if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
-            splitAllMeshesByUDIM_SM(obj);
-        }
-        optimizeGlassMeshes(obj);
-        loadedModels.push({
-            obj,
-            name: file.name,
-            group: groupName || null,
-            zipKind: zipKind || null,
-            geojson: zipMeta || null,
-            orientation: orientationInfo || null,
-            orientationType
-        });
-        obj.userData.zipGroup = groupName || null;
-        obj.userData.zipKind  = zipKind || null;
-
-        if ((zipKind || '').toUpperCase() === 'SM' || /^SM_/i.test(file.name)) {
-            logBind(`VPM: отложенная автопривязка для ${file.name}`, 'info');
-        } else {
-            autoBindByNamesForModel(obj, file.name, embedded);
-        }
-        setImportedLightsEnabled(importedLightsEnabled, obj, { silent: true });
-        applyGlassControlsToScene();
-        setEmptyHintVisible(false);
-        markSceneStatsDirty();
-
-        schedulePanelRefresh();
-        requestRender();
-        setStatusMessage('');
+            return handleFBXFileImpl(file, groupName, zipKind, zipMeta, options);
         }
         /**
          * Обработка ZIP-архива: находит FBX/текстуры/GeoJSON, загружает FBX, сохраняет текстуры,
          * привязывает GeoJSON к моделям и обновляет UI.
          */
         async function handleZIPFile(file) {
-            logSessionHeader(`ZIP: ${file.name}`);
-            setStatusMessage(`Чтение ZIP: ${file.name}…`);
-            hideSidePanel();
-
-            const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
-            let zipGeoMeta = null;
-
-            const workerRun = unpackZIPInWorker(file, {
-                onMeta: (msg) => {
-                    if (zipKind === 'SM') {
-                        const hasGeo = (msg?.counts?.geojson || 0) > 0;
-                        if (!hasGeo) {
-                            logBind(`GeoJSON: в «${file.name}» не найден (ВПМ без меты)`, 'info');
-                        }
-                    }
-                },
-                onProgress: (msg) => {
-                    const phaseLabel = msg.phase === 'fbx' ? 'FBX' : msg.phase === 'image' ? 'IMG' : msg.phase;
-                    const name = basename(msg.name || '');
-                    setStatusMessage(`ZIP ${phaseLabel}: ${msg.index}/${msg.total} · ${name}`);
-                },
-                onGeoJSON: async (msg) => {
-                    if (zipKind !== 'SM') return;
-                    try {
-                        zipGeoMeta = makeGeoJsonMeta(file.name, msg.name, msg.text);
-                        logBind(`GeoJSON: найден в «${file.name}» → ${msg.name}`, 'ok');
-                    } catch (err) {
-                        logBind(`GeoJSON: не удалось обработать (${msg.name}) → ${err?.message || err}`, 'warn');
-                        zipGeoMeta = null;
-                    }
-                },
-                onFBX: async (msg) => {
-                    const blob = msg.blob;
-                    if (!blob) return;
-                    const fbxFile = new File([blob], msg.fileName || basename(msg.name), { type: blob.type || 'model/fbx' });
-                    await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta);
-                    setEmptyHintVisible(false);
-                },
-                onImage: async (msg) => {
-                    const blob = msg.blob;
-                    if (!blob) return;
-                    const url = URL.createObjectURL(blob);
-                    const short = basename(msg.name).toLowerCase();
-                    allEmbedded.push({ short, url, full: msg.name, mime: msg.mime || blob.type || "image/png", source: "zip" });
-                    galleryNeedsRefresh = true;
-                },
-            });
-
-            if (workerRun) {
-                try {
-                    await workerRun;
-
-                    // 4) если в ZIP был geojson — прикрепим его ко ВСЕМ FBX из этого ZIP
-                    if (zipGeoMeta) {
-                        let attached = 0;
-                        loadedModels
-                            .filter(m => m.group === file.name)
-                            .forEach(m => {
-                                m.geojson = zipGeoMeta;
-                                (m.obj.userData ||= {}).geojson = zipGeoMeta;
-                                attached++;
-                            });
-
-                        if (attached) {
-                            logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount!=null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
-                            schedulePanelRefresh();
-                        } else {
-                            logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
-                        }
-                    }
-
-                    ensureZipCollisionsHidden(file.name);
-                    setStatusMessage(`Готово: ${file.name}`);
-                    return;
-                } catch (err) {
-                    logBind(`ZIP worker: не удалось обработать «${file.name}» → fallback на main thread (${err?.message || err})`, 'warn');
-                }
-            }
-
-            const zip = await JSZip.loadAsync(file);
-            const entries = Object.values(zip.files);
-
-            // 1) прочитаем geojson (если есть) — один на ZIP
-            // let zipGeoMeta = null;
-            // const geoEntry = entries.find(e => !e.dir && /\.geojson$/i.test(e.name));
-            // if (geoEntry) {
-            //     const geoText = await geoEntry.async('string');
-            //     zipGeoMeta = makeGeoJsonMeta(file.name, geoEntry.name, geoText);
-            // }
-
-
-            // ↓↓↓ ТОЛЬКО ДЛЯ ВПМ
-            if (zipKind === 'SM') {
-                const geoEntries = entries.filter(e => !e.dir && /\.geojson$/i.test(e.name));
-                if (geoEntries.length) {
-                const bytes = await geoEntries[0].async('uint8array');
-                let geoText = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-                // снять BOM, если есть
-                geoText = geoText.replace(/^\uFEFF/, '');
-                
-                zipGeoMeta = makeGeoJsonMeta(file.name, geoEntries[0].name, geoText);
-                logBind(`GeoJSON: найден в «${file.name}» → ${geoEntries[0].name}`, 'ok');
-                } else {
-                logBind(`GeoJSON: в «${file.name}» не найден (ВПМ без меты)`, 'info');
-                }
-            }
-
-
-           // Сначала FBX — каждому передаём zipGeoMeta (для SM) или null (для NPM/прочих)
-            for (const entry of entries) {
-                if (entry.dir) continue;
-                if (/\.fbx$/i.test(entry.name)) {
-                const ab = await entry.async("arraybuffer");
-                const fbxFile = new File([ab], basename(entry.name), { type: "model/fbx" });
-                await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta);
-                setEmptyHintVisible(false);
-                }
-            }
-
-            // Затем картинки как было
-            for (const entry of entries) {
-                if (entry.dir) continue;
-                if (/\.(png|jpe?g|webp)$/i.test(entry.name)) {
-                    const blob = await entry.async("blob");
-                    const url = URL.createObjectURL(blob);
-                    const short = basename(entry.name).toLowerCase();
-                    allEmbedded.push({ short, url, full: entry.name, mime: blob.type || "image/png", source: "zip" });
-                    galleryNeedsRefresh = true;
-                }
-            }
-
-            // 4) если в ZIP был geojson — прикрепим его ко ВСЕМ FBX из этого ZIP
-            if (zipGeoMeta) {
-                let attached = 0;
-                loadedModels
-                    .filter(m => m.group === file.name)      // модели, загруженные из этого же архива
-                    .forEach(m => {
-                        m.geojson = zipGeoMeta;              // для рендера в панели
-                        (m.obj.userData ||= {}).geojson = zipGeoMeta; // на сам объект — если удобно обращаться из дерева
-                        attached++;
-                    });
-
-                if (attached) {
-                    logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount!=null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
-                    schedulePanelRefresh(); // перерисуем, чтобы появилась 📄
-                } else {
-                    logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
-                }
-            }
-
-            ensureZipCollisionsHidden(file.name);
-
-            setStatusMessage(`Готово: ${file.name}`);
+            return handleZIPFileImpl(file);
         }
 
         /**

@@ -1,0 +1,175 @@
+export function createZIPFileHandler(options = {}) {
+    const basename = typeof options.basename === 'function' ? options.basename : (p) => (p || '').split(/[\\/]/).pop();
+
+    const unpackZIPInWorker = typeof options.unpackZIPInWorker === 'function' ? options.unpackZIPInWorker : null;
+    const makeGeoJsonMeta = typeof options.makeGeoJsonMeta === 'function' ? options.makeGeoJsonMeta : null;
+    const handleFBXFile = typeof options.handleFBXFile === 'function' ? options.handleFBXFile : null;
+
+    const logSessionHeader = typeof options.logSessionHeader === 'function' ? options.logSessionHeader : () => {};
+    const logBind = typeof options.logBind === 'function' ? options.logBind : () => {};
+    const hideSidePanel = typeof options.hideSidePanel === 'function' ? options.hideSidePanel : () => {};
+    const setStatusMessage = typeof options.setStatusMessage === 'function' ? options.setStatusMessage : () => {};
+    const schedulePanelRefresh = typeof options.schedulePanelRefresh === 'function' ? options.schedulePanelRefresh : () => {};
+    const ensureZipCollisionsHidden = typeof options.ensureZipCollisionsHidden === 'function' ? options.ensureZipCollisionsHidden : () => {};
+
+    const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
+
+    const allEmbedded = Array.isArray(options.allEmbedded) ? options.allEmbedded : [];
+    const markGalleryNeedsRefresh = typeof options.markGalleryNeedsRefresh === 'function' ? options.markGalleryNeedsRefresh : () => {};
+    const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
+
+    const JSZip = options.JSZip || (typeof globalThis !== 'undefined' ? globalThis.JSZip : null);
+
+    return async function handleZIPFile(file) {
+        logSessionHeader(`ZIP: ${file.name}`);
+        setStatusMessage(`Чтение ZIP: ${file.name}…`);
+        hideSidePanel();
+
+        const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
+        let zipGeoMeta = null;
+
+        const workerRun = unpackZIPInWorker?.(file, {
+            onMeta: (msg) => {
+                if (zipKind === 'SM') {
+                    const hasGeo = (msg?.counts?.geojson || 0) > 0;
+                    if (!hasGeo) {
+                        logBind(`GeoJSON: в «${file.name}» не найден (ВПМ без меты)`, 'info');
+                    }
+                }
+            },
+            onProgress: (msg) => {
+                const phaseLabel = msg.phase === 'fbx' ? 'FBX' : msg.phase === 'image' ? 'IMG' : msg.phase;
+                const name = basename(msg.name || '');
+                setStatusMessage(`ZIP ${phaseLabel}: ${msg.index}/${msg.total} · ${name}`);
+            },
+            onGeoJSON: async (msg) => {
+                if (zipKind !== 'SM') return;
+                if (!makeGeoJsonMeta) return;
+                try {
+                    zipGeoMeta = makeGeoJsonMeta(file.name, msg.name, msg.text);
+                    logBind(`GeoJSON: найден в «${file.name}» → ${msg.name}`, 'ok');
+                } catch (err) {
+                    logBind(`GeoJSON: не удалось обработать (${msg.name}) → ${err?.message || err}`, 'warn');
+                    zipGeoMeta = null;
+                }
+            },
+            onFBX: async (msg) => {
+                const blob = msg.blob;
+                if (!blob) return;
+                if (!handleFBXFile) return;
+                const fbxFile = new File([blob], msg.fileName || basename(msg.name), { type: blob.type || 'model/fbx' });
+                await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta);
+                setEmptyHintVisible(false);
+            },
+            onImage: async (msg) => {
+                const blob = msg.blob;
+                if (!blob) return;
+                const url = URL.createObjectURL(blob);
+                const short = basename(msg.name).toLowerCase();
+                allEmbedded.push({ short, url, full: msg.name, mime: msg.mime || blob.type || "image/png", source: "zip" });
+                markGalleryNeedsRefresh();
+            },
+        });
+
+        if (workerRun) {
+            try {
+                await workerRun;
+
+                // 4) если в ZIP был geojson — прикрепим его ко ВСЕМ FBX из этого ZIP
+                if (zipGeoMeta) {
+                    let attached = 0;
+                    loadedModels
+                        .filter(m => m.group === file.name)
+                        .forEach(m => {
+                            m.geojson = zipGeoMeta;
+                            (m.obj.userData ||= {}).geojson = zipGeoMeta;
+                            attached++;
+                        });
+
+                    if (attached) {
+                        logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount != null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
+                        schedulePanelRefresh();
+                    } else {
+                        logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
+                    }
+                }
+
+                ensureZipCollisionsHidden(file.name);
+                setStatusMessage(`Готово: ${file.name}`);
+                return;
+            } catch (err) {
+                logBind(`ZIP worker: не удалось обработать «${file.name}» → fallback на main thread (${err?.message || err})`, 'warn');
+            }
+        }
+
+        if (!JSZip) {
+            throw new Error('JSZip not available for main-thread ZIP fallback');
+        }
+
+        const zip = await JSZip.loadAsync(file);
+        const entries = Object.values(zip.files);
+
+        // ↓↓↓ ТОЛЬКО ДЛЯ ВПМ
+        if (zipKind === 'SM') {
+            const geoEntries = entries.filter(e => !e.dir && /\.geojson$/i.test(e.name));
+            if (geoEntries.length && makeGeoJsonMeta) {
+                const bytes = await geoEntries[0].async('uint8array');
+                let geoText = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                // снять BOM, если есть
+                geoText = geoText.replace(/^\uFEFF/, '');
+
+                zipGeoMeta = makeGeoJsonMeta(file.name, geoEntries[0].name, geoText);
+                logBind(`GeoJSON: найден в «${file.name}» → ${geoEntries[0].name}`, 'ok');
+            } else {
+                logBind(`GeoJSON: в «${file.name}» не найден (ВПМ без меты)`, 'info');
+            }
+        }
+
+        // Сначала FBX — каждому передаём zipGeoMeta (для SM) или null (для NPM/прочих)
+        for (const entry of entries) {
+            if (entry.dir) continue;
+            if (/\.fbx$/i.test(entry.name)) {
+                const ab = await entry.async('arraybuffer');
+                const fbxFile = new File([ab], basename(entry.name), { type: 'model/fbx' });
+                await handleFBXFile?.(fbxFile, file.name, zipKind, zipGeoMeta);
+                setEmptyHintVisible(false);
+            }
+        }
+
+        // Затем картинки как было
+        for (const entry of entries) {
+            if (entry.dir) continue;
+            if (/\.(png|jpe?g|webp)$/i.test(entry.name)) {
+                const blob = await entry.async('blob');
+                const url = URL.createObjectURL(blob);
+                const short = basename(entry.name).toLowerCase();
+                allEmbedded.push({ short, url, full: entry.name, mime: blob.type || 'image/png', source: 'zip' });
+                markGalleryNeedsRefresh();
+            }
+        }
+
+        // 4) если в ZIP был geojson — прикрепим его ко ВСЕМ FBX из этого ZIP
+        if (zipGeoMeta) {
+            let attached = 0;
+            loadedModels
+                .filter(m => m.group === file.name)      // модели, загруженные из этого же архива
+                .forEach(m => {
+                    m.geojson = zipGeoMeta;              // для рендера в панели
+                    (m.obj.userData ||= {}).geojson = zipGeoMeta; // на сам объект — если удобно обращаться из дерева
+                    attached++;
+                });
+
+            if (attached) {
+                logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount != null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
+                schedulePanelRefresh(); // перерисуем, чтобы появилась 📄
+            } else {
+                logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
+            }
+        }
+
+        ensureZipCollisionsHidden(file.name);
+
+        setStatusMessage(`Готово: ${file.name}`);
+    };
+}
+
