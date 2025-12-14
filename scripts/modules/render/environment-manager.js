@@ -275,18 +275,16 @@ export function createEnvironmentManager(options = {}) {
             return (sy * width + sx) * stride;
         };
 
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                let r = 0, g = 0, b = 0;
-                let weight = 0;
+	        for (let y = 0; y < height; y++) {
+	            for (let x = 0; x < width; x++) {
+	                let r = 0, g = 0, b = 0;
 
-                const addSample = (ix, iy, w) => {
-                    const idx = sampleIndex(ix, iy);
-                    r += data[idx] * w;
-                    g += data[idx + 1] * w;
-                    b += data[idx + 2] * w;
-                    weight += w;
-                };
+	                const addSample = (ix, iy, w) => {
+	                    const idx = sampleIndex(ix, iy);
+	                    r += data[idx] * w;
+	                    g += data[idx + 1] * w;
+	                    b += data[idx + 2] * w;
+	                };
 
                 addSample(x, y, centerWeight);
                 addSample(x - 1, y, neighborWeight);
@@ -542,4 +540,3 @@ export function createEnvironmentManager(options = {}) {
         getHDRBase,
     });
 }
-

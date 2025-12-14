@@ -28,7 +28,6 @@ import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
 import {
     detectSlotFromMatOrObj,
-    detectSlotFromMaterialName,
     findGeomSuffix,
     GEOM_SUFFIXES,
     isGlassByName,
@@ -772,7 +771,7 @@ class ViewerApp {
             try {
                 setStatusMessage('Загрузка участков data.mos.ru…');
 
-                const { features, processedCount } = await loadParcels({
+                const { features } = await loadParcels({
                     fetchAll,
                     batchSize,
                     initialTop,
@@ -1057,13 +1056,9 @@ class ViewerApp {
 	            environmentManager.setRotation(deg);
 	        }
 
-	        function requestEnvironmentRebuild({ immediate = false } = {}) {
-	            environmentManager.requestRebuild({ immediate });
-	        }
-
-	        async function rebuildEnvironment({ force = false } = {}) {
-	            return environmentManager.rebuild({ force });
-	        }
+        function requestEnvironmentRebuild({ immediate = false } = {}) {
+            environmentManager.requestRebuild({ immediate });
+        }
 
 	        async function loadHDRBase() {
 	            return environmentManager.loadHDRBase();
@@ -2084,28 +2079,12 @@ class ViewerApp {
 	            visibilityController.handleEyeToggle(el);
 	        }
 
-	        function setEyeIcon(el, visible) {
-	            visibilityController.setEyeIcon(el, visible);
-	        }
-
 	        function updateEyeButtonsForTarget(target, visible) {
 	            visibilityController.updateEyeButtonsForTarget(target, visible);
 	        }
 
 	        function setMeshAndMaterialsVisibility(target, visible) {
 	            visibilityController.setMeshAndMaterialsVisibility(target, visible);
-	        }
-
-	        function toggleObjectVisibility(uuid, matIndex = null) {
-	            visibilityController.toggleObjectVisibility(uuid, matIndex);
-	        }
-
-	        function syncEyeIconsForObject(uuid, visible, matIndex = null) {
-	            visibilityController.syncEyeIconsForObject(uuid, visible, matIndex);
-	        }
-
-	        function toggleVisibilityById(id, el) {
-	            visibilityController.toggleVisibilityById(id, el);
 	        }
 
 
@@ -2716,62 +2695,6 @@ class ViewerApp {
         }
         }
 
-        // вернёт созданную/найденную группу "КОЛЛИЗИИ" или null, если UCX не найден
-        // Собираем UCX-ноды в "КОЛЛИЗИИ" и подписываем материалы по ИМЕНИ ОБЪЕКТА.
-        // ВАЖНО: каждому UCX-объекту — свой клон материала, чтобы имена не конфликтовали.
-        function groupUCXUnderCollisions(root){
-            const rx = /^ucx\b/i;
-
-            // найдём все UCX-узлы
-            const ucxNodes = [];
-            root.traverse(o => {
-                const n1 = o?.name || '';
-                const n2 = o?.geometry?.name || '';
-                if (rx.test(n1) || rx.test(n2)) ucxNodes.push(o);
-            });
-
-            // оставим только верхнеуровневые UCX (чтобы не дублировать дочерние)
-            const tops = ucxNodes.filter(n => {
-                let p = n.parent;
-                while (p) {
-                const pn = p?.name || '';
-                const pg = p?.geometry?.name || '';
-                if (rx.test(pn) || rx.test(pg)) return false;
-                p = p.parent;
-                }
-                return true;
-            });
-            if (!tops.length) return null;
-
-            // создаём/находим группу «КОЛЛИЗИИ»
-            let col = root.getObjectByName('КОЛЛИЗИИ');
-            if (!col) {
-                col = new THREE.Group();
-                col.name = 'КОЛЛИЗИИ';
-                root.add(col);
-            }
-
-            // для каждого UCX-узла: переименуем материалы во всех мешах-потомках и перенесём под группу
-            tops.forEach(node => {
-                const base = (node.name || node.geometry?.name || 'UCX').trim();
-
-                node.traverse(m => {
-                if (!m.isMesh || !m.material) return;
-                const mats = Array.isArray(m.material) ? m.material : [m.material];
-                for (let i = 0; i < mats.length; i++) {
-                    const cloned = mats[i].clone();                 // свой инстанс на меш
-                    cloned.name = mats.length > 1 ? `${base}_${i+1}` : base; // имя по объекту
-                    if (Array.isArray(m.material)) m.material[i] = cloned;
-                    else m.material = cloned;
-                }
-                });
-
-                if (node.parent !== col) col.attach(node);
-            });
-
-            return col;
-            }
-
 	        // helper: формируем метаданные GeoJSON (url для скачивания, prettified текст, подсчёт features)
 	        // =====================================================================
 	        // GeoJSON & Glass parameters
@@ -3334,11 +3257,10 @@ class ViewerApp {
                 ? (Number.isFinite(sliderIor) ? sliderIor : 1.5)
                 : (overrides?.refraction ?? original.refraction ?? (('ior' in std) ? std.ior : null));
                     let targetColorHex = globalColorHex ?? normalizeHexColor(original.color, std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
-                    let targetEnvIntensity = useGlobalReflect
-                        ? sliderReflect
-                        : (Number.isFinite(original.envIntensity) ? original.envIntensity : currentEnvIntensity);
+            let targetEnvIntensity = useGlobalReflect
+                ? sliderReflect
+                : (Number.isFinite(original.envIntensity) ? original.envIntensity : currentEnvIntensity);
             const hasOverrideTransmission = overrides?.transmission != null;
-            const hasGeoTransmission = false;
             let targetTransmission = 1;
             if (useGlobalTransmission) {
                 targetTransmission = clamp01(Number.isFinite(sliderTransmission) ? sliderTransmission : 1);
@@ -3887,38 +3809,6 @@ class ViewerApp {
                 rec[parts.channel] = e.url; // Diffuse/Normal/ERM → URL
             }
             return byFBX;
-        }
-
-        // T_Адрес_(Diffuse|ERM|Normal)_<slot>.<udim>.(png|jpg|jpeg|webp)
-        const RX_VPM_TEX = /(?:^|\/)T_.+_(Diffuse|ERM|Normal)_(\d+)\.(\d{4})\.(?:png|jpe?g|webp)$/i;
-
-        /**
-         * Разбирает имя texture entry из ZIP (формат T_*_Diffuse_1.1001.png) в структуру {kind, slot, udim}.
-         */
-        function parseVPMTexEntry(entry){
-            const nm = String(entry?.full || entry?.short || '');
-            const m = nm.match(RX_VPM_TEX);
-            if (!m) return null;
-            const kind = m[1];                    // Diffuse | ERM | Normal
-            const slot = parseInt(m[2], 10);
-            const udim = parseInt(m[3], 10);
-            if (!Number.isFinite(slot) || !Number.isFinite(udim)) return null;
-            return { kind, slot, udim, url: entry.url };
-        }
-
-        /**
-         * Строит упрощённый индекс для автопривязки: ключ `${slot}.${udim}` → { Diffuse?, ERM?, Normal? }.
-         */
-        function buildVPMIndexFromImages(images){
-            const map = new Map(); // key -> {Diffuse,ERM,Normal}
-            (images || []).forEach(e => {
-                const p = parseVPMTexEntry(e);
-                if (!p) return;
-                const key = `${p.slot}.${p.udim}`;
-                if (!map.has(key)) map.set(key, {});
-                map.get(key)[p.kind] = p.url;
-            });
-            return map;
         }
 
         /**

@@ -96,8 +96,7 @@ function extractEmbeddedImagesFromFBX_binary(arrayBuffer) {
         offset += is64 ? 8 : 4;
         const numProps = readLen(offset);
         offset += is64 ? 8 : 4;
-        const propsLen = readLen(offset);
-        offset += is64 ? 8 : 4;
+        offset += is64 ? 8 : 4; // propsLen
         const nameLen = view.getUint8(offset);
         offset += 1;
         if (endOffset === 0) return { nextOffset: endOffset, nullRecord: true };
