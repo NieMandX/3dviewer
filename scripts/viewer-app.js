@@ -18,6 +18,7 @@ import { createFBXWorkerClient } from './modules/workers/fbx-worker-client.js';
 import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
+import { createSceneFramingController } from './modules/scene/framing.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
 import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
@@ -713,6 +714,16 @@ class ViewerApp {
 		        // =====================================================================
 
 		        // --- Shadows debug panel (после создания dirLight!) ---
+		        const sceneFraming = createSceneFramingController({
+		            THREE,
+		            world,
+		            camera,
+		            controls,
+		            renderer,
+		            requestRender,
+		            getBgMesh: () => bgMesh,
+		        });
+
 		        const shadowController = createShadowController({
 		            THREE,
 		            scene,
@@ -1009,98 +1020,23 @@ class ViewerApp {
 
 	   
 
-	        // === Bounds (без гридов/хелперов) ===
-	        function expandBoxFiltered(box, obj) {
-	            if (!obj || !obj.visible) return;
+		        // === Bounds / framing ===
+		        function computeSceneBounds(root = world) {
+		            return sceneFraming.computeSceneBounds(root);
+		        }
 
-            // исключения: помеченные объекты, стандартные хелперы, фон, источники света и точки
-            if (obj.userData?.excludeFromBounds) return;
-            if (obj.isGridHelper || obj.isAxesHelper || obj.isPolarGridHelper) return;
-            if (obj === bgMesh) return;
-            if (obj.isLight || obj.isPoints) return;
+		        function focusOn(targets, pad = 1.4) {
+		            return sceneFraming.focusOn(targets, pad);
+		        }
 
-            // учитываем только геометрию
-            if (obj.isMesh && obj.geometry) {
-                obj.updateWorldMatrix(true, false);
-                if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
-                const bb = obj.geometry.boundingBox.clone().applyMatrix4(obj.matrixWorld);
-                if (!bb.isEmpty()) box.union(bb);
-            }
+		        function fitAll() {
+		            return sceneFraming.fitAll();
+		        }
 
-            for (const c of obj.children) expandBoxFiltered(box, c);
-        }
-
-        function computeSceneBounds(root = world) {
-            const box = new THREE.Box3();
-            expandBoxFiltered(box, root);
-            return box;
-        }
-
-
-        function focusOn(targets, pad = 1.4) {
-            // targets may be an object or array of objects
-            const box = new THREE.Box3();
-            const add = (obj) => obj && box.expandByObject(obj);
-
-            if (Array.isArray(targets)) {
-                let any = false;
-                targets.forEach(o => { if (o) { add(o); any = true; } });
-                if (!any) return;
-            } else if (targets) {
-                add(targets);
-            } else return;
-
-            if (box.isEmpty()) return;
-
-            const size = new THREE.Vector3();
-            const center = new THREE.Vector3();
-            box.getSize(size);
-            box.getCenter(center);
-            controls.target.copy(center);
-
-            const fov = THREE.MathUtils.degToRad(camera.fov);
-            const canvas = renderer.domElement;
-            const aspect = canvas.clientWidth / Math.max(canvas.clientHeight, 1);
-            const maxDim = Math.max(size.x, size.y, size.z);
-
-            const distForH = (maxDim / (2 * Math.tan(fov / 2)));
-            const distForW = (maxDim * aspect / (2 * Math.tan(fov / 2)));
-            const dist = Math.max(distForH, distForW) * pad;
-
-            const dirv = new THREE.Vector3(1, 0.6, 1).normalize();
-            camera.position.copy(center.clone().add(dirv.multiplyScalar(dist)));
-            camera.near = Math.max(dist / 1000, 0.01);
-            camera.far = dist * 1000;
-            camera.updateProjectionMatrix();
-            controls.update();
-            requestRender();
-        }
-
-        function fitAll() {
-            const box = computeSceneBounds();
-            if (box.isEmpty()) return;
-            const size = new THREE.Vector3(), center = new THREE.Vector3();
-            box.getSize(size); box.getCenter(center);
-            controls.target.copy(center);
-
-            const fov = THREE.MathUtils.degToRad(camera.fov);
-            const aspect = renderer.domElement.clientWidth / Math.max(renderer.domElement.clientHeight, 1);
-            const max = Math.max(size.x, size.y, size.z);
-            const dist = Math.max(max / (2 * Math.tan(fov/2)), (max * aspect) / (2 * Math.tan(fov/2))) * 1.5;
-
-            camera.position.copy(center).add(new THREE.Vector3(1,0.6,1).normalize().multiplyScalar(dist));
-            camera.near = Math.max(dist / 1000, 0.01);
-            camera.far  = dist * 1000;
-            camera.updateProjectionMatrix();
-            requestRender();
-        }
-
-	        function computeWorldCenter() {
-	            const box = computeSceneBounds();
-	            if (box.isEmpty()) return new THREE.Vector3(0,0,0);
-	            return box.getCenter(new THREE.Vector3());
-	        }
-	        // HDR / IBL handling moved to `modules/render/environment-manager.js`
+		        function computeWorldCenter() {
+		            return sceneFraming.computeWorldCenter();
+		        }
+		        // HDR / IBL handling moved to `modules/render/environment-manager.js`
 
 	        /**
 	         * Вычисляет высоту и азимут солнца по упрощённой модели (для UI солнца).
