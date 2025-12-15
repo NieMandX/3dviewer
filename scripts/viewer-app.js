@@ -28,6 +28,7 @@ import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
 import { createFileFlowController } from './modules/io/file-flow.js';
 import { createSampleLoader } from './modules/io/sample-loader.js';
+import { createBatchFinalizer } from './modules/io/batch-finalizer.js';
 import {
     detectSlotFromMatOrObj,
     findGeomSuffix,
@@ -3298,108 +3299,53 @@ class ViewerApp {
             return handleZIPFileImpl(file);
         }
 
+        const batchFinalizer = createBatchFinalizer({
+            loadedModels,
+            allEmbedded,
+            getLastFinalizedModelIndex: () => lastFinalizedModelIndex,
+            setLastFinalizedModelIndex: (next) => { lastFinalizedModelIndex = next; },
+            getGalleryNeedsRefresh: () => galleryNeedsRefresh,
+            setGalleryNeedsRefresh: (next) => { galleryNeedsRefresh = next; },
+            renderGallery,
+            getDidInitialRebase: () => didInitialRebase,
+            setDidInitialRebase: (next) => { didInitialRebase = next; },
+            computeAutoOffsetHorizontalOnly,
+            setWorldOffset,
+            isIBLEnabled: () => iblChk.checked,
+            getIBLRotation: () => parseFloat(iblRotEl.value) || 0,
+            loadHDRBase,
+            buildAndApplyEnvFromRotation,
+            syncBackgroundToEnvironment: () => {
+                ensureBgMesh();
+                bgMesh.material.map = environmentManager.getCurrentBg() || null;
+                bgMesh.material.needsUpdate = true;
+                updateBgVisibility();
+            },
+            applyGlassControlsToScene,
+            fitSunShadowToScene,
+            updateSun,
+            buildVPMIndex,
+            autoBindVPMForModel,
+            logBind,
+            ensureZipCollisionsHidden,
+            fitAll,
+            focusOn,
+            outEl,
+            imagesDetails,
+            bindLogDetails,
+            hideSMCollisions,
+            syncCollisionButtons,
+            setStatusMessage,
+            setEmptyHintVisible,
+            applyShading,
+            getCurrentShadingMode: () => currentShadingMode,
+        });
+
         /**
          * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
          */
         async function finalizeBatchAfterAllFiles() {
-            if (!loadedModels.length) return;
-
-            const newModels = loadedModels.slice(lastFinalizedModelIndex);
-            const hasNewModels = newModels.length > 0;
-            const needGalleryRefresh = galleryNeedsRefresh;
-
-            if (!hasNewModels && !needGalleryRefresh) {
-                setStatusMessage('Готово');
-                setEmptyHintVisible(loadedModels.length === 0);
-                return;
-            }
-
-            if (needGalleryRefresh) {
-                renderGallery(allEmbedded);
-                galleryNeedsRefresh = false;
-            }
-
-            // — ребейз только один раз —
-            let firstTime = false;
-            if (!didInitialRebase && hasNewModels) {
-                const off = computeAutoOffsetHorizontalOnly();
-                setWorldOffset(off);
-                didInitialRebase = true;
-                firstTime = true;
-            }
-
-            if (hasNewModels) {
-                if (iblChk.checked) {
-                    await loadHDRBase();
-                    await buildAndApplyEnvFromRotation(parseFloat(iblRotEl.value) || 0);
-                }
-
-	                ensureBgMesh();
-	                bgMesh.material.map = environmentManager.getCurrentBg() || null;
-	                bgMesh.material.needsUpdate = true;
-	                updateBgVisibility();
-
-                applyGlassControlsToScene();
-                fitSunShadowToScene(true);
-                updateSun();
-            }
-
-            const newSmModels = newModels.filter(m => (m.zipKind || '').toUpperCase() === 'SM');
-            let modelsForBinding = newSmModels;
-            if (!modelsForBinding.length && needGalleryRefresh) {
-                modelsForBinding = loadedModels.filter(m => (m.zipKind || '').toUpperCase() === 'SM');
-            }
-
-            if (modelsForBinding.length) {
-                try {
-                    const vpmIndex = buildVPMIndex(allEmbedded);
-                    for (const m of modelsForBinding) {
-                        await autoBindVPMForModel(m.obj, vpmIndex);
-                    }
-                } catch (e) {
-                    logBind(`⚠️ VPM: ошибка автопривязки — ${e?.message || e}`, 'warn');
-                }
-            }
-
-            if (hasNewModels) {
-                const smGroups = new Set();
-                newModels.forEach(model => {
-                    if ((model.zipKind || '').toUpperCase() !== 'SM') return;
-                    if (model.group) smGroups.add(model.group);
-                });
-                smGroups.forEach(groupName => ensureZipCollisionsHidden(groupName));
-
-                if (firstTime) {
-                    fitAll();
-                    focusOn(loadedModels.map(m => m.obj));
-                }
-            }
-
-            const finalizeUI = () => {
-                outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
-                if (firstTime) {
-                    if (imagesDetails) imagesDetails.open = false;
-                    if (bindLogDetails) bindLogDetails.open = false;
-                }
-
-                const hiddenAgain = hasNewModels ? hideSMCollisions(false) : false;
-                if (hasNewModels || hiddenAgain) {
-                    syncCollisionButtons();
-                }
-
-                setStatusMessage('Готово');
-                setEmptyHintVisible(loadedModels.length === 0);
-            };
-
-            if (hasNewModels) {
-                applyShading(currentShadingMode, finalizeUI);
-            } else {
-                finalizeUI();
-            }
-
-            if (hasNewModels) {
-                lastFinalizedModelIndex = loadedModels.length;
-            }
+            return batchFinalizer.finalizeBatchAfterAllFiles();
         }
 
         app.api = Object.freeze({
