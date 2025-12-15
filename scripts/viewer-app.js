@@ -26,6 +26,7 @@ import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
+import { createFileFlowController } from './modules/io/file-flow.js';
 import {
     detectSlotFromMatOrObj,
     findGeomSuffix,
@@ -2816,21 +2817,10 @@ class ViewerApp {
 	            materialsPanel.scheduleRefresh(afterRender);
 	        }
 
-        function populateSampleSelect() {
-            if (!sampleSelect) return;
-            sampleSelect.innerHTML = '';
-            SAMPLE_MODELS.forEach(sample => {
-                const opt = document.createElement('option');
-                opt.value = (sample.files && sample.files[0]) || '';
-                opt.textContent = sample.label;
-                sampleSelect.appendChild(opt);
-            });
-        }
-
-	        /** Возвращает { mesh, mat, index } по UUID и индексу материала для стеклянных контролов. */
-	        function resolveGlassMaterial(uuid, matIndex) {
-	            return materialsPanel.resolveGlassMaterial(uuid, matIndex);
-	        }
+		        /** Возвращает { mesh, mat, index } по UUID и индексу материала для стеклянных контролов. */
+		        function resolveGlassMaterial(uuid, matIndex) {
+		            return materialsPanel.resolveGlassMaterial(uuid, matIndex);
+		        }
 
 	        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
 	        function syncCollisionButtons() {
@@ -3173,13 +3163,21 @@ class ViewerApp {
         // =====================
         const fileInput = document.getElementById('fileInput');
         const openBtn = document.getElementById('openBtn');
-
-        const registerFileOpenTrigger = (el) => {
-            if (!el || !fileInput) return;
-            el.addEventListener('click', () => fileInput.click());
-        };
-        registerFileOpenTrigger(openBtn);
-        registerFileOpenTrigger(emptyHintEl);
+        createFileFlowController({
+            fileInput,
+            openBtn,
+            emptyHintEl,
+            rootEl,
+            dropEl,
+            sampleSelect,
+            sampleModels: SAMPLE_MODELS,
+            handleFBXFile,
+            handleZIPFile,
+            finalizeBatchAfterAllFiles,
+            loadSampleModel,
+            setEmptyHintVisible,
+            getLoadedModelCount: () => loadedModels.length,
+        });
 
         // =====================
         // LIGHT CONTROLL
@@ -3201,78 +3199,6 @@ class ViewerApp {
                 hemiLight.groundColor.set(e.target.value);
             });
         }
-
-        if (fileInput) {
-            fileInput.addEventListener('change', async (e) => {
-                const files = [...(e.target.files || [])];
-                for (const f of files) {
-                    if (/\.fbx$/i.test(f.name)) {
-                        await handleFBXFile(f);
-                    } else if (/\.zip$/i.test(f.name)) {
-                        await handleZIPFile(f);
-                    }
-                }
-                if (fileInput) fileInput.value = '';
-                setEmptyHintVisible(loadedModels.length === 0);
-                await finalizeBatchAfterAllFiles();
-            });
-        }
-
-        populateSampleSelect();
-        if (sampleSelect) {
-            sampleSelect.addEventListener('change', async () => {
-                const idx = sampleSelect.selectedIndex;
-                const sample = SAMPLE_MODELS[idx];
-                if (!sample || !sample.files || !sample.files.length) return;
-                await loadSampleModel(sample);
-            });
-        }
-
-        const dragTargets = [window, document, document?.body, rootEl, dropEl].filter(Boolean);
-        let dragHoverCount = 0;
-        const addDragListener = (type, handler) => {
-            dragTargets.forEach(target => target.addEventListener(type, handler, { passive: false }));
-        };
-
-        const handleDragEnter = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dragHoverCount++;
-            if (dropEl) dropEl.classList.add('show');
-            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-        };
-        const handleDragOver = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-        };
-        const handleDragLeave = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dragHoverCount = Math.max(0, dragHoverCount - 1);
-            if (dragHoverCount === 0 && dropEl) dropEl.classList.remove('show');
-        };
-        const handleDrop = async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dragHoverCount = 0;
-            if (dropEl) dropEl.classList.remove('show');
-            const files = [...(e.dataTransfer?.files || [])];
-            if (!files.length) return;
-            for (const f of files) {
-                if (/\.fbx$/i.test(f.name)) {
-                    await handleFBXFile(f);
-                } else if (/\.zip$/i.test(f.name)) {
-                    await handleZIPFile(f);
-                }
-            }
-            await finalizeBatchAfterAllFiles();
-        };
-
-        addDragListener('dragenter', handleDragEnter);
-        addDragListener('dragover', handleDragOver);
-        addDragListener('dragleave', handleDragLeave);
-        addDragListener('drop', handleDrop);
 
         // =====================================================================
         // Asset Loading · Core Procedures
