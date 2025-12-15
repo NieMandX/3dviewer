@@ -19,6 +19,7 @@ import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createSceneFramingController } from './modules/scene/framing.js';
+import { createNorthGridController } from './modules/scene/north-grid.js';
 import { createWorldOffsetController } from './modules/scene/world-offset.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
@@ -461,181 +462,18 @@ class ViewerApp {
 
 	        const sunDir = new THREE.Vector3(0, 1, 0); // актуальное направление солнца (единичный)
 
-
-
-        const GRID_SIZE = 100;
-        const grid = createPointGridHelper({ size: GRID_SIZE, divisions: 100, color: 0x888888 });
-        grid.userData.excludeFromBounds = true;
-        scene.add(grid);
-        app.grid = grid;
-
-        const northPointer = createNorthPointer();
-        scene.add(northPointer);
-        app.northPointer = northPointer;
-
-	        const _northTmpDir = new THREE.Vector3();
-	        const _northBaseVec = new THREE.Vector3();
-	        const _northUpVec = new THREE.Vector3();
-	        const _northPlaneVec2 = new THREE.Vector2();
-
-        function createNorthPointer() {
-            const color = 0xff3d00;
-            const group = new THREE.Group();
-            group.name = 'NorthPointer';
-            group.userData.excludeFromBounds = true;
-
-            const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 });
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 1], 3));
-            const line = new THREE.Line(geometry, material);
-            line.frustumCulled = false;
-            line.userData.excludeFromBounds = true;
-            group.add(line);
-
-            group.userData.line = line;
-            return group;
-        }
-
-        function createPointGridHelper({ size = 100, divisions = 10, color = 0x888888 } = {}) {
-            const group = new THREE.Group();
-            group.name = 'PointGrid';
-
-            const half = size * 0.5;
-            const step = divisions > 0 ? size / divisions : size;
-
-            const positions = [];
-            for (let x = -half; x <= half + 1e-6; x += step) {
-                for (let z = -half; z <= half + 1e-6; z += step) {
-                    positions.push(x, 0, z);
-                }
-            }
-
-            const geometry = new THREE.BufferGeometry();
-            const array = new Float32Array(positions);
-            const attr = new THREE.BufferAttribute(array, 3);
-            geometry.setAttribute('position', attr);
-            geometry.setDrawRange(0, array.length / 3);
-
-                        const material = new THREE.PointsMaterial({
-                color,
-                size: 0.8,
-                sizeAttenuation: false,
-                transparent: true,
-                opacity: 0.75,
-            });
-
-            const points = new THREE.Points(geometry, material);
-            points.renderOrder = -10;
-            points.userData.excludeFromBounds = true;
-            points.isGridHelper = true;
-
-            group.add(points);
-            group.userData.excludeFromBounds = true;
-            group.isGridHelper = true;
-
-            group.userData.gridSize = size;
-            group.userData.step = step;
-            group.userData.geometry = geometry;
-            group.userData.basePositions = array.slice(0);
-            group.userData.lineLength = size * 0.5;
-
-            return group;
-        }
-
-        function alignParcelsGroupToNorth() {
-            if (!parcelsGroup) return;
-
-            parcelsGroup.rotation.set(0, 0, 0);
-            parcelsGroup.quaternion.identity();
-
-            parcelsGroup.updateMatrixWorld(true);
-            requestRender();
-        }
-
-        function updateNorthPointer() {
-            if (!northPointer) return;
-            const line = northPointer.userData?.line;
-            if (!line) return;
-
-            const northDeg = parseFloat(sunNorthEl?.value) || 0;
-            const up = isZUp() ? _northUpVec.set(0, 0, 1) : _northUpVec.set(0, 1, 0);
-            const base = isZUp() ? _northBaseVec.set(0, 1, 0) : _northBaseVec.set(0, 0, 1);
-
-            const dir = _northTmpDir.copy(base).applyAxisAngle(up, THREE.MathUtils.degToRad(-northDeg)).normalize();
-            dir.multiplyScalar(-1);
-            const gridSize = (app.grid?.userData?.gridSize) ?? GRID_SIZE;
-            const lineLength = gridSize * 0.5;
-
-            const positions = line.geometry.attributes.position.array;
-            positions[0] = 0; positions[1] = 0; positions[2] = 0;
-            positions[3] = dir.x * lineLength;
-            positions[4] = dir.y * lineLength;
-            positions[5] = dir.z * lineLength;
-            line.geometry.attributes.position.needsUpdate = true;
-
-            northPointer.position.set(0, 0, 0);
-            app.northDirection = dir.clone();
-
-            updateGridNorthGap(dir, lineLength);
-            alignParcelsGroupToNorth();
-            requestRender();
-        }
-
-        function updateGridNorthGap(dir, lineLength) {
-            const gridHelper = app.grid;
-            if (!gridHelper) return;
-            const geometry = gridHelper.userData?.geometry;
-            const basePositions = gridHelper.userData?.basePositions;
-            if (!geometry || !basePositions) return;
-
-            const attr = geometry.attributes.position;
-            const arr = attr.array;
-            const step = gridHelper.userData.step || 1;
-            const size = gridHelper.userData.gridSize || GRID_SIZE;
-
-            let maxAlong = lineLength;
-            if (maxAlong == null) {
-                maxAlong = gridHelper.userData.lineLength;
-                if (maxAlong == null) maxAlong = size * 0.5;
-            }
-            const cutoff = maxAlong + step * 0.5;
-            const threshold = Math.max(step * 0.5, 0.2);
-            const forwardTolerance = Math.min(step * 0.25, 0.1);
-
-            const vec2 = isZUp()
-                ? _northPlaneVec2.set(dir.x, dir.y)
-                : _northPlaneVec2.set(dir.x, dir.z);
-            let len = vec2.length();
-            if (!Number.isFinite(len) || len < 1e-6) {
-                vec2.set(0, 1);
-                len = 1;
-            }
-            vec2.divideScalar(len);
-
-            let write = 0;
-            for (let i = 0; i < basePositions.length; i += 3) {
-                const x = basePositions[i];
-                const y = basePositions[i + 1];
-                const z = basePositions[i + 2];
-                const px = x;
-                const pz = z;
-
-                const along = px * vec2.x + pz * vec2.y;
-                const perp = Math.abs(px * vec2.y - pz * vec2.x);
-                const masked = along >= -forwardTolerance && along <= cutoff && perp <= threshold;
-
-                if (!masked) {
-                    arr[write] = x;
-                    arr[write + 1] = y;
-                    arr[write + 2] = z;
-                    write += 3;
-                }
-            }
-
-            attr.needsUpdate = true;
-            geometry.setDrawRange(0, write / 3);
-            geometry.computeBoundingSphere();
-        }
+	        const northGrid = createNorthGridController({
+	            THREE,
+	            scene,
+	            app,
+	            requestRender,
+	            isZUp,
+	            getNorthDeg: () => parseFloat(sunNorthEl?.value) || 0,
+	            gridSize: 100,
+	            gridDivisions: 100,
+	            gridColor: 0x888888,
+	            pointerColor: 0xff3d00,
+	        });
 
         configureParcels({
             apiKey: MOS_PARCELS.apiKey,
@@ -698,7 +536,8 @@ class ViewerApp {
                 parcelsGroup = group;
                 parcelsOrigin = group.userData.originMeters || parcelsOrigin;
                 world.add(parcelsGroup);
-                alignParcelsGroupToNorth();
+                northGrid.setParcelsGroup(parcelsGroup);
+                northGrid.alignParcelsGroupToNorth();
                 app.layers.parcels = parcelsGroup;
                 markSceneStatsDirty();
 
@@ -712,7 +551,7 @@ class ViewerApp {
             }
         }
 
-        updateNorthPointer();
+        northGrid.updateNorthPointer();
         app.scene = scene;
         app.world = world;
         app.camera = camera;
@@ -720,7 +559,7 @@ class ViewerApp {
 	        app.controls = controls;
 	        app.hemiLight = hemiLight;
 	        app.dirLight = dirLight;
-	        app.grid = grid;
+	        app.grid = northGrid.grid;
 	        app.sun = { enabled: true, direction: sunDir.clone() };
 	        app.layers = { parcels: null };
 
@@ -1066,11 +905,11 @@ class ViewerApp {
             dirLight.position.copy(center).add(dir.multiplyScalar(currDist));
             dirLight.updateMatrixWorld();
 
-            // Подгоняем фрустум (НЕ меняем ни target, ни позицию света)
-            fitSunShadowToScene(false); // передаём флажок: не ресентрить таргет
-            updateNorthPointer();
-            requestRender();
-        }
+	            // Подгоняем фрустум (НЕ меняем ни target, ни позицию света)
+	            fitSunShadowToScene(false); // передаём флажок: не ресентрить таргет
+	            northGrid.updateNorthPointer();
+	            requestRender();
+	        }
 
 	        function setGridVisible(visible) {
 	            gridVisible = !!visible;
