@@ -23,6 +23,7 @@ import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
 import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
 import { createSunToggleController } from './modules/ui/sun-toggle.js';
+import { createSunInputsController } from './modules/ui/sun-inputs.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
@@ -1079,16 +1080,9 @@ class ViewerApp {
             requestRender();
         }
 
-	        function clampNumericInput(value, min, max) {
-	            if (!Number.isFinite(value)) return null;
-	            if (min != null) value = Math.max(min, value);
-	            if (max != null) value = Math.min(max, value);
-	            return value;
-	        }
-
-	        function setBackgroundMode(mode) {
-	            const next = mode === 'black' ? 'black' : 'white';
-	            bgMode = next;
+		        function setBackgroundMode(mode) {
+		            const next = mode === 'black' ? 'black' : 'white';
+		            bgMode = next;
             if (next === 'black') {
                 if (typeof renderer.setClearColor === 'function') {
                     renderer.setClearColor(0x000000, 1);
@@ -1732,35 +1726,20 @@ class ViewerApp {
             requestRender();
         }
 
-        // Привязываем обработчики ghliodon
-        [sunHourEl, sunDayEl, sunMonthEl, sunNorthEl].forEach(el =>
-            el.addEventListener('input', updateSun)
-        );
-        updateSun();
+	        createSunInputsController({
+	            sunHourEl,
+	            sunHourInputEl,
+	            sunDayEl,
+	            sunMonthEl,
+	            sunNorthEl,
+	            sunIntensityEl,
+	            sunIntensityInputEl,
+	            dirLight,
+	            updateSun,
+	            requestRender,
+	        });
 
-
-        syncEnvAdjustmentsState();
-
-        const formatSunHour = (value) => {
-            const totalMinutes = Math.round(value * 60);
-            const hours = Math.floor(totalMinutes / 60) % 24;
-            const minutes = totalMinutes % 60;
-            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-        };
-
-        const formatSunIntensity = (value) => value.toFixed(1);
-
-
-        const parseSunHour = (text) => {
-            const match = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/u.exec(text);
-            if (!match) return null;
-            let hours = parseInt(match[1], 10);
-            let minutes = parseInt(match[2], 10);
-            if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-            minutes = Math.max(0, Math.min(59, minutes));
-            hours = Math.max(0, Math.min(23, hours));
-            return hours + minutes / 60;
-        };
+	        syncEnvAdjustmentsState();
 
         if (statsBtn) {
             statsBtn.addEventListener('click', () => setStatsVisible(!statsOverlayController.isVisible()));
@@ -2682,51 +2661,10 @@ class ViewerApp {
 
 
 
-        if (sunHourEl && sunHourInputEl) {
-            sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
-            sunHourEl.addEventListener('input', () => {
-                sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
-            });
-            sunHourInputEl.addEventListener('change', () => {
-                const parsed = parseSunHour(sunHourInputEl.value);
-                if (parsed == null) {
-                    sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
-                    return;
-                }
-                sunHourEl.value = String(parsed);
-                sunHourInputEl.value = formatSunHour(parsed);
-                sunHourEl.dispatchEvent(new Event('input', { bubbles: true }));
-            });
-        }
-
-	        if (sunIntensityEl && sunIntensityInputEl && dirLight) {
-	            sunIntensityEl.value = String(dirLight.intensity);
-	            sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
-            sunIntensityEl.addEventListener('input', () => {
-                const value = clampNumericInput(parseFloat(sunIntensityEl.value), parseFloat(sunIntensityEl.min) || 0, parseFloat(sunIntensityEl.max) || 20);
-                if (value == null) return;
-                dirLight.intensity = value;
-                sunIntensityEl.value = String(value);
-                sunIntensityInputEl.value = formatSunIntensity(value);
-                requestRender();
-            });
-            sunIntensityInputEl.addEventListener('change', () => {
-                let value = clampNumericInput(parseFloat(sunIntensityInputEl.value), parseFloat(sunIntensityInputEl.min) || 0, parseFloat(sunIntensityInputEl.max) || 20);
-                if (value == null) {
-                    sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
-                    return;
-                }
-                sunIntensityEl.value = String(value);
-                sunIntensityInputEl.value = formatSunIntensity(value);
-                dirLight.intensity = value;
-                requestRender();
-	            });
-	        }
-
 	        
+		        // =====================
+		        // Auto-bind based on filenames
 	        // =====================
-	        // Auto-bind based on filenames
-        // =====================
 
         const { labelFromURL } = createTextureLabelResolver({
             getEntries: () => allEmbedded,
