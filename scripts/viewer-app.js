@@ -11,6 +11,7 @@ import {
 import { basename } from './modules/utils/path.js';
 import { clamp01 } from './modules/utils/math.js';
 import { normalizeHexColor } from './modules/utils/color.js';
+import { createTextureLabelResolver } from './modules/utils/texture-labels.js';
 import { makeGeoJsonMeta } from './modules/geo/geojson-meta.js';
 import { getSMOffset } from './modules/geo/sm-offset.js';
 import { createFBXWorkerClient } from './modules/workers/fbx-worker-client.js';
@@ -3102,23 +3103,9 @@ class ViewerApp {
         // Auto-bind based on filenames
         // =====================
 
-        function findTexEntryByURL(url) {
-        return (allEmbedded || []).find(e => e && e.url === url) || null;
-        }
-
-        function labelFromURL(url) {
-        const e = findTexEntryByURL(url);
-        // отдаём настоящее имя файла (full или short), иначе хоть basename(url)
-        const s = e?.full || e?.short || '';
-        if (s) return s.split(/[\\/]/).pop();
-        // blob: ссылки имён не содержат — вернём хоть последний сегмент
-        try {
-            const u = new URL(url);
-            return u.pathname.split('/').pop() || '(texture)';
-        } catch {
-            return '(texture)';
-        }
-        }
+        const { labelFromURL } = createTextureLabelResolver({
+            getEntries: () => allEmbedded,
+        });
         // =====================
         // VPM (SM_) — индексация текстур и привязка по UDIM+Slot
         // =====================
