@@ -27,6 +27,7 @@ import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environ
 import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
 import { createFileFlowController } from './modules/io/file-flow.js';
+import { createSampleLoader } from './modules/io/sample-loader.js';
 import {
     detectSlotFromMatOrObj,
     findGeomSuffix,
@@ -3163,6 +3164,21 @@ class ViewerApp {
         // =====================
         const fileInput = document.getElementById('fileInput');
         const openBtn = document.getElementById('openBtn');
+        const sampleLoader = createSampleLoader({
+            statusEl,
+            sampleSelect,
+            setStatusMessage,
+            setEmptyHintVisible,
+            hideSidePanel,
+            handleZIPFile,
+            finalizeBatchAfterAllFiles,
+            getLoadedModelCount: () => loadedModels.length,
+        });
+
+        async function loadSampleModel(sample) {
+            return sampleLoader.loadSampleModel(sample);
+        }
+
         createFileFlowController({
             fileInput,
             openBtn,
@@ -3203,41 +3219,6 @@ class ViewerApp {
         // =====================================================================
         // Asset Loading · Core Procedures
         // =====================================================================
-
-        async function loadSampleModel(sample) {
-            if (!sample || !sample.files || !sample.files.length) return;
-            if (!statusEl) return;
-            try {
-                if (sampleSelect) sampleSelect.disabled = true;
-                setStatusMessage(`Загрузка примера: ${sample.label}`);
-                setEmptyHintVisible(false);
-                hideSidePanel();
-
-                const downloadedFiles = [];
-                for (const url of sample.files) {
-                    const response = await fetch(url, { cache: 'no-cache' });
-                    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-                    const blob = await response.blob();
-                    const base = url.split('?')[0];
-                    const name = decodeURIComponent(base.split('/').pop() || 'sample.zip');
-                    downloadedFiles.push(new File([blob], name, { type: blob.type || 'application/zip' }));
-                }
-                for (const file of downloadedFiles) await handleZIPFile(file);
-                await finalizeBatchAfterAllFiles();
-
-                setStatusMessage('');
-                setEmptyHintVisible(loadedModels.length === 0);
-            } catch (err) {
-                console.error(err);
-                setStatusMessage(`Ошибка загрузки примера: ${err?.message || err}`);
-                setEmptyHintVisible(loadedModels.length === 0);
-            } finally {
-                if (sampleSelect) {
-                    sampleSelect.disabled = false;
-                    sampleSelect.value = '';
-                }
-            }
-        }
 
         /**
          * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
