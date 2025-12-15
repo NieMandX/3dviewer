@@ -19,6 +19,7 @@ import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
+import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
@@ -255,122 +256,37 @@ class ViewerApp {
 
         const glassOpacityEl      = document.getElementById('glassOpacity');
         const glassIorEl          = document.getElementById('glassIor');
-        const glassTransmissionEl = document.getElementById('glassTransmission');
-        const glassReflectEl      = document.getElementById('glassReflect');
-        const glassRoughEl        = document.getElementById('glassRough');
-        const glassMetalEl        = document.getElementById('glassMetal');
-	        const glassAttenDistEl    = document.getElementById('glassAttenDist');
-	        const glassAttenColorEl   = document.getElementById('glassAttenColor');
-	        const glassColorEl        = document.getElementById('glassColor');
-	        const glassResetBtn       = document.getElementById('glassReset');
+	        const glassTransmissionEl = document.getElementById('glassTransmission');
+	        const glassReflectEl      = document.getElementById('glassReflect');
+	        const glassRoughEl        = document.getElementById('glassRough');
+	        const glassMetalEl        = document.getElementById('glassMetal');
+		        const glassAttenDistEl    = document.getElementById('glassAttenDist');
+		        const glassAttenColorEl   = document.getElementById('glassAttenColor');
+		        const glassColorEl        = document.getElementById('glassColor');
+		        const glassResetBtn       = document.getElementById('glassReset');
 
-	        function sliderStepDecimals(input) {
-	            if (!input) return 2;
-	            const stepAttr = input.getAttribute?.('step');
-            if (!stepAttr || stepAttr === 'any') return 2;
-            if (stepAttr.includes('.')) {
-                const decimals = stepAttr.split('.')[1]?.length || 0;
-                return Math.min(Math.max(decimals, 0), 4);
-	            }
-	            return 0;
-	        }
-
-	        const lightValueDisplays = new Map();
-
-        function registerLightDisplay(id, slider) {
-            if (!slider) return;
-            const display = document.querySelector(`[data-light-value-for="${id}"]`);
-            if (!display || !(display instanceof HTMLInputElement)) return;
-            lightValueDisplays.set(id, { slider, display });
-            slider.addEventListener('input', () => updateLightDisplay(id));
-        }
-
-        function applyLightDisplay(entry) {
-            if (!entry) return;
-            const { slider, display } = entry;
-            if (!slider || !(display instanceof HTMLInputElement)) return;
-            const numeric = parseFloat(slider.value);
-            if (!Number.isFinite(numeric)) {
-                display.value = slider.value || '';
-                return;
-            }
-            display.value = numeric.toFixed(sliderStepDecimals(slider));
-        }
-
-        function updateLightDisplay(id) {
-            applyLightDisplay(lightValueDisplays.get(id));
-        }
-
-        function updateAllLightDisplays() {
-            lightValueDisplays.forEach(applyLightDisplay);
-        }
-
-        function commitLightDisplayInput(id) {
-            const entry = lightValueDisplays.get(id);
-            if (!entry) return;
-            const { slider, display } = entry;
-            if (!slider || !(display instanceof HTMLInputElement)) return;
-
-            const raw = (display.value || '').replace(',', '.').trim();
-            const parsed = parseFloat(raw);
-            if (!Number.isFinite(parsed)) {
-                updateLightDisplay(id);
-                return;
-            }
-
-            let next = clampValueToSlider(slider, parsed);
-            next = snapValueToStep(slider, next);
-            next = clampValueToSlider(slider, next);
-
-            const decimals = sliderStepDecimals(slider);
-            const formatted = Number.isFinite(decimals) ? next.toFixed(decimals) : String(next);
-
-            slider.value = formatted;
-            display.value = formatted;
-            updateLightDisplay(id);
-            slider.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        function attachLightDisplayInputs() {
-            lightValueDisplays.forEach(({ display }, id) => {
-                if (!(display instanceof HTMLInputElement)) return;
-                const commit = () => commitLightDisplayInput(id);
-                display.addEventListener('change', commit);
-                display.addEventListener('blur', commit);
-                display.addEventListener('keydown', (event) => {
-                    if (event.key === 'Enter') {
-                        event.preventDefault();
-                        commit();
-                        display.blur();
-                    } else if (event.key === 'Escape') {
-                        updateLightDisplay(id);
-                        display.blur();
-                    }
-                });
-            });
-        }
-
-        const outEl           = document.getElementById('out');
-        const galleryEl       = document.getElementById('gallery');
-        const texCountEl      = document.getElementById('texCount');
+	        const outEl           = document.getElementById('out');
+	        const galleryEl       = document.getElementById('gallery');
+	        const texCountEl      = document.getElementById('texCount');
         const matSelect       = document.getElementById('matSelect');
         const bindLogEl       = document.getElementById('bindLog');
 
         const bgAlphaEl       = document.getElementById('bgAlpha');
-        bgAlphaEl.addEventListener('input', updateBgVisibility);
+	        bgAlphaEl.addEventListener('input', updateBgVisibility);
 
-        [
-            ['hemiInt', hemiIntEl],
-            ['bgAlpha', bgAlphaEl],
-            ['iblInt', iblIntEl],
+	        const sliderValueDisplays = createSliderValueDisplayController({ root: document });
+	        [
+	            ['hemiInt', hemiIntEl],
+	            ['bgAlpha', bgAlphaEl],
+	            ['iblInt', iblIntEl],
             ['iblGamma', iblGammaEl],
             ['iblRot', iblRotEl],
-            ['hdriExposure', hdriExposureEl],
-            ['hdriSaturation', hdriSaturationEl],
-            ['hdriBlur', hdriBlurEl],
-        ].forEach(([id, slider]) => registerLightDisplay(id, slider));
-        updateAllLightDisplays();
-        attachLightDisplayInputs();
+	            ['hdriExposure', hdriExposureEl],
+	            ['hdriSaturation', hdriSaturationEl],
+	            ['hdriBlur', hdriBlurEl],
+	        ].forEach(([id, slider]) => sliderValueDisplays.register(id, slider));
+	        sliderValueDisplays.updateAll();
+	        sliderValueDisplays.attachInputs();
 
         const sampleSelect    = document.getElementById('sampleSelect');
 
@@ -3043,9 +2959,9 @@ class ViewerApp {
             });
         }
 
-        if (sunIntensityEl && sunIntensityInputEl && dirLight) {
-            sunIntensityEl.value = String(dirLight.intensity);
-            sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
+	        if (sunIntensityEl && sunIntensityInputEl && dirLight) {
+	            sunIntensityEl.value = String(dirLight.intensity);
+	            sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
             sunIntensityEl.addEventListener('input', () => {
                 const value = clampNumericInput(parseFloat(sunIntensityEl.value), parseFloat(sunIntensityEl.min) || 0, parseFloat(sunIntensityEl.max) || 20);
                 if (value == null) return;
@@ -3064,35 +2980,12 @@ class ViewerApp {
                 sunIntensityInputEl.value = formatSunIntensity(value);
                 dirLight.intensity = value;
                 requestRender();
-            });
-        }
+	            });
+	        }
 
-        
-        function clampValueToSlider(slider, value) {
-            let next = value;
-            const minAttr = slider.getAttribute('min');
-            const maxAttr = slider.getAttribute('max');
-            const min = minAttr !== null && minAttr !== '' ? parseFloat(minAttr) : null;
-            const max = maxAttr !== null && maxAttr !== '' ? parseFloat(maxAttr) : null;
-            if (Number.isFinite(min)) next = Math.max(next, min);
-            if (Number.isFinite(max)) next = Math.min(next, max);
-            return next;
-        }
-
-        function snapValueToStep(slider, value) {
-            const stepAttr = slider.getAttribute('step');
-            if (!stepAttr || stepAttr === 'any') return value;
-            const step = parseFloat(stepAttr);
-            if (!Number.isFinite(step) || step <= 0) return value;
-            const minAttr = slider.getAttribute('min');
-            const origin = minAttr !== null && minAttr !== '' ? parseFloat(minAttr) : 0;
-            const steps = Math.round((value - origin) / step);
-            return origin + steps * step;
-        }
-
-        
-        // =====================
-        // Auto-bind based on filenames
+	        
+	        // =====================
+	        // Auto-bind based on filenames
         // =====================
 
         const { labelFromURL } = createTextureLabelResolver({
