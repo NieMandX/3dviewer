@@ -24,6 +24,7 @@ import { createSliderValueDisplayController } from './modules/ui/slider-value-di
 import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
 import { createSunToggleController } from './modules/ui/sun-toggle.js';
 import { createSunInputsController } from './modules/ui/sun-inputs.js';
+import { createLayoutController } from './modules/ui/layout.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
@@ -249,14 +250,15 @@ class ViewerApp {
         const hdriExposureEl  = document.getElementById('hdriExposure');
         const hdriSaturationEl= document.getElementById('hdriSaturation');
         const hdriBlurEl      = document.getElementById('hdriBlur');
-        const axisSel         = null;
-        const isZUp = () => false;
-        const toggleSideBtn   = document.getElementById('toggleSideBtn');
-        const resetViewerBtn  = document.getElementById('resetViewerBtn');
-        const fullscreenBtn   = document.getElementById('fullscreenBtn');
-        const statsBtn        = document.getElementById('statsBtn');
-        const bgToggleBtn     = document.getElementById('bgToggleBtn');
-        const gridToggleBtn   = document.getElementById('gridToggleBtn');
+	        const axisSel         = null;
+	        const isZUp = () => false;
+	        const toggleSideBtn   = document.getElementById('toggleSideBtn');
+	        const loadParcelsBtn  = document.getElementById('loadParcelsBtn');
+	        const resetViewerBtn  = document.getElementById('resetViewerBtn');
+	        const fullscreenBtn   = document.getElementById('fullscreenBtn');
+	        const statsBtn        = document.getElementById('statsBtn');
+	        const bgToggleBtn     = document.getElementById('bgToggleBtn');
+	        const gridToggleBtn   = document.getElementById('gridToggleBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
 
         const glassOpacityEl      = document.getElementById('glassOpacity');
@@ -296,10 +298,11 @@ class ViewerApp {
         const sampleSelect    = document.getElementById('sampleSelect');
 
 
-	        let didInitialRebase = false;
-	        let currentShadingMode = 'pbr';
-	        let galleryNeedsRefresh = false;
-	        let lastFinalizedModelIndex = 0;
+		        let didInitialRebase = false;
+		        let currentShadingMode = 'pbr';
+		        let galleryNeedsRefresh = false;
+		        let layoutController = null;
+		        let lastFinalizedModelIndex = 0;
 	        let needsRender = true;
 	        let parcelsGroup = null;
 	        let parcelsOrigin = null;
@@ -947,38 +950,35 @@ class ViewerApp {
             return box.getCenter(new THREE.Vector3());
         }
 
-	        // =====================
-	        // Layout helper
-	        // =====================
+		        // =====================
+		        // Layout helper
+		        // =====================
 
-	        function layout() {
-	            // 1) measure header height and set CSS var
-	            const appbar = document.querySelector('.appbar');
-            const appH = Math.ceil(appbar?.getBoundingClientRect().height || 48);
-            document.body.style.setProperty('--appbarH', appH + 'px');
+		        function getLayoutController() {
+		            if (!layoutController) {
+		                layoutController = createLayoutController({
+		                    root: document,
+		                    window,
+		                    renderer,
+		                    camera,
+		                    requestRender,
+		                    toggleSideBtn,
+		                });
+		            }
+		            return layoutController;
+		        }
 
-            // 2) compute canvas size (side panel overlays, so use full width)
-            const w = Math.max(1, window.innerWidth);
-            const h = Math.max(1, window.innerHeight);
-            renderer.setSize(w, h);
-            camera.aspect = w / h;
-            camera.updateProjectionMatrix();
-            requestRender();
-        }
+		        function layout() {
+		            return getLayoutController().layout();
+		        }
 
-        window.addEventListener('resize', layout);
-        toggleSideBtn.addEventListener('click', () => { document.body.classList.toggle('side-hidden'); layout(); });
-        loadParcelsBtn?.addEventListener('click', () => loadMosParcels({ fetchAll: true, batchSize: 1000, maxRecords: 20000 }));
+		        function hideSidePanel() {
+		            return getLayoutController().hideSidePanel();
+		        }
 
-        function hideSidePanel() {
-            if (!document?.body) return;
-            if (!document.body.classList.contains('side-hidden')) {
-                document.body.classList.add('side-hidden');
-                try { layout(); } catch (_) {}
-            }
-        }
+		        loadParcelsBtn?.addEventListener('click', () => loadMosParcels({ fetchAll: true, batchSize: 1000, maxRecords: 20000 }));
 
-	        hideSidePanel();
+		        hideSidePanel();
 
 	   
 
