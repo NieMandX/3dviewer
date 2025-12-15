@@ -22,6 +22,7 @@ import { createSceneFramingController } from './modules/scene/framing.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
 import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
+import { createSunToggleController } from './modules/ui/sun-toggle.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
@@ -437,12 +438,11 @@ class ViewerApp {
         dirLight.castShadow = true;
         dirLight.shadow.mapSize.set(4096, 4096);
         dirLight.shadow.bias = -0.0005;      // боремся с acne
-        dirLight.shadow.normalBias = 0.02;    // боремся с peter-panning
-        dirLight.position.set(3, 5, 4);
-        scene.add(dirLight);
+	        dirLight.shadow.normalBias = 0.02;    // боремся с peter-panning
+	        dirLight.position.set(3, 5, 4);
+	        scene.add(dirLight);
 
-        let sunEnabled = true;
-        const sunDir = new THREE.Vector3(0, 1, 0); // актуальное направление солнца (единичный)
+	        const sunDir = new THREE.Vector3(0, 1, 0); // актуальное направление солнца (единичный)
 
 
 
@@ -700,12 +700,12 @@ class ViewerApp {
         app.world = world;
         app.camera = camera;
         app.renderer = renderer;
-        app.controls = controls;
-        app.hemiLight = hemiLight;
-        app.dirLight = dirLight;
-        app.grid = grid;
-        app.sun = { enabled: sunEnabled, direction: sunDir.clone() };
-        app.layers = { parcels: null };
+	        app.controls = controls;
+	        app.hemiLight = hemiLight;
+	        app.dirLight = dirLight;
+	        app.grid = grid;
+	        app.sun = { enabled: true, direction: sunDir.clone() };
+	        app.layers = { parcels: null };
 
 
 
@@ -756,63 +756,24 @@ class ViewerApp {
 		        });
 
 	       
-	        // SUN elements
-	        // ссылки
-        const sunEnabledEl  = document.getElementById('sunEnabled');
-        const sunControlsEl = document.getElementById('sunControls');
-
-        // якорь для "возврата" панели на то же место
-        let sunAnchor = null;
-        if (sunControlsEl && sunControlsEl.parentNode) {
-            sunAnchor = document.createComment('sun-controls-anchor');
-            sunControlsEl.parentNode.insertBefore(sunAnchor, sunControlsEl); // ставим якорь прямо перед блоком
-        }
-
-        // функции монтажа/демонтажа
-        /** Возвращает элементы управления солнцем назад в тулбар. */
-        function mountSunControls() {
-            if (!sunControlsEl || !sunAnchor) return;
-            if (sunControlsEl.isConnected) return;         // уже на месте
-            sunAnchor.replaceWith(sunControlsEl);          // вернуть ровно туда, где стоял якорь
-            try { layout(); } catch(_) {}
-        }
-
-        /** Удаляет элементы управления солнцем из тулбара. */
-        function unmountSunControls() {
-            if (!sunControlsEl || !sunControlsEl.isConnected) return;
-            if (!sunAnchor) return;
-            // вернуть якорь перед панелью и убрать панель
-            sunControlsEl.parentNode.insertBefore(sunAnchor, sunControlsEl);
-            sunControlsEl.remove();
-            try { layout(); } catch(_) {}
-        }
-
-        // главный переключатель солнца+теней
-        /** Переключает directional light и блок управления солнцем. */
-        function setSunEnabled(on){
-            on = !!on;
-            sunEnabled = on;
-            app.sun.enabled = on;
-
-            // источник и тени
-            dirLight.visible = on;
-            dirLight.castShadow = on;
-            renderer.shadowMap.enabled = on;
-
-            // убираем/возвращаем регуляторы в тулбар
-            if (on) {
-                mountSunControls();
-                updateSun();            // пересчитать позицию солнца
-                fitSunShadowToScene();  // обновить объём теней
-            } else {
-                unmountSunControls();
-            }
-            requestRender();
-        }
-
-        // инициализация тумблера
-        sunEnabledEl?.addEventListener('change', e => setSunEnabled(e.target.checked));
-        setSunEnabled(sunEnabledEl?.checked ?? true);
+		        // SUN elements
+		        // ссылки
+	        const sunEnabledEl  = document.getElementById('sunEnabled');
+	        const sunControlsEl = document.getElementById('sunControls');
+	        createSunToggleController({
+	            root: document,
+	            app,
+	            sunEnabledEl,
+	            sunControlsEl,
+	            renderer,
+	            dirLight,
+	            layout,
+	            requestRender,
+	            onEnable: () => {
+	                updateSun();            // пересчитать позицию солнца
+	                fitSunShadowToScene();  // обновить объём теней
+	            },
+	        });
 
 
         // =====================
