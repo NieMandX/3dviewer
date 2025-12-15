@@ -19,6 +19,7 @@ import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createSceneFramingController } from './modules/scene/framing.js';
+import { createWorldOffsetController } from './modules/scene/world-offset.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
 import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
@@ -907,48 +908,27 @@ class ViewerApp {
 
 
 
-        // =====================
-        // REBASE
-        // =====================      
+	        // =====================
+	        // REBASE
+	        // =====================      
 
-        function computeAutoOffsetHorizontalOnly() {
-            const c = computeAutoOffset(); // центр до ребейза (в текущих координатах world)
-            if (isZUp()) {
-                // Z — вертикаль → не трогаем Z
-                c.z = 0;
-            } else {
-                // Y — вертикаль → не трогаем Y
-                c.y = 0;
-            }
-            return c;
-        }
+	        const worldOffsetController = createWorldOffsetController({
+	            THREE,
+	            world,
+	            camera,
+	            dirLight,
+	            isZUp,
+	            computeSceneBounds,
+	            getBgMesh: () => bgMesh,
+	        });
 
+	        function computeAutoOffsetHorizontalOnly() {
+	            return worldOffsetController.computeAutoOffsetHorizontalOnly();
+	        }
 
-
-        // ===== Rebase (origin rebasing)
-        let worldOffset = new THREE.Vector3(0,0,0); // абсолютный оффсет сцены (куда была унесена модель)
-
-        // применяем/меняем оффсет (ничего в детях не трогаем)
-
-        function setWorldOffset(offset){
-            worldOffset.copy(offset);
-            world.position.set(-offset.x, -offset.y, -offset.z);
-            world.updateMatrixWorld(true);
-
-            if (bgMesh) bgMesh.position.copy(camera.position);
-            dirLight.target.position.set(0,0,0);
-            dirLight.target.updateMatrixWorld();
-
-            // ВАЖНО: сетку тут не двигаем!
-
-        }
-
-        // посчитать авто-оффсет по центру всех объектов (в абсолютных координатах ДО сдвига)
-        function computeAutoOffset() {
-            const box = computeSceneBounds();
-            if (box.isEmpty()) return new THREE.Vector3(0,0,0);
-            return box.getCenter(new THREE.Vector3());
-        }
+	        function setWorldOffset(offset) {
+	            worldOffsetController.setWorldOffset(offset);
+	        }
 
 		        // =====================
 		        // Layout helper
