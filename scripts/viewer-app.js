@@ -31,6 +31,7 @@ import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
 import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
+import { createBackgroundController } from './modules/render/background-controller.js';
 import { createShadowController } from './modules/render/shadow-controller.js';
 import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
@@ -279,8 +280,8 @@ class ViewerApp {
         const matSelect       = document.getElementById('matSelect');
         const bindLogEl       = document.getElementById('bindLog');
 
-        const bgAlphaEl       = document.getElementById('bgAlpha');
-	        bgAlphaEl.addEventListener('input', updateBgVisibility);
+	        const bgAlphaEl       = document.getElementById('bgAlpha');
+	        bgAlphaEl.addEventListener('input', () => backgroundController.updateVisibility());
 
 	        const sliderValueDisplays = createSliderValueDisplayController({ root: document });
 	        [
@@ -381,11 +382,8 @@ class ViewerApp {
 	            return sceneGeometryStats?.getStats?.() || { triangles: 0 };
 	        }
 
-        let bgMesh = null; // background sphere used to show HDRI
-        app.bgMesh = bgMesh;
-        let bgMode = 'white';
-        let gridVisible = true;
-        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
+	        let gridVisible = true;
+	        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
 
         const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
         camera.position.set(0, 1.5, -5);
@@ -429,6 +427,20 @@ class ViewerApp {
         if ('toneMapping' in renderer) renderer.toneMapping = THREE.NoToneMapping;
         if ('toneMappingExposure' in renderer) renderer.toneMappingExposure = 1.0;
         rootEl.appendChild(renderer.domElement);
+
+        const backgroundController = createBackgroundController({
+            THREE,
+            renderer,
+            scene,
+            camera,
+            app,
+            requestRender,
+            isEnvironmentEnabled: () => !!iblChk?.checked,
+            getAlpha: () => parseFloat(bgAlphaEl?.value || '1'),
+            bgToggleBtn,
+            whiteClearColor,
+            body: document?.body || null,
+        });
 
         
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -726,7 +738,7 @@ class ViewerApp {
 		            controls,
 		            renderer,
 		            requestRender,
-		            getBgMesh: () => bgMesh,
+		            getBgMesh: backgroundController.getBgMesh,
 		        });
 
 		        const shadowController = createShadowController({
@@ -804,18 +816,18 @@ class ViewerApp {
 
 	        const zipWorkerClient = createZIPWorkerClient();
 	        const unpackZIPInWorker = zipWorkerClient.unpackZIPInWorker;
-	        const environmentManager = createEnvironmentManager({
-	            renderer,
-	            scene,
-	            world,
-	            app,
-	            requestRender,
-	            ensureBgMesh,
-	            getBgMesh: () => bgMesh,
-	            updateBgVisibility,
-	            applyGlassControlsToScene,
-	            useWebGPU: USE_WEBGPU,
-	            rendererInitPromise,
+		        const environmentManager = createEnvironmentManager({
+		            renderer,
+		            scene,
+		            world,
+		            app,
+		            requestRender,
+		            ensureBgMesh: backgroundController.ensureBgMesh,
+		            getBgMesh: backgroundController.getBgMesh,
+		            updateBgVisibility: backgroundController.updateVisibility,
+		            applyGlassControlsToScene,
+		            useWebGPU: USE_WEBGPU,
+		            rendererInitPromise,
 	            iblGammaEl,
 	            iblTintEl,
 	            hdriExposureEl,
@@ -912,15 +924,15 @@ class ViewerApp {
 	        // REBASE
 	        // =====================      
 
-	        const worldOffsetController = createWorldOffsetController({
-	            THREE,
-	            world,
-	            camera,
-	            dirLight,
-	            isZUp,
-	            computeSceneBounds,
-	            getBgMesh: () => bgMesh,
-	        });
+		        const worldOffsetController = createWorldOffsetController({
+		            THREE,
+		            world,
+		            camera,
+		            dirLight,
+		            isZUp,
+		            computeSceneBounds,
+		            getBgMesh: backgroundController.getBgMesh,
+		        });
 
 	        function computeAutoOffsetHorizontalOnly() {
 	            return worldOffsetController.computeAutoOffsetHorizontalOnly();
@@ -1057,42 +1069,6 @@ class ViewerApp {
             // Подгоняем фрустум (НЕ меняем ни target, ни позицию света)
             fitSunShadowToScene(false); // передаём флажок: не ресентрить таргет
             updateNorthPointer();
-            requestRender();
-        }
-
-		        function setBackgroundMode(mode) {
-		            const next = mode === 'black' ? 'black' : 'white';
-		            bgMode = next;
-            if (next === 'black') {
-                if (typeof renderer.setClearColor === 'function') {
-                    renderer.setClearColor(0x000000, 1);
-                }
-                if (scene.background) scene.background.set(0x000000); else scene.background = new THREE.Color(0x000000);
-                bgToggleBtn?.classList.add('active');
-                if (bgToggleBtn) {
-                    bgToggleBtn.textContent = 'White';
-                    bgToggleBtn.classList.remove('white-mode');
-                    bgToggleBtn.classList.add('black-mode');
-                }
-                if (typeof document !== 'undefined' && document.body) {
-                    document.body.classList.add('bg-black');
-                }
-            } else {
-                if (typeof renderer.setClearColor === 'function') {
-                    renderer.setClearColor(whiteClearColor.clone(), 1);
-                }
-                scene.background = null;
-                bgToggleBtn?.classList.remove('active');
-                if (bgToggleBtn) {
-                    bgToggleBtn.textContent = 'Black';
-                    bgToggleBtn.classList.remove('black-mode');
-                    bgToggleBtn.classList.add('white-mode');
-                }
-                if (typeof document !== 'undefined' && document.body) {
-                    document.body.classList.remove('bg-black');
-                }
-            }
-            updateBgVisibility();
             requestRender();
         }
 
@@ -1676,39 +1652,9 @@ class ViewerApp {
 	        }
 
 
-        // =====================
-        // Background sphere helpers
-        // =====================
-        function ensureBgMesh() {
-            if (bgMesh) return bgMesh;
-            const geo = new THREE.SphereGeometry(100000, 64, 32);
-            const mat = new THREE.MeshBasicMaterial({
-                map: null, side: THREE.BackSide, depthWrite: false, toneMapped: false,
-                transparent: true, opacity: parseFloat(bgAlphaEl.value || '1')
-            });
-            bgMesh = new THREE.Mesh(geo, mat);
-            app.bgMesh = bgMesh;
-            bgMesh.userData.excludeFromBounds = true;
-            bgMesh.frustumCulled = false;
-            bgMesh.renderOrder = -1000;
-            scene.add(bgMesh);
-            bgMesh.position.copy(camera.position);
-            return bgMesh;
-        }
-
-        function updateBgVisibility() {
-            if (!bgMesh) return;
-            const shouldShow = !!iblChk?.checked && bgMode !== 'black';
-            bgMesh.visible = shouldShow;
-            bgMesh.material.opacity = parseFloat(bgAlphaEl.value || '1');
-            bgMesh.material.transparent = bgMesh.material.opacity < 0.999;
-            bgMesh.material.needsUpdate = true;
-            requestRender();
-        }
-
-	        createSunInputsController({
-	            sunHourEl,
-	            sunHourInputEl,
+		        createSunInputsController({
+		            sunHourEl,
+		            sunHourInputEl,
 	            sunDayEl,
 	            sunMonthEl,
 	            sunNorthEl,
@@ -1721,20 +1667,14 @@ class ViewerApp {
 
 	        syncEnvAdjustmentsState();
 
-        if (statsBtn) {
-            statsBtn.addEventListener('click', () => setStatsVisible(!statsOverlayController.isVisible()));
-        }
-        setStatsVisible(true);
+	        if (statsBtn) {
+	            statsBtn.addEventListener('click', () => setStatsVisible(!statsOverlayController.isVisible()));
+	        }
+	        setStatsVisible(true);
 
-        bgToggleBtn?.addEventListener('click', () => {
-            setBackgroundMode(bgMode === 'black' ? 'white' : 'black');
-        });
-        setBackgroundMode('white');
-        if (bgToggleBtn) bgToggleBtn.classList.add('white-mode');
-
-        gridToggleBtn?.addEventListener('click', () => {
-            setGridVisible(!gridVisible);
-        });
+	        gridToggleBtn?.addEventListener('click', () => {
+	            setGridVisible(!gridVisible);
+	        });
         setGridVisible(true);
 
         resetViewerBtn?.addEventListener('click', () => {
@@ -2864,16 +2804,18 @@ class ViewerApp {
             setWorldOffset,
             isIBLEnabled: () => iblChk.checked,
             getIBLRotation: () => parseFloat(iblRotEl.value) || 0,
-            loadHDRBase,
-            buildAndApplyEnvFromRotation,
-            syncBackgroundToEnvironment: () => {
-                ensureBgMesh();
-                bgMesh.material.map = environmentManager.getCurrentBg() || null;
-                bgMesh.material.needsUpdate = true;
-                updateBgVisibility();
-            },
-            applyGlassControlsToScene,
-            fitSunShadowToScene,
+	            loadHDRBase,
+	            buildAndApplyEnvFromRotation,
+	            syncBackgroundToEnvironment: () => {
+	                const bgMesh = backgroundController.ensureBgMesh();
+	                if (bgMesh) {
+	                    bgMesh.material.map = environmentManager.getCurrentBg() || null;
+	                    bgMesh.material.needsUpdate = true;
+	                }
+	                backgroundController.updateVisibility();
+	            },
+	            applyGlassControlsToScene,
+	            fitSunShadowToScene,
             updateSun,
             buildVPMIndex,
             autoBindVPMForModel,
@@ -2899,19 +2841,19 @@ class ViewerApp {
             return batchFinalizer.finalizeBatchAfterAllFiles();
         }
 
-        app.api = Object.freeze({
-            applyShading,
-            setEnvironmentEnabled,
-            updateSun,
-            focusOn,
-            fitAll,
-            computeSceneBounds,
-            layout,
-            updateBgVisibility,
-            computeWorldCenter,
-            setStatsVisible,
-            requestRender,
-        });
+	        app.api = Object.freeze({
+	            applyShading,
+	            setEnvironmentEnabled,
+	            updateSun,
+	            focusOn,
+	            fitAll,
+	            computeSceneBounds,
+	            layout,
+	            updateBgVisibility: backgroundController.updateVisibility,
+	            computeWorldCenter,
+	            setStatsVisible,
+	            requestRender,
+	        });
         // =====================
         // Animation loop & init
         // =====================
@@ -2925,9 +2867,7 @@ class ViewerApp {
             const controlsChanged = controls.update();
             if (controlsChanged) needsRender = true;
 
-            if (bgMesh) {
-                bgMesh.position.copy(camera.position);
-            }
+	            backgroundController.syncToCamera();
 
             if (USE_WEBGPU && !rendererReady) {
                 updateStatsOverlay();
