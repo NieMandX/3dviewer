@@ -20,6 +20,7 @@ import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
+import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
@@ -706,124 +707,29 @@ class ViewerApp {
 
 
 
-        // =====================================================================
-        // Lighting & Shadows · Sun control / debug panel
-        // =====================================================================
+	        // =====================================================================
+	        // Lighting & Shadows · Sun control / debug panel
+	        // =====================================================================
 
-        // --- Shadows debug panel (после создания dirLight!) ---
-                const $ = (id) => document.getElementById(id);
+	        // --- Shadows debug panel (после создания dirLight!) ---
+	        createShadowDebugPanelController({
+	            root: document,
+	            THREE,
+	            renderer,
+	            dirLight,
+	            requestRender,
+	            fitSunShadowToScene,
+	            setShadowDebug,
+	            getShadowDebugVisible: () => !!shadowCamHelper?.visible,
+	            getShadowAutoFrustum: () => shadowAutoFrustum,
+	            setShadowAutoFrustum: (next) => { shadowAutoFrustum = !!next; },
+	            getShadowFrustumScale: () => shadowFrustumScale,
+	            setShadowFrustumScale: (next) => { shadowFrustumScale = next; },
+	        });
 
-                const shadowDbgBtn   = $('shadowDbgBtn');
-                const shadowDbg      = $('shadowDbg');
-                const shadowDbgClose = $('shadowDbgClose');
-
-                const inType   = $('shadowType');
-                const inSize   = $('shadowMapSize');
-                const inBias   = $('shadowBias');
-                const inNBias  = $('shadowNormalBias');
-                const inRadius = $('shadowRadius');
-                const inNear   = $('shadowNear');
-                const inFar    = $('shadowFar');
-                const inAuto   = $('shadowAuto');
-                const inScale  = $('shadowFrustumScale');
-
-                /** Открывает панель отладки теней и синхронизирует значения. */
-                function openShadowDbg(){ if (shadowDbg) { syncShadowUIFromLight(); shadowDbg.classList.add('show'); } }
-                /** Закрывает панель отладки теней. */
-                function closeShadowDbg(){ shadowDbg?.classList.remove('show'); }
-
-                document.getElementById('shadowHelpersBtn').addEventListener('click', () => {
-                    const next = !(shadowCamHelper?.visible);
-                    setShadowDebug(next);
-                    fitSunShadowToScene();
-                });
-
-                shadowDbgBtn?.addEventListener('click', openShadowDbg);
-                shadowDbgClose?.addEventListener('click', closeShadowDbg);
-
-                /** Передаёт текущие настройки directional light в UI-поля панели. */
-                function syncShadowUIFromLight(){
-                if (!dirLight) return;
-                const s = dirLight.shadow;
-                inBias.value   = String(s.bias ?? -0.00005);
-                inNBias.value  = String(s.normalBias ?? 0.02);
-                inRadius.value = String(('radius' in s) ? (s.radius ?? 1) : 1);
-                inNear.value   = String(s.camera?.near ?? 0.1);
-                inFar.value    = String(s.camera?.far  ?? 200);
-                inSize.value   = String(s.mapSize?.x ?? 4096);
-
-                // тип теней
-                const t = renderer.shadowMap.type;
-                inType.value = (t === THREE.VSMShadowMap) ? 'VSM' : (t === THREE.PCFShadowMap ? 'PCF' : 'PCFSoft');
-
-                inAuto.checked = !!shadowAutoFrustum;
-                inScale.value  = String(shadowFrustumScale);
-                }
-
-                /** Применяет значения из UI к источнику света и обновляет сцену. */
-                function applyShadowUIToLight(){
-                if (!dirLight) return;
-
-                // тип теней
-                const typeMap = { PCF: THREE.PCFShadowMap, PCFSoft: THREE.PCFSoftShadowMap, VSM: THREE.VSMShadowMap };
-                renderer.shadowMap.type = typeMap[inType.value] ?? THREE.PCFSoftShadowMap;
-                renderer.shadowMap.enabled = true;
-                dirLight.castShadow = true;
-
-                // размер карты
-                const size = Math.max(256, parseInt(inSize.value, 10) || 1024);
-                if (dirLight.shadow.mapSize.x !== size || dirLight.shadow.mapSize.y !== size) {
-                    dirLight.shadow.mapSize.set(size, size);
-                    dirLight.shadow.map?.dispose?.(); // пересоздать рендер-таргет
-                }
-
-                // смещения
-                dirLight.shadow.bias       = parseFloat(inBias.value)  || 0;
-                dirLight.shadow.normalBias = parseFloat(inNBias.value) || 0;
-
-                // радиус (для PCFSoft/VSM)
-                if ('radius' in dirLight.shadow) {
-                    dirLight.shadow.radius = parseFloat(inRadius.value) || 0;
-                }
-
-                // near/far + фрустум
-                const cam = dirLight.shadow.camera;
-                if (cam) {
-                    cam.near = Math.max(0.0001, parseFloat(inNear.value) || 0.1);
-                    cam.far  = Math.max(cam.near + 0.01, parseFloat(inFar.value)  || cam.far || 200);
-                    cam.updateProjectionMatrix();
-                }
-
-                // авто-фрустум от сцены + масштаб
-                shadowAutoFrustum = !!inAuto.checked;
-                shadowFrustumScale = Math.max(0.01, parseFloat(inScale.value) || 1);
-                if (shadowAutoFrustum) fitSunShadowToScene(false);
-
-                dirLight.shadow.needsUpdate = true;
-                requestRender();
-                }
-
-                $('shadowApply')?.addEventListener('click', applyShadowUIToLight);
-                $('shadowReset')?.addEventListener('click', () => {
-                inType.value   = 'PCFSoft';
-                inSize.value   = '4096';
-                inBias.value   = '-0.00005';
-                inNBias.value  = '0.02';
-                inRadius.value = '1';
-                inNear.value   = '0.1';
-                inFar.value    = '200';
-                inAuto.checked = true;
-                inScale.value  = '1';
-                applyShadowUIToLight();
-                });
-
-        // ---------------------------------
-        // END OF DEBUG SHADDOW PANNEL LOGIC
-        // ---------------------------------
-
-       
-        // SUN elements
-        // ссылки
+	       
+	        // SUN elements
+	        // ссылки
         const sunEnabledEl  = document.getElementById('sunEnabled');
         const sunControlsEl = document.getElementById('sunControls');
 
