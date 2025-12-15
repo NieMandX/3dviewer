@@ -26,6 +26,7 @@ import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
 import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
+import { createShadowController } from './modules/render/shadow-controller.js';
 import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
 import { createFileFlowController } from './modules/io/file-flow.js';
@@ -707,25 +708,41 @@ class ViewerApp {
 
 
 
-	        // =====================================================================
-	        // Lighting & Shadows · Sun control / debug panel
-	        // =====================================================================
+		        // =====================================================================
+		        // Lighting & Shadows · Sun control / debug panel
+		        // =====================================================================
 
-	        // --- Shadows debug panel (после создания dirLight!) ---
-	        createShadowDebugPanelController({
-	            root: document,
-	            THREE,
-	            renderer,
-	            dirLight,
-	            requestRender,
-	            fitSunShadowToScene,
-	            setShadowDebug,
-	            getShadowDebugVisible: () => !!shadowCamHelper?.visible,
-	            getShadowAutoFrustum: () => shadowAutoFrustum,
-	            setShadowAutoFrustum: (next) => { shadowAutoFrustum = !!next; },
-	            getShadowFrustumScale: () => shadowFrustumScale,
-	            setShadowFrustumScale: (next) => { shadowFrustumScale = next; },
-	        });
+		        // --- Shadows debug panel (после создания dirLight!) ---
+		        const shadowController = createShadowController({
+		            THREE,
+		            scene,
+		            renderer,
+		            dirLight,
+		            computeSceneBounds,
+		        });
+
+		        function setShadowDebug(on) {
+		            shadowController.setShadowDebug(on);
+		        }
+
+		        function fitSunShadowToScene(recenterTarget = false, margin = 1.3) {
+		            shadowController.fitSunShadowToScene(recenterTarget, margin);
+		        }
+
+		        createShadowDebugPanelController({
+		            root: document,
+		            THREE,
+		            renderer,
+		            dirLight,
+		            requestRender,
+		            fitSunShadowToScene,
+		            setShadowDebug,
+		            getShadowDebugVisible: () => shadowController.isShadowDebugVisible(),
+		            getShadowAutoFrustum: () => shadowController.getAutoFrustum(),
+		            setShadowAutoFrustum: (next) => { shadowController.setAutoFrustum(next); },
+		            getShadowFrustumScale: () => shadowController.getFrustumScale(),
+		            setShadowFrustumScale: (next) => { shadowController.setFrustumScale(next); },
+		        });
 
 	       
 	        // SUN elements
@@ -988,93 +1005,13 @@ class ViewerApp {
             }
         }
 
-        hideSidePanel();
+	        hideSidePanel();
 
-   
+	   
 
-                // ---------------------------------------
-                // DEBUG SHADOW PANEL AUTOUPDATE
-                // ---------------------------------------
-                    let shadowCamHelper = null;
-                    let sunHelper = null;
-
-                    /** Создаёт helpers для тюнинга теней (камера + направление). */
-                    function ensureShadowHelpers() {
-                        if (!shadowCamHelper) {
-                            shadowCamHelper = new THREE.CameraHelper(dirLight.shadow.camera);
-                            shadowCamHelper.visible = false;
-                            shadowCamHelper.userData.excludeFromBounds = true; // не учитываем в bbox/fitAll
-                            scene.add(shadowCamHelper);
-                        }
-                        if (!sunHelper) {
-                            sunHelper = new THREE.DirectionalLightHelper(dirLight, 1);
-                            sunHelper.visible = false;
-                            sunHelper.userData.excludeFromBounds = true;
-                            scene.add(sunHelper);
-                        }
-                    }
-
-                    /** Включает/выключает визуализацию параметров теней. */
-                    function setShadowDebug(on) {
-                        ensureShadowHelpers();
-                        shadowCamHelper.visible = !!on;
-                        sunHelper.visible = !!on;
-                        shadowCamHelper.update();
-                        sunHelper.update();
-                    }
-
-                    let shadowAutoFrustum = true;
-                    let shadowFrustumScale = 1;
-
-                    /** Подгоняет orthographic frustum для directional light под текущую сцену. */
-                    function fitSunShadowToScene(recenterTarget = false, margin = 1.3) {
-                        if (!dirLight || !dirLight.shadow || !dirLight.shadow.camera) return;
-
-                        const box = computeSceneBounds();
-                        if (box.isEmpty()) return;
-
-                        const scale = Math.max(0.1, shadowFrustumScale || 1);
-                        const effectiveMargin = margin * scale;
-
-                        const center = box.getCenter(new THREE.Vector3());
-                        const size   = box.getSize(new THREE.Vector3());
-                        const radius = size.length() * 0.5 * effectiveMargin;
-                        const spanXY = Math.max(size.x, size.y, size.z) * 0.5 * effectiveMargin;
-
-                        // По желанию — один раз «поймать» центр
-                        if (recenterTarget) {
-                            dirLight.target.position.copy(center);
-                            dirLight.target.updateMatrixWorld();
-                        }
-
-                        const cam = dirLight.shadow.camera; // OrthographicCamera
-                        cam.left = -spanXY;
-                        cam.right = spanXY;
-                        cam.top = spanXY;
-                        cam.bottom = -spanXY;
-
-                        // near/far вокруг текущей геометрии относительно текущего луча
-                        const dist = dirLight.position.distanceTo(dirLight.target.position) || (radius * 1.2);
-                        cam.near = Math.max(0.1, dist - radius);
-                        cam.far  = dist + radius;
-
-                        cam.updateProjectionMatrix();
-
-                        dirLight.shadow.needsUpdate = true;
-                        renderer.shadowMap.needsUpdate = true;
-
-                        shadowCamHelper?.update?.();
-                        sunHelper?.update?.();
-                    }
-
-                // ----------------------------------------------
-                // END OF DEBUG SHADDOW PANNEL'S LOGIC AUTOUPDATE
-                // ----------------------------------------------
-
-                
-        // === Bounds (без гридов/хелперов) ===
-        function expandBoxFiltered(box, obj) {
-            if (!obj || !obj.visible) return;
+	        // === Bounds (без гридов/хелперов) ===
+	        function expandBoxFiltered(box, obj) {
+	            if (!obj || !obj.visible) return;
 
             // исключения: помеченные объекты, стандартные хелперы, фон, источники света и точки
             if (obj.userData?.excludeFromBounds) return;
