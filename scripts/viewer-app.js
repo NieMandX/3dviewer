@@ -50,6 +50,7 @@ import {
 } from './modules/material/naming.js';
 import { createGlassController } from './modules/material/glass-controller.js';
 import { createGlassMeshOptimizer } from './modules/material/glass-mesh-optimizer.js';
+import { createMaterialRenamer } from './modules/material/rename-materials.js';
 import { createVPMBinder } from './modules/material/vpm-autobind.js';
 import { createFilenameBinder } from './modules/material/filename-autobind.js';
 import { copyTextureSettings } from './modules/material/texture-utils.js';
@@ -1581,10 +1582,10 @@ class ViewerApp {
             isGlassGeomSuffix,
         });
 
-        function getSelectedMaterialLink() {
-            if (!matSelect) return null;
-            const val = matSelect.value;
-            if (val === '' || val == null) return null;
+	        function getSelectedMaterialLink() {
+	            if (!matSelect) return null;
+	            const val = matSelect.value;
+	            if (val === '' || val == null) return null;
 
             let map = [];
             try { map = JSON.parse(matSelect.dataset._map || '[]'); } catch {}
@@ -1602,59 +1603,19 @@ class ViewerApp {
                 const mats = Array.isArray(o.material) ? o.material : [o.material];
                 link = { obj: o, index: targetIndex, mat: mats[targetIndex] || null };
             });
-            return link;
-        }
+	            return link;
+	        }
 
-        // --- ПОДПИСАТЬ МАТЕРИАЛЫ ПО ИМЕНИ ОБЪЕКТА/UCX ---
-        function renameMaterialsByFBXObject(root){
-        const RX_DEFAULT = /^_*default(?:_?material)?\s*$/i;  // __DEFAULT / Default / DefaultMaterial / "" и т.п.
-        const RX_UCX = /^ucx\b/i;
+	        // --- ПОДПИСАТЬ МАТЕРИАЛЫ ПО ИМЕНИ ОБЪЕКТА/UCX ---
+	        const renameMaterialsByFBXObject = createMaterialRenamer({
+	            logBind,
+	            cacheOriginalMaterialFor,
+	        });
 
-        const nearestUCX = (o) => {
-            for (let p = o; p; p = p.parent){
-            if (RX_UCX.test(p.name || '')) return p.name;
-            if (p.geometry?.name && RX_UCX.test(p.geometry.name)) return p.geometry.name;
-            }
-            return null;
-        };
-
-        let renamed = 0;
-        root.traverse(mesh => {
-            if (!mesh.isMesh || !mesh.material) return;
-
-            const ucx = nearestUCX(mesh);
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-            let changed = false;
-            for (let i = 0; i < mats.length; i++){
-            const m = mats[i]; if (!m) continue;
-
-            const isDefault = RX_DEFAULT.test(m.name || '') || !(m.name || '').trim();
-            const mustRename = isDefault || !!ucx;               // все UCX получат имя по объекту
-
-            if (!mustRename) continue;
-
-            const base = (ucx || mesh.name || mesh.parent?.name || 'MATERIAL').trim();
-            const cloned = m.clone();                            // свой инстанс для этого меша
-            cloned.name = mats.length > 1 ? `${base}_${i+1}` : base;
-
-            if (Array.isArray(mesh.material)) mesh.material[i] = cloned;
-            else mesh.material = cloned;
-
-            renamed++;
-            changed = true;
-            }
-            if (changed) cacheOriginalMaterialFor(mesh, true);
-        });
-
-        if (typeof logBind === 'function') {
-            logBind(`UCX rename: переименовано материалов — ${renamed}`, renamed ? 'ok' : 'warn');
-        }
-        }
-
-	        // helper: формируем метаданные GeoJSON (url для скачивания, prettified текст, подсчёт features)
-	        // =====================================================================
-	        // GeoJSON & Glass parameters
-	        // =====================================================================
+		        // helper: формируем метаданные GeoJSON (url для скачивания, prettified текст, подсчёт features)
+		        // =====================================================================
+		        // GeoJSON & Glass parameters
+		        // =====================================================================
 
         /**
          * Формирует удобную структуру с распарсенным GeoJSON, количеством features
