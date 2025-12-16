@@ -9,8 +9,6 @@ import {
     getVPMReferenceHeight,
 } from './modules/parcels.js';
 import { basename } from './modules/utils/path.js';
-import { clamp01 } from './modules/utils/math.js';
-import { normalizeHexColor } from './modules/utils/color.js';
 import { createTextureLabelResolver } from './modules/utils/texture-labels.js';
 import { makeGeoJsonMeta } from './modules/geo/geojson-meta.js';
 import { getSMOffset } from './modules/geo/sm-offset.js';
@@ -30,6 +28,7 @@ import { createLayoutController } from './modules/ui/layout.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
+import { createGlassOverridesController } from './modules/ui/glass-overrides.js';
 import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
@@ -2194,7 +2193,19 @@ class ViewerApp {
 	        // UI · Materials Panel & Gallery
 	        // =====================================================================
 
-	        const materialsPanel = createMaterialsPanelController({
+	        let materialsPanel = null;
+	        const glassOverrides = createGlassOverridesController({
+	            requestRender,
+	            applyGlassControlsToScene,
+	            resolveGlassMaterial: (uuid, matIndex) => materialsPanel?.resolveGlassMaterial(uuid, matIndex),
+	        });
+	        const {
+	            handleGlassSliderInput,
+	            handleGlassColorInput,
+	            formatColorForDisplay,
+	        } = glassOverrides;
+
+	        materialsPanel = createMaterialsPanelController({
 	            world,
 	            loadedModels,
 	            outEl,
@@ -2210,113 +2221,17 @@ class ViewerApp {
 	        });
 
 	        function schedulePanelRefresh(afterRender) {
-	            materialsPanel.scheduleRefresh(afterRender);
+	            materialsPanel?.scheduleRefresh(afterRender);
 	        }
-
-		        /** Возвращает { mesh, mat, index } по UUID и индексу материала для стеклянных контролов. */
-		        function resolveGlassMaterial(uuid, matIndex) {
-		            return materialsPanel.resolveGlassMaterial(uuid, matIndex);
-		        }
 
 	        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
 	        function syncCollisionButtons() {
-	            materialsPanel.syncCollisionButtons();
+	            materialsPanel?.syncCollisionButtons?.();
 	        }
 
-        /** Обработчик изменения значений слайдеров стекла (α/rough/metal). */
-        function handleGlassSliderInput(ev) {
-            const input = ev.currentTarget;
-            if (!input) return;
-            const prop = input.dataset.prop;
-            const uuid = input.dataset.uuid;
-            const matIndex = Number.parseInt(input.dataset.matIndex ?? '0', 10) || 0;
-            const resolved = resolveGlassMaterial(uuid, matIndex);
-            if (!resolved) return;
-            const { mat } = resolved;
-            let rawValue = parseFloat(input.value);
-            if (!Number.isFinite(rawValue)) rawValue = 0;
-            const minAttr = Number.parseFloat(input.min ?? '');
-            const maxAttr = Number.parseFloat(input.max ?? '');
-            if (Number.isFinite(minAttr)) rawValue = Math.max(minAttr, rawValue);
-            if (Number.isFinite(maxAttr)) rawValue = Math.min(maxAttr, rawValue);
-            input.value = String(rawValue);
-
-            let storedValue;
-            if (prop === 'opacity' || prop === 'roughness' || prop === 'metalness' || prop === 'transmission') {
-                storedValue = clamp01(rawValue);
-            } else {
-                storedValue = rawValue;
-            }
-
-            const overrides = (mat.userData ||= {}).glassOverrides ||= {};
-            overrides[prop] = storedValue;
-            if (prop === 'envIntensity') overrides.envIntensity = storedValue;
-            if (prop === 'transmission') {
-                (mat.userData.glassOriginal ||= {}).transmission = storedValue;
-            }
-
-            applyGlassControlsToScene();
-
-            const container = input.closest('.glass-controls');
-            if (container) {
-                const span = container.querySelector(`.glass-value[data-prop="${prop}"]`);
-                if (span) span.textContent = Number.isFinite(storedValue) ? storedValue.toFixed(2) : '—';
-                updateGlassSourceLabel(container, mat);
-                if (prop === 'color' || prop === 'opacity' || prop === 'roughness' || prop === 'metalness' || prop === 'transmission' || prop === 'envIntensity' || prop === 'refraction') {
-                    const colorSpan = container.querySelector('.glass-value[data-prop="color-rgb"]');
-                    if (colorSpan) colorSpan.textContent = formatColorForDisplay(mat?.color);
-                }
-            }
-            requestRender();
-        }
-
-        /** Обработчик выбора цвета стекла. */
-        function handleGlassColorInput(ev) {
-            const input = ev.currentTarget;
-            if (!input) return;
-            const uuid = input.dataset.uuid;
-            const matIndex = Number.parseInt(input.dataset.matIndex ?? '0', 10) || 0;
-            const resolved = resolveGlassMaterial(uuid, matIndex);
-            if (!resolved) return;
-            const { mat } = resolved;
-            const hex = normalizeHexColor(input.value, '#FFFFFF') || '#FFFFFF';
-            input.value = hex;
-
-            const overrides = (mat.userData ||= {}).glassOverrides ||= {};
-            overrides.color = hex;
-
-            applyGlassControlsToScene();
-
-            const container = input.closest('.glass-controls');
-            if (container) {
-                updateGlassSourceLabel(container, mat);
-                const colorSpan = container.querySelector('.glass-value[data-prop="color-rgb"]');
-                if (colorSpan) colorSpan.textContent = formatColorForDisplay(mat?.color);
-            }
-            requestRender();
-        }
-
-        /** Обновляет текстовое поле-источник для стеклянного материала. */
-        function updateGlassSourceLabel(container, mat) {
-            if (!container || !mat) return;
-            const label = container.querySelector('.glass-source');
-            if (!label) return;
-            const info = mat.userData?.glassInfo;
-            let text = 'UI';
-            if (info?.source === 'geojson') text = 'GeoJSON';
-            else if (info?.source === 'override') text = 'Custom';
-            label.textContent = text;
-        }
-
-        function formatColorForDisplay(color) {
-            if (!color || !color.isColor) return '—';
-            const to255 = (v) => Math.round(clamp01(v) * 255);
-            return `${to255(color.r)}/${to255(color.g)}/${to255(color.b)}`;
-        }
-
-		        // =====================
-		        // Gallery / modal
-		        // =====================
+	        // =====================
+	        // Gallery / modal
+	        // =====================
 	        const texModal = document.getElementById('texModal');
 	        const mClose = document.getElementById('mClose');
 	        const mImg = document.getElementById('mImg');
