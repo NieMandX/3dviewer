@@ -24,6 +24,7 @@ import { createSliderValueDisplayController } from './modules/ui/slider-value-di
 import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
 import { createSunToggleController } from './modules/ui/sun-toggle.js';
 import { createSunInputsController } from './modules/ui/sun-inputs.js';
+import { createEnvironmentControlsController } from './modules/ui/environment-controls.js';
 import { createLayoutController } from './modules/ui/layout.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
@@ -1498,14 +1499,32 @@ class ViewerApp {
 	            sunIntensityInputEl,
 	            dirLight,
 	            updateSun,
-	            requestRender,
-	        });
+		            requestRender,
+		        });
 
-	        syncEnvAdjustmentsState();
+		        createEnvironmentControlsController({
+		            scene,
+		            iblChk,
+		            hdriPresetSel,
+		            iblIntEl,
+		            iblGammaEl,
+		            iblTintEl,
+		            iblRotEl,
+		            hdriExposureEl,
+		            hdriSaturationEl,
+		            hdriBlurEl,
+		            setEnvironmentEnabled,
+		            setEnvironmentRotation,
+		            applyEnvToMaterials,
+		            requestEnvironmentRebuild,
+		            syncEnvAdjustmentsState,
+		            getCurrentEnv: () => environmentManager.getCurrentEnv(),
+		            selectPresetIndex: (idx) => environmentManager.selectPresetIndex(idx),
+		        });
 
-	        if (statsBtn) {
-	            statsBtn.addEventListener('click', () => setStatsVisible(!statsOverlayController.isVisible()));
-	        }
+		        if (statsBtn) {
+		            statsBtn.addEventListener('click', () => setStatsVisible(!statsOverlayController.isVisible()));
+		        }
 	        setStatsVisible(true);
 
 	        gridToggleBtn?.addEventListener('click', () => {
@@ -1526,37 +1545,12 @@ class ViewerApp {
             } else {
                 if (document.exitFullscreen) document.exitFullscreen();
                 else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-            }
-        });
+	            }
+	        });
 
-	        iblChk?.addEventListener('change', () => setEnvironmentEnabled(iblChk.checked));
-	        iblIntEl?.addEventListener('input', () => {
-	            if (!iblChk?.checked) return;
-	            const env = scene.environment || environmentManager.getCurrentEnv();
-	            if (!env) return;
-	            applyEnvToMaterials(env, parseFloat(iblIntEl.value));
-	        });
-        const scheduleEnvRebuildFromUI = () => {
-            syncEnvAdjustmentsState();
-            requestEnvironmentRebuild({ immediate: false });
-        };
-        iblGammaEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-        iblTintEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-        hdriExposureEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-        hdriSaturationEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-        hdriBlurEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-
-	        iblRotEl?.addEventListener('input', () => {
-	            setEnvironmentRotation(parseFloat(iblRotEl?.value) || 0);
-	        });
-	        hdriPresetSel?.addEventListener('change', async (e) => {
-	            const idx = parseInt(e.target.value, 10);
-	            if (isNaN(idx)) return;
-	            await environmentManager.selectPresetIndex(idx);
-	        });
-        // =====================
-        // Axis toggle
-        // =====================
+	        // =====================
+	        // Axis toggle
+	        // =====================
 
         // =====================
         // Utilities
