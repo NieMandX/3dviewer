@@ -32,6 +32,7 @@ import { createGlassOverridesController } from './modules/ui/glass-overrides.js'
 import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
+import { createRenderLoopController } from './modules/render/render-loop.js';
 import { createShadowController } from './modules/render/shadow-controller.js';
 import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
@@ -300,19 +301,16 @@ class ViewerApp {
         const sampleSelect    = document.getElementById('sampleSelect');
 
 
-		        let didInitialRebase = false;
-		        let currentShadingMode = 'pbr';
-		        let galleryNeedsRefresh = false;
-		        let layoutController = null;
-		        let lastFinalizedModelIndex = 0;
-	        let needsRender = true;
-	        let parcelsGroup = null;
-	        let parcelsOrigin = null;
-			        let fpsEstimate = 0;
-			        let lastFrameTime = 0;
-			        let lastRenderStats = null;
-			        let sceneGeometryStats = null;
-			        let glassController = null;
+			        let didInitialRebase = false;
+			        let currentShadingMode = 'pbr';
+			        let galleryNeedsRefresh = false;
+			        let layoutController = null;
+			        let lastFinalizedModelIndex = 0;
+		        let renderLoop = null;
+		        let parcelsGroup = null;
+		        let parcelsOrigin = null;
+				        let sceneGeometryStats = null;
+				        let glassController = null;
 	        app.dom = {
             rootEl,
             dropEl,
@@ -355,11 +353,11 @@ class ViewerApp {
             fullscreenBtn,
             statsOverlayEl,
         };
-        app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
+	        app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
 
-        function requestRender() {
-            needsRender = true;
-        }
+	        function requestRender() {
+	            renderLoop?.requestRender?.();
+	        }
 
 
 
@@ -925,16 +923,16 @@ class ViewerApp {
 	            requestRender();
 	        }
 
-	        const statsOverlayController = createStatsOverlayController({
-	            statsBtn,
-	            statsOverlayEl,
-	            renderer,
-	            requestRender,
-	            getFpsEstimate: () => fpsEstimate,
-	            getLastRenderStats: () => lastRenderStats,
-	            getSceneGeometryStats,
-	            getRendererMode: () => app.activeRendererMode,
-	        });
+		        const statsOverlayController = createStatsOverlayController({
+		            statsBtn,
+		            statsOverlayEl,
+		            renderer,
+		            requestRender,
+		            getFpsEstimate: () => renderLoop?.getFpsEstimate?.() || 0,
+		            getLastRenderStats: () => renderLoop?.getLastRenderStats?.() || null,
+		            getSceneGeometryStats,
+		            getRendererMode: () => app.activeRendererMode,
+		        });
 
 	        function setStatsVisible(visible) {
 	            statsOverlayController.setVisible(visible);
@@ -2608,54 +2606,26 @@ class ViewerApp {
 	            setStatsVisible,
 	            requestRender,
 	        });
-        // =====================
-        // Animation loop & init
-        // =====================
-        function animate() {
-            requestAnimationFrame(animate);
-            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-            if (!lastFrameTime) lastFrameTime = now;
-            const delta = now - lastFrameTime;
-            lastFrameTime = now;
-
-            const controlsChanged = controls.update();
-            if (controlsChanged) needsRender = true;
-
-	            backgroundController.syncToCamera();
-
-            if (USE_WEBGPU && !rendererReady) {
-                updateStatsOverlay();
-                return;
-            }
-
-            if (!needsRender) {
-                updateStatsOverlay();
-                return;
-            }
-
-            if (delta > 0 && delta < 1000) {
-                const instant = 1000 / delta;
-                fpsEstimate = fpsEstimate ? (fpsEstimate * 0.9 + instant * 0.1) : instant;
-            }
-
-            needsRender = false;
-            renderer.render(scene, camera);
-            const info = renderer.info || {};
-            lastRenderStats = {
-                render: info.render ? { ...info.render } : {},
-                memory: info.memory ? { ...info.memory } : {},
-                programs: info.programs != null ? (Array.isArray(info.programs) ? info.programs.length : info.programs) : 0,
-            };
-            if (info.reset && renderer.info && renderer.info.autoReset === false) {
-                info.reset();
-            }
-            updateStatsOverlay();
-        }
-        animate();
-        layout();
-        HDRI_LIBRARY.forEach((h, i) => {
-            const opt = document.createElement('option');
-            opt.value = i;
+	        // =====================
+	        // Animation loop & init
+	        // =====================
+	        renderLoop = createRenderLoopController({
+	            controls,
+	            renderer,
+	            scene,
+	            camera,
+	            isWebGPU: USE_WEBGPU,
+	            getRendererReady: () => rendererReady,
+	            updateStatsOverlay,
+	            onFrame: () => {
+	                backgroundController.syncToCamera();
+	            },
+	        });
+	        renderLoop.start();
+	        layout();
+	        HDRI_LIBRARY.forEach((h, i) => {
+	            const opt = document.createElement('option');
+	            opt.value = i;
             opt.textContent = h.name;
             hdriPresetSel.appendChild(opt);
         });
