@@ -21,6 +21,7 @@ import { createNorthGridController } from './modules/scene/north-grid.js';
 import { createImportedLightsController } from './modules/scene/imported-lights.js';
 import { createWorldOffsetController } from './modules/scene/world-offset.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
+import { createBindLogController } from './modules/ui/bind-log.js';
 import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
 import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
 import { createSunToggleController } from './modules/ui/sun-toggle.js';
@@ -283,8 +284,9 @@ class ViewerApp {
 	        const outEl           = document.getElementById('out');
 	        const galleryEl       = document.getElementById('gallery');
 	        const texCountEl      = document.getElementById('texCount');
-        const matSelect       = document.getElementById('matSelect');
-        const bindLogEl       = document.getElementById('bindLog');
+	        const matSelect       = document.getElementById('matSelect');
+	        const bindLogEl       = document.getElementById('bindLog');
+	        const { logBind, logSessionHeader } = createBindLogController({ bindLogEl });
 
 	        const bgAlphaEl       = document.getElementById('bgAlpha');
 	        bgAlphaEl.addEventListener('input', () => backgroundController.updateVisibility());
@@ -1656,25 +1658,10 @@ class ViewerApp {
             return `${pretty}  ·  ${cs}`;
         }
 
-        function logBind(message, level = 'info') {
-            if (!bindLogEl) return;
-            const prefix = level === 'warn' ? '⚠️ ' : level === 'ok' ? '✅ ' : '';
-            if (bindLogEl.textContent.trim() === '— пока пусто —') { bindLogEl.textContent = ''; }
-            bindLogEl.textContent += prefix + message + '\n';
-        }
-
-        function logSessionHeader(title) {
-            if (!bindLogEl) return;
-            const ts = new Date().toLocaleTimeString();
-            if (bindLogEl.textContent.trim() !== '— пока пусто —') { bindLogEl.textContent += '\n'; }
-            bindLogEl.textContent += `——— ${title} @ ${ts} ———\n`;
-        }
-
-        
-        // =====================
-        // FBX embedded images extraction
-        // (moved to `scripts/modules/fbx/embedded-images.js`)
-        // =====================
+	        // =====================
+	        // FBX embedded images extraction
+	        // (moved to `scripts/modules/fbx/embedded-images.js`)
+	        // =====================
         // Material helpers
         // =====================
 
