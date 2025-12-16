@@ -18,6 +18,7 @@ import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createSceneFramingController } from './modules/scene/framing.js';
 import { createNorthGridController } from './modules/scene/north-grid.js';
+import { createImportedLightsController } from './modules/scene/imported-lights.js';
 import { createWorldOffsetController } from './modules/scene/world-offset.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
@@ -1552,249 +1553,20 @@ class ViewerApp {
 	        // Axis toggle
 	        // =====================
 
-        // =====================
-        // Utilities
-        // =====================
+	        // =====================
+	        // Utilities
+	        // =====================
 
-        let showLightHelpers = false;
-        let importedLightsEnabled = false;
-        const LIGHT_HELPER_COLOR = 0xffc107;
-        const LIGHT_DIR_TMP = new THREE.Vector3();
-        const LIGHT_WORLD_POS = new THREE.Vector3();
-        const LIGHT_WORLD_QUAT = new THREE.Quaternion();
-        const TARGET_WORLD_POS = new THREE.Vector3();
-        const TEMP_BOX = new THREE.Box3();
-        const TEMP_SIZE = new THREE.Vector3();
-
-        function disableShadowsOnImportedLights(root){
-            let shadowsOff = 0;
-            let intensityOff = 0;
-            let hidden = 0;
-
-            root.traverse(o => {
-                if (!o?.isLight) return;
-                if (!o.userData) o.userData = {};
-
-                if ('castShadow' in o && o.castShadow) {
-                    o.castShadow = false;
-                    shadowsOff++;
-                }
-
-                if ('intensity' in o && o.intensity !== 0) {
-                    if (o.userData._origIntensity === undefined) {
-                        o.userData._origIntensity = o.intensity;
-                    }
-                    o.intensity = 0;
-                    intensityOff++;
-                }
-
-                if ('power' in o && o.power !== 0) {
-                    if (o.userData._origPower === undefined) {
-                        o.userData._origPower = o.power;
-                    }
-                    o.power = 0;
-                }
-
-                if (o.visible) {
-                    if (o.userData._origVisible === undefined) {
-                        o.userData._origVisible = true;
-                    }
-                    o.visible = false;
-                    hidden++;
-                }
-            });
-
-            if ((shadowsOff || intensityOff || hidden) && typeof logBind === 'function') {
-                const parts = [];
-                if (shadowsOff) parts.push(`тени → ${shadowsOff}`);
-                if (intensityOff) parts.push(`intensity=0 → ${intensityOff}`);
-                if (hidden) parts.push(`hidden → ${hidden}`);
-                logBind(`Lights: ${parts.join(', ')}`, 'info');
-            }
-        }
-
-        function restoreLightTargetsFromOrientation(root) {
-            if (!root) return;
-
-            root.updateMatrixWorld(true);
-
-            TEMP_BOX.setFromObject(root);
-            const sceneDiag = TEMP_BOX.getSize(TEMP_SIZE).length();
-            const defaultDistance = Number.isFinite(sceneDiag) && sceneDiag > 0.0001
-                ? THREE.MathUtils.clamp(sceneDiag * 0.25, 5, 500)
-                : 25;
-
-            root.traverse(light => {
-                if (!light?.isLight) return;
-                const isDirectional = !!light.isDirectionalLight;
-                const isSpot = !!light.isSpotLight;
-                if (!isDirectional && !isSpot) return;
-
-                const target = light.target || (light.target = new THREE.Object3D());
-                const host = target.parent || root;
-                if (target.parent !== host) host.add(target);
-                host.updateMatrixWorld(true);
-
-                light.getWorldPosition(LIGHT_WORLD_POS);
-                light.getWorldQuaternion(LIGHT_WORLD_QUAT);
-
-                LIGHT_DIR_TMP.set(0, -1, 0).applyQuaternion(LIGHT_WORLD_QUAT).normalize();
-
-                let length = isDirectional ? defaultDistance : light.distance;
-                if (!Number.isFinite(length) || length <= 0.01) length = defaultDistance;
-
-                TARGET_WORLD_POS.copy(LIGHT_WORLD_POS).addScaledVector(LIGHT_DIR_TMP, length);
-
-                host.worldToLocal(TARGET_WORLD_POS);
-                target.position.copy(TARGET_WORLD_POS);
-                target.updateMatrixWorld(true);
-
-                if (light.isSpotLight) {
-                    light.translateY(-1);
-                    light.updateMatrix();
-                    light.updateMatrixWorld(true);
-                }
-            });
-        }
-
-        function ensureLightHelpers(root) {
-            if (!root) return;
-
-            const box = new THREE.Box3();
-            const sizeVec = new THREE.Vector3();
-            box.setFromObject(root);
-            const diag = box.getSize(sizeVec).length() || 1;
-            const baseSize = THREE.MathUtils.clamp(diag * 0.02, 0.25, 10);
-
-            root.updateMatrixWorld(true);
-
-            root.traverse(o => {
-                if (!o?.isLight) return;
-
-                let helper = o.userData?._lightHelper || null;
-                if (!helper || !helper.parent) {
-                    helper = null;
-                    if (o.isDirectionalLight) {
-                        helper = new THREE.DirectionalLightHelper(o, baseSize, LIGHT_HELPER_COLOR);
-                    } else if (o.isPointLight) {
-                        helper = new THREE.PointLightHelper(o, baseSize * 0.35, LIGHT_HELPER_COLOR);
-                    } else if (o.isSpotLight) {
-                        helper = new THREE.SpotLightHelper(o, LIGHT_HELPER_COLOR);
-                    } else if (o.isHemisphereLight) {
-                        helper = new THREE.HemisphereLightHelper(o, baseSize * 0.5, LIGHT_HELPER_COLOR);
-                    } else if (o.isRectAreaLight && typeof THREE.RectAreaLightHelper === 'function') {
-                        helper = new THREE.RectAreaLightHelper(o, LIGHT_HELPER_COLOR);
-                    }
-
-                    if (!helper) return;
-
-                    helper.userData.excludeFromBounds = true;
-                    helper.userData.lightHelper = true;
-                    helper.name = helper.name || `${o.name || o.type}-helper`;
-
-                    const host = o.parent || root;
-                    host.add(helper);
-                    helper.update?.();
-
-                    o.userData ||= {};
-                    o.userData._lightHelper = helper;
-                } else {
-                    helper.update?.();
-                }
-
-                if (o.isSpotLight) {
-                    const dist = (Number.isFinite(o.distance) && o.distance > 0.01) ? o.distance : 20;
-                    o.distance = dist;
-                    helper.cone.scale.set(20, 20, 20);
-                }
-
-                helper.visible = showLightHelpers;
-            });
-        }
-
-        function setLightHelpersVisible(visible) {
-            showLightHelpers = !!visible;
-            loadedModels.forEach(model => {
-                model.obj?.traverse(o => {
-                    if (o?.userData?._lightHelper) {
-                        o.userData._lightHelper.visible = showLightHelpers;
-                        o.userData._lightHelper.update?.();
-                    }
-                });
-            });
-            requestRender();
-        }
-
-        function setImportedLightsEnabled(enabled, targetRoot = null, options = {}) {
-            const { silent = false } = options || {};
-            const roots = targetRoot
-                ? (Array.isArray(targetRoot) ? targetRoot : [targetRoot])
-                : loadedModels.map(m => m.obj).filter(Boolean);
-
-            let affected = 0;
-
-            roots.forEach(root => {
-                if (!root) return;
-                root.traverse(o => {
-                    if (!o?.isLight) return;
-                    o.userData ||= {};
-
-                    if (enabled) {
-                        if ('intensity' in o && o.userData._origIntensity !== undefined) {
-                            // o.intensity = o.userData._origIntensity;
-                            o.intensity = 1000;
-                        }
-                        if ('power' in o && o.userData._origPower !== undefined) {
-                            // o.power = o.userData._origPower;
-                            o.power = 1000;
-                        }
-                        const restoreVisible = o.userData._origVisible;
-                        o.visible = restoreVisible !== undefined ? restoreVisible : true;
-                    } else {
-                        if ('intensity' in o) {
-                            if (o.userData._origIntensity === undefined) o.userData._origIntensity = o.intensity;
-                            o.intensity = 0;
-                        }
-                        if ('power' in o) {
-                            if (o.userData._origPower === undefined) o.userData._origPower = o.power;
-                            o.power = 0;
-                        }
-                        if (o.userData._origVisible === undefined) o.userData._origVisible = o.visible;
-                        o.visible = false;
-                    }
-
-                    o.userData._lightEnabled = !!enabled;
-                    affected++;
-                });
-            });
-
-            importedLightsEnabled = !!enabled;
-
-            if (!silent && typeof logBind === 'function') {
-                logBind(`Lights: ${enabled ? 'включены' : 'выключены'} (${affected})`, 'info');
-            }
-            requestRender();
-        }
-
-        const lightHelpersBtn = document.getElementById('lightHelpersBtn');
-        if (lightHelpersBtn) {
-            lightHelpersBtn.addEventListener('click', () => {
-                const next = !showLightHelpers;
-                setLightHelpersVisible(next);
-                lightHelpersBtn.classList.toggle('active', next);
-            });
-            lightHelpersBtn.classList.toggle('active', showLightHelpers);
-        }
-
-        const lightEmittersBtn = document.getElementById('lightEmittersBtn');
-	        if (lightEmittersBtn) {
-	            lightEmittersBtn.addEventListener('click', () => {
-	                const next = !importedLightsEnabled;
-	                setImportedLightsEnabled(next);
-	                lightEmittersBtn.classList.toggle('active', next);
-	            });
-	            lightEmittersBtn.classList.toggle('active', importedLightsEnabled);
-	        }
+	        const importedLightsController = createImportedLightsController({
+	            THREE,
+	            loadedModels,
+	            requestRender,
+	            logBind,
+	        });
+	        importedLightsController.bindUI({
+	            lightHelpersBtn: document.getElementById('lightHelpersBtn'),
+	            lightEmittersBtn: document.getElementById('lightEmittersBtn'),
+	        });
 	        // =====================
 	        // UDIM split (для ВПМ/SM)
 	        // (moved to `scripts/modules/fbx/udim-split.js`)
@@ -2462,10 +2234,10 @@ class ViewerApp {
          * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
          * извлекает embedded текстуры, выполняет автопривязку и обновляет панель/шейдинг.
          */
-        const handleFBXFileImpl = createFBXFileHandler({
-            THREE,
-            fbxLoader,
-            basename,
+	        const handleFBXFileImpl = createFBXFileHandler({
+	            THREE,
+	            fbxLoader,
+	            basename,
             logSessionHeader,
             logBind,
             hideSidePanel,
@@ -2488,24 +2260,24 @@ class ViewerApp {
             describeFBXOrientation,
             readFBXOrientationFromTree,
             parseOrientationFromNode,
-            normalizeObjectOrientation,
-            getSMOffset,
-            applyGeoOffsetByOrientation,
-            setVPMReferenceHeight,
-            restoreLightTargetsFromOrientation,
-            disableShadowsOnImportedLights,
-            ensureLightHelpers,
-            renameMaterialsByFBXObject,
-            markCollisionMeshes,
-            splitAllMeshesByUDIM_SM,
-            optimizeGlassMeshes,
-            autoBindByNamesForModel,
-            setImportedLightsEnabled,
-            getImportedLightsEnabled: () => importedLightsEnabled,
-            applyGlassControlsToScene,
-            setEmptyHintVisible,
-            markSceneStatsDirty,
-        });
+	            normalizeObjectOrientation,
+	            getSMOffset,
+	            applyGeoOffsetByOrientation,
+	            setVPMReferenceHeight,
+	            restoreLightTargetsFromOrientation: importedLightsController.restoreLightTargetsFromOrientation,
+	            disableShadowsOnImportedLights: importedLightsController.disableShadowsOnImportedLights,
+	            ensureLightHelpers: importedLightsController.ensureLightHelpers,
+	            renameMaterialsByFBXObject,
+	            markCollisionMeshes,
+	            splitAllMeshesByUDIM_SM,
+	            optimizeGlassMeshes,
+	            autoBindByNamesForModel,
+	            setImportedLightsEnabled: importedLightsController.setImportedLightsEnabled,
+	            getImportedLightsEnabled: importedLightsController.getImportedLightsEnabled,
+	            applyGlassControlsToScene,
+	            setEmptyHintVisible,
+	            markSceneStatsDirty,
+	        });
 
         const handleZIPFileImpl = createZIPFileHandler({
             basename,
