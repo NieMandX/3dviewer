@@ -26,6 +26,7 @@ import { createShadowDebugPanelController } from './modules/ui/shadow-debug-pane
 import { createSunToggleController } from './modules/ui/sun-toggle.js';
 import { createSunInputsController } from './modules/ui/sun-inputs.js';
 import { createEnvironmentControlsController } from './modules/ui/environment-controls.js';
+import { createGeoJsonModalController } from './modules/ui/geojson-modal.js';
 import { createLayoutController } from './modules/ui/layout.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
@@ -1624,59 +1625,15 @@ class ViewerApp {
 	        // `basename` moved to `scripts/modules/utils/path.js`
 	        // `makeGeoJsonMeta` moved to `scripts/modules/geo/geojson-meta.js`
 
-	        // `clamp01` moved to `scripts/modules/utils/math.js`
-	        // `normalizeHexColor` / `geoColorToHex` moved to `scripts/modules/utils/color.js`
+		        // `clamp01` moved to `scripts/modules/utils/math.js`
+		        // `normalizeHexColor` / `geoColorToHex` moved to `scripts/modules/utils/color.js`
 
-        function openGeoModal(meta, title = 'GeoJSON') {
-        let geoModal = document.getElementById('geoModal');
-        if (!geoModal) {
-            geoModal = document.createElement('div');
-            geoModal.id = 'geoModal';
-            geoModal.className = 'modal';
-            geoModal.innerHTML = `
-            <div class="sheet sheet-geo">
-                <div class="head">
-                    <div class="row head-line">
-                        <b id="geoTitle"></b>
-                        <span class="muted" id="geoInfo"></span>
-                    </div>
-                    <button id="geoClose" class="btn" title="Закрыть">×</button>
-                </div>
-                <div class="sheet-body">
-                    <pre id="geoPre"></pre>
-                    <div class="row geo-actions">
-                        <a id="geoDl" class="btn" download>Скачать GeoJSON</a>
-                    </div>
-                </div>
-            </div>
-            `;
-            document.body.appendChild(geoModal);
+	        const geoJsonModal = createGeoJsonModalController({ document });
+	        const openGeoModal = geoJsonModal.open;
 
-            // закрытия
-            geoModal.querySelector('#geoClose').addEventListener('click', () => geoModal.classList.remove('show'));
-            geoModal.addEventListener('click', (e) => { if (e.target === geoModal) geoModal.classList.remove('show'); });
-        }
-
-        const pre   = geoModal.querySelector('#geoPre');
-        const h     = geoModal.querySelector('#geoTitle');
-        const info  = geoModal.querySelector('#geoInfo');
-        const dl    = geoModal.querySelector('#geoDl');
-
-        h.textContent = title;
-        info.textContent = meta.entryName ? ` · ${meta.entryName}${Number.isFinite(meta.featureCount) ? ` · features: ${meta.featureCount}` : ''}` : '';
-        dl.href = meta.url || '#';
-        if (meta.entryName) dl.download = meta.entryName;
-
-        // красивый вывод
-        const pretty = meta.parsed ? JSON.stringify(meta.parsed, null, 2) : (meta.text || '');
-        pre.textContent = pretty;
-
-        geoModal.classList.add('show');
-        }
-
-        function guessKindFromName(name) {
-            const n = (name || '').toLowerCase();
-            if (/(rough|rgh|_rough|\br_)/.test(n)) return 'roughness';
+	        function guessKindFromName(name) {
+	            const n = (name || '').toLowerCase();
+	            if (/(rough|rgh|_rough|\br_)/.test(n)) return 'roughness';
             if (/gloss/.test(n)) return 'gloss';
             if (/(metal|mtl|\b_m\b)/.test(n)) return 'metalness';
             if (/(normal|_nrm|_nor)\b/.test(n)) return 'normal';
