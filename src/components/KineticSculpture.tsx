@@ -315,7 +315,7 @@ export function KineticSculpture() {
   const [rowPhaseFactor, setRowPhaseFactor] = useState(0.3);
   const [colPhaseFactor, setColPhaseFactor] = useState(0.4);
   const [controlsVisible, setControlsVisible] = useState(false);
-  const [cameraPos, setCameraPos] = useState<[number, number, number]>([0, 520, 290]);
+  const [cameraPos, setCameraPos] = useState<[number, number, number]>([0, 520, 320]);
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -350,7 +350,7 @@ export function KineticSculpture() {
           data-kinetic-wrapper
           className="relative w-full max-w-5xl rounded-3xl overflow-hidden"
         >
-          <div className="h-[360px] sm:h-[420px] md:h-[480px] w-full">
+          <div className="h-[300px] sm:h-[420px] md:h-[440px] w-full">
             <Canvas
               className="h-full w-full"
               style={{ width: '100%', height: '100%' }}

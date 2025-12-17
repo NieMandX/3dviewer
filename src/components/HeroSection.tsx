@@ -4,12 +4,12 @@ import { motion } from 'motion/react';
 const stats = [
   { value: '300+', label: 'проектов и конкурсов' },
   { value: '40+', label: 'моделей АГР для МКА' },
-  { value: '12', label: 'постоянных партнёров' }
+  { value: '12', label: 'постоянных клиентов' }
 ];
 
 export function HeroSection() {
   return (
-    <section className="relative -mt-12 lg:-mt-16 overflow-hidden pt-8 pb-36 md:pt-8 md:pb-36">
+    <section className="relative -mt-12 lg:-mt-16 overflow-hidden pt-8 pb-28 md:pt-8 md:pb-a">
       {/* Abstract line animation background */}
       <div className="absolute inset-0 opacity-5 dark:opacity-10">
         <svg className="w-full h-full" viewBox="0 0 1000 1000">
@@ -67,7 +67,7 @@ export function HeroSection() {
         <div className="max-w-4xl mx-auto">
           <div>
             <motion.h1
-              className="text-2xl sm:text-3xl md:text-3xl lg:text-4xl xl:text-4xl font-flex text-left leading-tight tracking-tight text-zinc-510 dark:text-zinc-50"
+              className="text-2xl sm:text-3xl md:text-3xl lg:text-4xl xl:text-4xl font-light text-left leading-tight tracking-tight text-zinc-600 dark:text-zinc-50"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.1 }}
@@ -83,7 +83,7 @@ export function HeroSection() {
             </motion.h1>
 
             <motion.p
-              className="pt-2 pb-2 mt-6 text-[16px] text-lg leading-relaxed text-zinc-600 dark:text-zinc-300"
+              className="pt-2 pb-2 mt-6 text-[16px] sm:text-[16px] md:text-[16px] lg:text-[16px] xl:text-[20px] font-light text-lg leading-relaxed text-zinc-600 dark:text-zinc-300"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}

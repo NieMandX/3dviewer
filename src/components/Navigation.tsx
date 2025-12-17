@@ -50,7 +50,7 @@ export function Navigation() {
   return (
     <nav className="sticky top-[57px] z-40 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md transition-colors duration-300">
       <div className="container mx-auto px-6 max-w-7xl">
-        <ul className="flex items-center justify-center gap-8 py-4">
+        <ul className="flex items-center justify-center gap-8 py-4 text-sm sm:text-base">
           {navItems.map((item, index) => {
             const isActive = activeSection === item.href.substring(1);
             return (
