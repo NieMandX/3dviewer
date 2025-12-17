@@ -20,7 +20,7 @@ import { createSunController } from './modules/scene/sun-controller.js';
 import { createWorldOffsetController } from './modules/scene/world-offset.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createBindLogController } from './modules/ui/bind-log.js';
-import { createSliderValueDisplayController } from './modules/ui/slider-value-displays.js';
+import { createSliderValuesUIController } from './modules/ui/slider-values-ui.js';
 import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
 import { createSunToggleController } from './modules/ui/sun-toggle.js';
 import { createSunInputsController } from './modules/ui/sun-inputs.js';
@@ -191,21 +191,21 @@ class ViewerApp {
 	        const bgAlphaEl       = document.getElementById('bgAlpha');
 	        bgAlphaEl.addEventListener('input', () => backgroundController.updateVisibility());
 
-	        const sliderValueDisplays = createSliderValueDisplayController({ root: document });
-	        [
-	            ['hemiInt', hemiIntEl],
-	            ['bgAlpha', bgAlphaEl],
-	            ['iblInt', iblIntEl],
-            ['iblGamma', iblGammaEl],
-            ['iblRot', iblRotEl],
-	            ['hdriExposure', hdriExposureEl],
-	            ['hdriSaturation', hdriSaturationEl],
-	            ['hdriBlur', hdriBlurEl],
-	        ].forEach(([id, slider]) => sliderValueDisplays.register(id, slider));
-	        sliderValueDisplays.updateAll();
-	        sliderValueDisplays.attachInputs();
+	        createSliderValuesUIController({
+	            root: document,
+	            sliders: [
+	                ['hemiInt', hemiIntEl],
+	                ['bgAlpha', bgAlphaEl],
+	                ['iblInt', iblIntEl],
+	                ['iblGamma', iblGammaEl],
+	                ['iblRot', iblRotEl],
+	                ['hdriExposure', hdriExposureEl],
+	                ['hdriSaturation', hdriSaturationEl],
+	                ['hdriBlur', hdriBlurEl],
+	            ],
+	        });
 
-        const sampleSelect    = document.getElementById('sampleSelect');
+	        const sampleSelect    = document.getElementById('sampleSelect');
 
 
 			        let didInitialRebase = false;
