@@ -183,11 +183,12 @@ export function createFBXFileHandler(options = {}) {
             orientationInfo.handedness = orientationMeta.handedness;
             orientationInfo.upAxisResolved = orientationMeta.upAxis;
             obj.userData.orientation = orientationInfo;
-            const sourceLabels = { binary: 'GlobalSettings', tree: 'fbxTree' };
+            const sourceLabels = { binary: 'GlobalSettings', tree: 'fbxTree', geometry: 'геометрия' };
             const src = sourceLabels[orientationSource] || orientationSource || 'unknown';
-            logBind(`FBX: ориентация (${src}; ${describeOrientationType(orientationType)}) — ${describeFBXOrientation(orientationInfo)}`, 'info');
+            logBind(`FBX: ориентация — определена через ${src}`, 'info');
+            logBind(`FBX: ориентация — тип: ${describeOrientationType(orientationType)} — ${describeFBXOrientation(orientationInfo)}`, 'info');
         } else {
-            logBind(`FBX: ориентация — не найдена (тип: ${describeOrientationType(orientationType)})`, 'warn');
+            logBind(`FBX: ориентация — никак не определил (тип: ${describeOrientationType(orientationType)})`, 'warn');
         }
 
         if (parseDuration) {
