@@ -28,6 +28,7 @@ import { createSunToggleController } from './modules/ui/sun-toggle.js';
 import { createSunInputsController } from './modules/ui/sun-inputs.js';
 import { createEnvironmentControlsController } from './modules/ui/environment-controls.js';
 import { createGeoJsonModalController } from './modules/ui/geojson-modal.js';
+import { createSelectedMaterialLinkResolver, createTextureInfoFormatter, guessKindFromName } from './modules/ui/texture-helpers.js';
 import { createLayoutController } from './modules/ui/layout.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
@@ -1577,41 +1578,22 @@ class ViewerApp {
 	        // (moved to `scripts/modules/fbx/udim-split.js`)
 	        // =====================
 
-        const optimizeGlassMeshes = createGlassMeshOptimizer({
-            THREE,
-            logBind,
-            findGeomSuffix,
-            isGlassByName,
-            isGlassGeomSuffix,
-        });
-
-	        function getSelectedMaterialLink() {
-	            if (!matSelect) return null;
-	            const val = matSelect.value;
-	            if (val === '' || val == null) return null;
-
-            let map = [];
-            try { map = JSON.parse(matSelect.dataset._map || '[]'); } catch {}
-
-            const entry = map.find(e => String(e.idx) === String(val));
-            if (!entry) return null;
-
-            const [uuid, idxStr] = String(entry.path).split(':');
-            const targetIndex = parseInt(idxStr, 10) || 0;
-
-            let link = null;
-            world.traverse(o => {
-                if (link || !o.isMesh) return;
-                if (o.uuid !== uuid) return;
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
-                link = { obj: o, index: targetIndex, mat: mats[targetIndex] || null };
-            });
-	            return link;
-	        }
-
-	        // --- ПОДПИСАТЬ МАТЕРИАЛЫ ПО ИМЕНИ ОБЪЕКТА/UCX ---
-	        const renameMaterialsByFBXObject = createMaterialRenamer({
+	        const optimizeGlassMeshes = createGlassMeshOptimizer({
+	            THREE,
 	            logBind,
+	            findGeomSuffix,
+	            isGlassByName,
+	            isGlassGeomSuffix,
+	        });
+
+		        const getSelectedMaterialLink = createSelectedMaterialLinkResolver({
+		            matSelectEl: matSelect,
+		            world,
+		        });
+
+		        // --- ПОДПИСАТЬ МАТЕРИАЛЫ ПО ИМЕНИ ОБЪЕКТА/UCX ---
+		        const renameMaterialsByFBXObject = createMaterialRenamer({
+		            logBind,
 	            cacheOriginalMaterialFor,
 	        });
 
@@ -1633,34 +1615,14 @@ class ViewerApp {
 	        const geoJsonModal = createGeoJsonModalController({ document });
 	        const openGeoModal = geoJsonModal.open;
 
-	        function guessKindFromName(name) {
-	            const n = (name || '').toLowerCase();
-	            if (/(rough|rgh|_rough|\br_)/.test(n)) return 'roughness';
-            if (/gloss/.test(n)) return 'gloss';
-            if (/(metal|mtl|\b_m\b)/.test(n)) return 'metalness';
-            if (/(normal|_nrm|_nor)\b/.test(n)) return 'normal';
-            if (/ao|ambient[_-]?occ/i.test(n)) return 'ao';
-            if (/opacity|alpha|transp/i.test(n)) return 'alpha';
-            if (/basecolor|albedo|diff(use)?/i.test(n)) return 'base';
-            if (/spec(ular)?/i.test(n)) return 'spec';
-            return 'other';
-        }
+	        const texInfo = createTextureInfoFormatter({
+	            THREE,
+	            basename,
+	        });
 
-        function texInfo(tex) {
-            if (!tex) return '<span class="muted">—</span>';
-            const human = tex.name || tex.userData?.origName || null;
-            let rawSrc = '';
-            const img = tex.image;
-            if (img) rawSrc = img.currentSrc || img.src || img.url || '';
-            const fallback = basename(decodeURIComponent(String(rawSrc || '')).split('?')[0] || '');
-            const pretty = human || fallback || '(texture)';
-            const cs = tex?.colorSpace === THREE.SRGBColorSpace ? 'srgb' : tex?.colorSpace === THREE.LinearSRGBColorSpace ? 'srgb-linear' : (tex?.colorSpace ?? '—');
-            return `${pretty}  ·  ${cs}`;
-        }
-
-	        // =====================
-	        // FBX embedded images extraction
-	        // (moved to `scripts/modules/fbx/embedded-images.js`)
+		        // =====================
+		        // FBX embedded images extraction
+		        // (moved to `scripts/modules/fbx/embedded-images.js`)
 	        // =====================
         // Material helpers
         // =====================
