@@ -34,6 +34,28 @@ export function createMosParcelsController(options = {}) {
     let parcelsGroup = null;
     let parcelsOrigin = null;
 
+    const uiListeners = [];
+    function addUIListener(target, type, handler, options) {
+        if (!target?.addEventListener) return;
+        target.addEventListener(type, handler, options);
+        uiListeners.push({ target, type, handler, options });
+    }
+
+    function disposeUI() {
+        while (uiListeners.length) {
+            const { target, type, handler, options } = uiListeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
+
+    function bindUI(ui = {}) {
+        const loadParcelsBtn = ui.loadParcelsBtn || null;
+        const loadOptions = ui.loadOptions || null;
+
+        disposeUI();
+        addUIListener(loadParcelsBtn, 'click', () => loadMosParcels(loadOptions || undefined));
+    }
+
     function setAppLayer(group) {
         if (!app) return;
         if (!app.layers) app.layers = { parcels: null };
@@ -135,10 +157,11 @@ export function createMosParcelsController(options = {}) {
     }
 
     return {
+        bindUI,
+        disposeUI,
         loadMosParcels,
         disposeCurrentParcels,
         getParcelsGroup,
         getParcelsOrigin,
     };
 }
-

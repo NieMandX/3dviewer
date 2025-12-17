@@ -11,6 +11,7 @@ export function createBackgroundController(options = {}) {
     const getAlpha = typeof options.getAlpha === 'function' ? options.getAlpha : () => 1;
 
     const bgToggleBtn = options.bgToggleBtn || null;
+    const bgAlphaEl = options.bgAlphaEl || null;
     const body = options.body || (typeof document !== 'undefined' ? document.body : null);
 
     const whiteClearColor = options.whiteClearColor || null;
@@ -112,6 +113,11 @@ export function createBackgroundController(options = {}) {
     if (bgToggleBtn && options.attachToggleButton !== false) {
         bgToggleBtn.addEventListener('click', toggleMode);
     }
+    if (bgAlphaEl && options.attachAlphaInput !== false) {
+        const handleAlphaInput = () => updateVisibility();
+        bgAlphaEl.addEventListener('input', handleAlphaInput);
+        bgAlphaEl.addEventListener('change', handleAlphaInput);
+    }
 
     setMode(bgMode);
 
@@ -125,4 +131,3 @@ export function createBackgroundController(options = {}) {
         syncToCamera,
     };
 }
-

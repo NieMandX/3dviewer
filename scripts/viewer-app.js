@@ -186,14 +186,13 @@ class ViewerApp {
         const texCountEl      = document.getElementById('texCount');
         const matSelect       = document.getElementById('matSelect');
         const bindLogEl       = document.getElementById('bindLog');
-        const { logBind, logSessionHeader } = createBindLogController({ bindLogEl });
+	        const { logBind, logSessionHeader } = createBindLogController({ bindLogEl });
 
-        const bgAlphaEl       = document.getElementById('bgAlpha');
-        bgAlphaEl.addEventListener('input', () => backgroundController.updateVisibility());
+	        const bgAlphaEl       = document.getElementById('bgAlpha');
 
-        createSliderValuesUIController({
-            root: document,
-            sliders: [
+	        createSliderValuesUIController({
+	            root: document,
+	            sliders: [
                 ['hemiInt', hemiIntEl],
                 ['bgAlpha', bgAlphaEl],
                 ['iblInt', iblIntEl],
@@ -327,19 +326,20 @@ class ViewerApp {
         if ('toneMappingExposure' in renderer) renderer.toneMappingExposure = 1.0;
         rootEl.appendChild(renderer.domElement);
 
-        const backgroundController = createBackgroundController({
-            THREE,
-            renderer,
-            scene,
-            camera,
-            app,
-            requestRender,
-            isEnvironmentEnabled: () => !!iblChk?.checked,
-            getAlpha: () => parseFloat(bgAlphaEl?.value || '1'),
-            bgToggleBtn,
-            whiteClearColor,
-            body: document?.body || null,
-        });
+	        const backgroundController = createBackgroundController({
+	            THREE,
+	            renderer,
+	            scene,
+	            camera,
+	            app,
+	            requestRender,
+	            isEnvironmentEnabled: () => !!iblChk?.checked,
+	            getAlpha: () => parseFloat(bgAlphaEl?.value || '1'),
+	            bgAlphaEl,
+	            bgToggleBtn,
+	            whiteClearColor,
+	            body: document?.body || null,
+	        });
 
         
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -635,9 +635,12 @@ class ViewerApp {
 		            return getLayoutController().hideSidePanel();
 		        }
 
-			        loadParcelsBtn?.addEventListener('click', () => mosParcels.loadMosParcels({ fetchAll: true, batchSize: 1000, maxRecords: 20000 }));
+				        mosParcels.bindUI({
+				            loadParcelsBtn,
+				            loadOptions: { fetchAll: true, batchSize: 1000, maxRecords: 20000 },
+				        });
 
-		        hideSidePanel();
+			        hideSidePanel();
 
 	   
 
