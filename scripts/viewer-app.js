@@ -2,11 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import {
-    configureParcels,
-    loadParcels,
-    createParcelsGroupFromGeoJSON,
     setVPMReferenceHeight,
-    getVPMReferenceHeight,
 } from './modules/parcels.js';
 import { basename } from './modules/utils/path.js';
 import { createTextureLabelResolver } from './modules/utils/texture-labels.js';
@@ -19,6 +15,7 @@ import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createSceneFramingController } from './modules/scene/framing.js';
 import { createNorthGridController } from './modules/scene/north-grid.js';
 import { createImportedLightsController } from './modules/scene/imported-lights.js';
+import { createMosParcelsController } from './modules/scene/mos-parcels.js';
 import { createWorldOffsetController } from './modules/scene/world-offset.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createBindLogController } from './modules/ui/bind-log.js';
@@ -238,11 +235,9 @@ class ViewerApp {
 				        let galleryNeedsRefresh = false;
 			        let layoutController = null;
 			        let lastFinalizedModelIndex = 0;
-		        let renderLoop = null;
-		        let parcelsGroup = null;
-		        let parcelsOrigin = null;
-				        let sceneGeometryStats = null;
-				        let glassController = null;
+			        let renderLoop = null;
+					        let sceneGeometryStats = null;
+					        let glassController = null;
 	        app.dom = {
             rootEl,
             dropEl,
@@ -404,81 +399,25 @@ class ViewerApp {
 	            pointerColor: 0xff3d00,
 	        });
 
-        configureParcels({
-            apiKey: MOS_PARCELS.apiKey,
-            datasetId: MOS_PARCELS.datasetId,
-            baseUrl: MOS_PARCELS.baseUrl,
-            filter: MOS_PARCELS_FILTER,
-            targetGlobalId: MOS_PARCELS_TARGET_GLOBAL_ID,
-            resetOrigin: true,
-        });
-
-        const buildParcelsGroup = (geojson, overrides = {}) => createParcelsGroupFromGeoJSON(geojson, {
-            origin: parcelsOrigin,
-            verticalIsZ: isZUp(),
-            referenceHeight: overrides.referenceHeight ?? getVPMReferenceHeight(),
-        });
-
-        async function loadMosParcels(options = {}) {
-            const {
-                fetchAll = true,
-                batchSize = 200,
-                maxRecords = MOS_PARCELS_TARGET_GLOBAL_ID ? 1 : 10000,
-                initialTop = 200,
-                filter = MOS_PARCELS_FILTER,
-                targetGlobalId = MOS_PARCELS_TARGET_GLOBAL_ID,
-            } = options;
-
-            try {
-                setStatusMessage('Загрузка участков data.mos.ru…');
-
-                const { features } = await loadParcels({
-                    fetchAll,
-                    batchSize,
-                    initialTop,
-                    maxRecords,
-                    filter,
-                    targetGlobalId,
-                    onProgress: ({ collectedCount, processedCount }) => {
-                        setStatusMessage(`Загрузка участков… найдено ${collectedCount} из ${processedCount}`);
-                    },
-                });
-
-                if (!features.length) {
-                    setStatusMessage('Участки не найдены');
-                    return;
-                }
-
-                const aggregated = { type: 'FeatureCollection', features };
-                const group = buildParcelsGroup(aggregated);
-                if (!group) {
-                    setStatusMessage(`Участки не найдены (0 контуров среди ${features.length} записей)`);
-                    return;
-                }
-
-                if (parcelsGroup) {
-                    world.remove(parcelsGroup);
-                    parcelsGroup.traverse(o => o.geometry?.dispose?.());
-                    markSceneStatsDirty();
-                }
-
-                parcelsGroup = group;
-                parcelsOrigin = group.userData.originMeters || parcelsOrigin;
-                world.add(parcelsGroup);
-                northGrid.setParcelsGroup(parcelsGroup);
-                northGrid.alignParcelsGroupToNorth();
-                app.layers.parcels = parcelsGroup;
-                markSceneStatsDirty();
-
-                logBind?.(`MOS parcels: загружено ${group.children.length} контуров (обработано ${features.length})`, 'info');
-                schedulePanelRefresh();
-                requestRender();
-                setStatusMessage('');
-            } catch (err) {
-                console.error(err);
-                setStatusMessage('Не удалось загрузить участки: ' + (err?.message || err));
-            }
-        }
+	        const mosParcels = createMosParcelsController({
+	            world,
+	            app,
+	            northGrid,
+	            isZUp,
+	            requestRender,
+	            schedulePanelRefresh,
+	            markSceneStatsDirty,
+	            setStatusMessage,
+	            logBind,
+	            config: {
+	                apiKey: MOS_PARCELS.apiKey,
+	                datasetId: MOS_PARCELS.datasetId,
+	                baseUrl: MOS_PARCELS.baseUrl,
+	                filter: MOS_PARCELS_FILTER,
+	                targetGlobalId: MOS_PARCELS_TARGET_GLOBAL_ID,
+	                resetOrigin: true,
+	            },
+	        });
 
         northGrid.updateNorthPointer();
         app.scene = scene;
@@ -736,7 +675,7 @@ class ViewerApp {
 		            return getLayoutController().hideSidePanel();
 		        }
 
-		        loadParcelsBtn?.addEventListener('click', () => loadMosParcels({ fetchAll: true, batchSize: 1000, maxRecords: 20000 }));
+			        loadParcelsBtn?.addEventListener('click', () => mosParcels.loadMosParcels({ fetchAll: true, batchSize: 1000, maxRecords: 20000 }));
 
 		        hideSidePanel();
 
