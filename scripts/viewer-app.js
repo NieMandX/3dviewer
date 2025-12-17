@@ -154,7 +154,6 @@ class ViewerApp {
         if (rendererModeNote) {
             console.warn(rendererModeNote, webgpuModuleError || '');
         }
-        app.activeRendererMode = activeRendererMode;
         if (typeof globalThis !== 'undefined') {
             globalThis.__LPMVIEW_ACTIVE_RENDERER = activeRendererMode;
         }
