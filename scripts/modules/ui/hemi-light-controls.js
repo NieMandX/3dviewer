@@ -23,33 +23,15 @@ export function createHemiLightControlsController(options = {}) {
         }
     }
 
-    function handleHemiIntInput(e) {
-        if (!hemiLight) return;
-        const next = parseFloat(e?.target?.value);
-        if (!Number.isFinite(next)) return;
-        hemiLight.intensity = next;
+    function syncAndRender() {
+        applyFromInputs();
         requestRender();
     }
 
-    function handleSkyColorInput(e) {
-        if (!hemiLight?.color?.set) return;
-        const value = e?.target?.value;
-        if (!value) return;
-        hemiLight.color.set(value);
-        requestRender();
-    }
-
-    function handleGroundColorInput(e) {
-        if (!hemiLight?.groundColor?.set) return;
-        const value = e?.target?.value;
-        if (!value) return;
-        hemiLight.groundColor.set(value);
-        requestRender();
-    }
-
-    hemiIntEl?.addEventListener('input', handleHemiIntInput);
-    hemiSkyEl?.addEventListener('input', handleSkyColorInput);
-    hemiGroundEl?.addEventListener('input', handleGroundColorInput);
+    [hemiIntEl, hemiSkyEl, hemiGroundEl].filter(Boolean).forEach((el) => {
+        el.addEventListener('input', syncAndRender);
+        el.addEventListener('change', syncAndRender);
+    });
 
     applyFromInputs();
 
@@ -57,4 +39,3 @@ export function createHemiLightControlsController(options = {}) {
         applyFromInputs,
     };
 }
-
