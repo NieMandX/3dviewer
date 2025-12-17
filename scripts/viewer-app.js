@@ -30,6 +30,7 @@ import { createSelectedMaterialLinkResolver, createTextureInfoFormatter, guessKi
 import { createHemiLightControlsController } from './modules/ui/hemi-light-controls.js';
 import { createStatusUIController } from './modules/ui/status-ui.js';
 import { createAppbarControlsController } from './modules/ui/appbar-controls.js';
+import { createGridVisibilityController } from './modules/ui/grid-visibility.js';
 import { createLayoutController } from './modules/ui/layout.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
@@ -280,8 +281,7 @@ class ViewerApp {
             return sceneGeometryStats?.getStats?.() || { triangles: 0 };
         }
 
-        let gridVisible = true;
-        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
+	        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
 
         const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
         camera.position.set(0, 1.5, -5);
@@ -657,29 +657,22 @@ class ViewerApp {
 		            return sceneFraming.fitAll();
 		        }
 
-			        function computeWorldCenter() {
-			            return sceneFraming.computeWorldCenter();
-			        }
-			        // HDR / IBL handling moved to `modules/render/environment-manager.js`
+				        function computeWorldCenter() {
+				            return sceneFraming.computeWorldCenter();
+				        }
+				        // HDR / IBL handling moved to `modules/render/environment-manager.js`
 
-		        function setGridVisible(visible) {
-		            gridVisible = !!visible;
-		            const gridHelper = app.grid;
-	            if (gridHelper) {
-	                gridHelper.visible = gridVisible;
-	            }
-	            app.gridVisible = gridVisible;
-	            if (gridToggleBtn) {
-	                gridToggleBtn.classList.toggle('active', gridVisible);
-	                gridToggleBtn.textContent = gridVisible ? 'Grid off' : 'Grid on';
-	                gridToggleBtn.setAttribute('aria-pressed', gridVisible ? 'true' : 'false');
-	            }
-	            requestRender();
-	        }
+			        const gridVisibilityController = createGridVisibilityController({
+			            app,
+			            grid: app.grid,
+			            gridToggleBtn,
+			            requestRender,
+			            initialVisible: true,
+			        });
 
-		        const statsOverlayController = createStatsOverlayController({
-		            statsBtn,
-		            statsOverlayEl,
+			        const statsOverlayController = createStatsOverlayController({
+			            statsBtn,
+			            statsOverlayEl,
 		            renderer,
 		            requestRender,
 		            getFpsEstimate: () => renderLoop?.getFpsEstimate?.() || 0,
@@ -747,14 +740,13 @@ class ViewerApp {
             getEnvIntensity: () => parseFloat(iblIntEl.value),
             getMatcap,
             getChecker,
-        });
-        const applyShading = shadingController.applyShading;
+	        });
+	        const applyShading = shadingController.applyShading;
+	        shadingController.bindUI({ shadingSel });
 
-        shadingSel.addEventListener('change', () => applyShading(shadingSel.value));
-
-	        // =====================
-	        // Objects visibility
-	        // =====================
+		        // =====================
+		        // Objects visibility
+		        // =====================
 
 	        const visibilityController = createVisibilityController({
 	            world,
@@ -817,15 +809,15 @@ class ViewerApp {
 			            statsBtn,
 			            gridToggleBtn,
 			            resetViewerBtn,
-			            fullscreenBtn,
-			            isStatsVisible: () => statsOverlayController.isVisible(),
-			            setStatsVisible,
-			            isGridVisible: () => gridVisible,
-			            setGridVisible,
-			        });
+				            fullscreenBtn,
+				            isStatsVisible: () => statsOverlayController.isVisible(),
+				            setStatsVisible,
+				            isGridVisible: gridVisibilityController.isVisible,
+				            setGridVisible: gridVisibilityController.setVisible,
+				        });
 
-		        // =====================
-		        // Utilities
+			        // =====================
+			        // Utilities
 		        // =====================
 
 	        const importedLightsController = createImportedLightsController({

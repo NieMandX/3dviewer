@@ -206,9 +206,30 @@ export function createShadingController(options = {}) {
         return currentShadingMode;
     }
 
+    const uiListeners = [];
+    function addUIListener(target, type, handler, options) {
+        if (!target?.addEventListener) return;
+        target.addEventListener(type, handler, options);
+        uiListeners.push({ target, type, handler, options });
+    }
+
+    function disposeUI() {
+        while (uiListeners.length) {
+            const { target, type, handler, options } = uiListeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
+
+    function bindUI(ui = {}) {
+        const shadingSel = ui.shadingSel || null;
+        disposeUI();
+        addUIListener(shadingSel, 'change', () => applyShading(shadingSel.value));
+    }
+
     return {
         applyShading,
         getCurrentMode,
+        bindUI,
+        disposeUI,
     };
 }
-
