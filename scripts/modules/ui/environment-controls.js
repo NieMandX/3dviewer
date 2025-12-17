@@ -3,6 +3,7 @@ export function createEnvironmentControlsController(options = {}) {
 
     const iblChk = options.iblChk || null;
     const hdriPresetSel = options.hdriPresetSel || null;
+    const presets = Array.isArray(options.presets) ? options.presets : null;
     const iblIntEl = options.iblIntEl || null;
     const iblGammaEl = options.iblGammaEl || null;
     const iblTintEl = options.iblTintEl || null;
@@ -25,12 +26,43 @@ export function createEnvironmentControlsController(options = {}) {
     const getCurrentEnv = typeof options.getCurrentEnv === 'function' ? options.getCurrentEnv : () => null;
     const selectPresetIndex = typeof options.selectPresetIndex === 'function' ? options.selectPresetIndex : async () => {};
 
+    function populateHdriPresets() {
+        if (!hdriPresetSel || !presets) return;
+        if (typeof document === 'undefined') return;
+
+        const prev = hdriPresetSel.value;
+
+        const placeholder = (() => {
+            const existing = hdriPresetSel.querySelector?.('option[value=""]');
+            return existing?.textContent || '— выберите —';
+        })();
+
+        hdriPresetSel.innerHTML = '';
+
+        const placeholderOpt = document.createElement('option');
+        placeholderOpt.value = '';
+        placeholderOpt.textContent = placeholder;
+        hdriPresetSel.appendChild(placeholderOpt);
+
+        presets.forEach((preset, i) => {
+            const opt = document.createElement('option');
+            opt.value = String(i);
+            opt.textContent = preset?.name || `Preset ${i + 1}`;
+            hdriPresetSel.appendChild(opt);
+        });
+
+        if (prev && [...hdriPresetSel.options].some(o => o.value === prev)) {
+            hdriPresetSel.value = prev;
+        }
+    }
+
     function scheduleEnvRebuildFromUI() {
         syncEnvAdjustmentsState();
         requestEnvironmentRebuild({ immediate: false });
     }
 
     function bind() {
+        populateHdriPresets();
         syncEnvAdjustmentsState();
 
         iblChk?.addEventListener('change', () => setEnvironmentEnabled(!!iblChk.checked));
@@ -65,6 +97,6 @@ export function createEnvironmentControlsController(options = {}) {
 
     return {
         scheduleEnvRebuildFromUI,
+        populateHdriPresets,
     };
 }
-

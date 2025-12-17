@@ -37,7 +37,7 @@ import { createGlassOverridesController } from './modules/ui/glass-overrides.js'
 import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
-import { createRenderLoopController } from './modules/render/render-loop.js';
+import { createAndStartRenderLoop } from './modules/render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from './modules/render/debug-textures.js';
 import { createBackfaceOverlayController } from './modules/render/backface-overlay.js';
 import { createShadingController } from './modules/render/shading-controller.js';
@@ -790,13 +790,14 @@ class ViewerApp {
 		            requestRender,
 		        });
 
-		        createEnvironmentControlsController({
-		            scene,
-		            iblChk,
-		            hdriPresetSel,
-		            iblIntEl,
-		            iblGammaEl,
-		            iblTintEl,
+			        createEnvironmentControlsController({
+			            scene,
+			            iblChk,
+			            hdriPresetSel,
+			            presets: HDRI_LIBRARY,
+			            iblIntEl,
+			            iblGammaEl,
+			            iblTintEl,
 		            iblRotEl,
 		            hdriExposureEl,
 		            hdriSaturationEl,
@@ -1338,31 +1339,24 @@ class ViewerApp {
 	            setStatsVisible,
 	            requestRender,
 	        });
-	        // =====================
-	        // Animation loop & init
-	        // =====================
-	        renderLoop = createRenderLoopController({
-	            controls,
-	            renderer,
-	            scene,
-	            camera,
-	            isWebGPU: USE_WEBGPU,
-	            getRendererReady: () => rendererReady,
-	            updateStatsOverlay,
-	            onFrame: () => {
-	                backgroundController.syncToCamera();
-	            },
-	        });
-	        renderLoop.start();
-	        layout();
-	        HDRI_LIBRARY.forEach((h, i) => {
-	            const opt = document.createElement('option');
-	            opt.value = i;
-            opt.textContent = h.name;
-            hdriPresetSel.appendChild(opt);
-        });
-        // IBL не запускаем автоматически — управляется чекбоксом
-    }
+		        // =====================
+		        // Animation loop & init
+		        // =====================
+		        renderLoop = createAndStartRenderLoop({
+		            controls,
+		            renderer,
+		            scene,
+		            camera,
+		            isWebGPU: USE_WEBGPU,
+		            getRendererReady: () => rendererReady,
+		            updateStatsOverlay,
+		            onFrame: () => {
+		                backgroundController.syncToCamera();
+		            },
+		        });
+		        layout();
+	        // IBL не запускаем автоматически — управляется чекбоксом
+	    }
 }
 
 const viewerApp = new ViewerApp();
