@@ -198,7 +198,21 @@ export function createFBXFileHandler(options = {}) {
         obj.userData.orientationHandedness = orientationMeta.handedness;
         obj.userData.orientationUpAxis = orientationMeta.upAxis;
 
-        normalizeObjectOrientation(obj, orientationType);
+        const isKnownOrientation = orientationType === 1 || orientationType === 2 || orientationType === 3 || orientationType === 4;
+        if (isKnownOrientation) {
+            normalizeObjectOrientation(obj, orientationType);
+        } else {
+            let hasMesh = false;
+            try {
+                obj.traverse?.((node) => {
+                    if (hasMesh) return;
+                    if (node?.isMesh) hasMesh = true;
+                });
+            } catch (_) {}
+            if (hasMesh) {
+                normalizeObjectOrientation(obj, orientationType);
+            }
+        }
 
         // ★ NEW: если это ВПМ и есть geojson — сохраним мету и применим смещение
         if ((zipKind || '').toUpperCase() === 'SM' && zipMeta) {
@@ -280,4 +294,3 @@ export function createFBXFileHandler(options = {}) {
         setStatusMessage('');
     };
 }
-
