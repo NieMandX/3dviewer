@@ -157,65 +157,65 @@ class ViewerApp {
         const hemiSkyEl       = document.getElementById('hemiSky');
         const hemiGroundEl    = document.getElementById('hemiGround');
         const hdriExposureEl  = document.getElementById('hdriExposure');
-        const hdriSaturationEl= document.getElementById('hdriSaturation');
+        const hdriSaturationEl = document.getElementById('hdriSaturation');
         const hdriBlurEl      = document.getElementById('hdriBlur');
-	        const axisSel         = null;
-	        const isZUp = () => false;
-	        const toggleSideBtn   = document.getElementById('toggleSideBtn');
-	        const loadParcelsBtn  = document.getElementById('loadParcelsBtn');
-	        const resetViewerBtn  = document.getElementById('resetViewerBtn');
-	        const fullscreenBtn   = document.getElementById('fullscreenBtn');
-	        const statsBtn        = document.getElementById('statsBtn');
-	        const bgToggleBtn     = document.getElementById('bgToggleBtn');
-	        const gridToggleBtn   = document.getElementById('gridToggleBtn');
+        const axisSel         = null;
+        const isZUp = () => false;
+        const toggleSideBtn   = document.getElementById('toggleSideBtn');
+        const loadParcelsBtn  = document.getElementById('loadParcelsBtn');
+        const resetViewerBtn  = document.getElementById('resetViewerBtn');
+        const fullscreenBtn   = document.getElementById('fullscreenBtn');
+        const statsBtn        = document.getElementById('statsBtn');
+        const bgToggleBtn     = document.getElementById('bgToggleBtn');
+        const gridToggleBtn   = document.getElementById('gridToggleBtn');
         const statsOverlayEl  = document.getElementById('statsOverlay');
 
         const glassOpacityEl      = document.getElementById('glassOpacity');
         const glassIorEl          = document.getElementById('glassIor');
-	        const glassTransmissionEl = document.getElementById('glassTransmission');
-	        const glassReflectEl      = document.getElementById('glassReflect');
-	        const glassRoughEl        = document.getElementById('glassRough');
-	        const glassMetalEl        = document.getElementById('glassMetal');
-		        const glassAttenDistEl    = document.getElementById('glassAttenDist');
-		        const glassAttenColorEl   = document.getElementById('glassAttenColor');
-		        const glassColorEl        = document.getElementById('glassColor');
-		        const glassResetBtn       = document.getElementById('glassReset');
+        const glassTransmissionEl = document.getElementById('glassTransmission');
+        const glassReflectEl      = document.getElementById('glassReflect');
+        const glassRoughEl        = document.getElementById('glassRough');
+        const glassMetalEl        = document.getElementById('glassMetal');
+        const glassAttenDistEl    = document.getElementById('glassAttenDist');
+        const glassAttenColorEl   = document.getElementById('glassAttenColor');
+        const glassColorEl        = document.getElementById('glassColor');
+        const glassResetBtn       = document.getElementById('glassReset');
 
-	        const outEl           = document.getElementById('out');
-	        const galleryEl       = document.getElementById('gallery');
-	        const texCountEl      = document.getElementById('texCount');
-	        const matSelect       = document.getElementById('matSelect');
-	        const bindLogEl       = document.getElementById('bindLog');
-	        const { logBind, logSessionHeader } = createBindLogController({ bindLogEl });
+        const outEl           = document.getElementById('out');
+        const galleryEl       = document.getElementById('gallery');
+        const texCountEl      = document.getElementById('texCount');
+        const matSelect       = document.getElementById('matSelect');
+        const bindLogEl       = document.getElementById('bindLog');
+        const { logBind, logSessionHeader } = createBindLogController({ bindLogEl });
 
-	        const bgAlphaEl       = document.getElementById('bgAlpha');
-	        bgAlphaEl.addEventListener('input', () => backgroundController.updateVisibility());
+        const bgAlphaEl       = document.getElementById('bgAlpha');
+        bgAlphaEl.addEventListener('input', () => backgroundController.updateVisibility());
 
-	        createSliderValuesUIController({
-	            root: document,
-	            sliders: [
-	                ['hemiInt', hemiIntEl],
-	                ['bgAlpha', bgAlphaEl],
-	                ['iblInt', iblIntEl],
-	                ['iblGamma', iblGammaEl],
-	                ['iblRot', iblRotEl],
-	                ['hdriExposure', hdriExposureEl],
-	                ['hdriSaturation', hdriSaturationEl],
-	                ['hdriBlur', hdriBlurEl],
-	            ],
-	        });
+        createSliderValuesUIController({
+            root: document,
+            sliders: [
+                ['hemiInt', hemiIntEl],
+                ['bgAlpha', bgAlphaEl],
+                ['iblInt', iblIntEl],
+                ['iblGamma', iblGammaEl],
+                ['iblRot', iblRotEl],
+                ['hdriExposure', hdriExposureEl],
+                ['hdriSaturation', hdriSaturationEl],
+                ['hdriBlur', hdriBlurEl],
+            ],
+        });
 
-	        const sampleSelect    = document.getElementById('sampleSelect');
+        const sampleSelect    = document.getElementById('sampleSelect');
 
+        let didInitialRebase = false;
+        let galleryNeedsRefresh = false;
+        let layoutController = null;
+        let lastFinalizedModelIndex = 0;
+        let renderLoop = null;
+        let sceneGeometryStats = null;
+        let glassController = null;
 
-			        let didInitialRebase = false;
-				        let galleryNeedsRefresh = false;
-			        let layoutController = null;
-			        let lastFinalizedModelIndex = 0;
-			        let renderLoop = null;
-					        let sceneGeometryStats = null;
-					        let glassController = null;
-	        app.dom = {
+        app.dom = {
             rootEl,
             dropEl,
             statusEl,
@@ -257,35 +257,33 @@ class ViewerApp {
             fullscreenBtn,
             statsOverlayEl,
         };
-	        app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
+        app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
 
-	        function requestRender() {
-	            renderLoop?.requestRender?.();
-	        }
-
-
+        function requestRender() {
+            renderLoop?.requestRender?.();
+        }
 
         // =====================
         // THREE.js scene init
         // =====================
-        const scene    = new THREE.Scene();
+        const scene = new THREE.Scene();
         // scene.background = null;
 
-	        const world    = new THREE.Group();
-	        scene.add(world);
+        const world = new THREE.Group();
+        scene.add(world);
 
-	        sceneGeometryStats = createSceneGeometryStats({ world });
+        sceneGeometryStats = createSceneGeometryStats({ world });
 
-	        function markSceneStatsDirty() {
-	            sceneGeometryStats?.markDirty?.();
-	        }
-	
-	        function getSceneGeometryStats() {
-	            return sceneGeometryStats?.getStats?.() || { triangles: 0 };
-	        }
+        function markSceneStatsDirty() {
+            sceneGeometryStats?.markDirty?.();
+        }
 
-	        let gridVisible = true;
-	        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
+        function getSceneGeometryStats() {
+            return sceneGeometryStats?.getStats?.() || { triangles: 0 };
+        }
+
+        let gridVisible = true;
+        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
 
         const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
         camera.position.set(0, 1.5, -5);
@@ -1326,41 +1324,42 @@ class ViewerApp {
             return batchFinalizer.finalizeBatchAfterAllFiles();
         }
 
-	        app.api = Object.freeze({
-	            applyShading,
-	            setEnvironmentEnabled,
-	            updateSun,
-	            focusOn,
-	            fitAll,
-	            computeSceneBounds,
-	            layout,
-	            updateBgVisibility: backgroundController.updateVisibility,
-	            computeWorldCenter,
-	            setStatsVisible,
-	            requestRender,
-	        });
-		        // =====================
-		        // Animation loop & init
-		        // =====================
-		        renderLoop = createAndStartRenderLoop({
-		            controls,
-		            renderer,
-		            scene,
-		            camera,
-		            isWebGPU: USE_WEBGPU,
-		            getRendererReady: () => rendererReady,
-		            updateStatsOverlay,
-		            onFrame: () => {
-		                backgroundController.syncToCamera();
-		            },
-		        });
-		        layout();
-	        // IBL не запускаем автоматически — управляется чекбоксом
-	    }
+        app.api = Object.freeze({
+            applyShading,
+            setEnvironmentEnabled,
+            updateSun,
+            focusOn,
+            fitAll,
+            computeSceneBounds,
+            layout,
+            updateBgVisibility: backgroundController.updateVisibility,
+            computeWorldCenter,
+            setStatsVisible,
+            requestRender,
+        });
+
+        // =====================
+        // Animation loop & init
+        // =====================
+        renderLoop = createAndStartRenderLoop({
+            controls,
+            renderer,
+            scene,
+            camera,
+            isWebGPU: USE_WEBGPU,
+            getRendererReady: () => rendererReady,
+            updateStatsOverlay,
+            onFrame: () => {
+                backgroundController.syncToCamera();
+            },
+        });
+        layout();
+        // IBL не запускаем автоматически — управляется чекбоксом
+    }
 }
 
 const viewerApp = new ViewerApp();
-if (typeof globalThis !== "undefined") {
+if (typeof globalThis !== 'undefined') {
     globalThis.viewerApp = viewerApp;
 }
 
