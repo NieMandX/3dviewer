@@ -38,6 +38,7 @@ import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
 import { createRenderLoopController } from './modules/render/render-loop.js';
+import { createShadingController } from './modules/render/shading-controller.js';
 import { createShadowController } from './modules/render/shadow-controller.js';
 import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
@@ -310,8 +311,7 @@ class ViewerApp {
 
 
 			        let didInitialRebase = false;
-			        let currentShadingMode = 'pbr';
-			        let galleryNeedsRefresh = false;
+				        let galleryNeedsRefresh = false;
 			        let layoutController = null;
 			        let lastFinalizedModelIndex = 0;
 		        let renderLoop = null;
@@ -1297,177 +1297,26 @@ class ViewerApp {
         // Shading modes
         // =====================
 
-        /**
-         * Возвращает материал-вариант для режима отображения.
-         * В режиме PBR возвращаем исходный материал, в остальных — создаём clone подходящего типа.
-         */
-        function makeVariantFrom(orig, mode) {
-            // Общие параметры, включая поддержку альфа
-            const common = {
-
-                side: THREE.FrontSide,
-                transparent: orig.transparent || !!orig.alphaMap,
-                alphaTest: 0.3,
-                // depthWrite: false,
-                opacity: orig.opacity ?? 1,
-                alphaMap: orig.alphaMap || null
-            };
-
-            const color = (orig.color && orig.color.isColor)
-                ? orig.color.clone()
-                : new THREE.Color(0xffffff);
-
-            const map = orig.map || null;
-
-            switch (mode) {
-                case 'normal':
-                    // у NormalMaterial нет alphaMap, но можно сохранить прозрачность
-                    return new THREE.MeshNormalMaterial({
-                        side: common.side,
-                        transparent: common.transparent,
-                        opacity: common.opacity,
-                        flatShading: false
-                    });
-
-                case 'basic':
-                    return new THREE.MeshBasicMaterial({
-                        ...common,
-                        color: map ? 0xffffff : color,
-                        map
-                    });
-
-                case 'wire':
-                    return new THREE.MeshBasicMaterial({
-                        ...common,
-                        color: 0x666666,
-                        wireframe: true,
-                        transparent: true,
-                        opacity: 0.3,
-                    });
-
-                
-
-                case 'matcap':
-                    return new THREE.MeshMatcapMaterial({
-                        ...common,
-                        color: 0xffffff,
-                        matcap: getMatcap()
-                    });
-
-                case 'xray':
-                    return new THREE.MeshBasicMaterial({
-                        ...common,
-                        color: 0x8844ff,
-                        transparent: true,
-                        opacity: 0.5,
-                        depthWrite: false
-                    });
-
-                case 'uv':
-                    return new THREE.MeshBasicMaterial({
-                        ...common,
-                        color: 0xffffff,
-                        map: getChecker()
-                    });
-
-                case 'roughOnly': {
-                    const tex = orig.roughnessMap || null;
-                    if (tex) return new THREE.MeshBasicMaterial({ ...common, color: 0xffffff, map: tex });
-                    const v = Math.max(0, Math.min(1, Number(orig.roughness ?? 0.5)));
-                    const c = new THREE.Color().setScalar(v);
-                    return new THREE.MeshBasicMaterial({ ...common, color: c });
-                }
-
-                case 'metalOnly': {
-                    const tex = orig.metalnessMap || null;
-                    if (tex) return new THREE.MeshBasicMaterial({ ...common, color: 0xffffff, map: tex });
-                    const v = Math.max(0, Math.min(1, Number(orig.metalness ?? 0.0)));
-                    const c = new THREE.Color().setScalar(v);
-                    return new THREE.MeshBasicMaterial({ ...common, color: c });
-                }
-
-                default:
-                    return orig; // режим PBR оставляем без изменений
-
-
-            }
-        }
-
-        /**
-         * Главный переключатель режимов шейдинга. Кэширует исходные материалы (для PBR),
-         * управляет режимом beauty wire и обновляет панель материалов.
-         */
-        function applyShading(mode, afterRender) {
-            currentShadingMode = mode;
-            let panelScheduled = false;
-            const scheduleOnce = () => {
-                if (panelScheduled) return;
-                schedulePanelRefresh(afterRender);
-                panelScheduled = true;
-                afterRender = undefined;
-            };
-
-            if (USE_WEBGPU && mode !== 'wire') {
-                world.traverse(o => { if (o.isMesh) clearWireframeOverlay(o); });
-            }
-
-            // backface — отдельный режим (двухпроходный), его не делаем через makeVariantFrom
-            if (mode === 'backface') {
-                // если ранее был включён beautywire — выключаем его при входе в backface
-                world.traverse(o => { if (o.isMesh) clearBeautyWire(o); });
-                setBackfaceMode(true);
-                requestRender();
-                scheduleOnce();
-                return;
-            } else {
-                // выходим из backface при любом другом режиме
-                setBackfaceMode(false);
-            }
-            if (mode === 'beautywire') {
-                // включаем beautywire у всех мешей
-                world.traverse(o => {
-                    if (o.userData?.isCollision) return; // не переписывать материал коллизий
-                    if (!o.isMesh) return;
-                    ensureBeautyWire(o, BEAUTY_WIRE_ANGLE_DEG);
-                });
-                requestRender();
-                scheduleOnce();
-                return;
-            } else {
-                // выходим из beautywire, если он был включён
-                world.traverse(o => { if (o.isMesh) clearBeautyWire(o); });
-            }
-
-            if (mode === 'wire' && USE_WEBGPU) {
-                world.traverse(o => {
-                    if (o.userData?.isCollision) return;
-                    if (!o.isMesh) return;
-                    ensureWireframeOverlay(o);
-                });
-                requestRender();
-                scheduleOnce();
-                return;
-            }
-            world.traverse(obj => {
-                if (obj.userData?.isCollision) return; // не переписывать материал коллизий
-                if (!obj.isMesh || !obj.material) return;
-                if (!obj.userData._origMaterial) obj.userData._origMaterial = obj.material;
-                const origArray = Array.isArray(obj.userData._origMaterial) ? obj.userData._origMaterial : [obj.userData._origMaterial];
-                if (mode === 'pbr') {
-                    obj.material = obj.userData._origMaterial;
-                } else {
-                    const variants = origArray.map(m => makeVariantFrom(m, mode));
-                    obj.material = variants.length === 1 ? variants[0] : variants;
-                }
-            });
-
-            if (mode === 'pbr') {
-                applyEnvToMaterials(scene.environment, parseFloat(iblIntEl.value));
-                applyGlassControlsToScene();
-            }
-            requestRender();
-            scheduleOnce();
-        }
+        const shadingController = createShadingController({
+            THREE,
+            world,
+            scene,
+            requestRender,
+            schedulePanelRefresh,
+            useWebGPU: USE_WEBGPU,
+            clearWireframeOverlay,
+            ensureWireframeOverlay,
+            clearBeautyWire,
+            ensureBeautyWire,
+            beautyWireAngleDeg: BEAUTY_WIRE_ANGLE_DEG,
+            setBackfaceMode,
+            applyEnvToMaterials,
+            applyGlassControlsToScene,
+            getEnvIntensity: () => parseFloat(iblIntEl.value),
+            getMatcap,
+            getChecker,
+        });
+        const applyShading = shadingController.applyShading;
 
         shadingSel.addEventListener('change', () => applyShading(shadingSel.value));
 
@@ -1763,15 +1612,15 @@ class ViewerApp {
         // =====================
         // Glass controls
         // =====================
-        function cacheOriginalMaterialFor(obj, force = false) {
-            if (!obj) return;
-            if (currentShadingMode !== 'pbr') {
-                // Не затираем исходный PBR-материал временными материалами из режимов (beautywire/backface/wire и т.п.).
-                if (obj.userData?._origMaterial) return;
-                if (!force) return;
-            }
-            obj.userData._origMaterial = obj.material;
-        }
+	        function cacheOriginalMaterialFor(obj, force = false) {
+	            if (!obj) return;
+	            if (shadingController.getCurrentMode() !== 'pbr') {
+	                // Не затираем исходный PBR-материал временными материалами из режимов (beautywire/backface/wire и т.п.).
+	                if (obj.userData?._origMaterial) return;
+	                if (!force) return;
+	            }
+	            obj.userData._origMaterial = obj.material;
+	        }
 
         glassController = createGlassController({
             THREE,
@@ -2054,11 +1903,11 @@ class ViewerApp {
             bindLogDetails,
             hideSMCollisions,
             syncCollisionButtons,
-            setStatusMessage,
-            setEmptyHintVisible,
-            applyShading,
-            getCurrentShadingMode: () => currentShadingMode,
-        });
+	            setStatusMessage,
+	            setEmptyHintVisible,
+	            applyShading,
+	            getCurrentShadingMode: shadingController.getCurrentMode,
+	        });
 
         /**
          * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
