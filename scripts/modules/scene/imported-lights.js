@@ -90,7 +90,7 @@ export function createImportedLightsController(options = {}) {
             light.getWorldPosition(lightWorldPos);
             light.getWorldQuaternion(lightWorldQuat);
 
-            lightDirTmp.set(0, -1, 0).applyQuaternion(lightWorldQuat).normalize();
+            lightDirTmp.set(0, 0, -1).applyQuaternion(lightWorldQuat).normalize();
 
             let length = isDirectional ? defaultDistance : light.distance;
             if (!Number.isFinite(length) || length <= 0.01) length = defaultDistance;
@@ -102,7 +102,7 @@ export function createImportedLightsController(options = {}) {
             target.updateMatrixWorld(true);
 
             if (light.isSpotLight) {
-                light.translateY(-1);
+                light.translateZ(-1);
                 light.updateMatrix();
                 light.updateMatrixWorld(true);
             }
@@ -270,4 +270,3 @@ export function createImportedLightsController(options = {}) {
         bindUI,
     };
 }
-
