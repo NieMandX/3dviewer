@@ -78,96 +78,19 @@ import {
     ensureBeautyWire,
     ensureWireframeOverlay,
 } from './modules/render/wire-overlays.js';
+import { detectRendererMode } from './modules/render/renderer-mode.js';
 
-const REQUESTED_RENDERER_MODE = (() => {
-    const forced = globalThis.__LPMVIEW_RENDERER;
-    if (forced) return String(forced).toLowerCase();
-    if (typeof window !== 'undefined') {
-        const param = new URLSearchParams(window.location.search).get('renderer');
-        if (param) return param.toLowerCase();
-    }
-    return 'auto';
-})();
-const WEBGPU_SUPPORTED = typeof navigator !== 'undefined' && 'gpu' in navigator;
-let activeRendererMode = 'webgl';
-if (REQUESTED_RENDERER_MODE === 'webgl') {
-    activeRendererMode = 'webgl';
-} else if (REQUESTED_RENDERER_MODE === 'webgpu') {
-    activeRendererMode = WEBGPU_SUPPORTED ? 'webgpu' : 'webgl';
-} else {
-    activeRendererMode = WEBGPU_SUPPORTED ? 'webgpu' : 'webgl';
-}
-let USE_WEBGPU = activeRendererMode === 'webgpu';
-let WebGPURendererCtor = null;
-let webgpuModuleError = null;
-let rendererModeNote = '';
-let backfaceNodeSupport = null;
-
-if (USE_WEBGPU) {
-    try {
-        const mod = await import('three/src/renderers/webgpu/WebGPURenderer.js');
-        WebGPURendererCtor = mod.WebGPURenderer || mod.default || null;
-        if (!WebGPURendererCtor) {
-            throw new Error('WebGPURenderer export not found');
-        }
-        activeRendererMode = 'webgpu';
-    } catch (err) {
-        console.warn('WebGPU module load failed', err);
-        webgpuModuleError = err;
-        USE_WEBGPU = false;
-        activeRendererMode = 'webgl';
-        rendererModeNote = 'fallback: init failed';
-    }
-}
-
-if (USE_WEBGPU) {
-    try {
-        const [
-            { default: MeshBasicNodeMaterial },
-            normalMod,
-            positionMod,
-            tslMod,
-        ] = await Promise.all([
-            import('three/src/materials/nodes/MeshBasicNodeMaterial.js'),
-            import('three/src/nodes/accessors/Normal.js'),
-            import('three/src/nodes/accessors/Position.js'),
-            import('three/src/nodes/tsl/TSLBase.js'),
-        ]);
-
-        if (MeshBasicNodeMaterial && normalMod?.normalView && positionMod?.positionViewDirection && tslMod?.float && tslMod?.vec3) {
-            backfaceNodeSupport = {
-                MeshBasicNodeMaterial,
-                normalView: normalMod.normalView,
-                positionViewDirection: positionMod.positionViewDirection,
-                floatNode: tslMod.float,
-                vec3Node: tslMod.vec3,
-            };
-        }
-    } catch (err) {
-        console.warn('Backface node support init failed', err);
-        backfaceNodeSupport = null;
-    }
-}
-
-if (!USE_WEBGPU && REQUESTED_RENDERER_MODE === 'webgpu') {
-    rendererModeNote = 'fallback: unsupported';
-}
+const rendererMode = await detectRendererMode();
+const activeRendererMode = rendererMode.activeRendererMode;
+const USE_WEBGPU = rendererMode.useWebGPU;
+const WebGPURendererCtor = rendererMode.WebGPURendererCtor;
+const webgpuModuleError = rendererMode.webgpuModuleError;
+const rendererModeNote = rendererMode.rendererModeNote;
+const backfaceNodeSupport = rendererMode.backfaceNodeSupport;
 
 class ViewerApp {
     constructor() {
         const app = this;
-
-/*
-            Полный рефакторинг JS:
-            - структурирован по разделам
-            - все функции и переменные явно именованы
-            - подробные комментарии на русском
-            - аккуратные 4-пробельные отступы
-        */
-
-
-        
-
         // =====================
         // DOM references
         // =====================
