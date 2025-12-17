@@ -38,6 +38,7 @@ import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
 import { createRenderLoopController } from './modules/render/render-loop.js';
+import { createDebugTextureProvider } from './modules/render/debug-textures.js';
 import { createBackfaceOverlayController } from './modules/render/backface-overlay.js';
 import { createShadingController } from './modules/render/shading-controller.js';
 import { createShadowController } from './modules/render/shadow-controller.js';
@@ -874,35 +875,17 @@ class ViewerApp {
 	            statsOverlayController.update(force);
 	        }
 
-        // helper textures
-        let _matcapTex = null;
-        let _checkerTex = null;
+        const debugTextures = createDebugTextureProvider({
+            THREE,
+            renderer,
+            textureLoader: texLd,
+        });
+        const getMatcap = debugTextures.getMatcap;
+        const getChecker = debugTextures.getChecker;
 
-        function getMatcap() {
-            if (_matcapTex) return _matcapTex;
-            _matcapTex = texLd.load('https://raw.githubusercontent.com/nidorx/matcaps/1b1e43a338335b6401034d48488298966755d717/1024/2A2A2A_B3B3B3_6D6D6D_848C8C.png');
-            return _matcapTex;
-        }
-
-        function getChecker() {
-            if (_checkerTex) return _checkerTex;
-            const S = 256, N = 8;
-            const c = document.createElement('canvas'); c.width = c.height = S;
-            const g = c.getContext('2d');
-            for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-                g.fillStyle = ((x + y) & 1) ? '#bbbbbb' : '#222222';
-                g.fillRect(x * S / N, y * S / N, S / N, S / N);
-            }
-            _checkerTex = new THREE.CanvasTexture(c);
-            _checkerTex.wrapS = _checkerTex.wrapT = THREE.RepeatWrapping;
-                const maxAniso = renderer.capabilities?.getMaxAnisotropy?.();
-                _checkerTex.anisotropy = maxAniso || 1;
-            return _checkerTex;
-        }
-
-        // ================================
-        // Edges (wireframe без диагоналей)
-        // ================================
+	        // ================================
+	        // Edges (wireframe без диагоналей)
+	        // ================================
 
         // === Backface debug (2-pass: front white + back red) ===
 
