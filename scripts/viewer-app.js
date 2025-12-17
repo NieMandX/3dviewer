@@ -27,6 +27,7 @@ import { createSunInputsController } from './modules/ui/sun-inputs.js';
 import { createEnvironmentControlsController } from './modules/ui/environment-controls.js';
 import { createGeoJsonModalController } from './modules/ui/geojson-modal.js';
 import { createSelectedMaterialLinkResolver, createTextureInfoFormatter, guessKindFromName } from './modules/ui/texture-helpers.js';
+import { createStatusUIController } from './modules/ui/status-ui.js';
 import { createLayoutController } from './modules/ui/layout.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
@@ -42,8 +43,7 @@ import { createShadingController } from './modules/render/shading-controller.js'
 import { createShadowController } from './modules/render/shadow-controller.js';
 import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
-import { createFileFlowController } from './modules/io/file-flow.js';
-import { createSampleLoader } from './modules/io/sample-loader.js';
+import { createFileFlowUIController } from './modules/io/file-flow-ui.js';
 import { createBatchFinalizer } from './modules/io/batch-finalizer.js';
 import {
     detectSlotFromMatOrObj,
@@ -97,37 +97,11 @@ class ViewerApp {
         const dropEl          = document.getElementById('drop');
         const statusEl        = document.getElementById('status');
         const appbarStatusEl  = document.getElementById('appbarStatus') || statusEl;
-        let statusClearTimer = null;
         const emptyHintEl     = document.getElementById('emptyHint');
 
-        const setStatusMessage = (message = '') => {
-            if (!statusEl) return;
-            if (statusClearTimer) {
-                clearTimeout(statusClearTimer);
-                statusClearTimer = null;
-            }
-            const hasMessage = !!(message && message.trim());
-            statusEl.textContent = hasMessage ? message : '';
-            statusEl.hidden = !hasMessage;
-            if (appbarStatusEl && appbarStatusEl !== statusEl) {
-                appbarStatusEl.textContent = statusEl.textContent;
-            }
-            if (hasMessage) {
-                const norm = message.trim().toLowerCase();
-                if (norm.startsWith('готово')) {
-                    statusClearTimer = setTimeout(() => {
-                        statusClearTimer = null;
-                        setStatusMessage('');
-                    }, 2000);
-                }
-            }
-        };
-
-        const setEmptyHintVisible = (visible) => {
-            if (!emptyHintEl) return;
-            emptyHintEl.hidden = !visible;
-            emptyHintEl.style.opacity = visible ? '1' : '0';
-        };
+        const statusUI = createStatusUIController({ statusEl, appbarStatusEl, emptyHintEl });
+        const setStatusMessage = statusUI.setStatusMessage;
+        const setEmptyHintVisible = statusUI.setEmptyHintVisible;
         const shadingSel      = document.getElementById('shadingMode');
 
         
@@ -1217,22 +1191,8 @@ class ViewerApp {
         // =====================
         const fileInput = document.getElementById('fileInput');
         const openBtn = document.getElementById('openBtn');
-        const sampleLoader = createSampleLoader({
+        createFileFlowUIController({
             statusEl,
-            sampleSelect,
-            setStatusMessage,
-            setEmptyHintVisible,
-            hideSidePanel,
-            handleZIPFile,
-            finalizeBatchAfterAllFiles,
-            getLoadedModelCount: () => loadedModels.length,
-        });
-
-        async function loadSampleModel(sample) {
-            return sampleLoader.loadSampleModel(sample);
-        }
-
-        createFileFlowController({
             fileInput,
             openBtn,
             emptyHintEl,
@@ -1243,7 +1203,8 @@ class ViewerApp {
             handleFBXFile,
             handleZIPFile,
             finalizeBatchAfterAllFiles,
-            loadSampleModel,
+            hideSidePanel,
+            setStatusMessage,
             setEmptyHintVisible,
             getLoadedModelCount: () => loadedModels.length,
         });
