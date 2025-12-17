@@ -29,6 +29,7 @@ import { createGeoJsonModalController } from './modules/ui/geojson-modal.js';
 import { createSelectedMaterialLinkResolver, createTextureInfoFormatter, guessKindFromName } from './modules/ui/texture-helpers.js';
 import { createHemiLightControlsController } from './modules/ui/hemi-light-controls.js';
 import { createStatusUIController } from './modules/ui/status-ui.js';
+import { createAppbarControlsController } from './modules/ui/appbar-controls.js';
 import { createLayoutController } from './modules/ui/layout.js';
 import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
@@ -156,15 +157,14 @@ class ViewerApp {
         const hemiIntEl       = document.getElementById('hemiInt');
         const hemiSkyEl       = document.getElementById('hemiSky');
         const hemiGroundEl    = document.getElementById('hemiGround');
-        const hdriExposureEl  = document.getElementById('hdriExposure');
-        const hdriSaturationEl = document.getElementById('hdriSaturation');
-        const hdriBlurEl      = document.getElementById('hdriBlur');
-        const axisSel         = null;
-        const isZUp = () => false;
-        const toggleSideBtn   = document.getElementById('toggleSideBtn');
-        const loadParcelsBtn  = document.getElementById('loadParcelsBtn');
-        const resetViewerBtn  = document.getElementById('resetViewerBtn');
-        const fullscreenBtn   = document.getElementById('fullscreenBtn');
+	        const hdriExposureEl  = document.getElementById('hdriExposure');
+	        const hdriSaturationEl = document.getElementById('hdriSaturation');
+	        const hdriBlurEl      = document.getElementById('hdriBlur');
+	        const isZUp = () => false;
+	        const toggleSideBtn   = document.getElementById('toggleSideBtn');
+	        const loadParcelsBtn  = document.getElementById('loadParcelsBtn');
+	        const resetViewerBtn  = document.getElementById('resetViewerBtn');
+	        const fullscreenBtn   = document.getElementById('fullscreenBtn');
         const statsBtn        = document.getElementById('statsBtn');
         const bgToggleBtn     = document.getElementById('bgToggleBtn');
         const gridToggleBtn   = document.getElementById('gridToggleBtn');
@@ -232,13 +232,12 @@ class ViewerApp {
             hdriPresetSel,
             iblIntEl,
             iblGammaEl,
-            iblTintEl,
-            iblRotEl,
-            axisSel,
-            toggleSideBtn,
-            glassOpacityEl,
-            glassIorEl,
-            glassTransmissionEl,
+	            iblTintEl,
+	            iblRotEl,
+	            toggleSideBtn,
+	            glassOpacityEl,
+	            glassIorEl,
+	            glassTransmissionEl,
             glassReflectEl,
             glassMetalEl,
             glassAttenDistEl,
@@ -805,43 +804,26 @@ class ViewerApp {
 		            applyEnvToMaterials,
 		            requestEnvironmentRebuild,
 		            syncEnvAdjustmentsState,
-		            getCurrentEnv: () => environmentManager.getCurrentEnv(),
-		            selectPresetIndex: (idx) => environmentManager.selectPresetIndex(idx),
-		        });
+			            getCurrentEnv: () => environmentManager.getCurrentEnv(),
+			            selectPresetIndex: (idx) => environmentManager.selectPresetIndex(idx),
+			        });
 
-		        if (statsBtn) {
-		            statsBtn.addEventListener('click', () => setStatsVisible(!statsOverlayController.isVisible()));
-		        }
-	        setStatsVisible(true);
+			        createAppbarControlsController({
+			            document,
+			            window,
+			            statsBtn,
+			            gridToggleBtn,
+			            resetViewerBtn,
+			            fullscreenBtn,
+			            isStatsVisible: () => statsOverlayController.isVisible(),
+			            setStatsVisible,
+			            isGridVisible: () => gridVisible,
+			            setGridVisible,
+			        });
 
-	        gridToggleBtn?.addEventListener('click', () => {
-	            setGridVisible(!gridVisible);
-	        });
-        setGridVisible(true);
-
-        resetViewerBtn?.addEventListener('click', () => {
-            window.location.reload();
-        });
-
-        fullscreenBtn?.addEventListener('click', () => {
-            const elem = document.documentElement;
-            const fullscreenEl = document.fullscreenElement || document.webkitFullscreenElement;
-            if (!fullscreenEl) {
-                if (elem.requestFullscreen) elem.requestFullscreen();
-                else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
-            } else {
-                if (document.exitFullscreen) document.exitFullscreen();
-                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-	            }
-	        });
-
-	        // =====================
-	        // Axis toggle
-	        // =====================
-
-	        // =====================
-	        // Utilities
-	        // =====================
+		        // =====================
+		        // Utilities
+		        // =====================
 
 	        const importedLightsController = createImportedLightsController({
 	            THREE,
