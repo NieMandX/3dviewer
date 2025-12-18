@@ -1,10 +1,6 @@
 import JSZip from 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
 
-function basename(path) {
-    const s = String(path || '');
-    const parts = s.split(/[\\/]/);
-    return parts[parts.length - 1] || '';
-}
+import { basename } from './modules/utils/path.js';
 
 function mimeFromName(name) {
     const n = String(name || '').toLowerCase();
