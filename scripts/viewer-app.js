@@ -42,9 +42,8 @@ import { createDebugTextureProvider } from './modules/render/debug-textures.js';
 import { createBackfaceOverlayController } from './modules/render/backface-overlay.js';
 import { createShadingController } from './modules/render/shading-controller.js';
 import { createShadowController } from './modules/render/shadow-controller.js';
-import { createFBXFileHandler } from './modules/io/fbx-file.js';
 import { createAssetLoaders } from './modules/io/asset-loaders.js';
-import { createZIPFileHandler } from './modules/io/zip-file.js';
+import { createImportHandlers } from './modules/io/import-handlers.js';
 import { createFileFlowUIController } from './modules/io/file-flow-ui.js';
 import { SAMPLE_MODELS } from './modules/io/sample-models.js';
 import { createBatchFinalizer } from './modules/io/batch-finalizer.js';
@@ -1065,94 +1064,54 @@ class ViewerApp {
          * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
          * извлекает embedded текстуры, выполняет автопривязку и обновляет панель/шейдинг.
          */
-		        const handleFBXFileImpl = createFBXFileHandler({
+		        const { handleFBXFile, handleZIPFile } = createImportHandlers({
 		            THREE,
 		            fbxLoader,
 		            basename,
-	            logSessionHeader,
-            logBind,
-            hideSidePanel,
-            setStatusMessage,
-            requestRender,
-	            schedulePanelRefresh,
-	            parseFBXInWorker,
-	            parseFBXOnMainThread,
-	            isWorkerSupported: isFBXWorkerSupported,
-	            setWorkerSupported: setFBXWorkerSupported,
-	            disableWorker: disableFBXWorker,
-	            extractImagesFromFBX,
-	            sniffImage,
-	            allEmbedded,
-	            markGalleryNeedsRefresh: () => { galleryNeedsRefresh = true; },
-            world,
-            loadedModels,
-            determineOrientationType,
-            describeOrientationType,
-            describeFBXOrientation,
-            readFBXOrientationFromTree,
-            parseOrientationFromNode,
-	            normalizeObjectOrientation,
-	            getSMOffset,
-	            applyGeoOffsetByOrientation,
-	            setVPMReferenceHeight,
-	            restoreLightTargetsFromOrientation: importedLightsController.restoreLightTargetsFromOrientation,
-	            disableShadowsOnImportedLights: importedLightsController.disableShadowsOnImportedLights,
-	            ensureLightHelpers: importedLightsController.ensureLightHelpers,
-	            renameMaterialsByFBXObject,
-	            markCollisionMeshes,
-	            splitAllMeshesByUDIM_SM,
-	            optimizeGlassMeshes,
-	            autoBindByNamesForModel,
-	            setImportedLightsEnabled: importedLightsController.setImportedLightsEnabled,
-	            getImportedLightsEnabled: importedLightsController.getImportedLightsEnabled,
-	            applyGlassControlsToScene,
-	            setEmptyHintVisible,
-	            markSceneStatsDirty,
-	        });
-
-        const handleZIPFileImpl = createZIPFileHandler({
-            basename,
-            unpackZIPInWorker,
-            makeGeoJsonMeta,
-            handleFBXFile: handleFBXFileImpl,
-            logSessionHeader,
-            logBind,
-            hideSidePanel,
-            setStatusMessage,
-            schedulePanelRefresh,
-            ensureZipCollisionsHidden,
-            setEmptyHintVisible,
-            allEmbedded,
-            markGalleryNeedsRefresh: () => { galleryNeedsRefresh = true; },
-            loadedModels,
-            JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
-        });
-
-	        async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, options = null) {
-	            const fileName = file?.name || '';
-	            const isLightFBX = /_Light\.fbx$/i.test(fileName);
-	            const hasInheritedOrientation = options && options.inheritOrientationType != null;
-	            let callOptions = options;
-	            if (isLightFBX && !hasInheritedOrientation) {
-	                const lastModel = loadedModels
-	                    .filter((m) => m && m.obj && (!groupName || m.group === groupName))
-	                    .slice()
-	                    .reverse()
-	                    .find((m) => m.normalizedOrientationType != null || m.orientationType != null);
-	                const inheritedType = lastModel?.normalizedOrientationType ?? lastModel?.orientationType ?? null;
-	                if (inheritedType != null) {
-	                    callOptions = { ...(callOptions || {}), inheritOrientationType: inheritedType };
-	                }
-	            }
-	            return handleFBXFileImpl(file, groupName, zipKind, zipMeta, callOptions);
-	        }
-        /**
-         * Обработка ZIP-архива: находит FBX/текстуры/GeoJSON, загружает FBX, сохраняет текстуры,
-         * привязывает GeoJSON к моделям и обновляет UI.
-         */
-        async function handleZIPFile(file) {
-            return handleZIPFileImpl(file);
-        }
+		            logSessionHeader,
+		            logBind,
+		            hideSidePanel,
+		            setStatusMessage,
+		            requestRender,
+		            schedulePanelRefresh,
+		            parseFBXInWorker,
+		            parseFBXOnMainThread,
+		            isWorkerSupported: isFBXWorkerSupported,
+		            setWorkerSupported: setFBXWorkerSupported,
+		            disableWorker: disableFBXWorker,
+		            extractImagesFromFBX,
+		            sniffImage,
+		            allEmbedded,
+		            markGalleryNeedsRefresh: () => { galleryNeedsRefresh = true; },
+		            world,
+		            loadedModels,
+		            determineOrientationType,
+		            describeOrientationType,
+		            describeFBXOrientation,
+		            readFBXOrientationFromTree,
+		            parseOrientationFromNode,
+		            normalizeObjectOrientation,
+		            getSMOffset,
+		            applyGeoOffsetByOrientation,
+		            setVPMReferenceHeight,
+		            restoreLightTargetsFromOrientation: importedLightsController.restoreLightTargetsFromOrientation,
+		            disableShadowsOnImportedLights: importedLightsController.disableShadowsOnImportedLights,
+		            ensureLightHelpers: importedLightsController.ensureLightHelpers,
+		            renameMaterialsByFBXObject,
+		            markCollisionMeshes,
+		            splitAllMeshesByUDIM_SM,
+		            optimizeGlassMeshes,
+		            autoBindByNamesForModel,
+		            setImportedLightsEnabled: importedLightsController.setImportedLightsEnabled,
+		            getImportedLightsEnabled: importedLightsController.getImportedLightsEnabled,
+		            applyGlassControlsToScene,
+		            setEmptyHintVisible,
+		            markSceneStatsDirty,
+		            unpackZIPInWorker,
+		            makeGeoJsonMeta,
+		            ensureZipCollisionsHidden,
+		            JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
+		        });
 
         const batchFinalizer = createBatchFinalizer({
             loadedModels,
