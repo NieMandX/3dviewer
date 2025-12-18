@@ -984,33 +984,10 @@ class ViewerApp {
 	            isWebGL2: () => !!renderer.capabilities?.isWebGL2,
 	        });
 
-        // =====================
-        // File flow
-        // =====================
-        const fileInput = dom.fileInput;
-        const openBtn = dom.openBtn;
-        createFileFlowUIController({
-            statusEl,
-            fileInput,
-            openBtn,
-            emptyHintEl,
-            rootEl,
-            dropEl,
-            sampleSelect,
-            sampleModels: SAMPLE_MODELS,
-            handleFBXFile,
-            handleZIPFile,
-            finalizeBatchAfterAllFiles,
-            hideSidePanel,
-            setStatusMessage,
-            setEmptyHintVisible,
-            getLoadedModelCount: () => loadedModels.length,
-        });
-
-        // =====================
-        // LIGHT CONTROLL
-        // =====================
-        createHemiLightControlsController({
+	        // =====================
+	        // LIGHT CONTROLL
+	        // =====================
+	        createHemiLightControlsController({
             hemiLight,
             hemiIntEl,
             hemiSkyEl,
@@ -1071,13 +1048,36 @@ class ViewerApp {
 		            markSceneStatsDirty,
 		            unpackZIPInWorker,
 		            makeGeoJsonMeta,
-		            ensureZipCollisionsHidden,
-		            JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
-		        });
+			            ensureZipCollisionsHidden,
+			            JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
+			        });
 
-        const batchFinalizer = createBatchFinalizer({
-            loadedModels,
-            allEmbedded,
+	        // =====================
+	        // File flow
+	        // =====================
+	        const fileInput = dom.fileInput;
+	        const openBtn = dom.openBtn;
+	        createFileFlowUIController({
+	            statusEl,
+	            fileInput,
+	            openBtn,
+	            emptyHintEl,
+	            rootEl,
+	            dropEl,
+	            sampleSelect,
+	            sampleModels: SAMPLE_MODELS,
+	            handleFBXFile,
+	            handleZIPFile,
+	            finalizeBatchAfterAllFiles,
+	            hideSidePanel,
+	            setStatusMessage,
+	            setEmptyHintVisible,
+	            getLoadedModelCount: () => loadedModels.length,
+	        });
+
+	        const batchFinalizer = createBatchFinalizer({
+	            loadedModels,
+	            allEmbedded,
             getLastFinalizedModelIndex: () => lastFinalizedModelIndex,
             setLastFinalizedModelIndex: (next) => { lastFinalizedModelIndex = next; },
             getGalleryNeedsRefresh: () => galleryNeedsRefresh,
