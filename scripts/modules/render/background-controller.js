@@ -70,14 +70,14 @@ export function createBackgroundController(options = {}) {
             bgToggleBtn.classList.toggle('active', bgMode === 'black');
             if (bgMode === 'black') {
                 // Сейчас чёрный фон → кнопка предлагает переключиться на светлую тему.
-                bgToggleBtn.textContent = '☀';
+                bgToggleBtn.textContent = '☀\uFE0E';
                 bgToggleBtn.title = 'Светлая тема';
                 bgToggleBtn.setAttribute('aria-label', 'Светлая тема');
                 bgToggleBtn.classList.remove('white-mode');
                 bgToggleBtn.classList.add('black-mode');
             } else {
                 // Сейчас белый фон → кнопка предлагает переключиться на тёмную тему.
-                bgToggleBtn.textContent = '🌙';
+                bgToggleBtn.textContent = '☾\uFE0E';
                 bgToggleBtn.title = 'Тёмная тема';
                 bgToggleBtn.setAttribute('aria-label', 'Тёмная тема');
                 bgToggleBtn.classList.remove('black-mode');
