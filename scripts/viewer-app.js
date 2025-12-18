@@ -28,9 +28,9 @@ import { createStatusUIController } from './modules/ui/status-ui.js';
 import { createAppbarControlsController } from './modules/ui/appbar-controls.js';
 import { createGridVisibilityController } from './modules/ui/grid-visibility.js';
 import { createLayoutController } from './modules/ui/layout.js';
-import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsUI } from './modules/ui/materials-ui.js';
 import { createTexturesUI } from './modules/ui/textures-ui.js';
+import { createVisibilityAndCollisions } from './modules/ui/visibility-collisions.js';
 import { collectViewerDom } from './modules/ui/viewer-dom.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
@@ -67,7 +67,7 @@ import {
     parseOrientationFromNode,
     readFBXOrientationFromTree,
 } from './modules/fbx/orientation.js';
-import { createCollisionVisibilityHelpers, markCollisionMeshes } from './modules/fbx/collisions.js';
+import { markCollisionMeshes } from './modules/fbx/collisions.js';
 import { splitAllMeshesByUDIM_SM } from './modules/fbx/udim-split.js';
 import {
     BEAUTY_WIRE_ANGLE_DEG,
@@ -667,29 +667,25 @@ class ViewerApp {
 	        const applyShading = shadingController.applyShading;
 	        shadingController.bindUI({ shadingSel });
 
-		        // =====================
-		        // Objects visibility
-		        // =====================
+			        // =====================
+			        // Objects visibility
+			        // =====================
 
-	        const visibilityController = createVisibilityController({
-	            world,
-	            loadedModels,
-	            outEl,
-	            requestRender,
-	            markSceneStatsDirty,
-	        });
-
-	        function handleEyeToggle(el) {
-	            visibilityController.handleEyeToggle(el);
-	        }
-
-	        function updateEyeButtonsForTarget(target, visible) {
-	            visibilityController.updateEyeButtonsForTarget(target, visible);
-	        }
-
-	        function setMeshAndMaterialsVisibility(target, visible) {
-	            visibilityController.setMeshAndMaterialsVisibility(target, visible);
-	        }
+		        const {
+		            handleEyeToggle,
+		            updateEyeButtonsForTarget,
+		            setMeshAndMaterialsVisibility,
+		            ensureZipCollisionsHidden,
+		            hideSMCollisions,
+		        } = createVisibilityAndCollisions({
+		            world,
+		            loadedModels,
+		            outEl,
+		            requestRender,
+		            markSceneStatsDirty,
+		            schedulePanelRefresh,
+		            syncCollisionButtons,
+		        });
 
 
 		        createSunInputsController({
@@ -808,14 +804,7 @@ class ViewerApp {
         // =====================
 
 
-	        // === COLLISIONS (UCX) =========================================
-	        const { ensureZipCollisionsHidden, hideSMCollisions } = createCollisionVisibilityHelpers({
-	            loadedModels,
-	            schedulePanelRefresh,
-	            updateEyeButtonsForTarget,
-	            setMeshAndMaterialsVisibility,
-	            syncCollisionButtons,
-	        });
+		        // === COLLISIONS (UCX) =========================================
 
 	        const toStandard = createToStandard({
 	            getEnvironment: () => scene.environment,
