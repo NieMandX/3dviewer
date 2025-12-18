@@ -616,13 +616,14 @@ class ViewerApp {
 	            statsOverlayController.update(force);
 	        }
 
-        const debugTextures = createDebugTextureProvider({
-            THREE,
-            renderer,
-            textureLoader: texLd,
-        });
-        const getMatcap = debugTextures.getMatcap;
-        const getChecker = debugTextures.getChecker;
+		        const debugTextures = createDebugTextureProvider({
+		            THREE,
+		            renderer,
+		            textureLoader: texLd,
+		            checkerUrl: 'uv_grid1.jpg',
+		        });
+		        const getMatcap = debugTextures.getMatcap;
+		        const getChecker = debugTextures.getChecker;
 
 	        // ================================
 	        // Edges (wireframe без диагоналей)

@@ -2,6 +2,7 @@ export function createDebugTextureProvider(options = {}) {
     const THREE = options.THREE || null;
     const renderer = options.renderer || null;
     const textureLoader = options.textureLoader || (THREE ? new THREE.TextureLoader() : null);
+    const checkerUrl = (typeof options.checkerUrl === 'string' && options.checkerUrl) ? options.checkerUrl : '';
 
     let matcapTexture = null;
     let checkerTexture = null;
@@ -19,29 +20,57 @@ export function createDebugTextureProvider(options = {}) {
         if (!THREE) return null;
         if (checkerTexture) return checkerTexture;
 
-        const S = 256;
-        const N = 8;
+        const applyCommonProps = (tex) => {
+            if (!tex) return;
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            if ('colorSpace' in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+            const maxAniso = renderer?.capabilities?.getMaxAnisotropy?.();
+            tex.anisotropy = maxAniso || 1;
+        };
 
-        const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
-        if (!canvas) return null;
+        const makeCanvasCheckerTexture = () => {
+            const S = 256;
+            const N = 8;
 
-        canvas.width = canvas.height = S;
-        const g = canvas.getContext('2d');
-        if (!g) return null;
+            const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+            if (!canvas) return null;
 
-        for (let y = 0; y < N; y++) {
-            for (let x = 0; x < N; x++) {
-                g.fillStyle = ((x + y) & 1) ? '#bbbbbb' : '#222222';
-                g.fillRect((x * S) / N, (y * S) / N, S / N, S / N);
+            canvas.width = canvas.height = S;
+            const g = canvas.getContext('2d');
+            if (!g) return null;
+
+            for (let y = 0; y < N; y++) {
+                for (let x = 0; x < N; x++) {
+                    g.fillStyle = ((x + y) & 1) ? '#bbbbbb' : '#222222';
+                    g.fillRect((x * S) / N, (y * S) / N, S / N, S / N);
+                }
             }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            applyCommonProps(tex);
+            return tex;
+        };
+
+        // Prefer project UV grid if present; fallback to canvas checker (works offline / without asset).
+        if (checkerUrl && textureLoader?.load) {
+            checkerTexture = textureLoader.load(
+                checkerUrl,
+                undefined,
+                undefined,
+                () => {
+                    // Если ассет не загрузился — подменяем изображение на canvas-checker в уже выданной текстуре.
+                    const fallback = makeCanvasCheckerTexture();
+                    if (!fallback || !checkerTexture) return;
+                    checkerTexture.image = fallback.image;
+                    applyCommonProps(checkerTexture);
+                    checkerTexture.needsUpdate = true;
+                }
+            );
+            applyCommonProps(checkerTexture);
+            return checkerTexture;
         }
 
-        checkerTexture = new THREE.CanvasTexture(canvas);
-        checkerTexture.wrapS = checkerTexture.wrapT = THREE.RepeatWrapping;
-
-        const maxAniso = renderer?.capabilities?.getMaxAnisotropy?.();
-        checkerTexture.anisotropy = maxAniso || 1;
-
+        checkerTexture = makeCanvasCheckerTexture();
         return checkerTexture;
     }
 
@@ -50,4 +79,3 @@ export function createDebugTextureProvider(options = {}) {
         getChecker,
     };
 }
-
