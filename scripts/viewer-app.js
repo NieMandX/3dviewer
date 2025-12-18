@@ -40,6 +40,7 @@ import { createTextureModalController } from './modules/ui/texture-modal.js';
 import { collectViewerDom } from './modules/ui/viewer-dom.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
+import { createRenderer } from './modules/render/renderer-init.js';
 import { createAndStartRenderLoop } from './modules/render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from './modules/render/debug-textures.js';
 import { createBackfaceOverlayController } from './modules/render/backface-overlay.js';
@@ -248,52 +249,26 @@ class ViewerApp {
 
 	        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
 
-        const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
-        camera.position.set(0, 1.5, -5);
+	        const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
+	        camera.position.set(0, 1.5, -5);
 
-        const renderer = USE_WEBGPU && WebGPURendererCtor
-            ? new WebGPURendererCtor({ antialias: true })
-            : new THREE.WebGLRenderer({ antialias: true });
-        app.renderer = renderer;
-        if (renderer.info && Object.prototype.hasOwnProperty.call(renderer.info, 'autoReset')) {
-            renderer.info.autoReset = false;
-        }
-
-        let rendererReady = !USE_WEBGPU;
-        let rendererInitPromise = Promise.resolve();
-        if (USE_WEBGPU && typeof renderer.init === 'function') {
-            rendererInitPromise = renderer.init()
-                .then(() => {
-                    rendererReady = true;
-                    requestRender();
-                })
-                .catch(err => {
-                    console.error('WebGPU init failed', err);
-                    setStatusMessage('⚠️ WebGPU: не удалось инициализировать рендерер.');
-                });
-        } else if (USE_WEBGPU) {
-            rendererReady = true;
-        }
-        app.rendererInitPromise = rendererInitPromise;
-
-        if ('shadowMap' in renderer) {
-            renderer.shadowMap.enabled = true;
-            if (renderer.shadowMap && 'type' in renderer.shadowMap) {
-                renderer.shadowMap.type = THREE.PCFSoftShadowMap; // можно VSM, если хотите более мягкие
-            }
-        }
-
-        if (typeof devicePixelRatio === 'number' && renderer.setPixelRatio) {
-            renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-        }
-        if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
-        if ('toneMapping' in renderer) renderer.toneMapping = THREE.NoToneMapping;
-        if ('toneMappingExposure' in renderer) renderer.toneMappingExposure = 1.0;
-        rootEl.appendChild(renderer.domElement);
-
-	        const backgroundController = createBackgroundController({
+	        const rendererInit = createRenderer({
 	            THREE,
-	            renderer,
+	            rootEl,
+	            useWebGPU: USE_WEBGPU,
+	            WebGPURendererCtor,
+	            requestRender,
+	            setStatusMessage,
+	        });
+	        const renderer = rendererInit.renderer;
+	        const rendererInitPromise = rendererInit.rendererInitPromise;
+	        const getRendererReady = rendererInit.getRendererReady;
+	        app.renderer = renderer;
+	        app.rendererInitPromise = rendererInitPromise;
+
+		        const backgroundController = createBackgroundController({
+		            THREE,
+		            renderer,
 	            scene,
 	            camera,
 	            app,
@@ -1298,17 +1273,17 @@ class ViewerApp {
         // =====================
         // Animation loop & init
         // =====================
-        renderLoop = createAndStartRenderLoop({
-            controls,
-            renderer,
-            scene,
-            camera,
-            isWebGPU: USE_WEBGPU,
-            getRendererReady: () => rendererReady,
-            updateStatsOverlay,
-            onFrame: () => {
-                backgroundController.syncToCamera();
-            },
+	        renderLoop = createAndStartRenderLoop({
+	            controls,
+	            renderer,
+	            scene,
+	            camera,
+	            isWebGPU: USE_WEBGPU,
+	            getRendererReady,
+	            updateStatsOverlay,
+	            onFrame: () => {
+	                backgroundController.syncToCamera();
+	            },
         });
         layout();
         // IBL не запускаем автоматически — управляется чекбоксом
