@@ -29,8 +29,7 @@ import { createAppbarControlsController } from './modules/ui/appbar-controls.js'
 import { createGridVisibilityController } from './modules/ui/grid-visibility.js';
 import { createLayoutController } from './modules/ui/layout.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
-import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
-import { createGlassOverridesController } from './modules/ui/glass-overrides.js';
+import { createMaterialsUI } from './modules/ui/materials-ui.js';
 import { createTexturesUI } from './modules/ui/textures-ui.js';
 import { collectViewerDom } from './modules/ui/viewer-dom.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
@@ -211,6 +210,7 @@ class ViewerApp {
         let renderLoop = null;
         let sceneGeometryStats = null;
         let glassController = null;
+        let materialsPanel = null;
 
         const rootEl = dom.rootEl;
         const dropEl = dom.dropEl;
@@ -841,36 +841,22 @@ class ViewerApp {
 
 
 
-	        // =====================================================================
-	        // UI · Materials Panel & Gallery
-	        // =====================================================================
+		        // =====================================================================
+		        // UI · Materials Panel & Gallery
+		        // =====================================================================
 
-	        let materialsPanel = null;
-	        const glassOverrides = createGlassOverridesController({
-	            requestRender,
-	            applyGlassControlsToScene,
-	            resolveGlassMaterial: (uuid, matIndex) => materialsPanel?.resolveGlassMaterial(uuid, matIndex),
-	        });
-	        const {
-	            handleGlassSliderInput,
-	            handleGlassColorInput,
-	            formatColorForDisplay,
-	        } = glassOverrides;
-
-	        materialsPanel = createMaterialsPanelController({
-	            world,
-	            loadedModels,
-	            outEl,
-	            matSelect,
-	            requestRender,
-	            handleEyeToggle,
-	            updateEyeButtonsForTarget,
-	            openGeoModal,
-	            handleGlassSliderInput,
-	            handleGlassColorInput,
-	            texInfo,
-	            formatColorForDisplay,
-	        });
+		        ({ materialsPanel } = createMaterialsUI({
+		            world,
+		            loadedModels,
+		            outEl,
+		            matSelect,
+		            requestRender,
+		            handleEyeToggle,
+		            updateEyeButtonsForTarget,
+		            openGeoModal,
+		            texInfo,
+		            applyGlassControlsToScene,
+		        }));
 
 	        function schedulePanelRefresh(afterRender) {
 	            materialsPanel?.scheduleRefresh(afterRender);
