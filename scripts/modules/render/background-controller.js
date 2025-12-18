@@ -57,7 +57,7 @@ export function createBackgroundController(options = {}) {
     function updateVisibility() {
         if (!bgMesh) return;
         const alpha = resolveAlpha();
-        const shouldShow = !!isEnvironmentEnabled() && bgMode !== 'black';
+        const shouldShow = !!isEnvironmentEnabled() && (bgMode !== 'black' || alpha > 1e-6);
         bgMesh.visible = shouldShow;
         bgMesh.material.opacity = alpha;
         bgMesh.material.transparent = bgMesh.material.opacity < 0.999;
