@@ -19,6 +19,12 @@ export function createBackgroundController(options = {}) {
     let bgMesh = null;
     let bgMode = options.initialMode === 'black' ? 'black' : 'white';
 
+    function resolveAlpha() {
+        const parsed = Number.parseFloat(getAlpha());
+        if (!Number.isFinite(parsed)) return 1;
+        return Math.min(1, Math.max(0, parsed));
+    }
+
     function getBgMesh() {
         return bgMesh;
     }
@@ -27,6 +33,8 @@ export function createBackgroundController(options = {}) {
         if (bgMesh) return bgMesh;
         if (!THREE || !scene || !camera) return null;
 
+        const resolvedAlpha = resolveAlpha();
+
         const geo = new THREE.SphereGeometry(100000, 64, 32);
         const mat = new THREE.MeshBasicMaterial({
             map: null,
@@ -34,7 +42,7 @@ export function createBackgroundController(options = {}) {
             depthWrite: false,
             toneMapped: false,
             transparent: true,
-            opacity: parseFloat(getAlpha()) || 1,
+            opacity: resolvedAlpha,
         });
         bgMesh = new THREE.Mesh(geo, mat);
         if (app) app.bgMesh = bgMesh;
@@ -48,9 +56,10 @@ export function createBackgroundController(options = {}) {
 
     function updateVisibility() {
         if (!bgMesh) return;
+        const alpha = resolveAlpha();
         const shouldShow = !!isEnvironmentEnabled() && bgMode !== 'black';
         bgMesh.visible = shouldShow;
-        bgMesh.material.opacity = parseFloat(getAlpha()) || 1;
+        bgMesh.material.opacity = alpha;
         bgMesh.material.transparent = bgMesh.material.opacity < 0.999;
         bgMesh.material.needsUpdate = true;
         requestRender();
