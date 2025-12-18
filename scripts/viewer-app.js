@@ -1239,9 +1239,24 @@ class ViewerApp {
             JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
         });
 
-        async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, options = null) {
-            return handleFBXFileImpl(file, groupName, zipKind, zipMeta, options);
-        }
+	        async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, options = null) {
+	            const fileName = file?.name || '';
+	            const isLightFBX = /_Light\.fbx$/i.test(fileName);
+	            const hasInheritedOrientation = options && options.inheritOrientationType != null;
+	            let callOptions = options;
+	            if (isLightFBX && !hasInheritedOrientation) {
+	                const lastModel = loadedModels
+	                    .filter((m) => m && m.obj && (!groupName || m.group === groupName))
+	                    .slice()
+	                    .reverse()
+	                    .find((m) => m.normalizedOrientationType != null || m.orientationType != null);
+	                const inheritedType = lastModel?.normalizedOrientationType ?? lastModel?.orientationType ?? null;
+	                if (inheritedType != null) {
+	                    callOptions = { ...(callOptions || {}), inheritOrientationType: inheritedType };
+	                }
+	            }
+	            return handleFBXFileImpl(file, groupName, zipKind, zipMeta, callOptions);
+	        }
         /**
          * Обработка ZIP-архива: находит FBX/текстуры/GeoJSON, загружает FBX, сохраняет текстуры,
          * привязывает GeoJSON к моделям и обновляет UI.
