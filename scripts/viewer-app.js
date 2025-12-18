@@ -29,11 +29,10 @@ import { createStatusUIController } from './modules/ui/status-ui.js';
 import { createAppbarControlsController } from './modules/ui/appbar-controls.js';
 import { createGridVisibilityController } from './modules/ui/grid-visibility.js';
 import { createLayoutController } from './modules/ui/layout.js';
-import { createTextureGalleryController } from './modules/ui/texture-gallery.js';
 import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
 import { createGlassOverridesController } from './modules/ui/glass-overrides.js';
-import { createTextureModalController } from './modules/ui/texture-modal.js';
+import { createTexturesUI } from './modules/ui/textures-ui.js';
 import { collectViewerDom } from './modules/ui/viewer-dom.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
@@ -186,8 +185,6 @@ class ViewerApp {
         const glassResetBtn = dom.glassResetBtn;
 
         const outEl = dom.outEl;
-        const galleryEl = dom.galleryEl;
-        const texCountEl = dom.texCountEl;
         const matSelect = dom.matSelect;
         const bindLogEl = dom.bindLogEl;
 		        const { logBind, logSessionHeader } = createBindLogController({ bindLogEl });
@@ -887,64 +884,27 @@ class ViewerApp {
 	            materialsPanel?.syncCollisionButtons?.();
 	        }
 
-	        // =====================
-	        // Gallery / modal
-	        // =====================
-	        const texModal = dom.texModal;
-	        const mClose = dom.mClose;
-	        const mImg = dom.mImg;
-	        const mTitle = dom.mTitle;
-	        const mFile = dom.mFile;
-	        const mKind = dom.mKind;
-	        const mMime = dom.mMime;
-	        const dlLink = dom.dlLink;
-	        const bindBtn = dom.bindBtn;
-	        const slotSelect = dom.slotSelect;
-
-	        const textureModal = createTextureModalController({
-	            texModalEl: texModal,
-	            closeBtnEl: mClose,
-	            imgEl: mImg,
-	            titleEl: mTitle,
-	            fileEl: mFile,
-	            kindEl: mKind,
-	            mimeEl: mMime,
-	            downloadLinkEl: dlLink,
-	            bindBtnEl: bindBtn,
-	            slotSelectEl: slotSelect,
-	            matSelectEl: matSelect,
-	            basename,
-	            guessKindFromName,
-	            getSelectedMaterialLink,
-	            textureLoader,
-	            toStandard,
-	            copyTextureSettings,
-	            getEnvironment: () => scene.environment,
-	            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
-	            cacheOriginalMaterialFor,
-	            applyGlassControlsToScene,
-	            schedulePanelRefresh,
-	            logBind,
-	            colorSpaces: {
-	                linear: THREE.LinearSRGBColorSpace,
-	                srgb: THREE.SRGBColorSpace,
-	            },
-	        });
-
-		        const textureGallery = createTextureGalleryController({
-		            galleryEl,
-		            texCountEl,
+		        // =====================
+		        // Gallery / modal
+		        // =====================
+		        const { renderGallery } = createTexturesUI({
+		            THREE,
+		            dom,
+		            matSelectEl: matSelect,
 		            basename,
 		            guessKindFromName,
-		            onOpen: textureModal.open,
+		            getSelectedMaterialLink,
+		            textureLoader,
+		            toStandard,
+		            copyTextureSettings,
+		            getEnvironment: () => scene.environment,
+		            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
+		            cacheOriginalMaterialFor,
+		            applyGlassControlsToScene,
+		            schedulePanelRefresh,
+		            logBind,
+		            markGalleryRendered: () => { galleryNeedsRefresh = false; },
 		        });
-		        /**
-		         * Обновляет галерею текстур в боковой панели: миниатюры embedded/zip изображений.
-		         */
-		        function renderGallery(listAll) {
-		            textureGallery.render(listAll);
-		            galleryNeedsRefresh = false;
-		        }
 
         // =====================
         // Glass controls
