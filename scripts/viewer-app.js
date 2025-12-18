@@ -620,7 +620,7 @@ class ViewerApp {
 		            THREE,
 		            renderer,
 		            textureLoader: texLd,
-		            checkerUrl: 'uv_grid1.jpg',
+		            checkerUrl: 'textures/uv_grid1.jpg',
 		        });
 		        const getMatcap = debugTextures.getMatcap;
 		        const getChecker = debugTextures.getChecker;
