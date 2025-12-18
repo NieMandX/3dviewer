@@ -79,6 +79,81 @@ export function createVisibilityAndCollisions(options = {}) {
         return setCollisionsVisible(!state.anyVisible);
     }
 
+    function isVPMModel(model) {
+        return String(model?.zipKind || '').toUpperCase() === 'SM';
+    }
+
+    function getVPMModelsState() {
+        let hasAny = false;
+        let anyVisible = false;
+        loadedModels.forEach((model) => {
+            if (!isVPMModel(model)) return;
+            hasAny = true;
+            if (!model?.obj || model.obj.visible === false) return;
+            let hasRenderable = false;
+            model.obj.traverse((o) => {
+                if (anyVisible) return;
+                if (o === model.obj) return;
+                if (o?.userData?.isCollision) return;
+                if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
+                hasRenderable = true;
+                if (o.visible !== false) anyVisible = true;
+            });
+            if (!hasRenderable) {
+                // если в модели нет геометрии/линий/поинтов — считаем как "не видимую"
+                // (но сам факт наличия модели учитываем через hasAny)
+            }
+        });
+        return { hasAny, anyVisible };
+    }
+
+    function setVPMModelsVisible(visible) {
+        const next = !!visible;
+        let changed = false;
+
+        loadedModels.forEach((model) => {
+            if (!isVPMModel(model)) return;
+            const root = model?.obj;
+            if (!root) return;
+            root.traverse((o) => {
+                if (o === root) return;
+                if (o?.userData?.isCollision) return;
+                if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
+
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
+                mats.forEach((m) => {
+                    if (!m) return;
+                    if (m.visible !== next) {
+                        m.visible = next;
+                        changed = true;
+                    }
+                });
+                if (o.visible !== next) {
+                    o.visible = next;
+                    changed = true;
+                }
+            });
+
+            // синхронизируем иконку "файл" (file-root eye) по целевому id
+            const modelId = `file-${root.uuid}`;
+            try { visibility.updateEyeButtonsForTarget(modelId, next); } catch (_) {}
+        });
+
+        if (changed) {
+            markSceneStatsDirty();
+            requestRender();
+        }
+
+        const state = getVPMModelsState();
+        return { ...state, changed };
+    }
+
+    function toggleVPMModelsVisible() {
+        const state = getVPMModelsState();
+        if (!state.hasAny) return { ...state, changed: false };
+        return setVPMModelsVisible(!state.anyVisible);
+    }
+
     return Object.freeze({
         visibility,
         handleEyeToggle: visibility.handleEyeToggle,
@@ -89,5 +164,8 @@ export function createVisibilityAndCollisions(options = {}) {
         getCollisionsState,
         setCollisionsVisible,
         toggleCollisionsVisible,
+        getVPMModelsState,
+        setVPMModelsVisible,
+        toggleVPMModelsVisible,
     });
 }
