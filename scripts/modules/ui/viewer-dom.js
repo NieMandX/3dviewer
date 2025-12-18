@@ -50,6 +50,7 @@ export function collectViewerDom(document) {
 	        statsBtn: get('statsBtn'),
 	        bgToggleBtn: get('bgToggleBtn'),
 	        collToggleBtn: get('collToggleBtn'),
+	        solidToggleBtn: get('solidToggleBtn'),
 	        vpmToggleBtn: get('vpmToggleBtn'),
 	        npmToggleBtn: get('npmToggleBtn'),
 	        gridToggleBtn: get('gridToggleBtn'),
