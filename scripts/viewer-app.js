@@ -38,6 +38,7 @@ import { createRenderer } from './modules/render/renderer-init.js';
 import { createAndStartRenderLoop } from './modules/render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from './modules/render/debug-textures.js';
 import { createBackfaceOverlayController } from './modules/render/backface-overlay.js';
+import { createWASDFlightController } from './modules/render/wasd-flight.js';
 import { createShadingController } from './modules/render/shading-controller.js';
 import { createShadowController } from './modules/render/shadow-controller.js';
 import { createAssetLoaders } from './modules/io/asset-loaders.js';
@@ -281,6 +282,15 @@ class ViewerApp {
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.addEventListener('change', requestRender);
+
+        const flightControls = createWASDFlightController({
+            THREE,
+            camera,
+            controls,
+            requestRender,
+            window,
+            document,
+        });
 
         // Простое освещение и сетка
         const hemiLight = new THREE.HemisphereLight(0xffffff, 0xcfd8dc, 1);
@@ -1249,6 +1259,7 @@ class ViewerApp {
 	            getRendererReady,
 	            updateStatsOverlay,
 	            onFrame: () => {
+	                flightControls.update();
 	                backgroundController.syncToCamera();
 	            },
         });
