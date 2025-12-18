@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import {
     setVPMReferenceHeight,
 } from './modules/parcels.js';
@@ -8,8 +7,6 @@ import { basename } from './modules/utils/path.js';
 import { createTextureLabelResolver } from './modules/utils/texture-labels.js';
 import { makeGeoJsonMeta } from './modules/geo/geojson-meta.js';
 import { getSMOffset } from './modules/geo/sm-offset.js';
-import { createFBXWorkerClient } from './modules/workers/fbx-worker-client.js';
-import { createZIPWorkerClient } from './modules/workers/zip-worker-client.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
 import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createSceneFramingController } from './modules/scene/framing.js';
@@ -47,6 +44,7 @@ import { createBackfaceOverlayController } from './modules/render/backface-overl
 import { createShadingController } from './modules/render/shading-controller.js';
 import { createShadowController } from './modules/render/shadow-controller.js';
 import { createFBXFileHandler } from './modules/io/fbx-file.js';
+import { createAssetLoaders } from './modules/io/asset-loaders.js';
 import { createZIPFileHandler } from './modules/io/zip-file.js';
 import { createFileFlowUIController } from './modules/io/file-flow-ui.js';
 import { SAMPLE_MODELS } from './modules/io/sample-models.js';
@@ -430,34 +428,25 @@ class ViewerApp {
 	        });
 
 
-        // =====================
-        // Loaders & caches
-        // =====================
-        const fbxLoader      = new FBXLoader();
-        const textureLoader  = new THREE.TextureLoader();
-        const texLd          = new THREE.TextureLoader(); // for small helper textures
-
-        const fbxWorkerClient = createFBXWorkerClient();
-        let fbxWorkerSupported = fbxWorkerClient.isSupported();
-        const parseFBXInWorker = fbxWorkerClient.parseFBXInWorker;
-
-        function parseFBXOnMainThread(buffer) {
-            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-            const parsed = fbxLoader.parse(buffer, '');
-            const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-            if (fbxLoader?.fbxTree) {
-                (parsed.userData ||= {}).fbxTree = fbxLoader.fbxTree;
-            }
-            return { obj: parsed, duration: end - now };
-        }
-
-	        const zipWorkerClient = createZIPWorkerClient();
-	        const unpackZIPInWorker = zipWorkerClient.unpackZIPInWorker;
-		        const environmentManager = createEnvironmentManager({
-		            renderer,
-		            scene,
-		            world,
-		            app,
+	        // =====================
+	        // Loaders & caches
+	        // =====================
+	        const {
+	            fbxLoader,
+	            textureLoader,
+	            texLd,
+	            parseFBXInWorker,
+	            parseFBXOnMainThread,
+	            isWorkerSupported: isFBXWorkerSupported,
+	            setWorkerSupported: setFBXWorkerSupported,
+	            disableWorker: disableFBXWorker,
+	            unpackZIPInWorker,
+	        } = createAssetLoaders({ THREE });
+			        const environmentManager = createEnvironmentManager({
+			            renderer,
+			            scene,
+			            world,
+			            app,
 		            requestRender,
 		            ensureBgMesh: backgroundController.ensureBgMesh,
 		            getBgMesh: backgroundController.getBgMesh,
@@ -1116,25 +1105,25 @@ class ViewerApp {
          * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
          * извлекает embedded текстуры, выполняет автопривязку и обновляет панель/шейдинг.
          */
-	        const handleFBXFileImpl = createFBXFileHandler({
-	            THREE,
-	            fbxLoader,
-	            basename,
-            logSessionHeader,
+		        const handleFBXFileImpl = createFBXFileHandler({
+		            THREE,
+		            fbxLoader,
+		            basename,
+	            logSessionHeader,
             logBind,
             hideSidePanel,
             setStatusMessage,
             requestRender,
-            schedulePanelRefresh,
-            parseFBXInWorker,
-            parseFBXOnMainThread,
-            isWorkerSupported: () => fbxWorkerSupported,
-            setWorkerSupported: (next) => { fbxWorkerSupported = next; },
-            disableWorker: (err) => { try { fbxWorkerClient.disable(err); } catch (_) {} },
-            extractImagesFromFBX,
-            sniffImage,
-            allEmbedded,
-            markGalleryNeedsRefresh: () => { galleryNeedsRefresh = true; },
+	            schedulePanelRefresh,
+	            parseFBXInWorker,
+	            parseFBXOnMainThread,
+	            isWorkerSupported: isFBXWorkerSupported,
+	            setWorkerSupported: setFBXWorkerSupported,
+	            disableWorker: disableFBXWorker,
+	            extractImagesFromFBX,
+	            sniffImage,
+	            allEmbedded,
+	            markGalleryNeedsRefresh: () => { galleryNeedsRefresh = true; },
             world,
             loadedModels,
             determineOrientationType,
