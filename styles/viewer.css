@@ -600,7 +600,7 @@ input[type="range"] { width: 120px; }
 .sheet .body { display:grid; grid-template-columns: 1fr 320px; gap:0 }
 .sheet .imgwrap { background:#111; display:grid; place-items:center; min-height:320px }
 .sheet .imgwrap img { max-width:100%; max-height:70vh }
-.sheet .side { padding:10px; display:flex; flex-direction:column; gap:8px }
+.sheet .tex-side { padding:10px; display:flex; flex-direction:column; gap:8px }
 .sheet .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
 .sheet .btn.primary { background: var(--accent); color:#fff; border-color:var(--accent) }
 .eye {
