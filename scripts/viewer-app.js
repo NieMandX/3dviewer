@@ -164,10 +164,11 @@ class ViewerApp {
 	        const loadParcelsBtn = dom.loadParcelsBtn;
 	        const resetViewerBtn = dom.resetViewerBtn;
 	        const fullscreenBtn = dom.fullscreenBtn;
-        const statsBtn = dom.statsBtn;
-        const bgToggleBtn = dom.bgToggleBtn;
-        const gridToggleBtn = dom.gridToggleBtn;
-        const statsOverlayEl = dom.statsOverlayEl;
+	        const statsBtn = dom.statsBtn;
+	        const collToggleBtn = dom.collToggleBtn;
+	        const bgToggleBtn = dom.bgToggleBtn;
+	        const gridToggleBtn = dom.gridToggleBtn;
+	        const statsOverlayEl = dom.statsOverlayEl;
 
         const glassOpacityEl = dom.glassOpacityEl;
         const glassIorEl = dom.glassIorEl;
@@ -671,26 +672,55 @@ class ViewerApp {
 			        // Objects visibility
 			        // =====================
 
-		        const {
-		            handleEyeToggle,
-		            updateEyeButtonsForTarget,
-		            setMeshAndMaterialsVisibility,
-		            ensureZipCollisionsHidden,
-		            hideSMCollisions,
-		        } = createVisibilityAndCollisions({
-		            world,
-		            loadedModels,
-		            outEl,
-		            requestRender,
+			        const {
+			            handleEyeToggle: handleEyeToggleRaw,
+			            updateEyeButtonsForTarget,
+			            setMeshAndMaterialsVisibility,
+			            ensureZipCollisionsHidden,
+			            hideSMCollisions,
+			            getCollisionsState,
+			            toggleCollisionsVisible,
+			        } = createVisibilityAndCollisions({
+			            world,
+			            loadedModels,
+			            outEl,
+			            requestRender,
 		            markSceneStatsDirty,
 		            schedulePanelRefresh,
-		            syncCollisionButtons,
-		        });
+			            syncCollisionButtons,
+			        });
+
+			        function updateCollisionsToggleBtnUI() {
+			            if (!collToggleBtn) return;
+			            const state = getCollisionsState();
+			            collToggleBtn.disabled = !state.hasAny;
+			            collToggleBtn.classList.toggle('active', state.anyVisible);
+			            collToggleBtn.textContent = state.hasAny
+			                ? (state.anyVisible ? 'UCX off' : 'UCX on')
+			                : 'UCX';
+			            collToggleBtn.setAttribute('aria-pressed', state.anyVisible ? 'true' : 'false');
+			            collToggleBtn.title = state.hasAny
+			                ? (state.anyVisible ? 'Скрыть коллизии (UCX)' : 'Показать коллизии (UCX)')
+			                : 'Коллизии (UCX) не найдены';
+			        }
+
+			        function handleEyeToggle(el) {
+			            handleEyeToggleRaw(el);
+			            updateCollisionsToggleBtnUI();
+			        }
+
+			        if (collToggleBtn) {
+			            collToggleBtn.addEventListener('click', () => {
+			                toggleCollisionsVisible();
+			                updateCollisionsToggleBtnUI();
+			            });
+			        }
+			        updateCollisionsToggleBtnUI();
 
 
-		        createSunInputsController({
-		            sunHourEl,
-		            sunHourInputEl,
+			        createSunInputsController({
+			            sunHourEl,
+			            sunHourInputEl,
 	            sunDayEl,
 	            sunMonthEl,
 	            sunNorthEl,
@@ -851,10 +881,11 @@ class ViewerApp {
 	            materialsPanel?.scheduleRefresh(afterRender);
 	        }
 
-	        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
-	        function syncCollisionButtons() {
-	            materialsPanel?.syncCollisionButtons?.();
-	        }
+		        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
+		        function syncCollisionButtons() {
+		            materialsPanel?.syncCollisionButtons?.();
+		            updateCollisionsToggleBtnUI();
+		        }
 
 		        // =====================
 		        // Gallery / modal

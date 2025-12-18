@@ -47,10 +47,11 @@ export function collectViewerDom(document) {
         loadParcelsBtn: get('loadParcelsBtn'),
         resetViewerBtn: get('resetViewerBtn'),
         fullscreenBtn: get('fullscreenBtn'),
-        statsBtn: get('statsBtn'),
-        bgToggleBtn: get('bgToggleBtn'),
-        gridToggleBtn: get('gridToggleBtn'),
-        statsOverlayEl: get('statsOverlay'),
+	        statsBtn: get('statsBtn'),
+	        bgToggleBtn: get('bgToggleBtn'),
+	        collToggleBtn: get('collToggleBtn'),
+	        gridToggleBtn: get('gridToggleBtn'),
+	        statsOverlayEl: get('statsOverlay'),
 
         // Glass controls
         glassOpacityEl: get('glassOpacity'),
@@ -94,4 +95,3 @@ export function collectViewerDom(document) {
         openBtn: get('openBtn'),
     };
 }
-
