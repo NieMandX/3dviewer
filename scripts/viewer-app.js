@@ -37,6 +37,7 @@ import { createVisibilityController } from './modules/ui/visibility.js';
 import { createMaterialsPanelController } from './modules/ui/materials-panel.js';
 import { createGlassOverridesController } from './modules/ui/glass-overrides.js';
 import { createTextureModalController } from './modules/ui/texture-modal.js';
+import { collectViewerDom } from './modules/ui/viewer-dom.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createBackgroundController } from './modules/render/background-controller.js';
 import { createAndStartRenderLoop } from './modules/render/render-loop-bootstrap.js';
@@ -97,29 +98,32 @@ class ViewerApp {
         // =====================
         // DOM references
         // =====================
-        const rootEl          = document.getElementById('viewer');
-        const dropEl          = document.getElementById('drop');
-        const statusEl        = document.getElementById('status');
-        const appbarStatusEl  = document.getElementById('appbarStatus') || statusEl;
-        const emptyHintEl     = document.getElementById('emptyHint');
+        const dom = collectViewerDom(document);
+        app.dom = dom;
 
-        const statusUI = createStatusUIController({ statusEl, appbarStatusEl, emptyHintEl });
+        const statusUI = createStatusUIController({
+            statusEl: dom.statusEl,
+            appbarStatusEl: dom.appbarStatusEl,
+            emptyHintEl: dom.emptyHintEl,
+        });
+        const statusEl = dom.statusEl;
+        const emptyHintEl = dom.emptyHintEl;
         const setStatusMessage = statusUI.setStatusMessage;
         const setEmptyHintVisible = statusUI.setEmptyHintVisible;
-        const shadingSel      = document.getElementById('shadingMode');
+        const shadingSel = dom.shadingSel;
 
         
 
-        const sunHourEl  = document.getElementById('sunHour');
-        const sunHourInputEl = document.getElementById('sunHourInput');
-        const sunIntensityEl = document.getElementById('sunIntensity');
-        const sunIntensityInputEl = document.getElementById('sunIntensityInput');
-        const sunDayEl   = document.getElementById('sunDay');
-        const sunMonthEl = document.getElementById('sunMonth');
-        const sunNorthEl = document.getElementById('sunNorth');
+        const sunHourEl = dom.sunHourEl;
+        const sunHourInputEl = dom.sunHourInputEl;
+        const sunIntensityEl = dom.sunIntensityEl;
+        const sunIntensityInputEl = dom.sunIntensityInputEl;
+        const sunDayEl = dom.sunDayEl;
+        const sunMonthEl = dom.sunMonthEl;
+        const sunNorthEl = dom.sunNorthEl;
 
-        const imagesDetails = document.getElementById('imagesDetails');
-        const bindLogDetails = document.getElementById('bindLogDetails');
+        const imagesDetails = dom.imagesDetails;
+        const bindLogDetails = dom.bindLogDetails;
         
         if (typeof document !== 'undefined') {
             document.body?.setAttribute('data-renderer', activeRendererMode);
@@ -149,50 +153,50 @@ class ViewerApp {
 
         const MOS_PARCELS_FILTER = null;
 
-        const iblChk          = document.getElementById('hdriChk');
-        const hdriPresetSel   = document.getElementById('hdriPreset');
-        const iblIntEl        = document.getElementById('iblInt');
-        const iblGammaEl      = document.getElementById('iblGamma');
-        const iblTintEl       = document.getElementById('iblTint');
-        const iblRotEl        = document.getElementById('iblRot');
-        const hemiIntEl       = document.getElementById('hemiInt');
-        const hemiSkyEl       = document.getElementById('hemiSky');
-        const hemiGroundEl    = document.getElementById('hemiGround');
-	        const hdriExposureEl  = document.getElementById('hdriExposure');
-	        const hdriSaturationEl = document.getElementById('hdriSaturation');
-	        const hdriBlurEl      = document.getElementById('hdriBlur');
+        const iblChk = dom.iblChk;
+        const hdriPresetSel = dom.hdriPresetSel;
+        const iblIntEl = dom.iblIntEl;
+        const iblGammaEl = dom.iblGammaEl;
+        const iblTintEl = dom.iblTintEl;
+        const iblRotEl = dom.iblRotEl;
+        const hemiIntEl = dom.hemiIntEl;
+        const hemiSkyEl = dom.hemiSkyEl;
+        const hemiGroundEl = dom.hemiGroundEl;
+        const hdriExposureEl = dom.hdriExposureEl;
+        const hdriSaturationEl = dom.hdriSaturationEl;
+        const hdriBlurEl = dom.hdriBlurEl;
 	        const isZUp = () => false;
-	        const toggleSideBtn   = document.getElementById('toggleSideBtn');
-	        const loadParcelsBtn  = document.getElementById('loadParcelsBtn');
-	        const resetViewerBtn  = document.getElementById('resetViewerBtn');
-	        const fullscreenBtn   = document.getElementById('fullscreenBtn');
-        const statsBtn        = document.getElementById('statsBtn');
-        const bgToggleBtn     = document.getElementById('bgToggleBtn');
-        const gridToggleBtn   = document.getElementById('gridToggleBtn');
-        const statsOverlayEl  = document.getElementById('statsOverlay');
+	        const toggleSideBtn = dom.toggleSideBtn;
+	        const loadParcelsBtn = dom.loadParcelsBtn;
+	        const resetViewerBtn = dom.resetViewerBtn;
+	        const fullscreenBtn = dom.fullscreenBtn;
+        const statsBtn = dom.statsBtn;
+        const bgToggleBtn = dom.bgToggleBtn;
+        const gridToggleBtn = dom.gridToggleBtn;
+        const statsOverlayEl = dom.statsOverlayEl;
 
-        const glassOpacityEl      = document.getElementById('glassOpacity');
-        const glassIorEl          = document.getElementById('glassIor');
-        const glassTransmissionEl = document.getElementById('glassTransmission');
-        const glassReflectEl      = document.getElementById('glassReflect');
-        const glassRoughEl        = document.getElementById('glassRough');
-        const glassMetalEl        = document.getElementById('glassMetal');
-        const glassAttenDistEl    = document.getElementById('glassAttenDist');
-        const glassAttenColorEl   = document.getElementById('glassAttenColor');
-        const glassColorEl        = document.getElementById('glassColor');
-        const glassResetBtn       = document.getElementById('glassReset');
+        const glassOpacityEl = dom.glassOpacityEl;
+        const glassIorEl = dom.glassIorEl;
+        const glassTransmissionEl = dom.glassTransmissionEl;
+        const glassReflectEl = dom.glassReflectEl;
+        const glassRoughEl = dom.glassRoughEl;
+        const glassMetalEl = dom.glassMetalEl;
+        const glassAttenDistEl = dom.glassAttenDistEl;
+        const glassAttenColorEl = dom.glassAttenColorEl;
+        const glassColorEl = dom.glassColorEl;
+        const glassResetBtn = dom.glassResetBtn;
 
-        const outEl           = document.getElementById('out');
-        const galleryEl       = document.getElementById('gallery');
-        const texCountEl      = document.getElementById('texCount');
-        const matSelect       = document.getElementById('matSelect');
-        const bindLogEl       = document.getElementById('bindLog');
-	        const { logBind, logSessionHeader } = createBindLogController({ bindLogEl });
+        const outEl = dom.outEl;
+        const galleryEl = dom.galleryEl;
+        const texCountEl = dom.texCountEl;
+        const matSelect = dom.matSelect;
+        const bindLogEl = dom.bindLogEl;
+		        const { logBind, logSessionHeader } = createBindLogController({ bindLogEl });
 
-	        const bgAlphaEl       = document.getElementById('bgAlpha');
+		        const bgAlphaEl = dom.bgAlphaEl;
 
-	        createSliderValuesUIController({
-	            root: document,
+		        createSliderValuesUIController({
+		            root: document,
 	            sliders: [
                 ['hemiInt', hemiIntEl],
                 ['bgAlpha', bgAlphaEl],
@@ -203,9 +207,9 @@ class ViewerApp {
                 ['hdriSaturation', hdriSaturationEl],
                 ['hdriBlur', hdriBlurEl],
             ],
-        });
+		        });
 
-        const sampleSelect    = document.getElementById('sampleSelect');
+        const sampleSelect = dom.sampleSelect;
 
         let didInitialRebase = false;
         let galleryNeedsRefresh = false;
@@ -215,47 +219,8 @@ class ViewerApp {
         let sceneGeometryStats = null;
         let glassController = null;
 
-        app.dom = {
-            rootEl,
-            dropEl,
-            statusEl,
-            appbarStatusEl,
-            emptyHintEl,
-            shadingSel,
-            sunHourEl,
-            sunDayEl,
-            sunMonthEl,
-            sunNorthEl,
-            imagesDetails,
-            bindLogDetails,
-            iblChk,
-            hdriPresetSel,
-            iblIntEl,
-            iblGammaEl,
-	            iblTintEl,
-	            iblRotEl,
-	            toggleSideBtn,
-	            glassOpacityEl,
-	            glassIorEl,
-	            glassTransmissionEl,
-            glassReflectEl,
-            glassMetalEl,
-            glassAttenDistEl,
-            glassAttenColorEl,
-            outEl,
-            galleryEl,
-            texCountEl,
-            matSelect,
-            bindLogEl,
-            bgAlphaEl,
-            sampleSelect,
-            statsBtn,
-            bgToggleBtn,
-            gridToggleBtn,
-            resetViewerBtn,
-            fullscreenBtn,
-            statsOverlayEl,
-        };
+        const rootEl = dom.rootEl;
+        const dropEl = dom.dropEl;
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
 
         function requestRender() {
@@ -472,8 +437,8 @@ class ViewerApp {
 	       
 		        // SUN elements
 		        // ссылки
-	        const sunEnabledEl  = document.getElementById('sunEnabled');
-	        const sunControlsEl = document.getElementById('sunControls');
+		        const sunEnabledEl = dom.sunEnabledEl;
+		        const sunControlsEl = dom.sunControlsEl;
 			        createSunToggleController({
 			            root: document,
 			            app,
@@ -826,10 +791,10 @@ class ViewerApp {
 	            requestRender,
 	            logBind,
 	        });
-	        importedLightsController.bindUI({
-	            lightHelpersBtn: document.getElementById('lightHelpersBtn'),
-	            lightEmittersBtn: document.getElementById('lightEmittersBtn'),
-	        });
+		        importedLightsController.bindUI({
+		            lightHelpersBtn: dom.lightHelpersBtn,
+		            lightEmittersBtn: dom.lightEmittersBtn,
+		        });
 	        // =====================
 	        // UDIM split (для ВПМ/SM)
 	        // (moved to `scripts/modules/fbx/udim-split.js`)
@@ -961,16 +926,16 @@ class ViewerApp {
 	        // =====================
 	        // Gallery / modal
 	        // =====================
-	        const texModal = document.getElementById('texModal');
-	        const mClose = document.getElementById('mClose');
-	        const mImg = document.getElementById('mImg');
-	        const mTitle = document.getElementById('mTitle');
-	        const mFile = document.getElementById('mFile');
-	        const mKind = document.getElementById('mKind');
-	        const mMime = document.getElementById('mMime');
-	        const dlLink = document.getElementById('dlLink');
-	        const bindBtn = document.getElementById('bindBtn');
-	        const slotSelect = document.getElementById('slotSelect');
+	        const texModal = dom.texModal;
+	        const mClose = dom.mClose;
+	        const mImg = dom.mImg;
+	        const mTitle = dom.mTitle;
+	        const mFile = dom.mFile;
+	        const mKind = dom.mKind;
+	        const mMime = dom.mMime;
+	        const dlLink = dom.dlLink;
+	        const bindBtn = dom.bindBtn;
+	        const slotSelect = dom.slotSelect;
 
 	        const textureModal = createTextureModalController({
 	            texModalEl: texModal,
@@ -1137,8 +1102,8 @@ class ViewerApp {
         // =====================
         // File flow
         // =====================
-        const fileInput = document.getElementById('fileInput');
-        const openBtn = document.getElementById('openBtn');
+        const fileInput = dom.fileInput;
+        const openBtn = dom.openBtn;
         createFileFlowUIController({
             statusEl,
             fileInput,
