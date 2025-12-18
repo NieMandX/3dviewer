@@ -4,7 +4,6 @@ import {
     setVPMReferenceHeight,
 } from './modules/parcels.js';
 import { basename } from './modules/utils/path.js';
-import { createTextureLabelResolver } from './modules/utils/texture-labels.js';
 import { makeGeoJsonMeta } from './modules/geo/geojson-meta.js';
 import { getSMOffset } from './modules/geo/sm-offset.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
@@ -57,8 +56,7 @@ import {
 import { createGlassController } from './modules/material/glass-controller.js';
 import { createGlassMeshOptimizer } from './modules/material/glass-mesh-optimizer.js';
 import { createMaterialRenamer } from './modules/material/rename-materials.js';
-import { createVPMBinder } from './modules/material/vpm-autobind.js';
-import { createFilenameBinder } from './modules/material/filename-autobind.js';
+import { createAutobindPipeline } from './modules/material/autobind-pipeline.js';
 import { copyTextureSettings } from './modules/material/texture-utils.js';
 import { createToStandard } from './modules/material/to-standard.js';
 import {
@@ -953,74 +951,38 @@ class ViewerApp {
 
 
 	        
+			        // =====================
+			        // Auto-bind based on filenames
 		        // =====================
-		        // Auto-bind based on filenames
-	        // =====================
 
-        const { labelFromURL } = createTextureLabelResolver({
-            getEntries: () => allEmbedded,
-        });
-        // =====================
-        // VPM (SM_) — индексация текстур и привязка по UDIM+Slot
-        // =====================
-
-        const vpmBinder = createVPMBinder({
-            THREE,
-            basename,
-            labelFromURL,
-            toStandard,
-            textureLoader,
-            copyTextureSettings,
-            cacheOriginalMaterialFor,
-            requestRender,
-            materialsPanel,
-            schedulePanelRefresh,
-            logBind,
-            loadedModels,
-            detectSlotFromMatOrObj,
-            findGeomSuffix,
-            isGlassByName,
-            isGlassGeomSuffix,
-            getEnvironment: () => scene.environment,
-            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
-            isWebGL2: () => !!renderer.capabilities?.isWebGL2,
-        });
-
-        function buildVPMIndex(allImages){
-            return vpmBinder.buildVPMIndex(allImages);
-        }
-
-        /**
-         * Автоматически привязывает Diffuse/Normal/ERM карты к каждому UDIM-сабмешу модели ВПМ.
-         * Перезаписывает материалы (clone → MeshStandardMaterial), применяет стекло, ERM и окружение.
-         */
-        async function autoBindVPMForModel(root, vpmIndex){
-            return vpmBinder.autoBindVPMForModel(root, vpmIndex);
-        }
-
-        const filenameBinder = createFilenameBinder({
-            THREE,
-            basename,
-            geomSuffixes: GEOM_SUFFIXES,
-            guessKindFromName,
-            findGeomSuffix,
-            toStandard,
-            textureLoader,
-            copyTextureSettings,
-            cacheOriginalMaterialFor,
-            logBind,
-            undoStack,
-            getEnvironment: () => scene.environment,
-            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
-        });
-
-        /**
-         * Автопривязка для "обычных" моделей (НПМ): сопоставление текстур по имени файла.
-         * Ожидает входные embeddedList (файлы из ZIP/FBX) и обновляет материалы в сцене.
-         */
-        function autoBindByNamesForModel(root, fileName, embeddedList) {
-            return filenameBinder.autoBindByNamesForModel(root, fileName, embeddedList);
-        }
+	        const {
+	            buildVPMIndex,
+	            autoBindVPMForModel,
+	            autoBindByNamesForModel,
+	        } = createAutobindPipeline({
+	            THREE,
+	            basename,
+	            toStandard,
+	            textureLoader,
+	            copyTextureSettings,
+	            cacheOriginalMaterialFor,
+	            requestRender,
+	            materialsPanel,
+	            schedulePanelRefresh,
+	            logBind,
+	            loadedModels,
+	            detectSlotFromMatOrObj,
+	            findGeomSuffix,
+	            geomSuffixes: GEOM_SUFFIXES,
+	            guessKindFromName,
+	            isGlassByName,
+	            isGlassGeomSuffix,
+	            undoStack,
+	            getEntries: () => allEmbedded,
+	            getEnvironment: () => scene.environment,
+	            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
+	            isWebGL2: () => !!renderer.capabilities?.isWebGL2,
+	        });
 
         // =====================
         // File flow
