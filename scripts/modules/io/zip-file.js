@@ -27,6 +27,7 @@ export function createZIPFileHandler(options = {}) {
 
         const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
         let zipGeoMeta = null;
+        let lastNormalizeOrientationType = null;
 
         const workerRun = unpackZIPInWorker?.(file, {
             onMeta: (msg) => {
@@ -57,8 +58,18 @@ export function createZIPFileHandler(options = {}) {
                 const blob = msg.blob;
                 if (!blob) return;
                 if (!handleFBXFile) return;
-                const fbxFile = new File([blob], msg.fileName || basename(msg.name), { type: blob.type || 'model/fbx' });
-                await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta);
+                const fileName = msg.fileName || basename(msg.name) || '';
+                const isLightFBX = /_Light\.fbx$/i.test(fileName);
+                const beforeCount = loadedModels.length;
+                const callOptions = isLightFBX && lastNormalizeOrientationType != null
+                    ? { inheritOrientationType: lastNormalizeOrientationType }
+                    : null;
+                const fbxFile = new File([blob], fileName, { type: blob.type || 'model/fbx' });
+                await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta, callOptions);
+                const newModel = loadedModels[beforeCount];
+                if (newModel && !isLightFBX) {
+                    lastNormalizeOrientationType = newModel.normalizedOrientationType ?? newModel.orientationType ?? null;
+                }
                 setEmptyHintVisible(false);
             },
             onImage: async (msg) => {
@@ -126,14 +137,25 @@ export function createZIPFileHandler(options = {}) {
         }
 
         // Сначала FBX — каждому передаём zipGeoMeta (для SM) или null (для NPM/прочих)
-        for (const entry of entries) {
-            if (entry.dir) continue;
-            if (/\.fbx$/i.test(entry.name)) {
-                const ab = await entry.async('arraybuffer');
-                const fbxFile = new File([ab], basename(entry.name), { type: 'model/fbx' });
-                await handleFBXFile?.(fbxFile, file.name, zipKind, zipGeoMeta);
-                setEmptyHintVisible(false);
+        // Если в архиве есть *_Light.fbx — грузим их ПОСЛЕДНИМИ (для наследования ориентации).
+        const isLightFBX = (entry) => /_Light\.fbx$/i.test(basename(entry?.name || ''));
+        const fbxEntries = entries.filter((e) => e && !e.dir && /\.fbx$/i.test(e.name));
+        const orderedFBXEntries = [...fbxEntries.filter((e) => !isLightFBX(e)), ...fbxEntries.filter((e) => isLightFBX(e))];
+        for (const entry of orderedFBXEntries) {
+            const ab = await entry.async('arraybuffer');
+            const fbxFile = new File([ab], basename(entry.name), { type: 'model/fbx' });
+            const fileName = basename(entry.name) || '';
+            const isLight = /_Light\.fbx$/i.test(fileName);
+            const beforeCount = loadedModels.length;
+            const callOptions = isLight && lastNormalizeOrientationType != null
+                ? { inheritOrientationType: lastNormalizeOrientationType }
+                : null;
+            await handleFBXFile?.(fbxFile, file.name, zipKind, zipGeoMeta, callOptions);
+            const newModel = loadedModels[beforeCount];
+            if (newModel && !isLight) {
+                lastNormalizeOrientationType = newModel.normalizedOrientationType ?? newModel.orientationType ?? null;
             }
+            setEmptyHintVisible(false);
         }
 
         // Затем картинки как было
@@ -172,4 +194,3 @@ export function createZIPFileHandler(options = {}) {
         setStatusMessage(`Готово: ${file.name}`);
     };
 }
-

@@ -178,12 +178,35 @@ export function createFBXFileHandler(options = {}) {
             }
         }
 
+        const inheritedOrientationType = callOptions?.inheritOrientationType;
+        const inheritedTypeNumber = Number(inheritedOrientationType);
+        const hasInheritedOrientationType = inheritedOrientationType != null && Number.isFinite(inheritedTypeNumber);
+        if (hasInheritedOrientationType) {
+            orientationType = inheritedTypeNumber;
+            if (inheritedTypeNumber === 1) {
+                orientationMeta = { type: 1, handedness: 'right', upAxis: 'Y' };
+            } else if (inheritedTypeNumber === 2) {
+                orientationMeta = { type: 2, handedness: 'right', upAxis: 'Z' };
+            } else if (inheritedTypeNumber === 3) {
+                orientationMeta = { type: 3, handedness: 'left', upAxis: 'Z' };
+            } else if (inheritedTypeNumber === 4) {
+                orientationMeta = { type: 4, handedness: 'left', upAxis: 'Y' };
+            } else {
+                orientationMeta = { type: inheritedTypeNumber, handedness: 'unknown', upAxis: null };
+            }
+            if (!orientationInfo) {
+                orientationInfo = { up: null, front: null, coord: null };
+            }
+            orientationInfo.source = 'zip-inherit';
+            orientationSource = 'zip-inherit';
+        }
+
         if (orientationInfo) {
             orientationInfo.type = orientationType;
             orientationInfo.handedness = orientationMeta.handedness;
             orientationInfo.upAxisResolved = orientationMeta.upAxis;
             obj.userData.orientation = orientationInfo;
-            const sourceLabels = { binary: 'GlobalSettings', tree: 'fbxTree', geometry: 'геометрия' };
+            const sourceLabels = { binary: 'GlobalSettings', tree: 'fbxTree', geometry: 'геометрия', 'zip-inherit': 'ZIP (унаследовано)' };
             const src = sourceLabels[orientationSource] || orientationSource || 'unknown';
             logBind(`FBX: ориентация — определена через ${src}`, 'info');
             logBind(`FBX: ориентация — тип: ${describeOrientationType(orientationType)} — ${describeFBXOrientation(orientationInfo)}`, 'info');
@@ -199,9 +222,15 @@ export function createFBXFileHandler(options = {}) {
         obj.userData.orientationHandedness = orientationMeta.handedness;
         obj.userData.orientationUpAxis = orientationMeta.upAxis;
 
+        let normalizedOrientationType = null;
+        if (hasInheritedOrientationType) {
+            normalizeObjectOrientation(obj, orientationType);
+            normalizedOrientationType = orientationType;
+        } else {
         const isKnownOrientation = orientationType === 1 || orientationType === 2 || orientationType === 3 || orientationType === 4;
         if (isKnownOrientation) {
             normalizeObjectOrientation(obj, orientationType);
+            normalizedOrientationType = orientationType;
         } else {
             let hasMesh = false;
             try {
@@ -212,7 +241,9 @@ export function createFBXFileHandler(options = {}) {
             } catch (_) {}
             if (hasMesh) {
                 normalizeObjectOrientation(obj, orientationType);
+                normalizedOrientationType = orientationType;
             }
+        }
         }
 
         // ★ NEW: если это ВПМ и есть geojson — сохраним мету и применим смещение
@@ -276,6 +307,7 @@ export function createFBXFileHandler(options = {}) {
             geojson: zipMeta || null,
             orientation: orientationInfo || null,
             orientationType,
+            normalizedOrientationType,
         });
         obj.userData.zipGroup = groupName || null;
         obj.userData.zipKind = zipKind || null;

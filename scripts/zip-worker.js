@@ -86,14 +86,17 @@ self.onmessage = async (event) => {
             });
         }
 
-        for (let i = 0; i < fbxEntries.length; i++) {
-            const entry = fbxEntries[i];
+        const isLightFBX = (entry) => /_Light\.fbx$/i.test(basename(entry?.name || ''));
+        const orderedFBXEntries = [...fbxEntries.filter((e) => !isLightFBX(e)), ...fbxEntries.filter((e) => isLightFBX(e))];
+
+        for (let i = 0; i < orderedFBXEntries.length; i++) {
+            const entry = orderedFBXEntries[i];
             self.postMessage({
                 id,
                 type: 'progress',
                 phase: 'fbx',
                 index: i + 1,
-                total: fbxEntries.length,
+                total: orderedFBXEntries.length,
                 name: entry.name,
             });
             const blob = await entry.async('blob');
@@ -106,7 +109,7 @@ self.onmessage = async (event) => {
                     type: 'fbx',
                     seq,
                     index: i + 1,
-                    total: fbxEntries.length,
+                    total: orderedFBXEntries.length,
                     name: entry.name,
                     fileName: basename(entry.name),
                     blob: typed,
