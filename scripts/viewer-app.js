@@ -167,6 +167,7 @@ class ViewerApp {
 	        const statsBtn = dom.statsBtn;
 	        const collToggleBtn = dom.collToggleBtn;
 	        const vpmToggleBtn = dom.vpmToggleBtn;
+	        const npmToggleBtn = dom.npmToggleBtn;
 	        const bgToggleBtn = dom.bgToggleBtn;
 	        const gridToggleBtn = dom.gridToggleBtn;
 	        const statsOverlayEl = dom.statsOverlayEl;
@@ -683,6 +684,8 @@ class ViewerApp {
 			            toggleCollisionsVisible,
 			            getVPMModelsState,
 			            toggleVPMModelsVisible,
+			            getNPMModelsState,
+			            toggleNPMModelsVisible,
 			        } = createVisibilityAndCollisions({
 			            world,
 			            loadedModels,
@@ -721,10 +724,25 @@ class ViewerApp {
 			                : 'ВПМ модели не найдены';
 			        }
 
+			        function updateNPMToggleBtnUI() {
+			            if (!npmToggleBtn) return;
+			            const state = getNPMModelsState();
+			            npmToggleBtn.disabled = !state.hasAny;
+			            npmToggleBtn.classList.toggle('active', state.anyVisible);
+			            npmToggleBtn.textContent = state.hasAny
+			                ? (state.anyVisible ? 'NPM off' : 'NPM on')
+			                : 'NPM';
+			            npmToggleBtn.setAttribute('aria-pressed', state.anyVisible ? 'true' : 'false');
+			            npmToggleBtn.title = state.hasAny
+			                ? (state.anyVisible ? 'Скрыть НПМ модели' : 'Показать НПМ модели')
+			                : 'НПМ модели не найдены';
+			        }
+
 			        function handleEyeToggle(el) {
 			            handleEyeToggleRaw(el);
 			            updateCollisionsToggleBtnUI();
 			            updateVPMToggleBtnUI();
+			            updateNPMToggleBtnUI();
 			        }
 
 			        if (collToggleBtn) {
@@ -739,8 +757,15 @@ class ViewerApp {
 			                updateVPMToggleBtnUI();
 			            });
 			        }
+			        if (npmToggleBtn) {
+			            npmToggleBtn.addEventListener('click', () => {
+			                toggleNPMModelsVisible();
+			                updateNPMToggleBtnUI();
+			            });
+			        }
 			        updateCollisionsToggleBtnUI();
 			        updateVPMToggleBtnUI();
+			        updateNPMToggleBtnUI();
 
 
 			        createSunInputsController({
@@ -911,6 +936,7 @@ class ViewerApp {
 		            materialsPanel?.syncCollisionButtons?.();
 		            updateCollisionsToggleBtnUI();
 		            updateVPMToggleBtnUI();
+		            updateNPMToggleBtnUI();
 		        }
 
 		        // =====================

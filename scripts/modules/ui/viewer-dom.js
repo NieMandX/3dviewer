@@ -51,6 +51,7 @@ export function collectViewerDom(document) {
 	        bgToggleBtn: get('bgToggleBtn'),
 	        collToggleBtn: get('collToggleBtn'),
 	        vpmToggleBtn: get('vpmToggleBtn'),
+	        npmToggleBtn: get('npmToggleBtn'),
 	        gridToggleBtn: get('gridToggleBtn'),
 	        statsOverlayEl: get('statsOverlay'),
 

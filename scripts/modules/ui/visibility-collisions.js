@@ -83,6 +83,11 @@ export function createVisibilityAndCollisions(options = {}) {
         return String(model?.zipKind || '').toUpperCase() === 'SM';
     }
 
+    function isNPMModel(model) {
+        const kind = String(model?.zipKind || '').toUpperCase();
+        return kind !== 'SM';
+    }
+
     function getVPMModelsState() {
         let hasAny = false;
         let anyVisible = false;
@@ -154,6 +159,75 @@ export function createVisibilityAndCollisions(options = {}) {
         return setVPMModelsVisible(!state.anyVisible);
     }
 
+    function getNPMModelsState() {
+        let hasAny = false;
+        let anyVisible = false;
+        loadedModels.forEach((model) => {
+            if (!isNPMModel(model)) return;
+            hasAny = true;
+            if (!model?.obj || model.obj.visible === false) return;
+            let hasRenderable = false;
+            model.obj.traverse((o) => {
+                if (anyVisible) return;
+                if (o === model.obj) return;
+                if (o?.userData?.isCollision) return;
+                if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
+                hasRenderable = true;
+                if (o.visible !== false) anyVisible = true;
+            });
+            if (!hasRenderable) {
+                // нет renderables → считаем как "не видимую"
+            }
+        });
+        return { hasAny, anyVisible };
+    }
+
+    function setNPMModelsVisible(visible) {
+        const next = !!visible;
+        let changed = false;
+
+        loadedModels.forEach((model) => {
+            if (!isNPMModel(model)) return;
+            const root = model?.obj;
+            if (!root) return;
+            root.traverse((o) => {
+                if (o === root) return;
+                if (o?.userData?.isCollision) return;
+                if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
+
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
+                mats.forEach((m) => {
+                    if (!m) return;
+                    if (m.visible !== next) {
+                        m.visible = next;
+                        changed = true;
+                    }
+                });
+                if (o.visible !== next) {
+                    o.visible = next;
+                    changed = true;
+                }
+            });
+
+            const modelId = `file-${root.uuid}`;
+            try { visibility.updateEyeButtonsForTarget(modelId, next); } catch (_) {}
+        });
+
+        if (changed) {
+            markSceneStatsDirty();
+            requestRender();
+        }
+
+        const state = getNPMModelsState();
+        return { ...state, changed };
+    }
+
+    function toggleNPMModelsVisible() {
+        const state = getNPMModelsState();
+        if (!state.hasAny) return { ...state, changed: false };
+        return setNPMModelsVisible(!state.anyVisible);
+    }
+
     return Object.freeze({
         visibility,
         handleEyeToggle: visibility.handleEyeToggle,
@@ -167,5 +241,8 @@ export function createVisibilityAndCollisions(options = {}) {
         getVPMModelsState,
         setVPMModelsVisible,
         toggleVPMModelsVisible,
+        getNPMModelsState,
+        setNPMModelsVisible,
+        toggleNPMModelsVisible,
     });
 }
