@@ -730,7 +730,7 @@ body.side-hidden { --sideW: 0px; }
     gap: 12px;
 }
 
-.appbar .bg-btn { margin-right: auto; }
+.appbar .bg-btn { margin-left: auto; }
 .appbar .bg-btn.white-mode { background: #fff; color: #000; border-color: #ddd; }
 .appbar .bg-btn.black-mode { background: #000; color: #fff; border-color: #333; }
 .appbar .grid-btn { margin-left: 8px; }
