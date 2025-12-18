@@ -621,6 +621,7 @@ class ViewerApp {
 		            renderer,
 		            textureLoader: texLd,
 		            checkerUrl: 'textures/uv_grid1.jpg',
+		            requestRender,
 		        });
 		        const getMatcap = debugTextures.getMatcap;
 		        const getChecker = debugTextures.getChecker;

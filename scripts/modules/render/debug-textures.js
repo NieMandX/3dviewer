@@ -3,6 +3,7 @@ export function createDebugTextureProvider(options = {}) {
     const renderer = options.renderer || null;
     const textureLoader = options.textureLoader || (THREE ? new THREE.TextureLoader() : null);
     const checkerUrl = (typeof options.checkerUrl === 'string' && options.checkerUrl) ? options.checkerUrl : '';
+    const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
 
     let matcapTexture = null;
     let checkerTexture = null;
@@ -11,7 +12,13 @@ export function createDebugTextureProvider(options = {}) {
         if (!THREE || !textureLoader) return null;
         if (matcapTexture) return matcapTexture;
         matcapTexture = textureLoader.load(
-            'https://raw.githubusercontent.com/nidorx/matcaps/1b1e43a338335b6401034d48488298966755d717/1024/2A2A2A_B3B3B3_6D6D6D_848C8C.png'
+            'https://raw.githubusercontent.com/nidorx/matcaps/1b1e43a338335b6401034d48488298966755d717/1024/2A2A2A_B3B3B3_6D6D6D_848C8C.png',
+            () => {
+                if (matcapTexture && 'colorSpace' in matcapTexture && THREE.SRGBColorSpace) {
+                    matcapTexture.colorSpace = THREE.SRGBColorSpace;
+                }
+                requestRender();
+            }
         );
         return matcapTexture;
     }
@@ -55,7 +62,10 @@ export function createDebugTextureProvider(options = {}) {
         if (checkerUrl && textureLoader?.load) {
             checkerTexture = textureLoader.load(
                 checkerUrl,
-                undefined,
+                () => {
+                    applyCommonProps(checkerTexture);
+                    requestRender();
+                },
                 undefined,
                 () => {
                     // Если ассет не загрузился — подменяем изображение на canvas-checker в уже выданной текстуре.
@@ -64,6 +74,7 @@ export function createDebugTextureProvider(options = {}) {
                     checkerTexture.image = fallback.image;
                     applyCommonProps(checkerTexture);
                     checkerTexture.needsUpdate = true;
+                    requestRender();
                 }
             );
             applyCommonProps(checkerTexture);
