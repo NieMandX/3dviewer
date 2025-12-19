@@ -26,8 +26,7 @@ import { createAppbarControlsController } from './modules/ui/appbar-controls.js'
 import { createAppbarVisibilityTogglesController } from './modules/ui/appbar-visibility-toggles.js';
 import { createGridVisibilityController } from './modules/ui/grid-visibility.js';
 import { createLayoutController } from './modules/ui/layout.js';
-import { createMaterialsUI } from './modules/ui/materials-ui.js';
-import { createTexturesUI } from './modules/ui/textures-ui.js';
+import { createInspectorPanels } from './modules/ui/inspector-panels.js';
 import { createVisibilityAndCollisions } from './modules/ui/visibility-collisions.js';
 import { collectViewerDom } from './modules/ui/viewer-dom.js';
 import { HDRI_LIBRARY } from './modules/render/environment-manager.js';
@@ -207,10 +206,15 @@ class ViewerApp {
 	        let galleryNeedsRefresh = false;
 	        let layoutController = null;
 	        let lastFinalizedModelIndex = 0;
-	        let renderLoop = null;
-	        let glassController = null;
-	        let materialsPanel = null;
-	        let appbarVisibilityToggles = null;
+		        let renderLoop = null;
+		        let glassController = null;
+		        let materialsPanel = null;
+		        let appbarVisibilityToggles = null;
+		        let schedulePanelRefreshImpl = () => {};
+		        let syncCollisionButtonsImpl = () => {
+		            appbarVisibilityToggles?.enforceSuppressionIfNeeded?.();
+		            appbarVisibilityToggles?.updateAll?.();
+		        };
 
         const rootEl = dom.rootEl;
         const dropEl = dom.dropEl;
@@ -755,55 +759,48 @@ class ViewerApp {
 
 
 
-		        // =====================================================================
-		        // UI · Materials Panel & Gallery
-		        // =====================================================================
+			        // =====================================================================
+			        // UI · Materials Panel & Gallery
+			        // =====================================================================
+			        const inspectorPanels = createInspectorPanels({
+			            THREE,
+			            dom,
+			            world,
+			            loadedModels,
+			            outEl,
+			            matSelect,
+			            requestRender,
+			            handleEyeToggle,
+			            updateEyeButtonsForTarget,
+			            openGeoModal,
+			            texInfo,
+			            applyGlassControlsToScene,
+			            appbarVisibilityToggles,
+			            basename,
+			            guessKindFromName,
+			            getSelectedMaterialLink,
+			            textureLoader,
+			            toStandard,
+			            copyTextureSettings,
+			            getEnvironment: () => scene.environment,
+			            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
+			            cacheOriginalMaterialFor,
+			            logBind,
+			            markGalleryRendered: () => { galleryNeedsRefresh = false; },
+			        });
+			        materialsPanel = inspectorPanels.materialsPanel;
+			        const renderGallery = inspectorPanels.renderGallery;
+			        schedulePanelRefreshImpl = inspectorPanels.schedulePanelRefresh;
+			        syncCollisionButtonsImpl = inspectorPanels.syncCollisionButtons;
 
-		        ({ materialsPanel } = createMaterialsUI({
-		            world,
-		            loadedModels,
-		            outEl,
-		            matSelect,
-		            requestRender,
-		            handleEyeToggle,
-		            updateEyeButtonsForTarget,
-		            openGeoModal,
-		            texInfo,
-		            applyGlassControlsToScene,
-		        }));
-
-	        function schedulePanelRefresh(afterRender) {
-	            materialsPanel?.scheduleRefresh(afterRender);
-	        }
+			        function schedulePanelRefresh(afterRender) {
+			            schedulePanelRefreshImpl(afterRender);
+			        }
 
 			        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
 			        function syncCollisionButtons() {
-			            materialsPanel?.syncCollisionButtons?.();
-			            appbarVisibilityToggles?.enforceSuppressionIfNeeded?.();
-			            appbarVisibilityToggles?.updateAll?.();
+			            syncCollisionButtonsImpl();
 			        }
-
-		        // =====================
-		        // Gallery / modal
-		        // =====================
-		        const { renderGallery } = createTexturesUI({
-		            THREE,
-		            dom,
-		            matSelectEl: matSelect,
-		            basename,
-		            guessKindFromName,
-		            getSelectedMaterialLink,
-		            textureLoader,
-		            toStandard,
-		            copyTextureSettings,
-		            getEnvironment: () => scene.environment,
-		            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
-		            cacheOriginalMaterialFor,
-		            applyGlassControlsToScene,
-		            schedulePanelRefresh,
-		            logBind,
-		            markGalleryRendered: () => { galleryNeedsRefresh = false; },
-		        });
 
         // =====================
         // Glass controls

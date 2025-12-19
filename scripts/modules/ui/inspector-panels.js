@@ -1,0 +1,55 @@
+import { createMaterialsUI } from './materials-ui.js';
+import { createTexturesUI } from './textures-ui.js';
+
+export function createInspectorPanels(options = {}) {
+    const materialsUi = createMaterialsUI({
+        world: options.world,
+        loadedModels: options.loadedModels,
+        outEl: options.outEl,
+        matSelect: options.matSelect,
+        requestRender: options.requestRender,
+        handleEyeToggle: options.handleEyeToggle,
+        updateEyeButtonsForTarget: options.updateEyeButtonsForTarget,
+        openGeoModal: options.openGeoModal,
+        texInfo: options.texInfo,
+        applyGlassControlsToScene: options.applyGlassControlsToScene,
+    });
+    const materialsPanel = materialsUi?.materialsPanel || null;
+
+    function schedulePanelRefresh(afterRender) {
+        materialsPanel?.scheduleRefresh?.(afterRender);
+    }
+
+    function syncCollisionButtons() {
+        materialsPanel?.syncCollisionButtons?.();
+        options.appbarVisibilityToggles?.enforceSuppressionIfNeeded?.();
+        options.appbarVisibilityToggles?.updateAll?.();
+    }
+
+    const texturesUi = createTexturesUI({
+        THREE: options.THREE,
+        dom: options.dom,
+        matSelectEl: options.matSelect,
+        basename: options.basename,
+        guessKindFromName: options.guessKindFromName,
+        getSelectedMaterialLink: options.getSelectedMaterialLink,
+        textureLoader: options.textureLoader,
+        toStandard: options.toStandard,
+        copyTextureSettings: options.copyTextureSettings,
+        getEnvironment: options.getEnvironment,
+        getEnvMapIntensity: options.getEnvMapIntensity,
+        cacheOriginalMaterialFor: options.cacheOriginalMaterialFor,
+        applyGlassControlsToScene: options.applyGlassControlsToScene,
+        schedulePanelRefresh,
+        logBind: options.logBind,
+        markGalleryRendered: options.markGalleryRendered,
+    });
+
+    return Object.freeze({
+        materialsPanel,
+        renderGallery: texturesUi?.renderGallery,
+        schedulePanelRefresh,
+        syncCollisionButtons,
+    });
+}
+
