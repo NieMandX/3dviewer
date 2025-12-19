@@ -35,6 +35,9 @@ export function createCameraPresetsController(options = {}) {
     const camsDetailsEl = options.camsDetailsEl || null;
     const camsCountEl = options.camsCountEl || null;
     const camsSideListEl = options.camsSideListEl || null;
+    const camPropsDetailsEl = options.camPropsDetailsEl || null;
+    const camPropsTitleEl = options.camPropsTitleEl || null;
+    const camPropsPanelEl = options.camPropsPanelEl || null;
 
     const promptFn =
         typeof options.prompt === 'function'
@@ -54,6 +57,8 @@ export function createCameraPresetsController(options = {}) {
     let barVisible = false;
     let dragId = null;
     let suppressClicksUntil = 0;
+    let editingId = null;
+    let propsUI = null;
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
 
@@ -102,6 +107,223 @@ export function createCameraPresetsController(options = {}) {
     function setActive(id) {
         activeId = id || null;
         render();
+    }
+
+    function setPropsPanelVisible(visible) {
+        if (!camPropsDetailsEl) return;
+        camPropsDetailsEl.hidden = !visible;
+        if (visible) camPropsDetailsEl.open = true;
+    }
+
+    function setPropsTitle(text) {
+        if (camPropsTitleEl) camPropsTitleEl.textContent = text || '—';
+    }
+
+    function updatePresetLabels(preset) {
+        if (!preset) return;
+        const name = preset.name || 'Camera';
+        setPropsTitle(name);
+
+        const updateIn = (container) => {
+            if (!container?.querySelectorAll) return;
+            container.querySelectorAll(`.cam-chip[data-id="${preset.id}"] .cam-name`)
+                .forEach((el) => { el.textContent = name; });
+        };
+        updateIn(camsBarListEl);
+        updateIn(camsSideListEl);
+    }
+
+    function makeLabel(text, inputEl) {
+        const label = document.createElement('label');
+        label.className = 'cam-props-field';
+        const cap = document.createElement('span');
+        cap.className = 'cam-props-cap';
+        cap.textContent = text;
+        label.appendChild(cap);
+        label.appendChild(inputEl);
+        return label;
+    }
+
+    function makeNumberInput({ step = '0.01', min = null, max = null } = {}) {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = step;
+        if (min != null) input.min = String(min);
+        if (max != null) input.max = String(max);
+        input.inputMode = 'decimal';
+        return input;
+    }
+
+    function ensurePropsUI() {
+        if (!camPropsPanelEl) return null;
+        if (propsUI) return propsUI;
+
+        camPropsPanelEl.innerHTML = '';
+
+        const root = document.createElement('div');
+        root.className = 'cam-props-root';
+
+        const nameRow = document.createElement('div');
+        nameRow.className = 'cam-props-row';
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.spellcheck = false;
+        nameInput.placeholder = 'Имя камеры';
+        nameInput.className = 'cam-props-text';
+        const nameLabel = makeLabel('Name', nameInput);
+        nameRow.appendChild(nameLabel);
+
+        const makeVec3Group = (title) => {
+            const group = document.createElement('div');
+            group.className = 'cam-props-group';
+            const head = document.createElement('div');
+            head.className = 'cam-props-head';
+            head.textContent = title;
+            const grid = document.createElement('div');
+            grid.className = 'cam-props-grid';
+            const x = makeNumberInput();
+            const y = makeNumberInput();
+            const z = makeNumberInput();
+            grid.appendChild(makeLabel('X', x));
+            grid.appendChild(makeLabel('Y', y));
+            grid.appendChild(makeLabel('Z', z));
+            group.appendChild(head);
+            group.appendChild(grid);
+            return { group, x, y, z };
+        };
+
+        const pos = makeVec3Group('Position');
+        const tgt = makeVec3Group('Target');
+        const up = makeVec3Group('Up');
+
+        const lensGroup = document.createElement('div');
+        lensGroup.className = 'cam-props-group';
+        const lensHead = document.createElement('div');
+        lensHead.className = 'cam-props-head';
+        lensHead.textContent = 'Lens';
+        const lensGrid = document.createElement('div');
+        lensGrid.className = 'cam-props-grid cam-props-grid-2';
+
+        const fovInput = makeNumberInput({ step: '0.1', min: 1, max: 179 });
+        const zoomInput = makeNumberInput({ step: '0.01', min: 0.01 });
+        const nearInput = makeNumberInput({ step: '0.001', min: 0.0001 });
+        const farInput = makeNumberInput({ step: '1', min: 0.1 });
+
+        lensGrid.appendChild(makeLabel('FOV', fovInput));
+        lensGrid.appendChild(makeLabel('Zoom', zoomInput));
+        lensGrid.appendChild(makeLabel('Near', nearInput));
+        lensGrid.appendChild(makeLabel('Far', farInput));
+        lensGroup.appendChild(lensHead);
+        lensGroup.appendChild(lensGrid);
+
+        const hint = document.createElement('div');
+        hint.className = 'muted cam-props-hint';
+        hint.textContent = 'Двойной клик по камере открывает этот редактор. Изменения сохраняются за камерой.';
+
+        root.appendChild(nameRow);
+        root.appendChild(pos.group);
+        root.appendChild(tgt.group);
+        root.appendChild(up.group);
+        root.appendChild(lensGroup);
+        root.appendChild(hint);
+        camPropsPanelEl.appendChild(root);
+
+        const readNum = (input, fallback) => {
+            const v = Number.parseFloat(input.value);
+            return Number.isFinite(v) ? v : fallback;
+        };
+
+        const writeVec3 = (arr, x, y, z) => {
+            if (!Array.isArray(arr) || arr.length < 3) return;
+            x.value = String(arr[0] ?? 0);
+            y.value = String(arr[1] ?? 0);
+            z.value = String(arr[2] ?? 0);
+        };
+
+        const applyFromInputs = () => {
+            const preset = getPresetById(editingId);
+            if (!preset) return;
+
+            preset.name = String(nameInput.value || '').trim() || preset.name || 'Camera';
+
+            if (Array.isArray(preset.position) && preset.position.length >= 3) {
+                preset.position = [
+                    readNum(pos.x, preset.position[0]),
+                    readNum(pos.y, preset.position[1]),
+                    readNum(pos.z, preset.position[2]),
+                ];
+            }
+            if (Array.isArray(preset.target) && preset.target.length >= 3) {
+                preset.target = [
+                    readNum(tgt.x, preset.target[0]),
+                    readNum(tgt.y, preset.target[1]),
+                    readNum(tgt.z, preset.target[2]),
+                ];
+            }
+            if (Array.isArray(preset.up) && preset.up.length >= 3) {
+                preset.up = [
+                    readNum(up.x, preset.up[0]),
+                    readNum(up.y, preset.up[1]),
+                    readNum(up.z, preset.up[2]),
+                ];
+            }
+
+            preset.fov = readNum(fovInput, preset.fov);
+            preset.zoom = readNum(zoomInput, preset.zoom);
+            preset.near = readNum(nearInput, preset.near);
+            preset.far = readNum(farInput, preset.far);
+
+            updatePresetLabels(preset);
+            if (activeId === preset.id) applyPreset(preset);
+        };
+
+        nameInput.addEventListener('change', applyFromInputs);
+        [pos.x, pos.y, pos.z, tgt.x, tgt.y, tgt.z, up.x, up.y, up.z, fovInput, zoomInput, nearInput, farInput]
+            .forEach((input) => input.addEventListener('input', applyFromInputs));
+
+        propsUI = {
+            nameInput,
+            pos,
+            tgt,
+            up,
+            fovInput,
+            zoomInput,
+            nearInput,
+            farInput,
+            writeVec3,
+        };
+        return propsUI;
+    }
+
+    function syncPropsPanel(preset) {
+        const ui = ensurePropsUI();
+        if (!ui || !preset) return;
+
+        ui.nameInput.value = preset.name || '';
+        ui.writeVec3(preset.position, ui.pos.x, ui.pos.y, ui.pos.z);
+        ui.writeVec3(preset.target, ui.tgt.x, ui.tgt.y, ui.tgt.z);
+        ui.writeVec3(preset.up, ui.up.x, ui.up.y, ui.up.z);
+        ui.fovInput.value = String(preset.fov ?? '');
+        ui.zoomInput.value = String(preset.zoom ?? '');
+        ui.nearInput.value = String(preset.near ?? '');
+        ui.farInput.value = String(preset.far ?? '');
+
+        updatePresetLabels(preset);
+    }
+
+    function openPropsForPresetId(id) {
+        const preset = getPresetById(id);
+        if (!preset) return;
+        editingId = id;
+
+        if (typeof document !== 'undefined') {
+            document.body?.classList?.remove?.('side-hidden');
+        }
+
+        setPropsPanelVisible(true);
+        syncPropsPanel(preset);
+        camPropsDetailsEl?.scrollIntoView?.({ block: 'nearest' });
+        requestLayout();
     }
 
     function makePresetButton(preset, { active = false } = {}) {
@@ -224,6 +446,10 @@ export function createCameraPresetsController(options = {}) {
         if (idx < 0) return false;
         presets.splice(idx, 1);
         if (activeId === id) activeId = null;
+        if (editingId === id) {
+            editingId = null;
+            setPropsPanelVisible(false);
+        }
         render();
         return true;
     }
@@ -271,6 +497,28 @@ export function createCameraPresetsController(options = {}) {
             if (!action) return;
             const id = actionEl.dataset?.id || null;
             handleAction(action, id);
+        });
+    }
+
+    function attachEditorDblClick(container) {
+        if (!container?.addEventListener) return;
+        container.addEventListener('dblclick', (event) => {
+            const el = event?.target;
+            if (!(el instanceof HTMLElement)) return;
+
+            const actionEl = el.closest?.('[data-action]');
+            if (!(actionEl instanceof HTMLElement)) return;
+            const action = actionEl.dataset?.action;
+            if (action !== 'goto') return;
+            const id = actionEl.dataset?.id || null;
+            if (!id) return;
+
+            event.preventDefault();
+            const preset = getPresetById(id);
+            if (!preset) return;
+
+            if (applyPreset(preset)) setActive(preset.id);
+            openPropsForPresetId(id);
         });
     }
 
@@ -359,11 +607,14 @@ export function createCameraPresetsController(options = {}) {
 
     attachListHandler(camsBarListEl);
     attachListHandler(camsSideListEl);
+    attachEditorDblClick(camsBarListEl);
+    attachEditorDblClick(camsSideListEl);
     attachBarReorder(camsBarListEl);
     camsToggleBtn?.addEventListener?.('click', toggleBarVisible);
 
     // initialize
     setBarVisible(false);
+    setPropsPanelVisible(false);
     render();
 
     function dispose() {

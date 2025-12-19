@@ -175,6 +175,9 @@ class ViewerApp {
 	        const camsDetailsEl = dom.camsDetailsEl;
 	        const camsCountEl = dom.camsCountEl;
 	        const camsSideListEl = dom.camsSideListEl;
+	        const camPropsDetailsEl = dom.camPropsDetailsEl;
+	        const camPropsTitleEl = dom.camPropsTitleEl;
+	        const camPropsPanelEl = dom.camPropsPanelEl;
 
         const glassOpacityEl = dom.glassOpacityEl;
         const glassIorEl = dom.glassIorEl;
@@ -284,6 +287,9 @@ class ViewerApp {
 		            camsDetailsEl,
 		            camsCountEl,
 		            camsSideListEl,
+		            camPropsDetailsEl,
+		            camPropsTitleEl,
+		            camPropsPanelEl,
 		        });
 		        app.cameraPresets = cameraPresets;
 

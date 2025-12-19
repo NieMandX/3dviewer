@@ -64,6 +64,9 @@ export function collectViewerDom(document) {
         camsDetailsEl: get('camsDetails'),
         camsCountEl: get('camsCount'),
         camsSideListEl: get('camsSideList'),
+        camPropsDetailsEl: get('camPropsDetails'),
+        camPropsTitleEl: get('camPropsTitle'),
+        camPropsPanelEl: get('camPropsPanel'),
 
         // Glass controls
         glassOpacityEl: get('glassOpacity'),
