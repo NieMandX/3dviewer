@@ -52,6 +52,8 @@ export function createCameraPresetsController(options = {}) {
     const presets = Array.isArray(options.initialPresets) ? [...options.initialPresets] : [];
     let activeId = null;
     let barVisible = false;
+    let dragId = null;
+    let suppressClicksUntil = 0;
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
 
@@ -108,6 +110,7 @@ export function createCameraPresetsController(options = {}) {
         btn.className = 'btn cam-chip';
         btn.dataset.action = 'goto';
         btn.dataset.id = preset.id;
+        btn.draggable = true;
         if (active) btn.classList.add('active');
 
         const name = document.createElement('span');
@@ -121,6 +124,7 @@ export function createCameraPresetsController(options = {}) {
         del.setAttribute('aria-label', 'Удалить камеру');
         del.dataset.action = 'delete';
         del.dataset.id = preset.id;
+        del.draggable = false;
 
         btn.appendChild(name);
         btn.appendChild(del);
@@ -224,6 +228,18 @@ export function createCameraPresetsController(options = {}) {
         return true;
     }
 
+    function movePreset(fromId, toIndex) {
+        const fromIndex = presets.findIndex((p) => p && p.id === fromId);
+        if (fromIndex < 0) return false;
+        if (!Number.isFinite(toIndex)) return false;
+
+        const [moved] = presets.splice(fromIndex, 1);
+        const nextIndex = Math.max(0, Math.min(presets.length, toIndex));
+        presets.splice(nextIndex, 0, moved);
+        render();
+        return true;
+    }
+
     function handleAction(action, id) {
         if (action === 'add') {
             addFromCurrentView();
@@ -243,6 +259,10 @@ export function createCameraPresetsController(options = {}) {
     function attachListHandler(container) {
         if (!container?.addEventListener) return;
         container.addEventListener('click', (event) => {
+            if (Date.now() < suppressClicksUntil) {
+                event?.preventDefault?.();
+                return;
+            }
             const el = event?.target;
             if (!(el instanceof HTMLElement)) return;
             const actionEl = el.closest?.('[data-action]');
@@ -254,8 +274,90 @@ export function createCameraPresetsController(options = {}) {
         });
     }
 
+    function attachBarReorder(container) {
+        if (!container?.addEventListener) return;
+
+        const findChip = (el) => {
+            const node = el?.closest?.('.cam-chip[data-id]');
+            if (!(node instanceof HTMLElement)) return null;
+            return node;
+        };
+
+        container.addEventListener('dragstart', (event) => {
+            const el = event?.target;
+            if (!(el instanceof HTMLElement)) return;
+            const chip = findChip(el);
+            if (!chip) return;
+            const id = chip.dataset?.id;
+            if (!id) return;
+
+            dragId = id;
+            chip.classList.add('dragging');
+
+            const dt = event.dataTransfer;
+            if (dt) {
+                dt.effectAllowed = 'move';
+                try { dt.setData('text/plain', id); } catch (_) {}
+            }
+        });
+
+        container.addEventListener('dragover', (event) => {
+            if (!dragId) return;
+            event.preventDefault();
+            const dt = event.dataTransfer;
+            if (dt) dt.dropEffect = 'move';
+        });
+
+        container.addEventListener('drop', (event) => {
+            event.preventDefault();
+
+            const fromId =
+                dragId ||
+                (() => {
+                    try { return event.dataTransfer?.getData?.('text/plain') || null; } catch (_) { return null; }
+                })();
+            if (!fromId) return;
+
+            const el = event?.target;
+            const chip = el instanceof HTMLElement ? findChip(el) : null;
+
+            if (!chip) {
+                if (fromId) movePreset(fromId, presets.length);
+                suppressClicksUntil = Date.now() + 350;
+                return;
+            }
+
+            const toId = chip.dataset?.id;
+            if (!toId || toId === fromId) return;
+
+            const toIndex = presets.findIndex((p) => p && p.id === toId);
+            if (toIndex < 0) return;
+
+            const rect = chip.getBoundingClientRect?.();
+            const dropAfter = rect ? event.clientX > rect.left + rect.width / 2 : false;
+
+            const fromIndex = presets.findIndex((p) => p && p.id === fromId);
+            if (fromIndex < 0) return;
+
+            let insertIndex = toIndex + (dropAfter ? 1 : 0);
+            if (fromIndex < insertIndex) insertIndex -= 1;
+            movePreset(fromId, insertIndex);
+            suppressClicksUntil = Date.now() + 350;
+        });
+
+        container.addEventListener('dragend', (event) => {
+            const el = event?.target;
+            if (el instanceof HTMLElement) {
+                const chip = findChip(el);
+                chip?.classList?.remove?.('dragging');
+            }
+            dragId = null;
+        });
+    }
+
     attachListHandler(camsBarListEl);
     attachListHandler(camsSideListEl);
+    attachBarReorder(camsBarListEl);
     camsToggleBtn?.addEventListener?.('click', toggleBarVisible);
 
     // initialize
