@@ -283,6 +283,20 @@ export function createCameraPresetsController(options = {}) {
             return node;
         };
 
+        const computeInsertIndex = (clientX, fromId) => {
+            const chips = Array.from(container.querySelectorAll('.cam-chip[data-id]'));
+            for (const chip of chips) {
+                const id = chip.dataset?.id;
+                if (!id || id === fromId) continue;
+                const rect = chip.getBoundingClientRect?.();
+                if (!rect) continue;
+                if (clientX < rect.left + rect.width / 2) {
+                    return presets.findIndex((p) => p && p.id === id);
+                }
+            }
+            return presets.length;
+        };
+
         container.addEventListener('dragstart', (event) => {
             const el = event?.target;
             if (!(el instanceof HTMLElement)) return;
@@ -299,6 +313,11 @@ export function createCameraPresetsController(options = {}) {
                 dt.effectAllowed = 'move';
                 try { dt.setData('text/plain', id); } catch (_) {}
             }
+        });
+
+        container.addEventListener('dragenter', (event) => {
+            if (!dragId) return;
+            event.preventDefault();
         });
 
         container.addEventListener('dragover', (event) => {
@@ -318,28 +337,11 @@ export function createCameraPresetsController(options = {}) {
                 })();
             if (!fromId) return;
 
-            const el = event?.target;
-            const chip = el instanceof HTMLElement ? findChip(el) : null;
-
-            if (!chip) {
-                if (fromId) movePreset(fromId, presets.length);
-                suppressClicksUntil = Date.now() + 350;
-                return;
-            }
-
-            const toId = chip.dataset?.id;
-            if (!toId || toId === fromId) return;
-
-            const toIndex = presets.findIndex((p) => p && p.id === toId);
-            if (toIndex < 0) return;
-
-            const rect = chip.getBoundingClientRect?.();
-            const dropAfter = rect ? event.clientX > rect.left + rect.width / 2 : false;
-
             const fromIndex = presets.findIndex((p) => p && p.id === fromId);
             if (fromIndex < 0) return;
 
-            let insertIndex = toIndex + (dropAfter ? 1 : 0);
+            let insertIndex = computeInsertIndex(event.clientX, fromId);
+            if (!Number.isFinite(insertIndex)) insertIndex = presets.length;
             if (fromIndex < insertIndex) insertIndex -= 1;
             movePreset(fromId, insertIndex);
             suppressClicksUntil = Date.now() + 350;
