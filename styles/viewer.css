@@ -439,6 +439,16 @@ body {
     cursor: pointer;
 }
 
+.btn.cam-chip .cam-icon.cam-props {
+    width: 24px;
+    height: 24px;
+    font-size: 24px;
+}
+
+.btn.cam-chip .cam-icon.cam-refresh {
+    font-size: 16px;
+}
+
 .btn.cam-chip:hover .cam-icon {
     opacity: 1;
 }

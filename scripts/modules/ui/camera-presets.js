@@ -62,8 +62,24 @@ export function createCameraPresetsController(options = {}) {
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
 
+    function readCameraShift() {
+        const view = camera?.view;
+        if (!view || !view.enabled) return { shiftX: 0, shiftY: 0 };
+
+        const fullWidth = Number.isFinite(view.fullWidth) ? view.fullWidth : 1;
+        const fullHeight = Number.isFinite(view.fullHeight) ? view.fullHeight : 1;
+        const offsetX = Number.isFinite(view.offsetX) ? view.offsetX : 0;
+        const offsetY = Number.isFinite(view.offsetY) ? view.offsetY : 0;
+
+        return {
+            shiftX: fullWidth ? offsetX / fullWidth : 0,
+            shiftY: fullHeight ? offsetY / fullHeight : 0,
+        };
+    }
+
     function snapshotCurrentView() {
         if (!camera || !controls) return null;
+        const shift = readCameraShift();
         return {
             id: makeId(),
             name: '',
@@ -74,7 +90,41 @@ export function createCameraPresetsController(options = {}) {
             zoom: camera.zoom,
             near: camera.near,
             far: camera.far,
+            shiftX: shift.shiftX,
+            shiftY: shift.shiftY,
         };
+    }
+
+    function captureCurrentViewData() {
+        if (!camera || !controls) return null;
+        const shift = readCameraShift();
+        return {
+            position: camera.position?.toArray?.() || [0, 0, 0],
+            target: controls.target?.toArray?.() || [0, 0, 0],
+            up: camera.up?.toArray?.() || [0, 1, 0],
+            fov: camera.fov,
+            zoom: camera.zoom,
+            near: camera.near,
+            far: camera.far,
+            shiftX: shift.shiftX,
+            shiftY: shift.shiftY,
+        };
+    }
+
+    function applyCameraShift(shiftX, shiftY) {
+        if (!camera) return;
+        const sx = Number.isFinite(shiftX) ? shiftX : 0;
+        const sy = Number.isFinite(shiftY) ? shiftY : 0;
+
+        const eps = 1e-9;
+        if (Math.abs(sx) < eps && Math.abs(sy) < eps) {
+            camera.clearViewOffset?.();
+            return;
+        }
+
+        // Store as normalized offsets (fullWidth/fullHeight = 1) so we can persist shifts without depending on pixels.
+        camera.setViewOffset?.(1, 1, sx, sy, 1, 1);
+        if (camera.view) camera.view.enabled = true;
     }
 
     function applyPreset(preset) {
@@ -92,6 +142,7 @@ export function createCameraPresetsController(options = {}) {
         if (typeof preset.zoom === 'number' && Number.isFinite(preset.zoom)) camera.zoom = preset.zoom;
         if (typeof preset.near === 'number' && Number.isFinite(preset.near)) camera.near = preset.near;
         if (typeof preset.far === 'number' && Number.isFinite(preset.far)) camera.far = preset.far;
+        applyCameraShift(preset.shiftX, preset.shiftY);
         camera.updateProjectionMatrix?.();
 
         controls.update?.();
@@ -216,15 +267,30 @@ export function createCameraPresetsController(options = {}) {
         lensGroup.appendChild(lensHead);
         lensGroup.appendChild(lensGrid);
 
+        const shiftGroup = document.createElement('div');
+        shiftGroup.className = 'cam-props-group';
+        const shiftHead = document.createElement('div');
+        shiftHead.className = 'cam-props-head';
+        shiftHead.textContent = 'Shift';
+        const shiftGrid = document.createElement('div');
+        shiftGrid.className = 'cam-props-grid cam-props-grid-2';
+        const shiftXInput = makeNumberInput({ step: '0.001', min: -1, max: 1 });
+        const shiftYInput = makeNumberInput({ step: '0.001', min: -1, max: 1 });
+        shiftGrid.appendChild(makeLabel('Shift X', shiftXInput));
+        shiftGrid.appendChild(makeLabel('Shift Y', shiftYInput));
+        shiftGroup.appendChild(shiftHead);
+        shiftGroup.appendChild(shiftGrid);
+
         const hint = document.createElement('div');
         hint.className = 'muted cam-props-hint';
-        hint.textContent = 'Кнопка ⚙ открывает этот редактор. Изменения сохраняются за камерой.';
+        hint.textContent = 'Кнопка ⟳ обновляет сохранённый вид, ⚙ открывает свойства. Изменения сохраняются за камерой.';
 
         root.appendChild(nameRow);
         root.appendChild(pos.group);
         root.appendChild(tgt.group);
         root.appendChild(up.group);
         root.appendChild(lensGroup);
+        root.appendChild(shiftGroup);
         root.appendChild(hint);
         camPropsPanelEl.appendChild(root);
 
@@ -272,13 +338,15 @@ export function createCameraPresetsController(options = {}) {
             preset.zoom = readNum(zoomInput, preset.zoom);
             preset.near = readNum(nearInput, preset.near);
             preset.far = readNum(farInput, preset.far);
+            preset.shiftX = readNum(shiftXInput, preset.shiftX ?? 0);
+            preset.shiftY = readNum(shiftYInput, preset.shiftY ?? 0);
 
             updatePresetLabels(preset);
             if (activeId === preset.id) applyPreset(preset);
         };
 
         nameInput.addEventListener('change', applyFromInputs);
-        [pos.x, pos.y, pos.z, tgt.x, tgt.y, tgt.z, up.x, up.y, up.z, fovInput, zoomInput, nearInput, farInput]
+        [pos.x, pos.y, pos.z, tgt.x, tgt.y, tgt.z, up.x, up.y, up.z, fovInput, zoomInput, nearInput, farInput, shiftXInput, shiftYInput]
             .forEach((input) => input.addEventListener('input', applyFromInputs));
 
         propsUI = {
@@ -290,6 +358,8 @@ export function createCameraPresetsController(options = {}) {
             zoomInput,
             nearInput,
             farInput,
+            shiftXInput,
+            shiftYInput,
             writeVec3,
         };
         return propsUI;
@@ -307,6 +377,8 @@ export function createCameraPresetsController(options = {}) {
         ui.zoomInput.value = String(preset.zoom ?? '');
         ui.nearInput.value = String(preset.near ?? '');
         ui.farInput.value = String(preset.far ?? '');
+        ui.shiftXInput.value = String(preset.shiftX ?? 0);
+        ui.shiftYInput.value = String(preset.shiftY ?? 0);
 
         updatePresetLabels(preset);
     }
@@ -342,6 +414,15 @@ export function createCameraPresetsController(options = {}) {
         const actions = document.createElement('span');
         actions.className = 'cam-actions';
 
+        const refresh = document.createElement('span');
+        refresh.className = 'cam-icon cam-refresh';
+        refresh.textContent = '⟳\uFE0E';
+        refresh.title = 'Обновить камеру из текущего вида';
+        refresh.setAttribute('aria-label', 'Обновить камеру из текущего вида');
+        refresh.dataset.action = 'update';
+        refresh.dataset.id = preset.id;
+        refresh.draggable = false;
+
         const props = document.createElement('span');
         props.className = 'cam-icon cam-props';
         props.textContent = '⚙\uFE0E';
@@ -360,6 +441,7 @@ export function createCameraPresetsController(options = {}) {
         del.dataset.id = preset.id;
         del.draggable = false;
 
+        actions.appendChild(refresh);
         actions.appendChild(props);
         actions.appendChild(del);
 
@@ -469,6 +551,26 @@ export function createCameraPresetsController(options = {}) {
         return true;
     }
 
+    function updatePresetFromCurrentView(id) {
+        const preset = getPresetById(id);
+        if (!preset) return false;
+        const snap = captureCurrentViewData();
+        if (!snap) return false;
+
+        preset.position = snap.position;
+        preset.target = snap.target;
+        preset.up = snap.up;
+        preset.fov = snap.fov;
+        preset.zoom = snap.zoom;
+        preset.near = snap.near;
+        preset.far = snap.far;
+        preset.shiftX = snap.shiftX;
+        preset.shiftY = snap.shiftY;
+
+        if (editingId === id) syncPropsPanel(preset);
+        return true;
+    }
+
     function movePreset(fromId, toIndex) {
         const fromIndex = presets.findIndex((p) => p && p.id === fromId);
         if (fromIndex < 0) return false;
@@ -484,6 +586,10 @@ export function createCameraPresetsController(options = {}) {
     function handleAction(action, id) {
         if (action === 'add') {
             addFromCurrentView();
+            return;
+        }
+        if (action === 'update') {
+            updatePresetFromCurrentView(id);
             return;
         }
         if (action === 'props') {
