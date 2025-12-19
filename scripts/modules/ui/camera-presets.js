@@ -45,6 +45,10 @@ export function createCameraPresetsController(options = {}) {
             : (typeof globalThis !== 'undefined' && typeof globalThis.prompt === 'function'
                 ? globalThis.prompt.bind(globalThis)
                 : null);
+    const promptCameraName =
+        typeof options.promptCameraName === 'function'
+            ? options.promptCameraName
+            : null;
     const confirmFn =
         typeof options.confirm === 'function'
             ? options.confirm
@@ -517,14 +521,24 @@ export function createCameraPresetsController(options = {}) {
         setBarVisible(!barVisible);
     }
 
-    function addFromCurrentView() {
+    async function addFromCurrentView() {
         const snap = snapshotCurrentView();
         if (!snap) return null;
 
         const defaultName = `Cam ${presets.length + 1}`;
-        const nameRaw = safePrompt(promptFn, 'Как назвать эту камеру?', defaultName);
+        let nameRaw = null;
+        if (promptCameraName) {
+            try {
+                nameRaw = await Promise.resolve(promptCameraName(defaultName));
+            } catch (_) {
+                nameRaw = null;
+            }
+        }
+        if (nameRaw == null) {
+            nameRaw = safePrompt(promptFn, 'Имя камеры', defaultName);
+        }
         if (nameRaw == null) return null;
-        const name = nameRaw.trim() || defaultName;
+        const name = String(nameRaw).trim() || defaultName;
         snap.name = name;
 
         presets.push(snap);
@@ -585,7 +599,7 @@ export function createCameraPresetsController(options = {}) {
 
     function handleAction(action, id) {
         if (action === 'add') {
-            addFromCurrentView();
+            void addFromCurrentView();
             return;
         }
         if (action === 'update') {

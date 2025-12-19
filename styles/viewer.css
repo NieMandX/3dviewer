@@ -422,7 +422,7 @@ body {
 .btn.cam-chip .cam-actions {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     border-left: 1px solid rgba(0, 0, 0, 0.12);
     padding-left: 10px;
 }
@@ -779,6 +779,7 @@ input[type="range"] { width: 120px; }
 .modal { position: fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.45); z-index:50 }
 .modal.show { display:grid }
 .sheet { background:#fff; width:min(900px, calc(100vw - 40px)); border-radius:12px; border:1px solid var(--border); overflow:hidden; box-shadow:0 30px 100px rgba(0,0,0,.25) }
+.sheet.sheet-sm { width:min(420px, calc(100vw - 40px)); }
 .sheet .head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--border) }
 .sheet .body { display:grid; grid-template-columns: 1fr 320px; gap:0 }
 .sheet .imgwrap { background:#111; display:grid; place-items:center; min-height:320px }
@@ -786,6 +787,10 @@ input[type="range"] { width: 120px; }
 .sheet .tex-side { padding:10px; display:flex; flex-direction:column; gap:8px }
 .sheet .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
 .sheet .btn.primary { background: var(--accent); color:#fff; border-color:var(--accent) }
+
+.prompt-body { padding:12px; display:flex; flex-direction:column; gap:10px }
+.prompt-input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font:inherit }
+.prompt-actions { justify-content:flex-end }
 .eye {
     font-size: 14px;
     user-select: none;

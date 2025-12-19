@@ -25,6 +25,7 @@ import { createStatusUIController } from '../ui/status-ui.js';
 import { createAppbarControlsController } from '../ui/appbar-controls.js';
 import { createAppbarVisibilityTogglesController } from '../ui/appbar-visibility-toggles.js';
 import { createCameraPresetsController } from '../ui/camera-presets.js';
+import { createPromptModalController } from '../ui/prompt-modal.js';
 import { createGridVisibilityController } from '../ui/grid-visibility.js';
 import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
@@ -90,6 +91,15 @@ class ViewerApp {
         // =====================
         const dom = collectViewerDom(document);
         app.dom = dom;
+
+        const promptModal = createPromptModalController({
+            modalEl: dom.promptModalEl,
+            titleEl: dom.promptTitleEl,
+            inputEl: dom.promptInputEl,
+            okBtn: dom.promptOkBtn,
+            cancelBtn: dom.promptCancelBtn,
+            closeBtn: dom.promptCloseBtn,
+        });
 
         const statusUI = createStatusUIController({
             statusEl: dom.statusEl,
@@ -281,6 +291,11 @@ class ViewerApp {
 		            controls,
 		            requestRender,
 		            requestLayout: () => getLayoutController().layout(),
+		            promptCameraName: (defaultName) => promptModal.open({
+		                title: 'Имя камеры',
+		                value: defaultName,
+		                placeholder: 'Имя камеры',
+		            }),
 		            camsToggleBtn,
 		            camsBarEl,
 		            camsBarListEl,

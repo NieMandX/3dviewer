@@ -105,6 +105,14 @@ export function collectViewerDom(document) {
         bindBtn: get('bindBtn'),
         slotSelect: get('slotSelect'),
 
+        // Prompt modal
+        promptModalEl: get('promptModal'),
+        promptTitleEl: get('promptTitle'),
+        promptInputEl: get('promptInput'),
+        promptOkBtn: get('promptOk'),
+        promptCancelBtn: get('promptCancel'),
+        promptCloseBtn: get('promptClose'),
+
         // File flow
         fileInput: get('fileInput'),
         openBtn: get('openBtn'),
