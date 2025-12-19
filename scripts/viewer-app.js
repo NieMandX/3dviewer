@@ -26,6 +26,7 @@ import { createSelectedMaterialLinkResolver, createTextureInfoFormatter, guessKi
 import { createHemiLightControlsController } from './modules/ui/hemi-light-controls.js';
 import { createStatusUIController } from './modules/ui/status-ui.js';
 import { createAppbarControlsController } from './modules/ui/appbar-controls.js';
+import { createAppbarVisibilityTogglesController } from './modules/ui/appbar-visibility-toggles.js';
 import { createGridVisibilityController } from './modules/ui/grid-visibility.js';
 import { createLayoutController } from './modules/ui/layout.js';
 import { createMaterialsUI } from './modules/ui/materials-ui.js';
@@ -205,13 +206,14 @@ class ViewerApp {
 
         const sampleSelect = dom.sampleSelect;
 
-        let didInitialRebase = false;
+	        let didInitialRebase = false;
 	        let galleryNeedsRefresh = false;
 	        let layoutController = null;
 	        let lastFinalizedModelIndex = 0;
 	        let renderLoop = null;
 	        let glassController = null;
 	        let materialsPanel = null;
+	        let appbarVisibilityToggles = null;
 
         const rootEl = dom.rootEl;
         const dropEl = dom.dropEl;
@@ -658,122 +660,42 @@ class ViewerApp {
 			            getVPMModelsState,
 			            toggleVPMModelsVisible,
 			            getNPMModelsState,
-			            toggleNPMModelsVisible,
-			        } = createVisibilityAndCollisions({
-			            world,
-			            loadedModels,
-			            outEl,
+				            toggleNPMModelsVisible,
+				        } = createVisibilityAndCollisions({
+				            world,
+				            loadedModels,
+				            outEl,
 			            requestRender,
 		            markSceneStatsDirty,
 		            schedulePanelRefresh,
-			            syncCollisionButtons,
-			        });
+				            syncCollisionButtons,
+				        });
 
-			        function updateSolidToggleBtnUI() {
-			            if (!solidToggleBtn) return;
-			            const state = getNonGlassState();
-			            solidToggleBtn.disabled = !state.hasAny && !state.suppressed;
-			            solidToggleBtn.classList.toggle('active', state.suppressed);
-			            solidToggleBtn.textContent = (state.hasAny || state.suppressed)
-			                ? (state.suppressed ? 'SOL on' : 'SOL off')
-			                : 'SOL';
-			            solidToggleBtn.setAttribute('aria-pressed', state.suppressed ? 'true' : 'false');
-			            solidToggleBtn.title = state.suppressed
-			                ? 'Показать всё (включая не-стекло)'
-			                : (state.hasAny ? 'Оставить только стекло' : 'Не найдено объектов кроме стекла');
-			        }
-
-			        function updateCollisionsToggleBtnUI() {
-			            if (!collToggleBtn) return;
-			            const state = getCollisionsState();
-			            collToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
-			            collToggleBtn.classList.toggle('active', state.anyVisible);
-			            collToggleBtn.textContent = state.hasAny
-			                ? (state.anyVisible ? 'UCX off' : 'UCX on')
-			                : 'UCX';
-			            collToggleBtn.setAttribute('aria-pressed', state.anyVisible ? 'true' : 'false');
-			            collToggleBtn.title = state.hasAny
-			                ? (state.anyVisible ? 'Скрыть коллизии (UCX)' : 'Показать коллизии (UCX)')
-			                : 'Коллизии (UCX) не найдены';
-			        }
-
-			        function updateVPMToggleBtnUI() {
-			            if (!vpmToggleBtn) return;
-			            const state = getVPMModelsState();
-			            vpmToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
-			            vpmToggleBtn.classList.toggle('active', state.anyVisible);
-			            vpmToggleBtn.textContent = state.hasAny
-			                ? (state.anyVisible ? 'VPM off' : 'VPM on')
-			                : 'VPM';
-			            vpmToggleBtn.setAttribute('aria-pressed', state.anyVisible ? 'true' : 'false');
-			            vpmToggleBtn.title = state.hasAny
-			                ? (state.anyVisible ? 'Скрыть ВПМ модели' : 'Показать ВПМ модели')
-			                : 'ВПМ модели не найдены';
-			        }
-
-			        function updateNPMToggleBtnUI() {
-			            if (!npmToggleBtn) return;
-			            const state = getNPMModelsState();
-			            npmToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
-			            npmToggleBtn.classList.toggle('active', state.anyVisible);
-			            npmToggleBtn.textContent = state.hasAny
-			                ? (state.anyVisible ? 'NPM off' : 'NPM on')
-			                : 'NPM';
-			            npmToggleBtn.setAttribute('aria-pressed', state.anyVisible ? 'true' : 'false');
-			            npmToggleBtn.title = state.hasAny
-			                ? (state.anyVisible ? 'Скрыть НПМ модели' : 'Показать НПМ модели')
-			                : 'НПМ модели не найдены';
-			        }
-
-			        function handleEyeToggle(el) {
-			            handleEyeToggleRaw(el);
-			            if (getNonGlassState().suppressed) applyNonGlassSuppression({ captureNew: true });
-			            updateSolidToggleBtnUI();
-			            updateCollisionsToggleBtnUI();
-			            updateVPMToggleBtnUI();
-			            updateNPMToggleBtnUI();
-			        }
-
-			        if (solidToggleBtn) {
-			            solidToggleBtn.addEventListener('click', () => {
-			                toggleNonGlassSuppressed();
-			                schedulePanelRefresh(true);
-			                updateSolidToggleBtnUI();
-			                updateCollisionsToggleBtnUI();
-			                updateVPMToggleBtnUI();
-			                updateNPMToggleBtnUI();
-			            });
-			        }
-
-			        if (collToggleBtn) {
-			            collToggleBtn.addEventListener('click', () => {
-			                toggleCollisionsVisible();
-			                if (getNonGlassState().suppressed) applyNonGlassSuppression({ captureNew: true });
-			                updateCollisionsToggleBtnUI();
-			            });
-			        }
-			        if (vpmToggleBtn) {
-			            vpmToggleBtn.addEventListener('click', () => {
-			                toggleVPMModelsVisible();
-			                if (getNonGlassState().suppressed) applyNonGlassSuppression({ captureNew: true });
-			                updateVPMToggleBtnUI();
-			            });
-			        }
-			        if (npmToggleBtn) {
-			            npmToggleBtn.addEventListener('click', () => {
-			                toggleNPMModelsVisible();
-			                if (getNonGlassState().suppressed) applyNonGlassSuppression({ captureNew: true });
-			                updateNPMToggleBtnUI();
-			            });
-			        }
-			        updateSolidToggleBtnUI();
-			        updateCollisionsToggleBtnUI();
-			        updateVPMToggleBtnUI();
-			        updateNPMToggleBtnUI();
+				        appbarVisibilityToggles = createAppbarVisibilityTogglesController({
+				            solidToggleBtn,
+				            collToggleBtn,
+				            vpmToggleBtn,
+				            npmToggleBtn,
+				            schedulePanelRefresh,
+				            api: {
+				                handleEyeToggleRaw,
+				                getNonGlassState,
+				                toggleNonGlassSuppressed,
+				                applyNonGlassSuppression,
+				                getCollisionsState,
+				                toggleCollisionsVisible,
+				                getVPMModelsState,
+				                toggleVPMModelsVisible,
+				                getNPMModelsState,
+				                toggleNPMModelsVisible,
+				            },
+				        });
+				        const handleEyeToggle = appbarVisibilityToggles.handleEyeToggle;
+				        appbarVisibilityToggles.updateAll();
 
 
-			        createSunInputsController({
-			            sunHourEl,
+				        createSunInputsController({
+				            sunHourEl,
 			            sunHourInputEl,
 	            sunDayEl,
 	            sunMonthEl,
@@ -935,15 +857,12 @@ class ViewerApp {
 	            materialsPanel?.scheduleRefresh(afterRender);
 	        }
 
-		        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
-		        function syncCollisionButtons() {
-		            materialsPanel?.syncCollisionButtons?.();
-		            if (getNonGlassState().suppressed) applyNonGlassSuppression({ captureNew: true });
-		            updateSolidToggleBtnUI();
-		            updateCollisionsToggleBtnUI();
-		            updateVPMToggleBtnUI();
-		            updateNPMToggleBtnUI();
-		        }
+			        /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
+			        function syncCollisionButtons() {
+			            materialsPanel?.syncCollisionButtons?.();
+			            appbarVisibilityToggles?.enforceSuppressionIfNeeded?.();
+			            appbarVisibilityToggles?.updateAll?.();
+			        }
 
 		        // =====================
 		        // Gallery / modal
