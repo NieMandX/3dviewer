@@ -419,21 +419,27 @@ body {
     white-space: nowrap;
 }
 
-.btn.cam-chip .cam-x {
+.btn.cam-chip .cam-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-left: 1px solid rgba(0, 0, 0, 0.12);
+    padding-left: 10px;
+}
+
+.btn.cam-chip .cam-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 18px;
     height: 18px;
     line-height: 1;
-    border-left: 1px solid rgba(0, 0, 0, 0.12);
-    padding-left: 10px;
     opacity: 0.7;
     font-weight: 700;
     cursor: pointer;
 }
 
-.btn.cam-chip:hover .cam-x {
+.btn.cam-chip:hover .cam-icon {
     opacity: 1;
 }
 

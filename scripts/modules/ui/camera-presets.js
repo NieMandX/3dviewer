@@ -218,7 +218,7 @@ export function createCameraPresetsController(options = {}) {
 
         const hint = document.createElement('div');
         hint.className = 'muted cam-props-hint';
-        hint.textContent = 'Двойной клик по камере открывает этот редактор. Изменения сохраняются за камерой.';
+        hint.textContent = 'Кнопка ⚙ открывает этот редактор. Изменения сохраняются за камерой.';
 
         root.appendChild(nameRow);
         root.appendChild(pos.group);
@@ -339,8 +339,20 @@ export function createCameraPresetsController(options = {}) {
         name.className = 'cam-name';
         name.textContent = preset.name || 'Camera';
 
+        const actions = document.createElement('span');
+        actions.className = 'cam-actions';
+
+        const props = document.createElement('span');
+        props.className = 'cam-icon cam-props';
+        props.textContent = '⚙\uFE0E';
+        props.title = 'Свойства камеры';
+        props.setAttribute('aria-label', 'Свойства камеры');
+        props.dataset.action = 'props';
+        props.dataset.id = preset.id;
+        props.draggable = false;
+
         const del = document.createElement('span');
-        del.className = 'cam-x';
+        del.className = 'cam-icon cam-x';
         del.textContent = '×';
         del.title = 'Удалить камеру';
         del.setAttribute('aria-label', 'Удалить камеру');
@@ -348,8 +360,11 @@ export function createCameraPresetsController(options = {}) {
         del.dataset.id = preset.id;
         del.draggable = false;
 
+        actions.appendChild(props);
+        actions.appendChild(del);
+
         btn.appendChild(name);
-        btn.appendChild(del);
+        btn.appendChild(actions);
         return btn;
     }
 
@@ -471,6 +486,13 @@ export function createCameraPresetsController(options = {}) {
             addFromCurrentView();
             return;
         }
+        if (action === 'props') {
+            const preset = getPresetById(id);
+            if (!preset) return;
+            if (applyPreset(preset)) setActive(preset.id);
+            openPropsForPresetId(preset.id);
+            return;
+        }
         if (action === 'goto') {
             const preset = getPresetById(id);
             if (!preset) return;
@@ -497,28 +519,6 @@ export function createCameraPresetsController(options = {}) {
             if (!action) return;
             const id = actionEl.dataset?.id || null;
             handleAction(action, id);
-        });
-    }
-
-    function attachEditorDblClick(container) {
-        if (!container?.addEventListener) return;
-        container.addEventListener('dblclick', (event) => {
-            const el = event?.target;
-            if (!(el instanceof HTMLElement)) return;
-
-            const actionEl = el.closest?.('[data-action]');
-            if (!(actionEl instanceof HTMLElement)) return;
-            const action = actionEl.dataset?.action;
-            if (action !== 'goto') return;
-            const id = actionEl.dataset?.id || null;
-            if (!id) return;
-
-            event.preventDefault();
-            const preset = getPresetById(id);
-            if (!preset) return;
-
-            if (applyPreset(preset)) setActive(preset.id);
-            openPropsForPresetId(id);
         });
     }
 
@@ -607,8 +607,6 @@ export function createCameraPresetsController(options = {}) {
 
     attachListHandler(camsBarListEl);
     attachListHandler(camsSideListEl);
-    attachEditorDblClick(camsBarListEl);
-    attachEditorDblClick(camsSideListEl);
     attachBarReorder(camsBarListEl);
     camsToggleBtn?.addEventListener?.('click', toggleBarVisible);
 
