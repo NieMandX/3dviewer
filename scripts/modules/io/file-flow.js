@@ -71,7 +71,21 @@ export function createFileFlowController(options = {}) {
         dragTargets.forEach(target => target.addEventListener(type, handler, { passive: false }));
     };
 
+    const isFileDrag = (e) => {
+        const dt = e?.dataTransfer;
+        if (!dt) return false;
+        try {
+            const types = Array.from(dt.types || []);
+            if (types.includes('Files')) return true;
+            const items = Array.from(dt.items || []);
+            return items.some((it) => it && it.kind === 'file');
+        } catch (_) {
+            return false;
+        }
+    };
+
     const handleDragEnter = (e) => {
+        if (!isFileDrag(e)) return;
         e.preventDefault();
         e.stopPropagation();
         dragHoverCount++;
@@ -79,23 +93,25 @@ export function createFileFlowController(options = {}) {
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     };
     const handleDragOver = (e) => {
+        if (!isFileDrag(e) && dragHoverCount === 0) return;
         e.preventDefault();
         e.stopPropagation();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     };
     const handleDragLeave = (e) => {
+        if (dragHoverCount === 0) return;
         e.preventDefault();
         e.stopPropagation();
         dragHoverCount = Math.max(0, dragHoverCount - 1);
         if (dragHoverCount === 0 && dropEl) dropEl.classList.remove('show');
     };
     const handleDrop = async (e) => {
+        const files = [...(e.dataTransfer?.files || [])];
+        if (!files.length) return;
         e.preventDefault();
         e.stopPropagation();
         dragHoverCount = 0;
         if (dropEl) dropEl.classList.remove('show');
-        const files = [...(e.dataTransfer?.files || [])];
-        if (!files.length) return;
         await handleFiles(files);
         await finalizeBatchAfterAllFiles();
     };
@@ -109,4 +125,3 @@ export function createFileFlowController(options = {}) {
         populateSampleSelect,
     };
 }
-
