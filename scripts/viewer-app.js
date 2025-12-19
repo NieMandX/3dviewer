@@ -7,13 +7,13 @@ import { basename } from './modules/utils/path.js';
 import { makeGeoJsonMeta } from './modules/geo/geojson-meta.js';
 import { getSMOffset } from './modules/geo/sm-offset.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
-import { createSceneGeometryStats } from './modules/scene/geometry-stats.js';
 import { createSceneFramingController } from './modules/scene/framing.js';
 import { createNorthGridController } from './modules/scene/north-grid.js';
 import { createImportedLightsController } from './modules/scene/imported-lights.js';
 import { createMosParcelsController } from './modules/scene/mos-parcels.js';
 import { createSunController } from './modules/scene/sun-controller.js';
 import { createWorldOffsetController } from './modules/scene/world-offset.js';
+import { createSceneCore } from './modules/scene/scene-core.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createBindLogController } from './modules/ui/bind-log.js';
 import { createSliderValuesUIController } from './modules/ui/slider-values-ui.js';
@@ -33,12 +33,9 @@ import { createTexturesUI } from './modules/ui/textures-ui.js';
 import { createVisibilityAndCollisions } from './modules/ui/visibility-collisions.js';
 import { collectViewerDom } from './modules/ui/viewer-dom.js';
 import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
-import { createBackgroundController } from './modules/render/background-controller.js';
-import { createRenderer } from './modules/render/renderer-init.js';
 import { createAndStartRenderLoop } from './modules/render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from './modules/render/debug-textures.js';
 import { createBackfaceOverlayController } from './modules/render/backface-overlay.js';
-import { createWASDFlightController } from './modules/render/wasd-flight.js';
 import { createShadingController } from './modules/render/shading-controller.js';
 import { createShadowController } from './modules/render/shadow-controller.js';
 import { createAssetLoaders } from './modules/io/asset-loaders.js';
@@ -209,13 +206,12 @@ class ViewerApp {
         const sampleSelect = dom.sampleSelect;
 
         let didInitialRebase = false;
-        let galleryNeedsRefresh = false;
-        let layoutController = null;
-        let lastFinalizedModelIndex = 0;
-        let renderLoop = null;
-        let sceneGeometryStats = null;
-        let glassController = null;
-        let materialsPanel = null;
+	        let galleryNeedsRefresh = false;
+	        let layoutController = null;
+	        let lastFinalizedModelIndex = 0;
+	        let renderLoop = null;
+	        let glassController = null;
+	        let materialsPanel = null;
 
         const rootEl = dom.rootEl;
         const dropEl = dom.dropEl;
@@ -225,86 +221,47 @@ class ViewerApp {
             renderLoop?.requestRender?.();
         }
 
-        // =====================
-        // THREE.js scene init
-        // =====================
-        const scene = new THREE.Scene();
-        // scene.background = null;
-
-        const world = new THREE.Group();
-        scene.add(world);
-
-        sceneGeometryStats = createSceneGeometryStats({ world });
-
-        function markSceneStatsDirty() {
-            sceneGeometryStats?.markDirty?.();
-        }
-
-        function getSceneGeometryStats() {
-            return sceneGeometryStats?.getStats?.() || { triangles: 0 };
-        }
-
-	        const whiteClearColor = new THREE.Color().setRGB(1.5, 1.5, 1.5);
-
-	        const camera   = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
-	        camera.position.set(0, 1.5, -5);
-
-	        const rendererInit = createRenderer({
+	        // =====================
+	        // THREE.js scene init
+	        // =====================
+	        const sceneCore = createSceneCore({
 	            THREE,
+	            OrbitControls,
+	            app,
 	            rootEl,
-	            useWebGPU: USE_WEBGPU,
-	            WebGPURendererCtor,
 	            requestRender,
 	            setStatusMessage,
+	            useWebGPU: USE_WEBGPU,
+	            WebGPURendererCtor,
+	            background: {
+	                isEnvironmentEnabled: () => !!iblChk?.checked,
+	                getAlpha: () => parseFloat(bgAlphaEl?.value || '1'),
+	                bgAlphaEl,
+	                bgToggleBtn,
+	                body: document?.body || null,
+	            },
+	            window,
+	            document,
 	        });
-	        const renderer = rendererInit.renderer;
-	        const rendererInitPromise = rendererInit.rendererInitPromise;
-	        const getRendererReady = rendererInit.getRendererReady;
+
+	        const scene = sceneCore.scene;
+	        const world = sceneCore.world;
+	        const camera = sceneCore.camera;
+	        const renderer = sceneCore.renderer;
+	        const rendererInitPromise = sceneCore.rendererInitPromise;
+	        const getRendererReady = sceneCore.getRendererReady;
+	        const backgroundController = sceneCore.backgroundController;
+	        const controls = sceneCore.controls;
+	        const flightControls = sceneCore.flightControls;
+	        const hemiLight = sceneCore.hemiLight;
+	        const dirLight = sceneCore.dirLight;
+	        const markSceneStatsDirty = sceneCore.markSceneStatsDirty;
+	        const getSceneGeometryStats = sceneCore.getSceneGeometryStats;
+
 	        app.renderer = renderer;
 	        app.rendererInitPromise = rendererInitPromise;
 
-		        const backgroundController = createBackgroundController({
-		            THREE,
-		            renderer,
-	            scene,
-	            camera,
-	            app,
-	            requestRender,
-	            isEnvironmentEnabled: () => !!iblChk?.checked,
-	            getAlpha: () => parseFloat(bgAlphaEl?.value || '1'),
-	            bgAlphaEl,
-	            bgToggleBtn,
-	            whiteClearColor,
-	            body: document?.body || null,
-	        });
-
-        
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.addEventListener('change', requestRender);
-
-        const flightControls = createWASDFlightController({
-            THREE,
-            camera,
-            controls,
-            requestRender,
-            window,
-            document,
-        });
-
-        // Простое освещение и сетка
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0xcfd8dc, 1);
-
-        scene.add(hemiLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 10.0);
-        dirLight.castShadow = true;
-        dirLight.shadow.mapSize.set(4096, 4096);
-        dirLight.shadow.bias = -0.0005;      // боремся с acne
-	        dirLight.shadow.normalBias = 0.02;    // боремся с peter-panning
-	        dirLight.position.set(3, 5, 4);
-	        scene.add(dirLight);
-
-	        const sunDir = new THREE.Vector3(0, 1, 0); // актуальное направление солнца (единичный)
+		        const sunDir = new THREE.Vector3(0, 1, 0); // актуальное направление солнца (единичный)
 
 	        const northGrid = createNorthGridController({
 	            THREE,
