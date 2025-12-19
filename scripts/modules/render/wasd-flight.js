@@ -26,6 +26,8 @@ export function createWASDFlightController(options = {}) {
         back: false,
         left: false,
         right: false,
+        up: false,
+        down: false,
         boost: false,
         slow: false,
     });
@@ -35,6 +37,8 @@ export function createWASDFlightController(options = {}) {
         KeyS: 'back',
         KeyA: 'left',
         KeyD: 'right',
+        KeyE: 'up',
+        KeyQ: 'down',
         ShiftLeft: 'boost',
         ShiftRight: 'boost',
         AltLeft: 'slow',
@@ -43,6 +47,7 @@ export function createWASDFlightController(options = {}) {
 
     const dir = THREE ? new THREE.Vector3() : null;
     const right = THREE ? new THREE.Vector3() : null;
+    const upDir = THREE ? new THREE.Vector3() : null;
     const move = THREE ? new THREE.Vector3() : null;
 
     function timeNow() {
@@ -74,6 +79,8 @@ export function createWASDFlightController(options = {}) {
         keys.back = false;
         keys.left = false;
         keys.right = false;
+        keys.up = false;
+        keys.down = false;
         keys.boost = false;
         keys.slow = false;
     }
@@ -103,14 +110,15 @@ export function createWASDFlightController(options = {}) {
         lastNow = now;
 
         if (!enabled) return false;
-        if (!THREE || !camera || !controls || !dir || !right || !move) return false;
+        if (!THREE || !camera || !controls || !dir || !right || !upDir || !move) return false;
 
         // Не двигаем камеру, если пользователь вводит текст/крутит UI.
         if (doc && isEditableElement(doc.activeElement)) return false;
 
         const f = (keys.forward ? 1 : 0) + (keys.back ? -1 : 0);
         const s = (keys.right ? 1 : 0) + (keys.left ? -1 : 0);
-        if (!f && !s) return false;
+        const u = (keys.up ? 1 : 0) + (keys.down ? -1 : 0);
+        if (!f && !s && !u) return false;
 
         // Защита от «скачка» после вкладки в фоне.
         const clampedDt = Math.max(0, Math.min(0.1, dt || 0));
@@ -126,10 +134,12 @@ export function createWASDFlightController(options = {}) {
         camera.getWorldDirection(dir);
         dir.normalize();
         right.crossVectors(dir, camera.up).normalize();
+        upDir.copy(camera.up).normalize();
 
         move.set(0, 0, 0);
         move.addScaledVector(dir, f);
         move.addScaledVector(right, s);
+        move.addScaledVector(upDir, u);
 
         if (move.lengthSq() < 1e-12) return false;
         move.normalize().multiplyScalar(speed * clampedDt);
