@@ -374,6 +374,70 @@ body {
     min-height: 48px;
 }
 
+.cams-bar {
+    position: fixed;
+    top: var(--appbarH);
+    left: 0;
+    right: var(--sideW);
+    z-index: 4;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.88);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(6px);
+}
+
+.cams-strip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+}
+
+.cam-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn.cam-del {
+    padding: 4px 8px;
+    border-radius: 999px;
+    line-height: 1;
+}
+
+.btn.cam-add {
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.cams-side-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 8px;
+}
+
+.cams-side-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cams-side-item .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.cams-side-item .btn.cam-del {
+    flex: 0 0 auto;
+}
+
 .appbar .row {
     background: transparent;
     display: flex;
@@ -763,6 +827,19 @@ body.bg-black .appbar select {
     background: #000000;
     color: #fff;
     border-color: rgba(255,255,255,0.35);
+}
+body.bg-black .cams-bar {
+    background: rgba(0, 0, 0, 0.78);
+    border-bottom-color: #333;
+}
+body.bg-black .cams-bar .btn {
+    background-color: #000;
+    color: #fff;
+    border-color: rgba(255,255,255,0.35);
+}
+body.bg-black .cams-bar .btn:hover {
+    border-color: rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.12);
 }
 body.bg-black .side {
     background: transparent;

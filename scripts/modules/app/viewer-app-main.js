@@ -24,6 +24,7 @@ import { createHemiLightControlsController } from '../ui/hemi-light-controls.js'
 import { createStatusUIController } from '../ui/status-ui.js';
 import { createAppbarControlsController } from '../ui/appbar-controls.js';
 import { createAppbarVisibilityTogglesController } from '../ui/appbar-visibility-toggles.js';
+import { createCameraPresetsController } from '../ui/camera-presets.js';
 import { createGridVisibilityController } from '../ui/grid-visibility.js';
 import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
@@ -165,8 +166,14 @@ class ViewerApp {
 	        const vpmToggleBtn = dom.vpmToggleBtn;
 	        const npmToggleBtn = dom.npmToggleBtn;
 	        const bgToggleBtn = dom.bgToggleBtn;
+	        const camsToggleBtn = dom.camsToggleBtn;
 	        const gridToggleBtn = dom.gridToggleBtn;
 	        const statsOverlayEl = dom.statsOverlayEl;
+	        const camsBarEl = dom.camsBarEl;
+	        const camsBarListEl = dom.camsBarListEl;
+	        const camsDetailsEl = dom.camsDetailsEl;
+	        const camsCountEl = dom.camsCountEl;
+	        const camsSideListEl = dom.camsSideListEl;
 
         const glassOpacityEl = dom.glassOpacityEl;
         const glassIorEl = dom.glassIorEl;
@@ -254,15 +261,29 @@ class ViewerApp {
 	        const rendererInitPromise = sceneCore.rendererInitPromise;
 	        const getRendererReady = sceneCore.getRendererReady;
 	        const backgroundController = sceneCore.backgroundController;
-	        const controls = sceneCore.controls;
-	        const flightControls = sceneCore.flightControls;
-	        const hemiLight = sceneCore.hemiLight;
-	        const dirLight = sceneCore.dirLight;
+		        const controls = sceneCore.controls;
+		        const flightControls = sceneCore.flightControls;
+		        const hemiLight = sceneCore.hemiLight;
+		        const dirLight = sceneCore.dirLight;
 	        const markSceneStatsDirty = sceneCore.markSceneStatsDirty;
 	        const getSceneGeometryStats = sceneCore.getSceneGeometryStats;
 
 	        app.renderer = renderer;
 	        app.rendererInitPromise = rendererInitPromise;
+
+		        const cameraPresets = createCameraPresetsController({
+		            THREE,
+		            camera,
+		            controls,
+		            requestRender,
+		            camsToggleBtn,
+		            camsBarEl,
+		            camsBarListEl,
+		            camsDetailsEl,
+		            camsCountEl,
+		            camsSideListEl,
+		        });
+		        app.cameraPresets = cameraPresets;
 
 		        const sunDir = new THREE.Vector3(0, 1, 0); // актуальное направление солнца (единичный)
 

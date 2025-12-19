@@ -49,12 +49,20 @@ export function collectViewerDom(document) {
         fullscreenBtn: get('fullscreenBtn'),
 	        statsBtn: get('statsBtn'),
 	        bgToggleBtn: get('bgToggleBtn'),
+	        camsToggleBtn: get('camsToggleBtn'),
 	        collToggleBtn: get('collToggleBtn'),
 	        solidToggleBtn: get('solidToggleBtn'),
 	        vpmToggleBtn: get('vpmToggleBtn'),
 	        npmToggleBtn: get('npmToggleBtn'),
 	        gridToggleBtn: get('gridToggleBtn'),
 	        statsOverlayEl: get('statsOverlay'),
+
+        // Cameras
+        camsBarEl: get('camsBar'),
+        camsBarListEl: get('camsBarList'),
+        camsDetailsEl: get('camsDetails'),
+        camsCountEl: get('camsCount'),
+        camsSideListEl: get('camsSideList'),
 
         // Glass controls
         glassOpacityEl: get('glassOpacity'),

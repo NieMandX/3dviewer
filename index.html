@@ -51,12 +51,17 @@
 	        </div>
 		        <button id="solidToggleBtn" class="btn" type="button" title="Оставить только стекло">SOL</button>
 		        <button id="collToggleBtn" class="btn" type="button" title="Показать/скрыть коллизии (UCX)">UCX</button>
-		        <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">VPM</button>
-		        <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">NPM</button>
-		        <button id="bgToggleBtn" class="btn bg-btn" type="button" title="Тёмная тема" aria-label="Тёмная тема">&#9790;&#65038;</button>
-		        <a class="btn order-btn" href="https://lpmview.ru/#order" target="_blank" rel="noopener">Заказать модель</a>
+	        <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">VPM</button>
+	        <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">NPM</button>
+	        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">CAMS</button>
+	        <button id="bgToggleBtn" class="btn bg-btn" type="button" title="Тёмная тема" aria-label="Тёмная тема">&#9790;&#65038;</button>
+	        <a class="btn order-btn" href="https://lpmview.ru/#order" target="_blank" rel="noopener">Заказать модель</a>
 
-		    </div>
+	    </div>
+
+	    <div id="camsBar" class="cams-bar" hidden>
+	        <div id="camsBarList" class="cams-strip"></div>
+	    </div>
 
     <div id="viewer"></div>
     <div id="statsOverlay" class="stats-overlay" hidden></div>
@@ -117,6 +122,11 @@
     <div class="side">
         <div class="list">
             <div id="out"></div>
+
+            <details id="camsDetails" open>
+                <summary>Камеры · <span id="camsCount" class="chip">0</span></summary>
+                <div id="camsSideList" class="cams-side-list"></div>
+            </details>
 
             <details id="imagesDetails" open>
                 <summary>Текстуры · <span id="texCount" class="chip">0</span></summary>
