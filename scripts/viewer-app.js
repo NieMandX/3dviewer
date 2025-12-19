@@ -7,18 +7,15 @@ import { basename } from './modules/utils/path.js';
 import { makeGeoJsonMeta } from './modules/geo/geojson-meta.js';
 import { getSMOffset } from './modules/geo/sm-offset.js';
 import { extractImagesFromFBX, sniffImage } from './modules/fbx/embedded-images.js';
-import { createSceneFramingController } from './modules/scene/framing.js';
 import { createNorthGridController } from './modules/scene/north-grid.js';
 import { createImportedLightsController } from './modules/scene/imported-lights.js';
 import { createMosParcelsController } from './modules/scene/mos-parcels.js';
-import { createSunController } from './modules/scene/sun-controller.js';
 import { createWorldOffsetController } from './modules/scene/world-offset.js';
 import { createSceneCore } from './modules/scene/scene-core.js';
+import { createSunShadowsController } from './modules/scene/sun-shadows.js';
 import { createStatsOverlayController } from './modules/ui/stats-overlay.js';
 import { createBindLogController } from './modules/ui/bind-log.js';
 import { createSliderValuesUIController } from './modules/ui/slider-values-ui.js';
-import { createShadowDebugPanelController } from './modules/ui/shadow-debug-panel.js';
-import { createSunToggleController } from './modules/ui/sun-toggle.js';
 import { createSunInputsController } from './modules/ui/sun-inputs.js';
 import { createEnvironmentControlsController } from './modules/ui/environment-controls.js';
 import { createGeoJsonModalController } from './modules/ui/geojson-modal.js';
@@ -38,7 +35,6 @@ import { createAndStartRenderLoop } from './modules/render/render-loop-bootstrap
 import { createDebugTextureProvider } from './modules/render/debug-textures.js';
 import { createBackfaceOverlayController } from './modules/render/backface-overlay.js';
 import { createShadingController } from './modules/render/shading-controller.js';
-import { createShadowController } from './modules/render/shadow-controller.js';
 import { createAssetLoaders } from './modules/io/asset-loaders.js';
 import { createImportHandlers } from './modules/io/import-handlers.js';
 import { createFileFlowUIController } from './modules/io/file-flow-ui.js';
@@ -312,40 +308,22 @@ class ViewerApp {
 
 
 
-		        // =====================================================================
-		        // Lighting & Shadows · Sun control / debug panel
-		        // =====================================================================
+				        // =====================================================================
+				        // Lighting & Shadows · Sun control / debug panel
+				        // =====================================================================
 
-		        // --- Shadows debug panel (после создания dirLight!) ---
-		        const sceneFraming = createSceneFramingController({
-		            THREE,
-		            world,
-		            camera,
-		            controls,
-		            renderer,
-		            requestRender,
-		            getBgMesh: backgroundController.getBgMesh,
-		        });
+			        const sunEnabledEl = dom.sunEnabledEl;
+			        const sunControlsEl = dom.sunControlsEl;
 
-		        const shadowController = createShadowController({
-		            THREE,
-		            scene,
-		            renderer,
-		            dirLight,
-		            computeSceneBounds,
-		        });
-
-		        function setShadowDebug(on) {
-		            shadowController.setShadowDebug(on);
-		        }
-
-			        function fitSunShadowToScene(recenterTarget = false, margin = 1.3) {
-			            shadowController.fitSunShadowToScene(recenterTarget, margin);
-			        }
-
-			        const { updateSun } = createSunController({
+			        const sunShadows = createSunShadowsController({
+			            root: document,
 			            THREE,
 			            app,
+			            scene,
+			            world,
+			            camera,
+			            controls,
+			            renderer,
 			            dirLight,
 			            northGrid,
 			            latitude: MOSCOW_LAT,
@@ -354,45 +332,18 @@ class ViewerApp {
 			            getMonth: () => sunMonthEl?.value,
 			            getHour: () => sunHourEl?.value,
 			            getNorthDeg: () => sunNorthEl?.value,
-			            computeSceneBounds,
-			            fitSunShadowToScene,
+			            sunEnabledEl,
+			            sunControlsEl,
+			            getBgMesh: backgroundController.getBgMesh,
+			            layout,
 			            requestRender,
 			        });
-
-			        createShadowDebugPanelController({
-			            root: document,
-			            THREE,
-			            renderer,
-		            dirLight,
-		            requestRender,
-		            fitSunShadowToScene,
-		            setShadowDebug,
-		            getShadowDebugVisible: () => shadowController.isShadowDebugVisible(),
-		            getShadowAutoFrustum: () => shadowController.getAutoFrustum(),
-		            setShadowAutoFrustum: (next) => { shadowController.setAutoFrustum(next); },
-		            getShadowFrustumScale: () => shadowController.getFrustumScale(),
-		            setShadowFrustumScale: (next) => { shadowController.setFrustumScale(next); },
-		        });
-
-	       
-		        // SUN elements
-		        // ссылки
-		        const sunEnabledEl = dom.sunEnabledEl;
-		        const sunControlsEl = dom.sunControlsEl;
-			        createSunToggleController({
-			            root: document,
-			            app,
-			            sunEnabledEl,
-	            sunControlsEl,
-	            renderer,
-	            dirLight,
-	            layout,
-	            requestRender,
-	            onEnable: () => {
-	                updateSun();            // пересчитать позицию солнца
-	                fitSunShadowToScene();  // обновить объём теней
-	            },
-	        });
+			        const computeSceneBounds = sunShadows.computeSceneBounds;
+			        const focusOn = sunShadows.focusOn;
+			        const fitAll = sunShadows.fitAll;
+			        const computeWorldCenter = sunShadows.computeWorldCenter;
+			        const updateSun = sunShadows.updateSun;
+			        const fitSunShadowToScene = sunShadows.fitSunShadowToScene;
 
 
 	        // =====================
@@ -539,24 +490,8 @@ class ViewerApp {
 			        hideSidePanel();
 
 	   
-
-		        // === Bounds / framing ===
-		        function computeSceneBounds(root = world) {
-		            return sceneFraming.computeSceneBounds(root);
-		        }
-
-		        function focusOn(targets, pad = 1.4) {
-		            return sceneFraming.focusOn(targets, pad);
-		        }
-
-		        function fitAll() {
-		            return sceneFraming.fitAll();
-		        }
-
-				        function computeWorldCenter() {
-				            return sceneFraming.computeWorldCenter();
-				        }
-				        // HDR / IBL handling moved to `modules/render/environment-manager.js`
+			        // Bounds / framing now provided by `createSunShadowsController`.
+			        // HDR / IBL handling moved to `modules/render/environment-manager.js`
 
 			        const gridVisibilityController = createGridVisibilityController({
 			            app,
