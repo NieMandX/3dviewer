@@ -397,16 +397,36 @@ body {
     -webkit-overflow-scrolling: touch;
 }
 
-.cam-chip {
+.btn.cam-chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 10px;
+    border-radius: 999px;
+    padding: 6px 12px;
+    max-width: 260px;
 }
 
-.btn.cam-del {
-    padding: 4px 8px;
-    border-radius: 999px;
+.btn.cam-chip .cam-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn.cam-chip .cam-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
     line-height: 1;
+    border-left: 1px solid rgba(0, 0, 0, 0.12);
+    padding-left: 10px;
+    opacity: 0.7;
+    font-weight: 700;
+}
+
+.btn.cam-chip:hover .cam-x {
+    opacity: 1;
 }
 
 .btn.cam-add {
@@ -429,13 +449,9 @@ body {
     gap: 6px;
 }
 
-.cams-side-item .btn {
+.cams-side-item .btn.cam-chip {
     flex: 1 1 auto;
     min-width: 0;
-}
-
-.cams-side-item .btn.cam-del {
-    flex: 0 0 auto;
 }
 
 .appbar .row {
@@ -840,6 +856,9 @@ body.bg-black .cams-bar .btn {
 body.bg-black .cams-bar .btn:hover {
     border-color: rgba(255,255,255,0.55);
     background: rgba(255,255,255,0.12);
+}
+body.bg-black .btn.cam-chip .cam-x {
+    border-left-color: rgba(255, 255, 255, 0.22);
 }
 body.bg-black .side {
     background: transparent;

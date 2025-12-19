@@ -101,34 +101,39 @@ export function createCameraPresetsController(options = {}) {
         render();
     }
 
+    function makePresetButton(preset, { active = false } = {}) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn cam-chip';
+        btn.dataset.action = 'goto';
+        btn.dataset.id = preset.id;
+        if (active) btn.classList.add('active');
+
+        const name = document.createElement('span');
+        name.className = 'cam-name';
+        name.textContent = preset.name || 'Camera';
+
+        const del = document.createElement('span');
+        del.className = 'cam-x';
+        del.textContent = '×';
+        del.title = 'Удалить камеру';
+        del.setAttribute('aria-label', 'Удалить камеру');
+        del.dataset.action = 'delete';
+        del.dataset.id = preset.id;
+
+        btn.appendChild(name);
+        btn.appendChild(del);
+        return btn;
+    }
+
     function renderBar() {
         if (!camsBarListEl) return;
         camsBarListEl.innerHTML = '';
 
         presets.forEach((preset) => {
-            const wrap = document.createElement('div');
-            wrap.className = 'cam-chip';
-
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'btn cam-btn';
-            btn.textContent = preset.name || 'Camera';
-            btn.dataset.action = 'goto';
-            btn.dataset.id = preset.id;
-            if (activeId && preset.id === activeId) btn.classList.add('active');
-
-            const del = document.createElement('button');
-            del.type = 'button';
-            del.className = 'btn cam-del';
-            del.textContent = '×';
-            del.title = 'Удалить камеру';
-            del.setAttribute('aria-label', 'Удалить камеру');
-            del.dataset.action = 'delete';
-            del.dataset.id = preset.id;
-
-            wrap.appendChild(btn);
-            wrap.appendChild(del);
-            camsBarListEl.appendChild(wrap);
+            camsBarListEl.appendChild(
+                makePresetButton(preset, { active: activeId && preset.id === activeId }),
+            );
         });
 
         const add = document.createElement('button');
@@ -148,26 +153,9 @@ export function createCameraPresetsController(options = {}) {
         presets.forEach((preset) => {
             const row = document.createElement('div');
             row.className = 'cams-side-item';
-
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'btn cam-btn';
-            btn.textContent = preset.name || 'Camera';
-            btn.dataset.action = 'goto';
-            btn.dataset.id = preset.id;
-            if (activeId && preset.id === activeId) btn.classList.add('active');
-
-            const del = document.createElement('button');
-            del.type = 'button';
-            del.className = 'btn cam-del';
-            del.textContent = '×';
-            del.title = 'Удалить камеру';
-            del.setAttribute('aria-label', 'Удалить камеру');
-            del.dataset.action = 'delete';
-            del.dataset.id = preset.id;
-
-            row.appendChild(btn);
-            row.appendChild(del);
+            row.appendChild(
+                makePresetButton(preset, { active: activeId && preset.id === activeId }),
+            );
             camsSideListEl.appendChild(row);
         });
 
@@ -254,9 +242,11 @@ export function createCameraPresetsController(options = {}) {
         container.addEventListener('click', (event) => {
             const el = event?.target;
             if (!(el instanceof HTMLElement)) return;
-            const action = el.dataset?.action;
+            const actionEl = el.closest?.('[data-action]');
+            if (!(actionEl instanceof HTMLElement)) return;
+            const action = actionEl.dataset?.action;
             if (!action) return;
-            const id = el.dataset?.id || null;
+            const id = actionEl.dataset?.id || null;
             handleAction(action, id);
         });
     }
