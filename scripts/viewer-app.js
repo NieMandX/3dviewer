@@ -30,9 +30,10 @@ import { createMaterialsUI } from './modules/ui/materials-ui.js';
 import { createTexturesUI } from './modules/ui/textures-ui.js';
 import { createVisibilityAndCollisions } from './modules/ui/visibility-collisions.js';
 import { collectViewerDom } from './modules/ui/viewer-dom.js';
-import { createEnvironmentManager, HDRI_LIBRARY } from './modules/render/environment-manager.js';
+import { HDRI_LIBRARY } from './modules/render/environment-manager.js';
 import { createAndStartRenderLoop } from './modules/render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from './modules/render/debug-textures.js';
+import { createEnvironmentWiring } from './modules/render/environment-wiring.js';
 import { createBackfaceOverlayController } from './modules/render/backface-overlay.js';
 import { createShadingController } from './modules/render/shading-controller.js';
 import { createAssetLoaders } from './modules/io/asset-loaders.js';
@@ -349,22 +350,33 @@ class ViewerApp {
 	        // =====================
 	        // Loaders & caches
 	        // =====================
-	        const {
-	            fbxLoader,
-	            textureLoader,
+		        const {
+		            fbxLoader,
+		            textureLoader,
 	            texLd,
 	            parseFBXInWorker,
 	            parseFBXOnMainThread,
 	            isWorkerSupported: isFBXWorkerSupported,
 	            setWorkerSupported: setFBXWorkerSupported,
 	            disableWorker: disableFBXWorker,
-	            unpackZIPInWorker,
-	        } = createAssetLoaders({ THREE });
-			        const environmentManager = createEnvironmentManager({
-			            renderer,
-			            scene,
-			            world,
-			            app,
+		            unpackZIPInWorker,
+		        } = createAssetLoaders({ THREE });
+		        const {
+		            setEnvironmentRotation,
+		            requestEnvironmentRebuild,
+		            loadHDRBase,
+		            syncEnvAdjustmentsState,
+		            buildAndApplyEnvFromRotation,
+		            setEnvironmentEnabled,
+		            applyEnvToMaterials,
+		            getCurrentEnv,
+		            getCurrentBg,
+		            selectPresetIndex,
+		        } = createEnvironmentWiring({
+		            renderer,
+		            scene,
+		            world,
+		            app,
 		            requestRender,
 		            ensureBgMesh: backgroundController.ensureBgMesh,
 		            getBgMesh: backgroundController.getBgMesh,
@@ -372,43 +384,15 @@ class ViewerApp {
 		            applyGlassControlsToScene,
 		            useWebGPU: USE_WEBGPU,
 		            rendererInitPromise,
-	            iblGammaEl,
-	            iblTintEl,
-	            hdriExposureEl,
-	            hdriSaturationEl,
-	            hdriBlurEl,
-	            getIntensity: () => parseFloat(iblIntEl?.value) || 1.0,
-	            initialRotationDeg: parseFloat(iblRotEl?.value) || 0,
-	            enabled: !!iblChk?.checked,
-	        });
-
-	        function setEnvironmentRotation(deg) {
-	            environmentManager.setRotation(deg);
-	        }
-
-        function requestEnvironmentRebuild({ immediate = false } = {}) {
-            environmentManager.requestRebuild({ immediate });
-        }
-
-	        async function loadHDRBase() {
-	            return environmentManager.loadHDRBase();
-	        }
-
-	        function syncEnvAdjustmentsState() {
-	            return environmentManager.syncAdjustmentsState();
-	        }
-
-	        async function buildAndApplyEnvFromRotation(deg) {
-	            await environmentManager.buildAndApplyFromRotation(deg);
-	        }
-
-	        async function setEnvironmentEnabled(on) {
-	            await environmentManager.setEnabled(on);
-	        }
-
-	        function applyEnvToMaterials(env, intensity) {
-	            environmentManager.applyEnvToMaterials(env, intensity);
-	        }
+		            iblGammaEl,
+		            iblTintEl,
+		            hdriExposureEl,
+		            hdriSaturationEl,
+		            hdriBlurEl,
+		            getIntensity: () => parseFloat(iblIntEl?.value) || 1.0,
+		            initialRotationDeg: parseFloat(iblRotEl?.value) || 0,
+		            enabled: !!iblChk?.checked,
+		        });
 
         // =====================================================================
         // Asset Loading · Shared State
@@ -642,11 +626,11 @@ class ViewerApp {
 		            requestRender,
 		        });
 
-			        createEnvironmentControlsController({
-			            scene,
-			            iblChk,
-			            hdriPresetSel,
-			            presets: HDRI_LIBRARY,
+				        createEnvironmentControlsController({
+				            scene,
+				            iblChk,
+				            hdriPresetSel,
+				            presets: HDRI_LIBRARY,
 			            iblIntEl,
 			            iblGammaEl,
 			            iblTintEl,
@@ -655,13 +639,13 @@ class ViewerApp {
 		            hdriSaturationEl,
 		            hdriBlurEl,
 		            setEnvironmentEnabled,
-		            setEnvironmentRotation,
-		            applyEnvToMaterials,
-		            requestEnvironmentRebuild,
-		            syncEnvAdjustmentsState,
-			            getCurrentEnv: () => environmentManager.getCurrentEnv(),
-			            selectPresetIndex: (idx) => environmentManager.selectPresetIndex(idx),
-			        });
+				            setEnvironmentRotation,
+				            applyEnvToMaterials,
+				            requestEnvironmentRebuild,
+				            syncEnvAdjustmentsState,
+				            getCurrentEnv,
+				            selectPresetIndex,
+				        });
 
 			        createAppbarControlsController({
 			            document,
@@ -1009,14 +993,14 @@ class ViewerApp {
             getIBLRotation: () => parseFloat(iblRotEl.value) || 0,
 	            loadHDRBase,
 	            buildAndApplyEnvFromRotation,
-	            syncBackgroundToEnvironment: () => {
-	                const bgMesh = backgroundController.ensureBgMesh();
-	                if (bgMesh) {
-	                    bgMesh.material.map = environmentManager.getCurrentBg() || null;
-	                    bgMesh.material.needsUpdate = true;
-	                }
-	                backgroundController.updateVisibility();
-	            },
+		            syncBackgroundToEnvironment: () => {
+		                const bgMesh = backgroundController.ensureBgMesh();
+		                if (bgMesh) {
+		                    bgMesh.material.map = getCurrentBg() || null;
+		                    bgMesh.material.needsUpdate = true;
+		                }
+		                backgroundController.updateVisibility();
+		            },
 	            applyGlassControlsToScene,
 	            fitSunShadowToScene,
             updateSun,
