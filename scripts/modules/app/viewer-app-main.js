@@ -26,6 +26,7 @@ import { createAppbarControlsController } from '../ui/appbar-controls.js';
 import { createAppbarVisibilityTogglesController } from '../ui/appbar-visibility-toggles.js';
 import { createCameraPresetsController } from '../ui/camera-presets.js';
 import { createPromptModalController } from '../ui/prompt-modal.js';
+import { createTransitionModalController } from '../ui/transition-modal.js';
 import { createGridVisibilityController } from '../ui/grid-visibility.js';
 import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
@@ -99,6 +100,16 @@ class ViewerApp {
             okBtn: dom.promptOkBtn,
             cancelBtn: dom.promptCancelBtn,
             closeBtn: dom.promptCloseBtn,
+        });
+
+        const transitionModal = createTransitionModalController({
+            modalEl: dom.transitionModalEl,
+            titleEl: dom.transitionTitleEl,
+            secondsEl: dom.transitionSecondsEl,
+            typeEl: dom.transitionTypeEl,
+            okBtn: dom.transitionOkBtn,
+            cancelBtn: dom.transitionCancelBtn,
+            closeBtn: dom.transitionCloseBtn,
         });
 
         const statusUI = createStatusUIController({
@@ -297,13 +308,10 @@ class ViewerApp {
 		                placeholder: 'Имя камеры',
 		                type: 'text',
 		            }),
-		            promptTransitionSeconds: ({ from, to, value }) => promptModal.open({
-		                title: `Переход: ${(from?.name || 'Camera')} → ${(to?.name || 'Camera')} (сек)`,
-		                value: String(value ?? 0),
-		                placeholder: '0',
-		                type: 'number',
-		                step: '0.1',
-		                min: '0',
+		            promptTransition: ({ from, to, seconds, type }) => transitionModal.open({
+		                title: `Переход: ${(from?.name || 'Camera')} → ${(to?.name || 'Camera')}`,
+		                seconds: seconds ?? 0,
+		                type: type ?? 'soft',
 		            }),
 		            camsToggleBtn,
 		            camsBarEl,

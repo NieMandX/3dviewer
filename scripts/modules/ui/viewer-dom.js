@@ -113,6 +113,15 @@ export function collectViewerDom(document) {
         promptCancelBtn: get('promptCancel'),
         promptCloseBtn: get('promptClose'),
 
+        // Transition modal
+        transitionModalEl: get('transitionModal'),
+        transitionTitleEl: get('transitionTitle'),
+        transitionSecondsEl: get('transitionSeconds'),
+        transitionTypeEl: get('transitionType'),
+        transitionOkBtn: get('transitionOk'),
+        transitionCancelBtn: get('transitionCancel'),
+        transitionCloseBtn: get('transitionClose'),
+
         // File flow
         fileInput: get('fileInput'),
         openBtn: get('openBtn'),

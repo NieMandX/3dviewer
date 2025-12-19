@@ -49,9 +49,9 @@ export function createCameraPresetsController(options = {}) {
         typeof options.promptCameraName === 'function'
             ? options.promptCameraName
             : null;
-    const promptTransitionSeconds =
-        typeof options.promptTransitionSeconds === 'function'
-            ? options.promptTransitionSeconds
+    const promptTransition =
+        typeof options.promptTransition === 'function'
+            ? options.promptTransition
             : null;
     const confirmFn =
         typeof options.confirm === 'function'
@@ -165,16 +165,37 @@ export function createCameraPresetsController(options = {}) {
         return `${fromId || ''}->${toId || ''}`;
     }
 
-    function getTransitionSeconds(fromId, toId) {
-        const key = transitionKey(fromId, toId);
-        const v = transitions.get(key);
-        return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0;
+    function normalizeTransitionType(type) {
+        const v = String(type || '').trim().toLowerCase();
+        if (v === 'linear') return 'linear';
+        return 'soft';
     }
 
-    function setTransitionSeconds(fromId, toId, seconds) {
+    function getTransition(fromId, toId) {
         const key = transitionKey(fromId, toId);
-        const next = Math.max(0, Number(seconds) || 0);
-        transitions.set(key, next);
+        const raw = transitions.get(key);
+        if (typeof raw === 'number' && Number.isFinite(raw)) {
+            return { seconds: Math.max(0, raw), type: 'soft' };
+        }
+        if (!raw || typeof raw !== 'object') {
+            return { seconds: 0, type: 'soft' };
+        }
+        const seconds =
+            typeof raw.seconds === 'number' && Number.isFinite(raw.seconds)
+                ? Math.max(0, raw.seconds)
+                : 0;
+        return {
+            seconds,
+            type: normalizeTransitionType(raw.type),
+        };
+    }
+
+    function setTransition(fromId, toId, { seconds, type } = {}) {
+        const key = transitionKey(fromId, toId);
+        transitions.set(key, {
+            seconds: Math.max(0, Number(seconds) || 0),
+            type: normalizeTransitionType(type),
+        });
     }
 
     async function editTransition(fromId, toId) {
@@ -182,30 +203,50 @@ export function createCameraPresetsController(options = {}) {
         const to = getPresetById(toId);
         if (!from || !to) return;
 
-        const current = getTransitionSeconds(fromId, toId);
-        let raw = null;
+        const current = getTransition(fromId, toId);
+        let result = null;
 
-        if (promptTransitionSeconds) {
+        if (promptTransition) {
             try {
-                raw = await Promise.resolve(promptTransitionSeconds({ from, to, value: current }));
+                result = await Promise.resolve(promptTransition({
+                    from,
+                    to,
+                    seconds: current.seconds,
+                    type: current.type,
+                }));
             } catch (_) {
-                raw = null;
+                result = null;
             }
         }
 
-        if (raw == null) {
-            raw = safePrompt(
+        if (result == null) {
+            const secRaw = safePrompt(
                 promptFn,
                 `Переход “${from.name || 'Camera'}” → “${to.name || 'Camera'}” (сек)`,
-                String(current),
+                String(current.seconds),
             );
+            if (secRaw == null) return;
+            const seconds = Number.parseFloat(String(secRaw).replace(',', '.'));
+            if (!Number.isFinite(seconds) || seconds < 0) return;
+
+            const typeRaw = safePrompt(promptFn, 'Тип перехода: soft / linear', current.type);
+            if (typeRaw == null) return;
+            setTransition(fromId, toId, { seconds, type: typeRaw });
+            render();
+            return;
         }
-        if (raw == null) return;
 
-        const value = Number.parseFloat(String(raw).replace(',', '.'));
-        if (!Number.isFinite(value) || value < 0) return;
+        if (typeof result === 'number' || typeof result === 'string') {
+            const seconds = Number.parseFloat(String(result).replace(',', '.'));
+            if (!Number.isFinite(seconds) || seconds < 0) return;
+            setTransition(fromId, toId, { seconds, type: current.type });
+            render();
+            return;
+        }
 
-        setTransitionSeconds(fromId, toId, value);
+        const seconds = Number.parseFloat(String(result.seconds ?? current.seconds).replace(',', '.'));
+        if (!Number.isFinite(seconds) || seconds < 0) return;
+        setTransition(fromId, toId, { seconds, type: result.type ?? current.type });
         render();
     }
 
@@ -253,10 +294,10 @@ export function createCameraPresetsController(options = {}) {
         btn.dataset.from = fromPreset.id;
         btn.dataset.to = toPreset.id;
 
-        const sec = getTransitionSeconds(fromPreset.id, toPreset.id);
+        const tr = getTransition(fromPreset.id, toPreset.id);
         const fromName = fromPreset.name || 'Camera';
         const toName = toPreset.name || 'Camera';
-        btn.title = `Переход ${fromName} → ${toName}: ${sec}s`;
+        btn.title = `Переход ${fromName} → ${toName}: ${tr.seconds}s · ${tr.type}`;
         btn.setAttribute('aria-label', btn.title);
         return btn;
     }
@@ -703,7 +744,7 @@ export function createCameraPresetsController(options = {}) {
         return t * t * (3 - 2 * t);
     }
 
-    function animateTransition(fromPreset, toPreset, seconds, token) {
+    function animateTransition(fromPreset, toPreset, seconds, type, token) {
         if (!THREE || !camera || !controls) return Promise.resolve(false);
         const duration = Math.max(0, Number(seconds) || 0);
         if (duration <= 0) {
@@ -747,7 +788,7 @@ export function createCameraPresetsController(options = {}) {
                 }
 
                 const t = Math.min(1, Math.max(0, (now - start) / durMs));
-                const k = smoothstep(t);
+                const k = normalizeTransitionType(type) === 'linear' ? t : smoothstep(t);
 
                 tmpPos.lerpVectors(fromPos, toPos, k);
                 tmpTgt.lerpVectors(fromTgt, toTgt, k);
@@ -808,8 +849,8 @@ export function createCameraPresetsController(options = {}) {
                 if (token !== playToken) return;
                 const fromPreset = presets[i];
                 const toPreset = presets[i + 1];
-                const sec = getTransitionSeconds(fromPreset.id, toPreset.id);
-                await animateTransition(fromPreset, toPreset, sec, token);
+                const tr = getTransition(fromPreset.id, toPreset.id);
+                await animateTransition(fromPreset, toPreset, tr.seconds, tr.type, token);
                 if (token !== playToken) return;
                 setActive(toPreset.id);
             }
