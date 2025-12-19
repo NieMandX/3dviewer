@@ -127,14 +127,41 @@ export function createCameraPresetsController(options = {}) {
         const sx = Number.isFinite(shiftX) ? shiftX : 0;
         const sy = Number.isFinite(shiftY) ? shiftY : 0;
 
+        // IMPORTANT:
+        // `PerspectiveCamera.setViewOffset()` mutates `camera.aspect = fullWidth / fullHeight`.
+        // If we pass (1, 1, ...) the camera becomes square and the whole view looks "squashed",
+        // and `clearViewOffset()` won't restore the old aspect.
+        // So we always use the actual viewport size (or a safe fallback) for fullWidth/fullHeight.
+        const viewEl = controls?.domElement || null;
+        const fullWidth =
+            Math.max(
+                1,
+                Math.round(
+                    (viewEl && Number.isFinite(viewEl.clientWidth) && viewEl.clientWidth > 0)
+                        ? viewEl.clientWidth
+                        : (viewEl && Number.isFinite(viewEl.width) && viewEl.width > 0 ? viewEl.width : 0),
+                ),
+            );
+        const fullHeight =
+            Math.max(
+                1,
+                Math.round(
+                    (viewEl && Number.isFinite(viewEl.clientHeight) && viewEl.clientHeight > 0)
+                        ? viewEl.clientHeight
+                        : (viewEl && Number.isFinite(viewEl.height) && viewEl.height > 0 ? viewEl.height : 0),
+                ),
+            );
+        const viewAspect = fullWidth / fullHeight;
+
         const eps = 1e-9;
         if (Math.abs(sx) < eps && Math.abs(sy) < eps) {
             camera.clearViewOffset?.();
+            if (Number.isFinite(viewAspect) && viewAspect > 0) camera.aspect = viewAspect;
             return;
         }
 
-        // Store as normalized offsets (fullWidth/fullHeight = 1) so we can persist shifts without depending on pixels.
-        camera.setViewOffset?.(1, 1, sx, sy, 1, 1);
+        // Store shift as normalized offsets (offsetX/fullWidth, offsetY/fullHeight), independent of pixels.
+        camera.setViewOffset?.(fullWidth, fullHeight, sx * fullWidth, sy * fullHeight, fullWidth, fullHeight);
         if (camera.view) camera.view.enabled = true;
     }
 
