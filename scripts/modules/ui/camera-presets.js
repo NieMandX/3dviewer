@@ -168,6 +168,7 @@ export function createCameraPresetsController(options = {}) {
         if (!camPropsDetailsEl) return;
         camPropsDetailsEl.hidden = !visible;
         if (visible) camPropsDetailsEl.open = true;
+        else camPropsDetailsEl.open = false;
     }
 
     function setPropsTitle(text) {
@@ -397,6 +398,13 @@ export function createCameraPresetsController(options = {}) {
         requestLayout();
     }
 
+    function closePropsPanel() {
+        editingId = null;
+        setPropsPanelVisible(false);
+        setPropsTitle('—');
+        requestLayout();
+    }
+
     function makePresetButton(preset, { active = false } = {}) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -604,6 +612,10 @@ export function createCameraPresetsController(options = {}) {
         if (action === 'props') {
             const preset = getPresetById(id);
             if (!preset) return;
+            if (camPropsDetailsEl && !camPropsDetailsEl.hidden && editingId === preset.id) {
+                closePropsPanel();
+                return;
+            }
             if (applyPreset(preset)) setActive(preset.id);
             openPropsForPresetId(preset.id);
             return;
