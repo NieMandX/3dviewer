@@ -2,6 +2,7 @@ export function createAppbarControlsController(options = {}) {
     const statsBtn = options.statsBtn || null;
     const gridToggleBtn = options.gridToggleBtn || null;
     const resetViewerBtn = options.resetViewerBtn || null;
+    const resetViewBtn = options.resetViewBtn || null;
     const fullscreenBtn = options.fullscreenBtn || null;
 
     const documentRef = options.document || (typeof document !== 'undefined' ? document : null);
@@ -47,9 +48,16 @@ export function createAppbarControlsController(options = {}) {
         windowRef?.location?.reload?.();
     }
 
+    function resetView() {
+        if (typeof options.onResetView === 'function') {
+            options.onResetView();
+        }
+    }
+
     addListener(statsBtn, 'click', () => setStatsVisible(!isStatsVisible()));
     addListener(gridToggleBtn, 'click', () => setGridVisible(!isGridVisible()));
     addListener(resetViewerBtn, 'click', resetViewer);
+    addListener(resetViewBtn, 'click', resetView);
     addListener(fullscreenBtn, 'click', () => {
         if (typeof options.onToggleFullscreen === 'function') {
             options.onToggleFullscreen();
@@ -71,7 +79,7 @@ export function createAppbarControlsController(options = {}) {
     return Object.freeze({
         dispose,
         resetViewer,
+        resetView,
         toggleFullscreen,
     });
 }
-

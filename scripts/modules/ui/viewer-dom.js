@@ -46,6 +46,7 @@ export function collectViewerDom(document) {
         toggleSideBtn: get('toggleSideBtn'),
         loadParcelsBtn: get('loadParcelsBtn'),
         resetViewerBtn: get('resetViewerBtn'),
+        resetViewBtn: get('resetViewBtn'),
         fullscreenBtn: get('fullscreenBtn'),
 	        statsBtn: get('statsBtn'),
 	        bgToggleBtn: get('bgToggleBtn'),

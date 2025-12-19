@@ -159,6 +159,7 @@ class ViewerApp {
 	        const toggleSideBtn = dom.toggleSideBtn;
 	        const loadParcelsBtn = dom.loadParcelsBtn;
 	        const resetViewerBtn = dom.resetViewerBtn;
+	        const resetViewBtn = dom.resetViewBtn;
 	        const fullscreenBtn = dom.fullscreenBtn;
 	        const statsBtn = dom.statsBtn;
 	        const solidToggleBtn = dom.solidToggleBtn;
@@ -679,11 +680,17 @@ class ViewerApp {
 			            statsBtn,
 			            gridToggleBtn,
 			            resetViewerBtn,
+			            resetViewBtn,
 				            fullscreenBtn,
 				            isStatsVisible: () => statsOverlayController.isVisible(),
 				            setStatsVisible,
 				            isGridVisible: gridVisibilityController.isVisible,
 				            setGridVisible: gridVisibilityController.setVisible,
+			            onResetView: () => {
+			                if (!loadedModels.length) return;
+			                fitAll();
+			                focusOn(loadedModels.map(m => m.obj));
+			            },
 				        });
 
 			        // =====================
