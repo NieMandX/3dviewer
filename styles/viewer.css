@@ -464,6 +464,33 @@ body {
     line-height: 1;
 }
 
+.btn.cam-transition,
+.btn.cam-play {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    font-weight: 700;
+}
+
+.btn.cam-transition {
+    font-size: 14px;
+}
+
+.btn.cam-play {
+    font-size: 12px;
+}
+
+.btn.cam-play.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
 .cams-side-list {
     display: flex;
     flex-direction: column;
@@ -998,7 +1025,12 @@ body.bg-black .cams-bar .btn:hover {
     border-color: rgba(255,255,255,0.55);
     background: rgba(255,255,255,0.12);
 }
-body.bg-black .btn.cam-chip .cam-x {
+body.bg-black .cams-bar .btn.cam-play.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+body.bg-black .btn.cam-chip .cam-actions {
     border-left-color: rgba(255, 255, 255, 0.22);
 }
 body.bg-black .side {

@@ -20,13 +20,24 @@ export function createPromptModalController(options = {}) {
         resolve?.(value);
     }
 
-    function open({ title = 'Имя камеры', value = '', placeholder = '' } = {}) {
+    function open({ title = 'Имя камеры', value = '', placeholder = '', type = 'text', step = null, min = null, max = null } = {}) {
         if (!modalEl || !inputEl) return Promise.resolve(null);
         if (resolver) close(null);
 
         if (titleEl) titleEl.textContent = title;
+        try {
+            inputEl.type = type || 'text';
+        } catch (_) {
+            inputEl.type = 'text';
+        }
         inputEl.value = value != null ? String(value) : '';
         if (placeholder != null) inputEl.placeholder = String(placeholder);
+        if (step != null) inputEl.step = String(step);
+        else inputEl.removeAttribute('step');
+        if (min != null) inputEl.min = String(min);
+        else inputEl.removeAttribute('min');
+        if (max != null) inputEl.max = String(max);
+        else inputEl.removeAttribute('max');
 
         modalEl.classList.add('show');
 
@@ -75,4 +86,3 @@ export function createPromptModalController(options = {}) {
         isOpen,
     });
 }
-

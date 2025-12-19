@@ -49,6 +49,10 @@ export function createCameraPresetsController(options = {}) {
         typeof options.promptCameraName === 'function'
             ? options.promptCameraName
             : null;
+    const promptTransitionSeconds =
+        typeof options.promptTransitionSeconds === 'function'
+            ? options.promptTransitionSeconds
+            : null;
     const confirmFn =
         typeof options.confirm === 'function'
             ? options.confirm
@@ -57,12 +61,15 @@ export function createCameraPresetsController(options = {}) {
                 : null);
 
     const presets = Array.isArray(options.initialPresets) ? [...options.initialPresets] : [];
+    const transitions = new Map();
     let activeId = null;
     let barVisible = false;
     let dragId = null;
     let suppressClicksUntil = 0;
     let editingId = null;
     let propsUI = null;
+    let playToken = 0;
+    let playing = false;
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
 
@@ -154,6 +161,54 @@ export function createCameraPresetsController(options = {}) {
         return true;
     }
 
+    function transitionKey(fromId, toId) {
+        return `${fromId || ''}->${toId || ''}`;
+    }
+
+    function getTransitionSeconds(fromId, toId) {
+        const key = transitionKey(fromId, toId);
+        const v = transitions.get(key);
+        return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0;
+    }
+
+    function setTransitionSeconds(fromId, toId, seconds) {
+        const key = transitionKey(fromId, toId);
+        const next = Math.max(0, Number(seconds) || 0);
+        transitions.set(key, next);
+    }
+
+    async function editTransition(fromId, toId) {
+        const from = getPresetById(fromId);
+        const to = getPresetById(toId);
+        if (!from || !to) return;
+
+        const current = getTransitionSeconds(fromId, toId);
+        let raw = null;
+
+        if (promptTransitionSeconds) {
+            try {
+                raw = await Promise.resolve(promptTransitionSeconds({ from, to, value: current }));
+            } catch (_) {
+                raw = null;
+            }
+        }
+
+        if (raw == null) {
+            raw = safePrompt(
+                promptFn,
+                `Переход “${from.name || 'Camera'}” → “${to.name || 'Camera'}” (сек)`,
+                String(current),
+            );
+        }
+        if (raw == null) return;
+
+        const value = Number.parseFloat(String(raw).replace(',', '.'));
+        if (!Number.isFinite(value) || value < 0) return;
+
+        setTransitionSeconds(fromId, toId, value);
+        render();
+    }
+
     function getPresetById(id) {
         if (!id) return null;
         return presets.find((p) => p && p.id === id) || null;
@@ -187,6 +242,35 @@ export function createCameraPresetsController(options = {}) {
         };
         updateIn(camsBarListEl);
         updateIn(camsSideListEl);
+    }
+
+    function makeTransitionButton(fromPreset, toPreset) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn cam-transition';
+        btn.textContent = '→';
+        btn.dataset.action = 'transition';
+        btn.dataset.from = fromPreset.id;
+        btn.dataset.to = toPreset.id;
+
+        const sec = getTransitionSeconds(fromPreset.id, toPreset.id);
+        const fromName = fromPreset.name || 'Camera';
+        const toName = toPreset.name || 'Camera';
+        btn.title = `Переход ${fromName} → ${toName}: ${sec}s`;
+        btn.setAttribute('aria-label', btn.title);
+        return btn;
+    }
+
+    function makePlayButton() {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn cam-play';
+        btn.textContent = playing ? '■' : '▶';
+        btn.dataset.action = 'play';
+        btn.title = playing ? 'Остановить' : 'Проиграть переходы';
+        btn.setAttribute('aria-label', btn.title);
+        if (playing) btn.classList.add('active');
+        return btn;
     }
 
     function makeLabel(text, inputEl) {
@@ -461,11 +545,19 @@ export function createCameraPresetsController(options = {}) {
         if (!camsBarListEl) return;
         camsBarListEl.innerHTML = '';
 
-        presets.forEach((preset) => {
+        for (let i = 0; i < presets.length; i++) {
+            const preset = presets[i];
             camsBarListEl.appendChild(
                 makePresetButton(preset, { active: activeId && preset.id === activeId }),
             );
-        });
+            if (i < presets.length - 1) {
+                camsBarListEl.appendChild(makeTransitionButton(preset, presets[i + 1]));
+            }
+        }
+
+        if (presets.length > 0) {
+            camsBarListEl.appendChild(makePlayButton());
+        }
 
         const add = document.createElement('button');
         add.type = 'button';
@@ -559,6 +651,9 @@ export function createCameraPresetsController(options = {}) {
         const idx = presets.findIndex((p) => p && p.id === id);
         if (idx < 0) return false;
         presets.splice(idx, 1);
+        for (const key of Array.from(transitions.keys())) {
+            if (key.startsWith(`${id}->`) || key.endsWith(`->${id}`)) transitions.delete(key);
+        }
         if (activeId === id) activeId = null;
         if (editingId === id) {
             editingId = null;
@@ -600,7 +695,141 @@ export function createCameraPresetsController(options = {}) {
         return true;
     }
 
-    function handleAction(action, id) {
+    function lerp(a, b, t) {
+        return a + (b - a) * t;
+    }
+
+    function smoothstep(t) {
+        return t * t * (3 - 2 * t);
+    }
+
+    function animateTransition(fromPreset, toPreset, seconds, token) {
+        if (!THREE || !camera || !controls) return Promise.resolve(false);
+        const duration = Math.max(0, Number(seconds) || 0);
+        if (duration <= 0) {
+            applyPreset(toPreset);
+            return Promise.resolve(true);
+        }
+
+        const fromPos = new THREE.Vector3().fromArray(fromPreset.position || [0, 0, 0]);
+        const toPos = new THREE.Vector3().fromArray(toPreset.position || [0, 0, 0]);
+        const fromTgt = new THREE.Vector3().fromArray(fromPreset.target || [0, 0, 0]);
+        const toTgt = new THREE.Vector3().fromArray(toPreset.target || [0, 0, 0]);
+        const fromUp = new THREE.Vector3().fromArray(fromPreset.up || [0, 1, 0]);
+        const toUp = new THREE.Vector3().fromArray(toPreset.up || [0, 1, 0]);
+
+        const fromFov = Number.isFinite(fromPreset.fov) ? fromPreset.fov : camera.fov;
+        const toFov = Number.isFinite(toPreset.fov) ? toPreset.fov : camera.fov;
+        const fromZoom = Number.isFinite(fromPreset.zoom) ? fromPreset.zoom : camera.zoom;
+        const toZoom = Number.isFinite(toPreset.zoom) ? toPreset.zoom : camera.zoom;
+        const fromNear = Number.isFinite(fromPreset.near) ? fromPreset.near : camera.near;
+        const toNear = Number.isFinite(toPreset.near) ? toPreset.near : camera.near;
+        const fromFar = Number.isFinite(fromPreset.far) ? fromPreset.far : camera.far;
+        const toFar = Number.isFinite(toPreset.far) ? toPreset.far : camera.far;
+
+        const fromShiftX = Number.isFinite(fromPreset.shiftX) ? fromPreset.shiftX : 0;
+        const toShiftX = Number.isFinite(toPreset.shiftX) ? toPreset.shiftX : 0;
+        const fromShiftY = Number.isFinite(fromPreset.shiftY) ? fromPreset.shiftY : 0;
+        const toShiftY = Number.isFinite(toPreset.shiftY) ? toPreset.shiftY : 0;
+
+        const tmpPos = new THREE.Vector3();
+        const tmpTgt = new THREE.Vector3();
+        const tmpUp = new THREE.Vector3();
+
+        return new Promise((resolve) => {
+            const start = performance.now();
+            const durMs = duration * 1000;
+
+            const tick = (now) => {
+                if (token !== playToken) {
+                    resolve(false);
+                    return;
+                }
+
+                const t = Math.min(1, Math.max(0, (now - start) / durMs));
+                const k = smoothstep(t);
+
+                tmpPos.lerpVectors(fromPos, toPos, k);
+                tmpTgt.lerpVectors(fromTgt, toTgt, k);
+                tmpUp.lerpVectors(fromUp, toUp, k);
+                if (tmpUp.lengthSq() > 1e-12) tmpUp.normalize();
+
+                camera.position.copy(tmpPos);
+                camera.up.copy(tmpUp);
+                controls.target.copy(tmpTgt);
+
+                camera.fov = lerp(fromFov, toFov, k);
+                camera.zoom = lerp(fromZoom, toZoom, k);
+                camera.near = Math.max(0.0001, lerp(fromNear, toNear, k));
+                camera.far = Math.max(camera.near + 0.01, lerp(fromFar, toFar, k));
+
+                applyCameraShift(lerp(fromShiftX, toShiftX, k), lerp(fromShiftY, toShiftY, k));
+                camera.updateProjectionMatrix?.();
+
+                controls.update?.();
+                requestRender();
+
+                if (t >= 1) {
+                    resolve(true);
+                    return;
+                }
+                requestAnimationFrame(tick);
+            };
+
+            requestAnimationFrame(tick);
+        });
+    }
+
+    async function playSequence() {
+        if (!presets.length) return;
+
+        const token = ++playToken;
+        playing = true;
+        render();
+
+        const prevControlsEnabled = controls?.enabled;
+        const prevDamping = controls?.enableDamping;
+        if (controls) {
+            controls.enabled = false;
+            controls.enableDamping = false;
+        }
+
+        try {
+            let startIndex = activeId ? presets.findIndex((p) => p && p.id === activeId) : -1;
+            if (startIndex < 0 || startIndex >= presets.length - 1) startIndex = 0;
+
+            const startPreset = presets[startIndex];
+            if (startPreset) {
+                applyPreset(startPreset);
+                setActive(startPreset.id);
+            }
+
+            for (let i = startIndex; i < presets.length - 1; i++) {
+                if (token !== playToken) return;
+                const fromPreset = presets[i];
+                const toPreset = presets[i + 1];
+                const sec = getTransitionSeconds(fromPreset.id, toPreset.id);
+                await animateTransition(fromPreset, toPreset, sec, token);
+                if (token !== playToken) return;
+                setActive(toPreset.id);
+            }
+        } finally {
+            if (controls) {
+                controls.enabled = prevControlsEnabled ?? true;
+                controls.enableDamping = prevDamping ?? true;
+            }
+            if (token === playToken) {
+                playing = false;
+                render();
+            }
+        }
+    }
+
+    function handleAction(action, payload) {
+        const id = payload?.id || null;
+        const from = payload?.from || null;
+        const to = payload?.to || null;
+
         if (action === 'add') {
             void addFromCurrentView();
             return;
@@ -618,6 +847,21 @@ export function createCameraPresetsController(options = {}) {
             }
             if (applyPreset(preset)) setActive(preset.id);
             openPropsForPresetId(preset.id);
+            return;
+        }
+        if (action === 'transition') {
+            if (!from || !to) return;
+            void editTransition(from, to);
+            return;
+        }
+        if (action === 'play') {
+            if (playing) {
+                playToken++;
+                playing = false;
+                render();
+                return;
+            }
+            void playSequence();
             return;
         }
         if (action === 'goto') {
@@ -644,8 +888,11 @@ export function createCameraPresetsController(options = {}) {
             if (!(actionEl instanceof HTMLElement)) return;
             const action = actionEl.dataset?.action;
             if (!action) return;
-            const id = actionEl.dataset?.id || null;
-            handleAction(action, id);
+            handleAction(action, {
+                id: actionEl.dataset?.id || null,
+                from: actionEl.dataset?.from || null,
+                to: actionEl.dataset?.to || null,
+            });
         });
     }
 
