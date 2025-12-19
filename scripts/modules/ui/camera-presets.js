@@ -392,13 +392,8 @@ export function createCameraPresetsController(options = {}) {
         if (!preset) return;
         editingId = id;
 
-        if (typeof document !== 'undefined') {
-            document.body?.classList?.remove?.('side-hidden');
-        }
-
         setPropsPanelVisible(true);
         syncPropsPanel(preset);
-        camPropsDetailsEl?.scrollIntoView?.({ block: 'nearest' });
         requestLayout();
     }
 
