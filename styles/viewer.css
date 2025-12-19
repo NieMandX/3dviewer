@@ -10,6 +10,7 @@
     --border: #e5e7eb;
     --accent: #0b57d0;
     --appbarH: 48px;
+    --camsBarH: 0px;
     --sideW: 460px;
 }
 
@@ -32,7 +33,7 @@ body {
 /* Shadows debug panel */
     .debug-panel{
     position: fixed;
-    top: calc(var(--appbarH) + 8px);
+    top: calc(var(--appbarH) + var(--camsBarH) + 8px);
     left: 8px;
     z-index: 20;
     width: 320px;
@@ -378,7 +379,7 @@ body {
     position: fixed;
     top: var(--appbarH);
     left: 0;
-    right: var(--sideW);
+    right: 0;
     z-index: 4;
     padding: 6px 10px;
     background: rgba(255, 255, 255, 0.88);
@@ -572,7 +573,7 @@ body.bg-black button.status-overlay {
 
 .side {
     position: fixed;
-    top: var(--appbarH);
+    top: calc(var(--appbarH) + var(--camsBarH));
     right: 0;
     bottom: 0;
     width: var(--sideW);
@@ -627,7 +628,7 @@ box-shadow:none; outline:0;
 
 #out {
     margin-top: 8px;
-    max-height: calc(100vh - var(--appbarH) - 260px);
+    max-height: calc(100vh - var(--appbarH) - var(--camsBarH) - 260px);
     min-height: 0;
     overflow: auto;
     flex: 0 0 auto;
@@ -656,7 +657,7 @@ input[type="range"] { width: 120px; }
 
     /* прокрутка */
     overflow:auto;
-    max-height:calc(100vh - var(--appbarH) - 260px); /* при желании подстройте 260px */
+    max-height:calc(100vh - var(--appbarH) - var(--camsBarH) - 260px); /* при желании подстройте 260px */
     scrollbar-gutter:stable both-edges;
     overscroll-behavior:contain;
     -webkit-overflow-scrolling:touch;
@@ -670,7 +671,7 @@ input[type="range"] { width: 120px; }
 
 .gallery-spacer { grid-column: 1 / -1; height: 1px; }
 
-.drop { position: fixed; inset: var(--appbarH) 0 0 0; display:none; place-items:center; background:rgba(0,0,0,.04); border:3px dashed rgba(0,0,0,.2); font-size:18px; z-index:4; pointer-events:none }
+.drop { position: fixed; inset: calc(var(--appbarH) + var(--camsBarH)) 0 0 0; display:none; place-items:center; background:rgba(0,0,0,.04); border:3px dashed rgba(0,0,0,.2); font-size:18px; z-index:4; pointer-events:none }
 .drop.show { display: grid; }
 
 .modal { position: fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.45); z-index:50 }
@@ -699,7 +700,7 @@ body.side-hidden { --sideW: 0px; }
 
 .stats-overlay {
     position: fixed;
-    top: calc(var(--appbarH) + 12px);
+    top: calc(var(--appbarH) + var(--camsBarH) + 12px);
     left: 16px;
     background: transparent;
     color: #3f3f3f;

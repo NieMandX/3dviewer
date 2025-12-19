@@ -8,6 +8,9 @@ export function createLayoutController(options = {}) {
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const toggleSideBtn = options.toggleSideBtn || null;
 
+    let lastW = 0;
+    let lastH = 0;
+
     function layout() {
         if (!renderer || !camera || !root) return;
 
@@ -15,12 +18,23 @@ export function createLayoutController(options = {}) {
         const appH = Math.ceil(appbar?.getBoundingClientRect?.().height || 48);
         root.body?.style?.setProperty?.('--appbarH', appH + 'px');
 
+        const camsBar = root.getElementById?.('camsBar') || root.querySelector?.('#camsBar');
+        const camsH =
+            camsBar && !camsBar.hidden
+                ? Math.ceil(camsBar.getBoundingClientRect?.().height || 0)
+                : 0;
+        root.body?.style?.setProperty?.('--camsBarH', camsH + 'px');
+
         const w = Math.max(1, win?.innerWidth || 1);
         const h = Math.max(1, win?.innerHeight || 1);
-        renderer.setSize(w, h);
-        camera.aspect = w / h;
-        camera.updateProjectionMatrix();
-        requestRender();
+        if (w !== lastW || h !== lastH) {
+            lastW = w;
+            lastH = h;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            requestRender();
+        }
     }
 
     function hideSidePanel() {
@@ -42,4 +56,3 @@ export function createLayoutController(options = {}) {
         hideSidePanel,
     };
 }
-

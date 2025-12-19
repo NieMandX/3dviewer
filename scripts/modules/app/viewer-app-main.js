@@ -276,6 +276,7 @@ class ViewerApp {
 		            camera,
 		            controls,
 		            requestRender,
+		            requestLayout: () => getLayoutController().layout(),
 		            camsToggleBtn,
 		            camsBarEl,
 		            camsBarListEl,

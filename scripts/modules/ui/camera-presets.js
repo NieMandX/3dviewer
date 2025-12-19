@@ -27,6 +27,7 @@ export function createCameraPresetsController(options = {}) {
     const camera = options.camera || null;
     const controls = options.controls || null;
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
+    const requestLayout = typeof options.requestLayout === 'function' ? options.requestLayout : () => {};
 
     const camsToggleBtn = options.camsToggleBtn || null;
     const camsBarEl = options.camsBarEl || null;
@@ -176,6 +177,7 @@ export function createCameraPresetsController(options = {}) {
         updateCounts();
         renderBar();
         renderSide();
+        if (barVisible) requestLayout();
     }
 
     function setBarVisible(nextVisible) {
@@ -185,6 +187,7 @@ export function createCameraPresetsController(options = {}) {
             camsToggleBtn.classList.toggle('active', barVisible);
             camsToggleBtn.setAttribute('aria-pressed', barVisible ? 'true' : 'false');
         }
+        requestLayout();
     }
 
     function toggleBarVisible() {
