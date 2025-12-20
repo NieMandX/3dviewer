@@ -7,8 +7,19 @@
     --bg: transparent;
     --ink: #111;
     --muted: #667;
-    --border: #e5e7eb;
+    --border: rgba(17, 17, 17, 0.14);
+    --borderStrong: rgba(17, 17, 17, 0.22);
     --accent: #0b57d0;
+    /* `backdrop-filter` is expensive; keep blur modest. */
+    --glassBlur: 10px;
+    --surface: rgba(255, 255, 255, 0.72);
+    --surfaceStrong: rgba(255, 255, 255, 0.86);
+    --surfaceWeak: rgba(255, 255, 255, 0.52);
+    --controlBg: rgba(255, 255, 255, 0.60);
+    --controlBgHover: rgba(255, 255, 255, 0.78);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+    --shadowStrong: 0 30px 100px rgba(0, 0, 0, 0.25);
+    --inset: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
     --appbarH: 48px;
     --camsBarH: 0px;
     --sideW: 460px;
@@ -36,14 +47,16 @@ body {
     top: calc(var(--appbarH) + var(--camsBarH) + 8px);
     left: 8px;
     z-index: 20;
-    width: 320px;
-    background: #fff;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.12);
-    padding: 10px;
-    display: none;
-    }
+	    width: 320px;
+	    background: var(--surfaceStrong);
+	    border: 1px solid var(--border);
+	    border-radius: 10px;
+	    box-shadow: var(--shadow);
+	    padding: 10px;
+	    -webkit-backdrop-filter: blur(var(--glassBlur));
+	    backdrop-filter: blur(var(--glassBlur));
+	    display: none;
+	    }
     .debug-panel.show{ display:block; }
     .debug-panel h4{ margin:0; font-size:13px; font-weight:600; }
     .debug-panel .hdr{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
@@ -82,7 +95,7 @@ body {
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 8px;
-    background: #fff;
+    background: var(--surfaceWeak);
 }
 
 .collapsible > details > summary {
@@ -361,31 +374,36 @@ body {
 
 
 
-.appbar {
-    position: fixed;
-    inset: 0 0 auto 0; /* верхняя панель */
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    padding: 0 10px;
-    background: transparent;
-    border-bottom: none;
-    z-index: 5;
-    min-height: 48px;
-}
+	.appbar {
+	    position: fixed;
+	    inset: 0 0 auto 0; /* верхняя панель */
+	    display: flex;
+	    align-items: center;
+	    gap: 10px;
+	    flex-wrap: wrap;
+	    padding: 0 10px;
+	    background: var(--surfaceWeak);
+	    border-bottom: 1px solid var(--border);
+	    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+	    -webkit-backdrop-filter: blur(var(--glassBlur));
+	    backdrop-filter: blur(var(--glassBlur));
+	    z-index: 5;
+	    min-height: 48px;
+	}
 
-.cams-bar {
-    position: fixed;
-    top: var(--appbarH);
-    left: 0;
-    right: 0;
-    z-index: 4;
-    padding: 6px 10px;
-    background: rgba(255, 255, 255, 0.88);
-    border-bottom: 1px solid var(--border);
-    backdrop-filter: blur(6px);
-}
+	.cams-bar {
+	    position: fixed;
+	    top: var(--appbarH);
+	    left: 0;
+	    right: 0;
+	    z-index: 4;
+	    padding: 6px 10px;
+	    background: var(--surfaceStrong);
+	    border-bottom: 1px solid var(--border);
+	    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+	    -webkit-backdrop-filter: blur(var(--glassBlur));
+	    backdrop-filter: blur(var(--glassBlur));
+	}
 
 .cams-strip {
     display: flex;
@@ -423,7 +441,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    border-left: 1px solid rgba(0, 0, 0, 0.12);
+    border-left: 1px solid var(--border);
     padding-left: 10px;
 }
 
@@ -515,32 +533,15 @@ details.cam-props-panel {
     left: 8px;
     z-index: 12;
     width: min(420px, calc(100vw - 16px));
-    max-height: calc(100vh - var(--appbarH) - var(--camsBarH) - 16px);
-    overflow: auto;
-    margin: 0;
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(6px);
-}
-
-body.bg-black details.cam-props-panel {
-    background: rgba(0, 0, 0, 0.78);
-    color: #fff;
-    border-color: #333;
-}
-
-body.bg-black details.cam-props-panel summary {
-    color: #fff;
-}
-
-body.bg-black details.cam-props-panel .cam-props-cap {
-    color: #bbb;
-}
-
-body.bg-black details.cam-props-panel .cam-props-field input {
-    background: #000;
-    color: #fff;
-    border-color: #333;
-}
+	    max-height: calc(100vh - var(--appbarH) - var(--camsBarH) - 16px);
+	    overflow: auto;
+	    margin: 0;
+	    background: var(--surfaceStrong);
+	    border: 1px solid var(--border);
+	    box-shadow: var(--shadow);
+	    -webkit-backdrop-filter: blur(var(--glassBlur));
+	    backdrop-filter: blur(var(--glassBlur));
+	}
 
 .cam-props {
     padding-top: 8px;
@@ -559,15 +560,11 @@ body.bg-black details.cam-props-panel .cam-props-field input {
 }
 
 .cam-props-group {
-    border: 1px dashed var(--border);
-    border-radius: 10px;
-    padding: 8px;
-    background: rgba(255, 255, 255, 0.6);
-}
-
-body.bg-black .cam-props-group {
-    background: rgba(0, 0, 0, 0.35);
-}
+	    border: 1px dashed var(--border);
+	    border-radius: 10px;
+	    padding: 8px;
+	    background: var(--surfaceWeak);
+	}
 
 .cam-props-head {
     font-size: 12px;
@@ -606,6 +603,8 @@ body.bg-black .cam-props-group {
     border: 1px solid var(--border);
     border-radius: 8px;
     font: inherit;
+    background: var(--controlBg);
+    color: var(--ink);
 }
 
 .cam-props-text {
@@ -634,7 +633,7 @@ body.bg-black .cam-props-group {
 .appbar select {
     border: 1px solid var(--border);
     color: var(--ink);
-    background: #fff;
+    background: var(--controlBg);
     padding: 6px 30px 6px 10px;
     border-radius: 8px;
     line-height: 1.3;
@@ -659,20 +658,40 @@ body.bg-black .cam-props-group {
     display: block;
 }
 .appbar select:hover {
-    border-color: rgba(17,17,17,0.4);
+    border-color: var(--borderStrong);
 }
 
 .btn {
     border: 1px solid var(--border);
-    background: #fff;
+    background: var(--controlBg);
     padding: 6px 10px;
     border-radius: 8px;
     cursor: pointer;
     color: var(--ink);
     text-decoration: none;
+    box-shadow: var(--inset);
 }
 
-.btn:hover { border-color: #d0d7de; }
+.btn:hover {
+    border-color: var(--borderStrong);
+    background: var(--controlBgHover);
+}
+
+.btn:active { transform: translateY(0.5px); }
+
+.btn.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: rgba(0, 0, 0, 0);
+    box-shadow: none;
+}
+
+.btn:focus-visible,
+select:focus-visible,
+input:focus-visible {
+    outline: 2px solid rgba(11, 87, 208, 0.45);
+    outline-offset: 2px;
+}
 
 .muted { color: var(--muted); }
 
@@ -700,6 +719,7 @@ button.status-overlay {
     max-width: 80vw;
     text-align: center;
     pointer-events: auto;
+    -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     transition: opacity 0.2s ease;
     z-index: 6;
@@ -728,6 +748,7 @@ body.bg-black button.status-overlay {
     max-width: 80vw;
     text-align: center;
     pointer-events: none;
+    -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     transition: opacity 0.2s ease;
     z-index: 6;
@@ -739,8 +760,8 @@ body.bg-black button.status-overlay {
     right: 0;
     bottom: 0;
     width: var(--sideW);
-    border-left: none;
-    background: transparent;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
@@ -771,7 +792,7 @@ border-radius:999px;
 line-height:1.2;
 font-size:12px;
 font-weight:700;
-background:#fff;
+	background: var(--controlBg);
 /* важное: убираем любые тени/аутлайны */
 box-shadow:none; outline:0;
 }
@@ -796,7 +817,14 @@ box-shadow:none; outline:0;
     flex: 0 0 auto;
 }
 
-details { border: 1px solid var(--border); border-radius: 10px; padding: 8px; margin: 8px 0; background: #fff; }
+details {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+    margin: 8px 0;
+    background: var(--surfaceWeak);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+}
 summary { cursor: pointer; font-weight: 600; }
 
 table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13px; }
@@ -807,7 +835,7 @@ td:not(.k) { overflow-wrap: anywhere; word-break: break-word; }
 .chip { display: inline-block; border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; font-size: 11px; }
 .tag  { display: inline-block; padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; margin: 2px 4px 0 0; font-size: 12px; max-width: 100%; overflow-wrap: anywhere; }
 
-select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; max-width: 100%; }
+select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--controlBg); color: var(--ink); max-width: 100%; }
 #matSelect { flex: 1 1 auto; width: 100%; min-width: 0; }
 input[type="range"] { width: 120px; }
 
@@ -824,7 +852,7 @@ input[type="range"] { width: 120px; }
     overscroll-behavior:contain;
     -webkit-overflow-scrolling:touch;
 }
-.thumb { border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: #fff; display:flex; flex-direction:column; gap:4px; cursor:pointer; overflow:hidden; }
+.thumb { border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: var(--surfaceWeak); display:flex; flex-direction:column; gap:4px; cursor:pointer; overflow:hidden; }
 .thumb img, .thumb .ph { width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:6px; display:block }
 .thumb .ph { display:grid; place-items:center; font-size:11px; color:#666; background:#f4f4f5 }
 .thumb.broken { border-color:#f5c2c7; background:#fff5f6 }
@@ -838,7 +866,7 @@ input[type="range"] { width: 120px; }
 
 .modal { position: fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.45); z-index:50 }
 .modal.show { display:grid }
-.sheet { background:#fff; width:min(900px, calc(100vw - 40px)); border-radius:12px; border:1px solid var(--border); overflow:hidden; box-shadow:0 30px 100px rgba(0,0,0,.25) }
+.sheet { background:var(--surfaceStrong); width:min(900px, calc(100vw - 40px)); border-radius:12px; border:1px solid var(--border); overflow:hidden; box-shadow:var(--shadowStrong); -webkit-backdrop-filter: blur(var(--glassBlur)); backdrop-filter: blur(var(--glassBlur)); }
 .sheet.sheet-sm { width:min(420px, calc(100vw - 40px)); }
 .sheet .head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--border) }
 .sheet .body { display:grid; grid-template-columns: 1fr 320px; gap:0 }
@@ -846,10 +874,10 @@ input[type="range"] { width: 120px; }
 .sheet .imgwrap img { max-width:100%; max-height:70vh }
 .sheet .tex-side { padding:10px; display:flex; flex-direction:column; gap:8px }
 .sheet .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-.sheet .btn.primary { background: var(--accent); color:#fff; border-color:var(--accent) }
+.sheet .btn.primary { background: var(--accent); color:#fff; border-color:rgba(0,0,0,0) }
 
 .prompt-body { padding:12px; display:flex; flex-direction:column; gap:10px }
-.prompt-input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font:inherit }
+.prompt-input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font:inherit; background: var(--controlBg); color: var(--ink); }
 .prompt-actions { justify-content:flex-end }
 .eye {
     font-size: 14px;
@@ -869,8 +897,10 @@ body.side-hidden { --sideW: 0px; }
     position: fixed;
     top: calc(var(--appbarH) + var(--camsBarH) + 12px);
     left: 16px;
-    background: transparent;
-    color: #3f3f3f;
+    background: var(--surfaceWeak);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
     padding: 10px 14px;
     border-radius: 10px;
     font-size: 12px;
@@ -988,91 +1018,24 @@ body.side-hidden { --sideW: 0px; }
 body.bg-black {
     background-color: #000;
     color: #fff;
-}
-body.bg-black .appbar {
-    background: transparent;
-    border-bottom: none;
-}
-body.bg-black .appbar .btn {
-    background-color: black;
-    color: #fff;
-    border-color: rgba(255,255,255,0.35);
-}
-body.bg-black .appbar .btn:hover {
-    border-color: rgba(255,255,255,0.55);
-    background: rgba(255,255,255,0.12);
-}
-
-body.bg-black .appbar .bg-btn.active {
-    background: #000000;
-    color: #ffffff;
-}
-body.bg-black .appbar select {
-    background: #000000;
-    color: #fff;
-    border-color: rgba(255,255,255,0.35);
-}
-body.bg-black .cams-bar {
-    background: rgba(0, 0, 0, 0.78);
-    border-bottom-color: #333;
-}
-body.bg-black .cams-bar .btn {
-    background-color: #000;
-    color: #fff;
-    border-color: rgba(255,255,255,0.35);
-}
-body.bg-black .cams-bar .btn:hover {
-    border-color: rgba(255,255,255,0.55);
-    background: rgba(255,255,255,0.12);
-}
-body.bg-black .cams-bar .btn.cam-play.active {
-    background: var(--accent);
-    color: #fff;
-    border-color: var(--accent);
-}
-body.bg-black .btn.cam-chip .cam-actions {
-    border-left-color: rgba(255, 255, 255, 0.22);
-}
-body.bg-black .side {
-    background: transparent;
-    color: #fff;
-}
-body.bg-black .side .list {
-    background: transparent;
-}
-body.bg-black .side details {
-    background: #000;
-    color: #fff;
-    border-color: #333;
-}
-body.bg-black .side details summary {
-    color: #fff;
-}
-body.bg-black .side .btn {
-    background: #000;
-    color: #fff;
-    border-color: #333;
-}
-body.bg-black .eye {
-    color: #fff;
-}
-body.bg-black .muted {
-    color: #bbb;
-}
-body.bg-black .stats-overlay {
-    color: #fff;
+    --ink: rgba(255, 255, 255, 0.94);
+    --muted: rgba(255, 255, 255, 0.65);
+    --border: rgba(255, 255, 255, 0.18);
+    --borderStrong: rgba(255, 255, 255, 0.28);
+    --surface: rgba(0, 0, 0, 0.55);
+    --surfaceStrong: rgba(0, 0, 0, 0.76);
+    --surfaceWeak: rgba(0, 0, 0, 0.42);
+    --controlBg: rgba(0, 0, 0, 0.50);
+    --controlBgHover: rgba(255, 255, 255, 0.12);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    --shadowStrong: 0 30px 100px rgba(0, 0, 0, 0.55);
+    --inset: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
 }
 
 .bind-log {
-    background: #fafafa;
+    background: var(--surfaceWeak);
     border: 1px solid var(--border);
     border-radius: 6px;
-}
-
-body.bg-black .bind-log {
-    background: #000;
-    color: #fff;
-    border-color: #333;
 }
 
 .app-footer {
@@ -1093,26 +1056,16 @@ body.bg-black .bind-log {
     padding: 6px 14px;
     border-radius: 999px;
     color: var(--muted);
-    border: 1px solid rgba(255,255,255,0.4);
-    background-color: white;
+    border: 1px solid var(--border);
+    background: var(--controlBg);
+    box-shadow: var(--inset);
     text-decoration: none;
     transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 .app-footer a:hover {
-    background: rgba(255,255,255,0.1);
+    background: var(--controlBgHover);
     color: var(--ink);
-    border-color: rgba(255,255,255,0.6);
-}
-body.bg-black .app-footer a {
-    background-color: black;
-    color: #b3b3b3;
-    /* border-color: rgba(255,255,255,0.4); */
-    border: none;
-}
-body.bg-black .app-footer a:hover {
-    background: rgb(28, 28, 28);
-    color: #ffffff;
-    border-color: black;
+    border-color: var(--borderStrong);
 }
 
 body.bg-black .thumb { background: #000; border-color: rgba(255,255,255,0.25); }
