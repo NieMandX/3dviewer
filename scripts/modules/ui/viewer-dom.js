@@ -113,6 +113,14 @@ export function collectViewerDom(document) {
         promptCancelBtn: get('promptCancel'),
         promptCloseBtn: get('promptClose'),
 
+        // Confirm modal
+        confirmModalEl: get('confirmModal'),
+        confirmTitleEl: get('confirmTitle'),
+        confirmMessageEl: get('confirmMessage'),
+        confirmOkBtn: get('confirmOk'),
+        confirmCancelBtn: get('confirmCancel'),
+        confirmCloseBtn: get('confirmClose'),
+
         // Transition modal
         transitionModalEl: get('transitionModal'),
         transitionTitleEl: get('transitionTitle'),

@@ -871,6 +871,7 @@ input[type="range"] { width: 120px; }
 
 .prompt-body { padding:12px; display:flex; flex-direction:column; gap:10px }
 .prompt-input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font:inherit; background: var(--controlBg); color: var(--ink); }
+.prompt-message { font-size: 13px; line-height: 1.4; color: var(--ink); white-space: pre-wrap; }
 .prompt-actions { justify-content:flex-end }
 .eye {
     font-size: 14px;

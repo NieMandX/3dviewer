@@ -26,6 +26,7 @@ import { createAppbarControlsController } from '../ui/appbar-controls.js';
 import { createAppbarVisibilityTogglesController } from '../ui/appbar-visibility-toggles.js';
 import { createCameraPresetsController } from '../ui/camera-presets.js';
 import { createPromptModalController } from '../ui/prompt-modal.js';
+import { createConfirmModalController } from '../ui/confirm-modal.js';
 import { createTransitionModalController } from '../ui/transition-modal.js';
 import { createGridVisibilityController } from '../ui/grid-visibility.js';
 import { createLayoutController } from '../ui/layout.js';
@@ -100,6 +101,15 @@ class ViewerApp {
             okBtn: dom.promptOkBtn,
             cancelBtn: dom.promptCancelBtn,
             closeBtn: dom.promptCloseBtn,
+        });
+
+        const confirmModal = createConfirmModalController({
+            modalEl: dom.confirmModalEl,
+            titleEl: dom.confirmTitleEl,
+            messageEl: dom.confirmMessageEl,
+            okBtn: dom.confirmOkBtn,
+            cancelBtn: dom.confirmCancelBtn,
+            closeBtn: dom.confirmCloseBtn,
         });
 
         const transitionModal = createTransitionModalController({
@@ -307,6 +317,12 @@ class ViewerApp {
 		                value: defaultName,
 		                placeholder: 'Имя камеры',
 		                type: 'text',
+		            }),
+		            confirmCameraDelete: (preset) => confirmModal.open({
+		                title: 'Удалить камеру?',
+		                message: `Вы точно хотите удалить камеру “${preset?.name || 'Camera'}”?`,
+		                okText: 'Удалить',
+		                cancelText: 'Отмена',
 		            }),
 		            promptTransition: ({ from, to, seconds, type }) => transitionModal.open({
 		                title: `Переход: ${(from?.name || 'Camera')} → ${(to?.name || 'Camera')}`,

@@ -53,6 +53,10 @@ export function createCameraPresetsController(options = {}) {
         typeof options.promptTransition === 'function'
             ? options.promptTransition
             : null;
+    const confirmCameraDelete =
+        typeof options.confirmCameraDelete === 'function'
+            ? options.confirmCameraDelete
+            : null;
     const confirmFn =
         typeof options.confirm === 'function'
             ? options.confirm
@@ -710,10 +714,19 @@ export function createCameraPresetsController(options = {}) {
         return snap;
     }
 
-    function deletePreset(id) {
+    async function deletePreset(id) {
         const preset = getPresetById(id);
         if (!preset) return false;
-        const ok = safeConfirm(confirmFn, `Вы точно хотите удалить камеру “${preset.name || 'Camera'}”?`);
+        let ok = false;
+        if (confirmCameraDelete) {
+            try {
+                ok = await Promise.resolve(confirmCameraDelete(preset));
+            } catch (_) {
+                ok = false;
+            }
+        } else {
+            ok = safeConfirm(confirmFn, `Вы точно хотите удалить камеру “${preset.name || 'Camera'}”?`);
+        }
         if (!ok) return false;
 
         const idx = presets.findIndex((p) => p && p.id === id);
@@ -939,7 +952,7 @@ export function createCameraPresetsController(options = {}) {
             return;
         }
         if (action === 'delete') {
-            deletePreset(id);
+            void deletePreset(id);
         }
     }
 
