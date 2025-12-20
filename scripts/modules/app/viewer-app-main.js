@@ -28,6 +28,7 @@ import { createCameraPresetsController } from '../ui/camera-presets.js';
 import { createPromptModalController } from '../ui/prompt-modal.js';
 import { createConfirmModalController } from '../ui/confirm-modal.js';
 import { createTransitionModalController } from '../ui/transition-modal.js';
+import { createExportModalController } from '../ui/export-modal.js';
 import { createGridVisibilityController } from '../ui/grid-visibility.js';
 import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
@@ -44,6 +45,7 @@ import { createImportHandlers } from '../io/import-handlers.js';
 import { createFileFlowUIController } from '../io/file-flow-ui.js';
 import { SAMPLE_MODELS } from '../io/sample-models.js';
 import { createBatchFinalizer } from '../io/batch-finalizer.js';
+import { exportWorldAsGLTF } from '../io/gltf-export.js';
 import {
     detectSlotFromMatOrObj,
     findGeomSuffix,
@@ -122,6 +124,16 @@ class ViewerApp {
             closeBtn: dom.transitionCloseBtn,
         });
 
+        const exportModal = createExportModalController({
+            modalEl: dom.exportModalEl,
+            titleEl: dom.exportTitleEl,
+            formatEl: dom.exportFormatEl,
+            coordsEl: dom.exportCoordsEl,
+            okBtn: dom.exportOkBtn,
+            cancelBtn: dom.exportCancelBtn,
+            closeBtn: dom.exportCloseBtn,
+        });
+
         const statusUI = createStatusUIController({
             statusEl: dom.statusEl,
             appbarStatusEl: dom.appbarStatusEl,
@@ -191,6 +203,7 @@ class ViewerApp {
 	        const loadParcelsBtn = dom.loadParcelsBtn;
 	        const resetViewerBtn = dom.resetViewerBtn;
 	        const resetViewBtn = dom.resetViewBtn;
+	        const exportBtn = dom.exportBtn;
 	        const fullscreenBtn = dom.fullscreenBtn;
 	        const statsBtn = dom.statsBtn;
 	        const solidToggleBtn = dom.solidToggleBtn;
@@ -347,6 +360,31 @@ class ViewerApp {
 		            camPropsPanelEl,
 		        });
 		        app.cameraPresets = cameraPresets;
+
+		        exportBtn?.addEventListener?.('click', () => {
+		            void (async () => {
+		                const selection = await exportModal.open({
+		                    title: 'Экспорт сцены',
+		                    format: 'glb',
+		                    coords: 'rebased',
+		                });
+		                if (!selection) return;
+
+		                try {
+		                    setStatusMessage('Экспорт…');
+		                    await exportWorldAsGLTF({
+		                        world,
+		                        format: selection.format,
+		                        coords: selection.coords,
+		                        document,
+		                    });
+		                    setStatusMessage('');
+		                } catch (err) {
+		                    console.error(err);
+		                    setStatusMessage('Экспорт: ошибка — ' + (err?.message || err));
+		                }
+		            })();
+		        });
 
 		        const sunDir = new THREE.Vector3(0, 1, 0); // актуальное направление солнца (единичный)
 

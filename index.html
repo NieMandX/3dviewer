@@ -21,6 +21,7 @@
         <button id="fullscreenBtn" class="btn" type="button">⤢</button>
         <button id="resetViewerBtn" class="btn" type="button">Reset</button>
         <button id="resetViewBtn" class="btn" type="button" title="Сбросить вид на объект" aria-label="Сбросить вид на объект">⌂</button>
+        <button id="exportBtn" class="btn" type="button" title="Экспорт сцены (GLB/GLTF)" aria-label="Экспорт сцены (GLB/GLTF)">⤓</button>
         <div class="row appbar-samples">
             <label>
                 <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
@@ -439,6 +440,37 @@
                 <div class="row prompt-actions">
                     <button id="transitionCancel" class="btn" type="button">Отмена</button>
                     <button id="transitionOk" class="btn primary" type="button">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="exportModal" class="modal">
+        <div class="sheet sheet-sm">
+            <div class="head">
+                <div id="exportTitle" class="muted">Экспорт</div>
+                <button id="exportClose" class="btn" type="button" title="Закрыть">×</button>
+            </div>
+            <div class="prompt-body">
+                <div class="row" style="width:100%">
+                    <label class="prompt-field" style="flex:1">
+                        <span class="muted" style="font-size:12px">Формат</span>
+                        <select id="exportFormat" class="prompt-input">
+                            <option value="glb" selected>GLB (один файл)</option>
+                            <option value="gltf">GLTF (.zip)</option>
+                        </select>
+                    </label>
+                    <label class="prompt-field" style="flex:1">
+                        <span class="muted" style="font-size:12px">Координаты</span>
+                        <select id="exportCoords" class="prompt-input">
+                            <option value="rebased" selected>Ребейз (как вьюер)</option>
+                            <option value="msk">МСК (реальные)</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="row prompt-actions">
+                    <button id="exportCancel" class="btn" type="button">Отмена</button>
+                    <button id="exportOk" class="btn primary" type="button">Скачать</button>
                 </div>
             </div>
         </div>

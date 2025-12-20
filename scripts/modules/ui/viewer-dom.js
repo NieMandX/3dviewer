@@ -48,6 +48,7 @@ export function collectViewerDom(document) {
         loadParcelsBtn: get('loadParcelsBtn'),
         resetViewerBtn: get('resetViewerBtn'),
         resetViewBtn: get('resetViewBtn'),
+        exportBtn: get('exportBtn'),
         fullscreenBtn: get('fullscreenBtn'),
 	        statsBtn: get('statsBtn'),
 	        bgToggleBtn: get('bgToggleBtn'),
@@ -130,6 +131,15 @@ export function collectViewerDom(document) {
         transitionOkBtn: get('transitionOk'),
         transitionCancelBtn: get('transitionCancel'),
         transitionCloseBtn: get('transitionClose'),
+
+        // Export modal
+        exportModalEl: get('exportModal'),
+        exportTitleEl: get('exportTitle'),
+        exportFormatEl: get('exportFormat'),
+        exportCoordsEl: get('exportCoords'),
+        exportOkBtn: get('exportOk'),
+        exportCancelBtn: get('exportCancel'),
+        exportCloseBtn: get('exportClose'),
 
         // File flow
         fileInput: get('fileInput'),
