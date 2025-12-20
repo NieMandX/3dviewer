@@ -747,12 +747,10 @@ input:focus-visible {
 
 .annotate-canvas {
     position: fixed;
-    top: 0;
+    top: calc(var(--appbarH) + var(--camsBarH));
     left: 0;
-    right: var(--sideW);
-    bottom: 0;
-    width: auto;
-    height: auto;
+    width: calc(100vw - var(--sideW));
+    height: calc(100vh - var(--appbarH) - var(--camsBarH));
     pointer-events: none;
     touch-action: none;
     z-index: 3;
