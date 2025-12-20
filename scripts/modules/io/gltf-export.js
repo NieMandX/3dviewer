@@ -36,15 +36,341 @@ function makeFilename({ format, coords }) {
     return `${base}.glb`;
 }
 
+function shouldSkipObjectForExport(obj) {
+    if (!obj || typeof obj !== 'object') return true;
+    const ud = obj.userData || null;
+    if (ud?.excludeFromExport) return true;
+    if (ud?._isBackfaceOverlay) return true;
+    if (ud?.lightHelper) return true;
+    if (ud?._geoId !== undefined) return true; // wireframe overlay
+    if (ud?._angle !== undefined) return true; // beauty wire overlay
+
+    const type = String(obj.type || obj.constructor?.name || '');
+    if (type.endsWith('Helper')) return true;
+
+    const name = String(obj.name || '');
+    if (name.includes('(wireframe)') || name.includes('(beautywire)')) return true;
+
+    // Line overlays attached to meshes (wireframe / backface debug, etc)
+    if ((obj.isLine || obj.isLineSegments) && ud?.excludeFromBounds && obj.parent?.isMesh) return true;
+
+    return (
+        !!obj.isHelper ||
+        !!obj.isAxesHelper ||
+        !!obj.isGridHelper ||
+        !!obj.isPolarGridHelper
+    );
+}
+
+function cloneObject3DFiltered(root, shouldSkipFn) {
+    if (!root || typeof root !== 'object') return null;
+    if (shouldSkipFn && shouldSkipFn(root)) return null;
+
+    const stack = [{ src: root, parentClone: null }];
+    let rootClone = null;
+
+    while (stack.length) {
+        const { src, parentClone } = stack.pop();
+        if (!src || typeof src !== 'object') continue;
+        if (shouldSkipFn && shouldSkipFn(src)) continue;
+
+        let cloned = null;
+        try {
+            // Avoid copying viewer-internal userData into the export clone.
+            // (Object3D.copy() deep-copies userData via JSON.stringify, which can be huge/cyclic.)
+            const prevUserData = src.userData;
+            let didClear = false;
+            try {
+                if (prevUserData && typeof prevUserData === 'object' && Object.keys(prevUserData).length > 0) {
+                    src.userData = {};
+                    didClear = true;
+                }
+                cloned = src.clone(false);
+                if (cloned && typeof cloned === 'object' && cloned.userData && Object.keys(cloned.userData).length > 0) {
+                    cloned.userData = {};
+                }
+            } finally {
+                if (didClear) src.userData = prevUserData;
+            }
+        } catch (err) {
+            console.warn('GLTF export: skipping uncloneable object', src?.type || src?.name || src, err);
+            continue;
+        }
+
+        if (!rootClone) rootClone = cloned;
+        if (parentClone) parentClone.add(cloned);
+
+        const children = Array.isArray(src.children) ? src.children : [];
+        for (let i = children.length - 1; i >= 0; i--) {
+            stack.push({ src: children[i], parentClone: cloned });
+        }
+    }
+
+    return rootClone;
+}
+
 function cloneWorldForExport(world, coords) {
     const src = world;
-    if (!src?.clone) return null;
-    const cloned = src.clone(true);
+    if (!src) return null;
+
+    const cloned = cloneObject3DFiltered(src, shouldSkipObjectForExport);
+    if (!cloned) return null;
     if (coords === 'msk') {
         cloned.position.set(0, 0, 0);
     }
     cloned.updateMatrixWorld?.(true);
     return cloned;
+}
+
+function sanitizeObject3DTree(root) {
+    const start = root;
+    if (!start || typeof start !== 'object') return;
+
+    const stack = [start];
+    while (stack.length) {
+        const obj = stack.pop();
+        if (!obj || typeof obj !== 'object') continue;
+
+        if (obj.parent === undefined) obj.parent = null;
+
+        const children = Array.isArray(obj.children) ? obj.children : null;
+        if (!children || !children.length) continue;
+
+        for (let i = children.length - 1; i >= 0; i--) {
+            const child = children[i];
+            if (!child) {
+                children.splice(i, 1);
+                continue;
+            }
+            if (child.parent === undefined) child.parent = obj;
+            stack.push(child);
+        }
+    }
+}
+
+function bakeLightTargetsForExport(root) {
+    const changes = [];
+    if (!root || typeof root.traverse !== 'function') return changes;
+
+    root.traverse((obj) => {
+        if (!obj || (!obj.isSpotLight && !obj.isDirectionalLight)) return;
+        const target = obj.target;
+        if (!target) return;
+
+        const lightState = {
+            light: obj,
+            quaternion: obj.quaternion?.clone?.() || null,
+            rotation: obj.rotation?.clone?.() || null,
+        };
+        const parent = target.parent || null;
+        const targetState = {
+            target,
+            parent,
+            index: Array.isArray(parent?.children) ? parent.children.indexOf(target) : -1,
+            position: target.position
+                ? { x: target.position.x, y: target.position.y, z: target.position.z }
+                : null,
+        };
+        changes.push({ lightState, targetState });
+
+        target.updateWorldMatrix?.(true, false);
+        const elements = target.matrixWorld?.elements;
+        if (elements && elements.length >= 16) {
+            obj.lookAt(elements[12], elements[13], elements[14]);
+        } else if (target.position) {
+            obj.lookAt(target.position.x, target.position.y, target.position.z);
+        }
+        obj.updateMatrixWorld?.(true);
+
+        if (target.parent !== obj && typeof obj.add === 'function') {
+            obj.add(target);
+        }
+        if (target.position?.set) target.position.set(0, 0, -1);
+        target.updateMatrixWorld?.(true);
+    });
+
+    return changes;
+}
+
+function restoreBakedLightTargets(changes) {
+    const list = Array.isArray(changes) ? changes : [];
+    for (const item of list) {
+        const light = item?.lightState?.light;
+        const quat = item?.lightState?.quaternion;
+        const rot = item?.lightState?.rotation;
+        if (light && quat && light.quaternion?.copy) light.quaternion.copy(quat);
+        if (light && rot && light.rotation?.copy) light.rotation.copy(rot);
+
+        const target = item?.targetState?.target;
+        if (!target) continue;
+
+        if (target.parent && target.parent !== item?.targetState?.parent) {
+            target.parent.remove?.(target);
+        }
+        const parent = item?.targetState?.parent;
+        if (parent) {
+            const index = Number.isFinite(item?.targetState?.index) ? item.targetState.index : -1;
+            if (index >= 0 && Array.isArray(parent.children) && index <= parent.children.length) {
+                parent.children.splice(index, 0, target);
+                target.parent = parent;
+            } else {
+                parent.add?.(target);
+            }
+        }
+
+        const pos = item?.targetState?.position;
+        if (pos && target.position?.set) {
+            target.position.set(pos.x, pos.y, pos.z);
+        }
+    }
+}
+
+async function exportAsGLB(exporter, root) {
+    return await new Promise((resolve, reject) => {
+        exporter.parse(
+            root,
+            resolve,
+            reject,
+            {
+                binary: true,
+                onlyVisible: false,
+                trs: true,
+            },
+        );
+    });
+}
+
+function prepareMaterialsForExport(root) {
+    if (!root || typeof root.traverse !== 'function') return;
+
+    const cache = new Map();
+
+    const getPrepared = (mat) => {
+        if (!mat || typeof mat !== 'object' || !mat.isMaterial) return mat;
+
+        const userData = mat.userData || null;
+        const hasUserData = userData && typeof userData === 'object' && Object.keys(userData).length > 0;
+        if (!hasUserData) return mat;
+
+        if (cache.has(mat)) return cache.get(mat);
+
+        const cloned = mat.clone();
+        cloned.userData = {};
+        cache.set(mat, cloned);
+        return cloned;
+    };
+
+    root.traverse((obj) => {
+        if (!obj || !obj.material) return;
+        const mat = obj.material;
+        if (Array.isArray(mat)) {
+            obj.material = mat.map(getPrepared);
+        } else {
+            obj.material = getPrepared(mat);
+        }
+    });
+}
+
+function temporarilyClearObjectUserData(root) {
+    const saved = [];
+    if (!root || typeof root.traverse !== 'function') return saved;
+    root.traverse((obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        const ud = obj.userData;
+        if (!ud || typeof ud !== 'object') return;
+        if (Object.keys(ud).length === 0) return;
+        saved.push({ obj, userData: ud });
+        obj.userData = {};
+    });
+    return saved;
+}
+
+function restoreObjectUserData(saved) {
+    const list = Array.isArray(saved) ? saved : [];
+    for (const item of list) {
+        if (!item?.obj) continue;
+        item.obj.userData = item.userData || {};
+    }
+}
+
+function temporarilyClearMaterialUserData(root) {
+    const saved = [];
+    if (!root || typeof root.traverse !== 'function') return saved;
+
+    const seen = new Set();
+    const collect = (mat) => {
+        if (!mat || typeof mat !== 'object' || !mat.isMaterial) return;
+        if (seen.has(mat)) return;
+        seen.add(mat);
+
+        const ud = mat.userData;
+        if (!ud || typeof ud !== 'object') return;
+        if (Object.keys(ud).length === 0) return;
+        saved.push({ mat, userData: ud });
+        mat.userData = {};
+    };
+
+    root.traverse((obj) => {
+        const mat = obj?.material;
+        if (!mat) return;
+        if (Array.isArray(mat)) mat.forEach(collect);
+        else collect(mat);
+    });
+
+    return saved;
+}
+
+function restoreMaterialUserData(saved) {
+    const list = Array.isArray(saved) ? saved : [];
+    for (const item of list) {
+        if (!item?.mat) continue;
+        item.mat.userData = item.userData || {};
+    }
+}
+
+function detachObjectsForExport(root) {
+    const removed = [];
+    if (!root || typeof root.traverse !== 'function') return removed;
+
+    const candidates = [];
+    root.traverse((obj) => {
+        if (!obj || obj === root) return;
+        if (!shouldSkipObjectForExport(obj)) return;
+        if (!obj.parent) return;
+        candidates.push(obj);
+    });
+
+    for (const obj of candidates) {
+        const parent = obj.parent;
+        const index = Array.isArray(parent?.children) ? parent.children.indexOf(obj) : -1;
+        if (typeof parent?.remove !== 'function') continue;
+        try {
+            parent.remove(obj);
+            removed.push({ obj, parent, index });
+        } catch (_) {
+            // ignore
+        }
+    }
+
+    return removed;
+}
+
+function restoreDetachedObjects(removed) {
+    const list = Array.isArray(removed) ? removed : [];
+    for (const item of list) {
+        const obj = item?.obj;
+        const parent = item?.parent;
+        if (!obj || !parent || !Array.isArray(parent.children)) continue;
+        if (obj.parent === parent) continue;
+
+        const index = Number.isFinite(item.index) ? item.index : -1;
+        if (index >= 0 && index <= parent.children.length) {
+            parent.children.splice(index, 0, obj);
+            obj.parent = parent;
+        } else {
+            parent.add(obj);
+        }
+    }
 }
 
 function splitGLB(arrayBuffer) {
@@ -113,6 +439,7 @@ async function buildGLTFZip({ glbArrayBuffer, baseName, JSZipCtor }) {
 export async function exportWorldAsGLTF(options = {}) {
     const world = options.world || null;
     const documentRef = options.document || (typeof document !== 'undefined' ? document : null);
+    const renderer = options.renderer || null;
     const JSZipCtor =
         options.JSZip ||
         (typeof globalThis !== 'undefined' ? globalThis.JSZip : null) ||
@@ -125,25 +452,76 @@ export async function exportWorldAsGLTF(options = {}) {
 
     if (!world) throw new Error('exportWorldAsGLTF: world is required');
 
-    const exportRoot = cloneWorldForExport(world, coords);
-    if (!exportRoot) throw new Error('exportWorldAsGLTF: failed to clone scene');
+    let exportRoot = null;
+    let cloneError = null;
+    try {
+        exportRoot = cloneWorldForExport(world, coords);
+    } catch (err) {
+        cloneError = err;
+        exportRoot = null;
+    }
 
     const [{ GLTFExporter }] = await Promise.all([
         import('three/addons/exporters/GLTFExporter.js'),
     ]);
 
     const exporter = new GLTFExporter();
-    const glbArrayBuffer = await new Promise((resolve, reject) => {
-        exporter.parse(
-            exportRoot,
-            resolve,
-            reject,
-            {
-                binary: true,
-                onlyVisible: false,
-            },
-        );
-    });
+    if (renderer?.textureUtils && typeof exporter.setTextureUtils === 'function') {
+        try {
+            exporter.setTextureUtils(renderer.textureUtils);
+        } catch (_) {
+            // ignore
+        }
+    }
+
+    let glbArrayBuffer;
+    if (exportRoot) {
+        sanitizeObject3DTree(exportRoot);
+        prepareMaterialsForExport(exportRoot);
+        bakeLightTargetsForExport(exportRoot);
+        try {
+            glbArrayBuffer = await exportAsGLB(exporter, exportRoot);
+        } catch (err) {
+            console.warn('GLTF export: cloned root export failed, retrying with live world', err);
+        }
+    }
+
+    if (!glbArrayBuffer) {
+        if (cloneError) {
+            console.warn('GLTF export: clone failed, exporting live world', cloneError);
+        }
+
+        const canMutateWorldPos =
+            !!world?.position?.clone &&
+            typeof world?.position?.set === 'function' &&
+            typeof world?.position?.copy === 'function' &&
+            typeof world?.updateMatrixWorld === 'function';
+
+        if (!canMutateWorldPos) throw cloneError || new Error('GLTF export: cannot mutate world for export');
+
+        const removed = detachObjectsForExport(world);
+        const savedObjUserData = temporarilyClearObjectUserData(world);
+        const savedMatUserData = temporarilyClearMaterialUserData(world);
+        const bakedLights = bakeLightTargetsForExport(world);
+        const prevPos = world.position.clone();
+        const changed = coords === 'msk';
+        try {
+            if (changed) world.position.set(0, 0, 0);
+            world.updateMatrixWorld(true);
+            glbArrayBuffer = await exportAsGLB(exporter, world);
+        } finally {
+            if (changed) world.position.copy(prevPos);
+            restoreBakedLightTargets(bakedLights);
+            restoreMaterialUserData(savedMatUserData);
+            restoreObjectUserData(savedObjUserData);
+            restoreDetachedObjects(removed);
+            world.updateMatrixWorld(true);
+        }
+    }
+
+    if (!(glbArrayBuffer instanceof ArrayBuffer)) {
+        throw new Error('GLTF export: expected ArrayBuffer result');
+    }
 
     if (format === 'glb') {
         downloadBlob(documentRef, new Blob([glbArrayBuffer], { type: 'model/gltf-binary' }), filename);

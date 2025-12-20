@@ -374,6 +374,7 @@ class ViewerApp {
 		                    setStatusMessage('Экспорт…');
 		                    await exportWorldAsGLTF({
 		                        world,
+		                        renderer,
 		                        format: selection.format,
 		                        coords: selection.coords,
 		                        document,
