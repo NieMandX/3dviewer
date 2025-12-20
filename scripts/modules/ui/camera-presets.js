@@ -72,6 +72,7 @@ export function createCameraPresetsController(options = {}) {
     const presets = Array.isArray(options.initialPresets) ? [...options.initialPresets] : [];
     const transitions = new Map();
     let activeId = null;
+    let lastCreatedId = null;
     let barVisible = false;
     let dragId = null;
     let suppressClicksUntil = 0;
@@ -81,6 +82,7 @@ export function createCameraPresetsController(options = {}) {
     let playing = false;
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
+    ensureDefaultPreset();
     const annotations = createAnnotationsController();
 
     function normalizePoint(p) {
@@ -98,6 +100,22 @@ export function createCameraPresetsController(options = {}) {
         if (!preset || typeof preset !== 'object') return;
         if (!Array.isArray(preset.annotations)) preset.annotations = [];
         if (typeof preset.annotationsVisible !== 'boolean') preset.annotationsVisible = true;
+    }
+
+    function ensureDefaultPreset() {
+        if (presets.length) {
+            if (!activeId && presets[0]?.id) activeId = presets[0].id;
+            if (!lastCreatedId && activeId) lastCreatedId = activeId;
+            return;
+        }
+
+        const snap = snapshotCurrentView();
+        if (!snap) return;
+        snap.name = 'Cam 1';
+        snap.isDefault = true;
+        presets.push(snap);
+        activeId = snap.id;
+        lastCreatedId = snap.id;
     }
 
     function createAnnotationsController() {
@@ -1229,18 +1247,19 @@ export function createCameraPresetsController(options = {}) {
         props.dataset.id = preset.id;
         props.draggable = false;
 
-        const del = document.createElement('span');
-        del.className = 'cam-icon cam-x';
-        del.textContent = '×';
-        del.title = 'Удалить камеру';
-        del.setAttribute('aria-label', 'Удалить камеру');
-        del.dataset.action = 'delete';
-        del.dataset.id = preset.id;
-        del.draggable = false;
-
         actions.appendChild(refresh);
         actions.appendChild(props);
-        actions.appendChild(del);
+        if (!preset.isDefault) {
+            const del = document.createElement('span');
+            del.className = 'cam-icon cam-x';
+            del.textContent = '×';
+            del.title = 'Удалить камеру';
+            del.setAttribute('aria-label', 'Удалить камеру');
+            del.dataset.action = 'delete';
+            del.dataset.id = preset.id;
+            del.draggable = false;
+            actions.appendChild(del);
+        }
 
         btn.appendChild(name);
         btn.appendChild(actions);
@@ -1343,6 +1362,7 @@ export function createCameraPresetsController(options = {}) {
         snap.name = name;
 
         presets.push(snap);
+        lastCreatedId = snap.id;
         setActive(snap.id);
         render();
         return snap;
@@ -1351,6 +1371,8 @@ export function createCameraPresetsController(options = {}) {
     async function deletePreset(id) {
         const preset = getPresetById(id);
         if (!preset) return false;
+        if (preset.isDefault) return false;
+        if (presets.length <= 1) return false;
         let ok = false;
         if (confirmCameraDelete) {
             try {
@@ -1369,7 +1391,12 @@ export function createCameraPresetsController(options = {}) {
         for (const key of Array.from(transitions.keys())) {
             if (key.startsWith(`${id}->`) || key.endsWith(`->${id}`)) transitions.delete(key);
         }
-        if (activeId === id) activeId = null;
+        if (lastCreatedId === id) lastCreatedId = presets[presets.length - 1]?.id || null;
+        if (activeId === id) {
+            const next = presets[Math.min(idx, presets.length - 1)] || presets[presets.length - 1] || null;
+            activeId = next?.id || null;
+            if (next) applyPreset(next);
+        }
         if (editingId === id) {
             editingId = null;
             setPropsPanelVisible(false);
@@ -1396,6 +1423,12 @@ export function createCameraPresetsController(options = {}) {
 
         if (editingId === id) syncPropsPanel(preset);
         return true;
+    }
+
+    function updateLastCreatedFromCurrentView() {
+        const id = lastCreatedId || activeId;
+        if (!id) return false;
+        return updatePresetFromCurrentView(id);
     }
 
     function movePreset(fromId, toIndex) {
@@ -1719,8 +1752,11 @@ export function createCameraPresetsController(options = {}) {
 
     return Object.freeze({
         getPresets: () => [...presets],
+        getActiveId: () => activeId,
+        getLastCreatedId: () => lastCreatedId,
         addFromCurrentView,
         deletePreset,
+        updateLastCreatedFromCurrentView,
         applyPreset,
         setActive,
         setBarVisible,

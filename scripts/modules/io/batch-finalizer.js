@@ -41,6 +41,8 @@ export function createBatchFinalizer(options = {}) {
 
     const fitAll = typeof options.fitAll === 'function' ? options.fitAll : () => {};
     const focusOn = typeof options.focusOn === 'function' ? options.focusOn : () => {};
+    const onInitialFraming =
+        typeof options.onInitialFraming === 'function' ? options.onInitialFraming : () => {};
 
     const outEl = options.outEl || null;
     const imagesDetails = options.imagesDetails || null;
@@ -124,6 +126,7 @@ export function createBatchFinalizer(options = {}) {
             if (firstTime) {
                 fitAll();
                 focusOn(loadedModels.map(m => m.obj));
+                onInitialFraming();
             }
         }
 
@@ -156,4 +159,3 @@ export function createBatchFinalizer(options = {}) {
 
     return { finalizeBatchAfterAllFiles };
 }
-

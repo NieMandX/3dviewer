@@ -1097,6 +1097,7 @@ class ViewerApp {
             ensureZipCollisionsHidden,
             fitAll,
             focusOn,
+            onInitialFraming: () => cameraPresets?.updateLastCreatedFromCurrentView?.(),
             outEl,
             imagesDetails,
             bindLogDetails,
@@ -1141,7 +1142,10 @@ class ViewerApp {
 	            getRendererReady,
 	            updateStatsOverlay,
 	            onFrame: () => {
-	                flightControls.update();
+	                const flightChanged = flightControls.update();
+	                if (flightChanged) {
+	                    cameraPresets?.updateLastCreatedFromCurrentView?.();
+	                }
 	                backgroundController.syncToCamera();
 	            },
         });
