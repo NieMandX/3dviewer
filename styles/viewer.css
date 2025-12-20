@@ -683,6 +683,25 @@ details.cam-props-panel {
     box-shadow: none;
 }
 
+.appbar .btn.active:not(.bg-btn):not(.primary) {
+    background: rgba(0, 0, 0, 0.08);
+    border-color: var(--borderStrong);
+}
+
+body.bg-black .appbar .btn.active:not(.bg-btn):not(.primary) {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+    border-color: var(--border);
+    background: var(--controlBg);
+}
+
 .btn:focus-visible,
 select:focus-visible,
 input:focus-visible {
