@@ -42,9 +42,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         const state = getNonGlassState();
         solidToggleBtn.disabled = !state.hasAny && !state.suppressed;
         solidToggleBtn.classList.toggle('active', state.suppressed);
-        solidToggleBtn.textContent = (state.hasAny || state.suppressed)
-            ? (state.suppressed ? 'SOL on' : 'SOL off')
-            : 'SOL';
+        solidToggleBtn.textContent = 'SOL';
         solidToggleBtn.setAttribute('aria-pressed', state.suppressed ? 'true' : 'false');
         solidToggleBtn.title = state.suppressed
             ? 'Показать всё (включая не-стекло)'
@@ -56,7 +54,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         const state = getCollisionsState();
         collToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
         collToggleBtn.classList.toggle('active', state.anyVisible);
-        collToggleBtn.textContent = state.hasAny ? (state.anyVisible ? 'UCX off' : 'UCX on') : 'UCX';
+        collToggleBtn.textContent = 'UCX';
         collToggleBtn.setAttribute('aria-pressed', state.anyVisible ? 'true' : 'false');
         collToggleBtn.title = state.hasAny
             ? (state.anyVisible ? 'Скрыть коллизии (UCX)' : 'Показать коллизии (UCX)')
@@ -68,7 +66,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         const state = getVPMModelsState();
         vpmToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
         vpmToggleBtn.classList.toggle('active', state.anyVisible);
-        vpmToggleBtn.textContent = state.hasAny ? (state.anyVisible ? 'VPM off' : 'VPM on') : 'VPM';
+        vpmToggleBtn.textContent = 'VPM';
         vpmToggleBtn.setAttribute('aria-pressed', state.anyVisible ? 'true' : 'false');
         vpmToggleBtn.title = state.hasAny
             ? (state.anyVisible ? 'Скрыть ВПМ модели' : 'Показать ВПМ модели')
@@ -80,7 +78,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         const state = getNPMModelsState();
         npmToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
         npmToggleBtn.classList.toggle('active', state.anyVisible);
-        npmToggleBtn.textContent = state.hasAny ? (state.anyVisible ? 'NPM off' : 'NPM on') : 'NPM';
+        npmToggleBtn.textContent = 'NPM';
         npmToggleBtn.setAttribute('aria-pressed', state.anyVisible ? 'true' : 'false');
         npmToggleBtn.title = state.hasAny
             ? (state.anyVisible ? 'Скрыть НПМ модели' : 'Показать НПМ модели')
@@ -135,4 +133,3 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         enforceSuppressionIfNeeded,
     });
 }
-
