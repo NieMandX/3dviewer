@@ -26,6 +26,7 @@ export function createCameraPresetsController(options = {}) {
     const THREE = options.THREE || null;
     const camera = options.camera || null;
     const controls = options.controls || null;
+    const annotateCanvasEl = options.annotateCanvasEl || null;
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const requestLayout = typeof options.requestLayout === 'function' ? options.requestLayout : () => {};
 
@@ -53,6 +54,10 @@ export function createCameraPresetsController(options = {}) {
         typeof options.promptTransition === 'function'
             ? options.promptTransition
             : null;
+    const promptAnnotationText =
+        typeof options.promptAnnotationText === 'function'
+            ? options.promptAnnotationText
+            : null;
     const confirmCameraDelete =
         typeof options.confirmCameraDelete === 'function'
             ? options.confirmCameraDelete
@@ -76,6 +81,467 @@ export function createCameraPresetsController(options = {}) {
     let playing = false;
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
+    const annotations = createAnnotationsController();
+
+    function normalizePoint(p) {
+        return {
+            x: Math.min(1, Math.max(0, Number(p?.x) || 0)),
+            y: Math.min(1, Math.max(0, Number(p?.y) || 0)),
+        };
+    }
+
+    function getActivePreset() {
+        return activeId ? getPresetById(activeId) : null;
+    }
+
+    function ensureAnnotationsDefaults(preset) {
+        if (!preset || typeof preset !== 'object') return;
+        if (!Array.isArray(preset.annotations)) preset.annotations = [];
+        if (typeof preset.annotationsVisible !== 'boolean') preset.annotationsVisible = true;
+    }
+
+    function createAnnotationsController() {
+        const canvas = annotateCanvasEl;
+        const ctx = canvas?.getContext?.('2d', { alpha: true }) || null;
+        let dpr = 1;
+        let rect = null;
+
+        let drawEnabled = false;
+        let tool = 'pencil'; // pencil | line | rect | circle | text
+        let dash = 'solid'; // solid | dashed | dotted
+        let color = '#ffcc00';
+        let width = 3;
+
+        let draft = null;
+        let pointerId = null;
+        let prevControlsEnabled = null;
+        let redrawScheduled = false;
+
+        function getViewRect() {
+            if (!canvas?.getBoundingClientRect) return null;
+            return canvas.getBoundingClientRect();
+        }
+
+        function resizeToRect(nextRect) {
+            if (!canvas || !ctx || !nextRect) return;
+            const nextDpr = Math.max(1, Math.floor((globalThis.devicePixelRatio || 1) * 100) / 100);
+            const w = Math.max(1, Math.round(nextRect.width * nextDpr));
+            const h = Math.max(1, Math.round(nextRect.height * nextDpr));
+            if (canvas.width !== w || canvas.height !== h || dpr !== nextDpr) {
+                dpr = nextDpr;
+                canvas.width = w;
+                canvas.height = h;
+            }
+        }
+
+        function canvasPointFromEvent(e) {
+            const r = rect || getViewRect();
+            if (!r || r.width <= 0 || r.height <= 0) return null;
+            const x = (e.clientX - r.left) / r.width;
+            const y = (e.clientY - r.top) / r.height;
+            return normalizePoint({ x, y });
+        }
+
+        function setCanvasActive(active) {
+            if (!canvas) return;
+            canvas.classList.toggle('active', !!active);
+        }
+
+        function setDrawEnabled(enabled) {
+            drawEnabled = !!enabled;
+            setCanvasActive(drawEnabled);
+            scheduleDraw();
+        }
+
+        function setTool(nextTool) {
+            const t = String(nextTool || '').trim().toLowerCase();
+            tool = ['pencil', 'line', 'rect', 'circle', 'text'].includes(t) ? t : 'pencil';
+        }
+
+        function setDash(nextDash) {
+            const t = String(nextDash || '').trim().toLowerCase();
+            dash = ['solid', 'dashed', 'dotted'].includes(t) ? t : 'solid';
+        }
+
+        function setColor(nextColor) {
+            const c = String(nextColor || '').trim();
+            color = c || '#ffcc00';
+        }
+
+        function setWidth(nextWidth) {
+            const n = Number(nextWidth);
+            width = Number.isFinite(n) ? Math.max(1, Math.min(40, n)) : width;
+        }
+
+        function applyLineStyle(style) {
+            if (!ctx) return;
+            const w = Math.max(1, Number(style?.width) || 1);
+            const d = String(style?.dash || 'solid');
+            ctx.lineWidth = w * dpr;
+            ctx.strokeStyle = String(style?.color || '#ffcc00');
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            if (d === 'dashed') ctx.setLineDash([w * 4 * dpr, w * 2 * dpr]);
+            else if (d === 'dotted') ctx.setLineDash([w * 1 * dpr, w * 2 * dpr]);
+            else ctx.setLineDash([]);
+        }
+
+        function drawShape(shape, opts = {}) {
+            if (!ctx || !rect) return;
+            if (!shape || typeof shape !== 'object') return;
+
+            const alpha = typeof opts.alpha === 'number' ? Math.max(0, Math.min(1, opts.alpha)) : 1;
+            ctx.save();
+            ctx.globalAlpha = alpha;
+
+            const style = shape.style || {};
+            applyLineStyle(style);
+
+            const toPx = (p) => ({
+                x: (Number(p?.x) || 0) * rect.width * dpr,
+                y: (Number(p?.y) || 0) * rect.height * dpr,
+            });
+
+            if (shape.type === 'path') {
+                const pts = Array.isArray(shape.points) ? shape.points : [];
+                if (pts.length < 2) {
+                    ctx.restore();
+                    return;
+                }
+                ctx.beginPath();
+                const p0 = toPx(pts[0]);
+                ctx.moveTo(p0.x, p0.y);
+                for (let i = 1; i < pts.length; i++) {
+                    const pi = toPx(pts[i]);
+                    ctx.lineTo(pi.x, pi.y);
+                }
+                ctx.stroke();
+                ctx.restore();
+                return;
+            }
+
+            if (shape.type === 'line') {
+                const a = toPx(shape.a);
+                const b = toPx(shape.b);
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.stroke();
+                ctx.restore();
+                return;
+            }
+
+            if (shape.type === 'rect') {
+                const a = toPx(shape.a);
+                const b = toPx(shape.b);
+                const x = Math.min(a.x, b.x);
+                const y = Math.min(a.y, b.y);
+                const w = Math.abs(a.x - b.x);
+                const h = Math.abs(a.y - b.y);
+                ctx.beginPath();
+                ctx.rect(x, y, w, h);
+                ctx.stroke();
+                ctx.restore();
+                return;
+            }
+
+            if (shape.type === 'circle') {
+                const c = toPx(shape.c);
+                const r = Math.max(0, (Number(shape.r) || 0) * Math.min(rect.width, rect.height) * dpr);
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+                return;
+            }
+
+            if (shape.type === 'text') {
+                const p = toPx(shape.p);
+                const text = String(shape.text || '');
+                const fontSize = Math.max(10, Number(shape.fontSize) || Math.round((Number(style.width) || 2) * 6 + 10));
+                ctx.setLineDash([]);
+                ctx.fillStyle = String(style?.color || '#ffcc00');
+                ctx.font = `${Math.round(fontSize * dpr)}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+                ctx.textBaseline = 'top';
+                ctx.fillText(text, p.x, p.y);
+                ctx.restore();
+                return;
+            }
+
+            ctx.restore();
+        }
+
+        function clearCanvas() {
+            if (!ctx || !canvas) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function renderNow() {
+            if (!ctx || !canvas) return;
+            rect = getViewRect();
+            if (!rect || rect.width <= 0 || rect.height <= 0) return;
+            resizeToRect(rect);
+            clearCanvas();
+
+            const preset = getActivePreset();
+            if (!preset) return;
+            ensureAnnotationsDefaults(preset);
+            if (!preset.annotationsVisible) return;
+
+            const list = Array.isArray(preset.annotations) ? preset.annotations : [];
+            for (const shape of list) drawShape(shape);
+            if (draft) drawShape(draft, { alpha: 0.65 });
+        }
+
+        function scheduleDraw() {
+            if (!canvas) return;
+            if (redrawScheduled) return;
+            redrawScheduled = true;
+            requestAnimationFrame(() => {
+                redrawScheduled = false;
+                renderNow();
+            });
+        }
+
+        async function commitTextAt(p) {
+            const preset = getActivePreset();
+            if (!preset) return;
+            ensureAnnotationsDefaults(preset);
+            if (!preset.annotationsVisible) preset.annotationsVisible = true;
+
+            let text = null;
+            if (promptAnnotationText) {
+                try {
+                    text = await Promise.resolve(promptAnnotationText(''));
+                } catch (_) {
+                    text = null;
+                }
+            } else {
+                text = safePrompt(promptFn, 'Текст аннотации', '');
+            }
+            if (text == null) return;
+            const t = String(text).trim();
+            if (!t) return;
+
+            preset.annotations.push({
+                type: 'text',
+                p,
+                text: t,
+                fontSize: Math.max(10, Math.round(width * 6 + 10)),
+                style: { color, width, dash: 'solid' },
+            });
+            scheduleDraw();
+        }
+
+        function getStyleSnapshot() {
+            return { color, width, dash };
+        }
+
+        function ensurePointerCapture(e) {
+            try {
+                canvas?.setPointerCapture?.(e.pointerId);
+            } catch (_) {}
+        }
+
+        function releasePointerCapture(e) {
+            try {
+                canvas?.releasePointerCapture?.(e.pointerId);
+            } catch (_) {}
+        }
+
+        function beginStroke(e) {
+            if (!drawEnabled) return;
+            if (!canvas || !ctx) return;
+            if (!activeId) return;
+
+            const preset = getActivePreset();
+            if (!preset) return;
+            ensureAnnotationsDefaults(preset);
+            if (!preset.annotationsVisible) preset.annotationsVisible = true;
+
+            rect = getViewRect();
+            if (!rect || rect.width <= 0 || rect.height <= 0) return;
+
+            const p = canvasPointFromEvent(e);
+            if (!p) return;
+
+            if (controls && prevControlsEnabled == null) {
+                prevControlsEnabled = controls.enabled;
+                controls.enabled = false;
+            }
+
+            if (tool === 'text') {
+                void (async () => {
+                    try {
+                        await commitTextAt(p);
+                    } finally {
+                        if (controls && prevControlsEnabled != null) {
+                            controls.enabled = prevControlsEnabled;
+                            prevControlsEnabled = null;
+                        }
+                        scheduleDraw();
+                    }
+                })();
+                return;
+            }
+
+            pointerId = e.pointerId;
+            ensurePointerCapture(e);
+
+            const style = getStyleSnapshot();
+            if (tool === 'pencil') {
+                draft = { type: 'path', points: [p], style };
+            } else if (tool === 'line') {
+                draft = { type: 'line', a: p, b: p, style };
+            } else if (tool === 'rect') {
+                draft = { type: 'rect', a: p, b: p, style };
+            } else if (tool === 'circle') {
+                draft = { type: 'circle', c: p, r: 0, style };
+            }
+            scheduleDraw();
+        }
+
+        function moveStroke(e) {
+            if (!drawEnabled) return;
+            if (!draft || pointerId == null || e.pointerId !== pointerId) return;
+            const p = canvasPointFromEvent(e);
+            if (!p) return;
+
+            if (draft.type === 'path') {
+                draft.points.push(p);
+            } else if (draft.type === 'line' || draft.type === 'rect') {
+                draft.b = p;
+            } else if (draft.type === 'circle') {
+                const dx = p.x - draft.c.x;
+                const dy = p.y - draft.c.y;
+                draft.r = Math.sqrt(dx * dx + dy * dy);
+            }
+            scheduleDraw();
+        }
+
+        function endStroke(e) {
+            if (!drawEnabled) return;
+            if (!draft || pointerId == null || e.pointerId !== pointerId) return;
+
+            const preset = getActivePreset();
+            if (!preset) {
+                draft = null;
+                pointerId = null;
+                releasePointerCapture(e);
+                scheduleDraw();
+                return;
+            }
+            ensureAnnotationsDefaults(preset);
+
+            const shape = draft;
+            draft = null;
+            pointerId = null;
+            releasePointerCapture(e);
+
+            if (shape.type === 'path') {
+                const pts = Array.isArray(shape.points) ? shape.points : [];
+                if (pts.length >= 2) preset.annotations.push(shape);
+            } else if (shape.type === 'circle') {
+                if ((Number(shape.r) || 0) > 0.0001) preset.annotations.push(shape);
+            } else {
+                preset.annotations.push(shape);
+            }
+
+            if (controls && prevControlsEnabled != null) {
+                controls.enabled = prevControlsEnabled;
+                prevControlsEnabled = null;
+            }
+
+            scheduleDraw();
+        }
+
+        function cancelStroke(e) {
+            if (!drawEnabled) return;
+            if (pointerId != null && e?.pointerId === pointerId) {
+                releasePointerCapture(e);
+            }
+            draft = null;
+            pointerId = null;
+            if (controls && prevControlsEnabled != null) {
+                controls.enabled = prevControlsEnabled;
+                prevControlsEnabled = null;
+            }
+            scheduleDraw();
+        }
+
+        function undo() {
+            const preset = getActivePreset();
+            if (!preset) return false;
+            ensureAnnotationsDefaults(preset);
+            if (!preset.annotations.length) return false;
+            preset.annotations.pop();
+            scheduleDraw();
+            return true;
+        }
+
+        function clear() {
+            const preset = getActivePreset();
+            if (!preset) return false;
+            ensureAnnotationsDefaults(preset);
+            preset.annotations.length = 0;
+            scheduleDraw();
+            return true;
+        }
+
+        function setVisibleForActivePreset(visible) {
+            const preset = getActivePreset();
+            if (!preset) return false;
+            ensureAnnotationsDefaults(preset);
+            preset.annotationsVisible = !!visible;
+            scheduleDraw();
+            return true;
+        }
+
+        function getVisibleForActivePreset() {
+            const preset = getActivePreset();
+            if (!preset) return false;
+            ensureAnnotationsDefaults(preset);
+            return !!preset.annotationsVisible;
+        }
+
+        function attach() {
+            if (!canvas) return;
+            canvas.addEventListener('pointerdown', beginStroke);
+            canvas.addEventListener('pointermove', moveStroke);
+            canvas.addEventListener('pointerup', endStroke);
+            canvas.addEventListener('pointercancel', cancelStroke);
+            window.addEventListener('resize', scheduleDraw);
+            if (typeof ResizeObserver !== 'undefined') {
+                try {
+                    const ro = new ResizeObserver(() => scheduleDraw());
+                    ro.observe(canvas);
+                } catch (_) {
+                    /* ignore */
+                }
+            }
+            scheduleDraw();
+        }
+
+        attach();
+
+        return Object.freeze({
+            scheduleDraw,
+            setDrawEnabled,
+            getDrawEnabled: () => drawEnabled,
+            setTool,
+            getTool: () => tool,
+            setDash,
+            getDash: () => dash,
+            setColor,
+            getColor: () => color,
+            setWidth,
+            getWidth: () => width,
+            undo,
+            clear,
+            setVisibleForActivePreset,
+            getVisibleForActivePreset,
+        });
+    }
 
     function readCameraShift() {
         const view = camera?.view;
@@ -189,6 +655,7 @@ export function createCameraPresetsController(options = {}) {
 
         controls.update?.();
         requestRender();
+        annotations.scheduleDraw();
         return true;
     }
 
@@ -289,6 +756,7 @@ export function createCameraPresetsController(options = {}) {
     function setActive(id) {
         activeId = id || null;
         render();
+        annotations.scheduleDraw();
     }
 
     function setPropsPanelVisible(visible) {
@@ -442,6 +910,91 @@ export function createCameraPresetsController(options = {}) {
         shiftGroup.appendChild(shiftHead);
         shiftGroup.appendChild(shiftGrid);
 
+        const annotGroup = document.createElement('div');
+        annotGroup.className = 'cam-props-group';
+        const annotHead = document.createElement('div');
+        annotHead.className = 'cam-props-head';
+        annotHead.textContent = 'Annotations';
+
+        const annotActions = document.createElement('div');
+        annotActions.className = 'cam-props-row';
+        annotActions.style.alignItems = 'center';
+
+        const annotVisibleBtn = document.createElement('button');
+        annotVisibleBtn.type = 'button';
+        annotVisibleBtn.className = 'btn cam-annot-visible';
+        annotVisibleBtn.textContent = 'Скрыть';
+        annotVisibleBtn.title = 'Показать/скрыть аннотации этой камеры';
+
+        const annotDrawBtn = document.createElement('button');
+        annotDrawBtn.type = 'button';
+        annotDrawBtn.className = 'btn cam-annot-draw';
+        annotDrawBtn.textContent = 'Рисовать';
+        annotDrawBtn.title = 'Включить/выключить режим рисования';
+
+        const annotUndoBtn = document.createElement('button');
+        annotUndoBtn.type = 'button';
+        annotUndoBtn.className = 'btn cam-annot-undo';
+        annotUndoBtn.textContent = 'Undo';
+        annotUndoBtn.title = 'Отменить последний штрих';
+
+        const annotClearBtn = document.createElement('button');
+        annotClearBtn.type = 'button';
+        annotClearBtn.className = 'btn cam-annot-clear';
+        annotClearBtn.textContent = 'Clear';
+        annotClearBtn.title = 'Очистить аннотации этой камеры';
+
+        annotActions.appendChild(annotVisibleBtn);
+        annotActions.appendChild(annotDrawBtn);
+        annotActions.appendChild(annotUndoBtn);
+        annotActions.appendChild(annotClearBtn);
+
+        const annotGrid = document.createElement('div');
+        annotGrid.className = 'cam-props-grid cam-props-grid-2';
+
+        const annotToolSel = document.createElement('select');
+        annotToolSel.className = 'cam-props-select';
+        [
+            ['pencil', 'Pencil'],
+            ['line', 'Line'],
+            ['rect', 'Rect'],
+            ['circle', 'Circle'],
+            ['text', 'Text'],
+        ].forEach(([value, label]) => {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = label;
+            annotToolSel.appendChild(opt);
+        });
+
+        const annotDashSel = document.createElement('select');
+        annotDashSel.className = 'cam-props-select';
+        [
+            ['solid', 'Solid'],
+            ['dashed', 'Dashed'],
+            ['dotted', 'Dotted'],
+        ].forEach(([value, label]) => {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = label;
+            annotDashSel.appendChild(opt);
+        });
+
+        const annotColorInput = document.createElement('input');
+        annotColorInput.type = 'color';
+        annotColorInput.value = '#ffcc00';
+
+        const annotWidthInput = makeNumberInput({ step: '1', min: 1, max: 40 });
+
+        annotGrid.appendChild(makeLabel('Tool', annotToolSel));
+        annotGrid.appendChild(makeLabel('Line', annotDashSel));
+        annotGrid.appendChild(makeLabel('Color', annotColorInput));
+        annotGrid.appendChild(makeLabel('Width', annotWidthInput));
+
+        annotGroup.appendChild(annotHead);
+        annotGroup.appendChild(annotActions);
+        annotGroup.appendChild(annotGrid);
+
         const hint = document.createElement('div');
         hint.className = 'muted cam-props-hint';
         hint.textContent = 'Кнопка ⟳ обновляет сохранённый вид, ⚙ открывает свойства. Изменения сохраняются за камерой.';
@@ -452,6 +1005,7 @@ export function createCameraPresetsController(options = {}) {
         root.appendChild(up.group);
         root.appendChild(lensGroup);
         root.appendChild(shiftGroup);
+        root.appendChild(annotGroup);
         root.appendChild(hint);
         camPropsPanelEl.appendChild(root);
 
@@ -510,6 +1064,74 @@ export function createCameraPresetsController(options = {}) {
         [pos.x, pos.y, pos.z, tgt.x, tgt.y, tgt.z, up.x, up.y, up.z, fovInput, zoomInput, nearInput, farInput, shiftXInput, shiftYInput]
             .forEach((input) => input.addEventListener('input', applyFromInputs));
 
+        const syncAnnotButtons = () => {
+            const preset = getPresetById(editingId);
+            if (!preset) return;
+            ensureAnnotationsDefaults(preset);
+
+            const visible = !!preset.annotationsVisible;
+            annotVisibleBtn.textContent = visible ? 'Скрыть' : 'Показать';
+            annotVisibleBtn.classList.toggle('active', visible);
+
+            const drawing = annotations.getDrawEnabled();
+            annotDrawBtn.textContent = drawing ? 'Рисование' : 'Рисовать';
+            annotDrawBtn.classList.toggle('active', drawing);
+
+            annotToolSel.value = annotations.getTool();
+            annotDashSel.value = annotations.getDash();
+            annotColorInput.value = annotations.getColor();
+            annotWidthInput.value = String(annotations.getWidth());
+        };
+
+        annotVisibleBtn.addEventListener('click', () => {
+            const preset = getPresetById(editingId);
+            if (!preset) return;
+            ensureAnnotationsDefaults(preset);
+            preset.annotationsVisible = !preset.annotationsVisible;
+            annotations.scheduleDraw();
+            syncAnnotButtons();
+        });
+
+        annotDrawBtn.addEventListener('click', () => {
+            const enabled = !annotations.getDrawEnabled();
+            annotations.setDrawEnabled(enabled);
+            if (enabled) {
+                const preset = getPresetById(editingId);
+                if (preset) {
+                    ensureAnnotationsDefaults(preset);
+                    if (!preset.annotationsVisible) preset.annotationsVisible = true;
+                }
+            }
+            syncAnnotButtons();
+        });
+
+        annotUndoBtn.addEventListener('click', () => {
+            annotations.undo();
+            syncAnnotButtons();
+        });
+
+        annotClearBtn.addEventListener('click', () => {
+            annotations.clear();
+            syncAnnotButtons();
+        });
+
+        annotToolSel.addEventListener('change', () => {
+            annotations.setTool(annotToolSel.value);
+            syncAnnotButtons();
+        });
+        annotDashSel.addEventListener('change', () => {
+            annotations.setDash(annotDashSel.value);
+            syncAnnotButtons();
+        });
+        annotColorInput.addEventListener('input', () => {
+            annotations.setColor(annotColorInput.value);
+            syncAnnotButtons();
+        });
+        annotWidthInput.addEventListener('input', () => {
+            annotations.setWidth(annotWidthInput.value);
+            syncAnnotButtons();
+        });
+
         propsUI = {
             nameInput,
             pos,
@@ -521,6 +1143,15 @@ export function createCameraPresetsController(options = {}) {
             farInput,
             shiftXInput,
             shiftYInput,
+            annotVisibleBtn,
+            annotDrawBtn,
+            annotUndoBtn,
+            annotClearBtn,
+            annotToolSel,
+            annotDashSel,
+            annotColorInput,
+            annotWidthInput,
+            syncAnnotButtons,
             writeVec3,
         };
         return propsUI;
@@ -529,6 +1160,8 @@ export function createCameraPresetsController(options = {}) {
     function syncPropsPanel(preset) {
         const ui = ensurePropsUI();
         if (!ui || !preset) return;
+
+        ensureAnnotationsDefaults(preset);
 
         ui.nameInput.value = preset.name || '';
         ui.writeVec3(preset.position, ui.pos.x, ui.pos.y, ui.pos.z);
@@ -541,6 +1174,7 @@ export function createCameraPresetsController(options = {}) {
         ui.shiftXInput.value = String(preset.shiftX ?? 0);
         ui.shiftYInput.value = String(preset.shiftY ?? 0);
 
+        ui.syncAnnotButtons?.();
         updatePresetLabels(preset);
     }
 

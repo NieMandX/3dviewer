@@ -604,6 +604,31 @@ details.cam-props-panel {
     color: var(--ink);
 }
 
+.cam-props-field select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font: inherit;
+    background: var(--controlBg);
+    color: var(--ink);
+}
+
+.cam-props-field input[type="color"] {
+    padding: 0;
+    height: 34px;
+}
+
+details.cam-props-panel .btn.active:not(.primary) {
+    background: rgba(0, 0, 0, 0.08);
+    border-color: var(--borderStrong);
+}
+
+body.bg-black details.cam-props-panel .btn.active:not(.primary) {
+    background: rgba(255, 255, 255, 0.12);
+}
+
 .cam-props-text {
     min-width: 0;
 }
@@ -718,6 +743,24 @@ input:focus-visible {
     bottom: 0;
     left: 0;
     background: transparent;
+}
+
+.annotate-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: var(--sideW);
+    bottom: 0;
+    width: auto;
+    height: auto;
+    pointer-events: none;
+    touch-action: none;
+    z-index: 3;
+}
+
+.annotate-canvas.active {
+    pointer-events: auto;
+    cursor: crosshair;
 }
 
 button.status-overlay {

@@ -310,12 +310,19 @@ class ViewerApp {
 		            THREE,
 		            camera,
 		            controls,
+		            annotateCanvasEl: dom.annotateCanvasEl,
 		            requestRender,
 		            requestLayout: () => getLayoutController().layout(),
 		            promptCameraName: (defaultName) => promptModal.open({
 		                title: 'Имя камеры',
 		                value: defaultName,
 		                placeholder: 'Имя камеры',
+		                type: 'text',
+		            }),
+		            promptAnnotationText: (defaultValue = '') => promptModal.open({
+		                title: 'Текст аннотации',
+		                value: defaultValue,
+		                placeholder: 'Текст…',
 		                type: 'text',
 		            }),
 		            confirmCameraDelete: (preset) => confirmModal.open({

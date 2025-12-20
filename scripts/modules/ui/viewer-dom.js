@@ -5,6 +5,7 @@ export function collectViewerDom(document) {
 
     return {
         rootEl: get('viewer'),
+        annotateCanvasEl: get('annotateCanvas'),
         dropEl: get('drop'),
         statusEl,
         appbarStatusEl: get('appbarStatus') || statusEl,
