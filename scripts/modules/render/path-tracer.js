@@ -65,6 +65,8 @@ export function createPathTracerController(options = {}) {
     let lastSampleTime = 0;
     let lastSampleCount = 0;
     let sampleSpeed = 0;
+    let lastUiUpdate = 0;
+    const uiUpdateInterval = 120;
 
     function updateButtonState() {
         if (!pathTraceBtn) return;
@@ -98,15 +100,18 @@ export function createPathTracerController(options = {}) {
         lastSampleTime = 0;
         lastSampleCount = 0;
         sampleSpeed = 0;
+        lastUiUpdate = 0;
         setSpeedLabel('0/s');
     }
 
-    function updateSampleStats(samples) {
-        if (!Number.isFinite(samples) || !win?.performance?.now) {
+    function updateSampleStats(samples, nowValue = null) {
+        const now = Number.isFinite(nowValue)
+            ? nowValue
+            : (win?.performance?.now ? win.performance.now() : Date.now());
+        if (!Number.isFinite(samples) || !Number.isFinite(now)) {
             setSpeedLabel('0/s');
             return;
         }
-        const now = win.performance.now();
         if (!lastSampleTime) {
             lastSampleTime = now;
             lastSampleCount = samples;
@@ -348,13 +353,22 @@ export function createPathTracerController(options = {}) {
             }
             pathTracer.renderSample();
             const samples = pathTracer.samples;
-            updateSampleStats(samples);
-            const label = Number.isFinite(samples)
-                ? (Math.abs(samples - Math.round(samples)) > 1e-4 ? samples.toFixed(2) : String(Math.round(samples)))
-                : '--';
-            setSamplesLabel(label);
-            if (pathTraceShotBtn) {
-                pathTraceShotBtn.disabled = !Number.isFinite(samples) || samples <= 0 || busy;
+            const now = win?.performance?.now ? win.performance.now() : Date.now();
+            const shouldUpdateUi =
+                !lastUiUpdate ||
+                (Number.isFinite(now) && (now - lastUiUpdate) >= uiUpdateInterval) ||
+                !Number.isFinite(samples) ||
+                samples <= 1;
+            if (shouldUpdateUi) {
+                updateSampleStats(samples, now);
+                const label = Number.isFinite(samples)
+                    ? (Math.abs(samples - Math.round(samples)) > 1e-4 ? samples.toFixed(2) : String(Math.round(samples)))
+                    : '--';
+                setSamplesLabel(label);
+                if (pathTraceShotBtn) {
+                    pathTraceShotBtn.disabled = !Number.isFinite(samples) || samples <= 0 || busy;
+                }
+                lastUiUpdate = Number.isFinite(now) ? now : Date.now();
             }
             rafId = win.requestAnimationFrame(tick);
         };
