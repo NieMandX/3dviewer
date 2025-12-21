@@ -41,6 +41,7 @@ import { createEnvironmentWiring } from '../render/environment-wiring.js';
 import { createBackfaceOverlayController } from '../render/backface-overlay.js';
 import { createShadingController } from '../render/shading-controller.js';
 import { createPathTracerController } from '../render/path-tracer.js';
+import { createRaycastTool } from '../render/raycast-tool.js';
 import { createAssetLoaders } from '../io/asset-loaders.js';
 import { createImportHandlers } from '../io/import-handlers.js';
 import { createFileFlowUIController } from '../io/file-flow-ui.js';
@@ -206,6 +207,7 @@ class ViewerApp {
 	        const resetViewBtn = dom.resetViewBtn;
 	        const exportBtn = dom.exportBtn;
 	        const pathTraceBtn = dom.pathTraceBtn;
+	        const rayToggleBtn = dom.rayToggleBtn;
 	        const fullscreenBtn = dom.fullscreenBtn;
 	        const statsBtn = dom.statsBtn;
 	        const solidToggleBtn = dom.solidToggleBtn;
@@ -344,8 +346,8 @@ class ViewerApp {
 	        const rendererInitPromise = sceneCore.rendererInitPromise;
 	        const getRendererReady = sceneCore.getRendererReady;
 	        const backgroundController = sceneCore.backgroundController;
-		        const controls = sceneCore.controls;
-		        const flightControls = sceneCore.flightControls;
+	        const controls = sceneCore.controls;
+	        const flightControls = sceneCore.flightControls;
 		        const hemiLight = sceneCore.hemiLight;
 		        const dirLight = sceneCore.dirLight;
 	        const markSceneStatsDirty = sceneCore.markSceneStatsDirty;
@@ -353,6 +355,17 @@ class ViewerApp {
 
 	        app.renderer = renderer;
 	        app.rendererInitPromise = rendererInitPromise;
+
+	        const raycastTool = createRaycastTool({
+	            THREE,
+	            world,
+	            camera,
+	            renderer,
+	            rayToggleBtn,
+	            requestRender,
+	            setStatusMessage,
+	        });
+	        app.raycastTool = raycastTool;
 
 		        const cameraPresets = createCameraPresetsController({
 		            THREE,
