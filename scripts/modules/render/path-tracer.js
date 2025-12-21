@@ -361,9 +361,7 @@ export function createPathTracerController(options = {}) {
                 samples <= 1;
             if (shouldUpdateUi) {
                 updateSampleStats(samples, now);
-                const label = Number.isFinite(samples)
-                    ? (Math.abs(samples - Math.round(samples)) > 1e-4 ? samples.toFixed(2) : String(Math.round(samples)))
-                    : '--';
+                const label = Number.isFinite(samples) ? samples.toFixed(2) : '--';
                 setSamplesLabel(label);
                 if (pathTraceShotBtn) {
                     pathTraceShotBtn.disabled = !Number.isFinite(samples) || samples <= 0 || busy;
