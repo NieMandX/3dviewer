@@ -4,6 +4,7 @@ export function createImportedLightsController(options = {}) {
 
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const logBind = typeof options.logBind === 'function' ? options.logBind : null;
+    const onLightsUpdated = typeof options.onLightsUpdated === 'function' ? options.onLightsUpdated : () => {};
 
     const LIGHT_HELPER_COLOR = options.lightHelperColor ?? 0xffc107;
 
@@ -225,6 +226,7 @@ export function createImportedLightsController(options = {}) {
         if (!silent && logBind) {
             logBind(`Lights: ${enabled ? 'включены' : 'выключены'} (${affected})`, 'info');
         }
+        onLightsUpdated();
         requestRender();
     }
 
@@ -270,4 +272,3 @@ export function createImportedLightsController(options = {}) {
         bindUI,
     };
 }
-

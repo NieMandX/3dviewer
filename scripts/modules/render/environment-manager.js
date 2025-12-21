@@ -35,6 +35,7 @@ export function createEnvironmentManager(options = {}) {
     const getBgMesh = typeof options.getBgMesh === 'function' ? options.getBgMesh : () => null;
     const updateBgVisibility = typeof options.updateBgVisibility === 'function' ? options.updateBgVisibility : () => {};
     const applyGlassControlsToScene = typeof options.applyGlassControlsToScene === 'function' ? options.applyGlassControlsToScene : () => {};
+    const onEnvironmentUpdated = typeof options.onEnvironmentUpdated === 'function' ? options.onEnvironmentUpdated : null;
 
     const useWebGPU = !!options.useWebGPU;
     const rendererInitPromise = options.rendererInitPromise || Promise.resolve();
@@ -147,7 +148,7 @@ export function createEnvironmentManager(options = {}) {
         return tex;
     }
 
-    function setRotation(deg) {
+    function setRotation(deg, { silent = false } = {}) {
         const safeDeg = Number.isFinite(deg) ? deg : 0;
         currentRotDeg = safeDeg;
         if (app) app.currentRotDeg = currentRotDeg;
@@ -173,11 +174,14 @@ export function createEnvironmentManager(options = {}) {
         });
 
         requestRender();
+        if (!silent) {
+            onEnvironmentUpdated?.({ type: 'rotation' });
+        }
     }
 
-    function applyEnvToMaterials(env, intensity) {
-        if (useWebGPU && scene) {
-            scene.environmentIntensity = intensity;
+    function applyEnvToMaterials(env, intensity, { silent = false } = {}) {
+        if (scene) {
+            scene.environmentIntensity = env ? intensity : 0;
         }
         if (!env) {
             envMaterials.clear();
@@ -209,6 +213,9 @@ export function createEnvironmentManager(options = {}) {
         });
 
         requestRender();
+        if (!silent) {
+            onEnvironmentUpdated?.({ type: 'intensity' });
+        }
     }
 
     function applyBuiltEnvironment() {
@@ -216,7 +223,7 @@ export function createEnvironmentManager(options = {}) {
         if (!currentEnv || !currentBg) return;
 
         if (scene) scene.environment = currentEnv;
-        applyEnvToMaterials(scene?.environment || currentEnv, parseFloat(getIntensity()) || 1.0);
+        applyEnvToMaterials(scene?.environment || currentEnv, parseFloat(getIntensity()) || 1.0, { silent: true });
 
         const bgMesh = ensureBgMesh?.();
         if (bgMesh) {
@@ -224,9 +231,10 @@ export function createEnvironmentManager(options = {}) {
             bgMesh.material.needsUpdate = true;
         }
 
-        setRotation(currentRotDeg);
+        setRotation(currentRotDeg, { silent: true });
         updateBgVisibility?.();
         requestRender();
+        onEnvironmentUpdated?.({ type: 'rebuild' });
     }
 
     function requestRebuild({ immediate = false } = {}) {
@@ -477,16 +485,17 @@ export function createEnvironmentManager(options = {}) {
             }
             envRebuildQueued = false;
             if (scene) scene.environment = null;
-            applyEnvToMaterials(null, 1.0);
+            applyEnvToMaterials(null, 1.0, { silent: true });
             const bgMesh = getBgMesh?.();
             if (bgMesh) bgMesh.visible = false;
         }
         updateBgVisibility?.();
         applyGlassControlsToScene?.();
+        onEnvironmentUpdated?.({ type: 'toggle', enabled });
     }
 
     async function buildAndApplyFromRotation(deg) {
-        setRotation(deg);
+        setRotation(deg, { silent: true });
         await rebuild({ force: false });
     }
 

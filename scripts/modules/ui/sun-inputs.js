@@ -11,6 +11,7 @@ export function createSunInputsController(options = {}) {
 
     const updateSun = typeof options.updateSun === 'function' ? options.updateSun : () => {};
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
+    const onLightsUpdated = typeof options.onLightsUpdated === 'function' ? options.onLightsUpdated : () => {};
 
     function clampNumericInput(value, min, max) {
         if (!Number.isFinite(value)) return null;
@@ -40,7 +41,10 @@ export function createSunInputsController(options = {}) {
     const formatSunIntensity = (value) => value.toFixed(1);
 
     [sunHourEl, sunDayEl, sunMonthEl, sunNorthEl].filter(Boolean).forEach(el => {
-        el.addEventListener('input', updateSun);
+        el.addEventListener('input', () => {
+            updateSun();
+            onLightsUpdated();
+        });
     });
     updateSun();
 
@@ -75,6 +79,7 @@ export function createSunInputsController(options = {}) {
             sunIntensityEl.value = String(value);
             sunIntensityInputEl.value = formatSunIntensity(value);
             requestRender();
+            onLightsUpdated();
         });
         sunIntensityInputEl.addEventListener('change', () => {
             let value = clampNumericInput(
@@ -90,6 +95,7 @@ export function createSunInputsController(options = {}) {
             sunIntensityInputEl.value = formatSunIntensity(value);
             dirLight.intensity = value;
             requestRender();
+            onLightsUpdated();
         });
     }
 
@@ -99,4 +105,3 @@ export function createSunInputsController(options = {}) {
         formatSunIntensity,
     };
 }
-

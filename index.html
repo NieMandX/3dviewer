@@ -51,6 +51,7 @@
                 </select>
             </label>
 	        </div>
+            <button id="pathTraceBtn" class="btn" type="button" title="Photo / Path Trace" aria-pressed="false">PHOTO</button>
 		        <button id="solidToggleBtn" class="btn" type="button" title="Оставить только стекло">SOL</button>
 		        <button id="collToggleBtn" class="btn" type="button" title="Показать/скрыть коллизии (UCX)">UCX</button>
 	        <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">VPM</button>
@@ -68,6 +69,59 @@
     <div id="viewer"></div>
     <canvas id="annotateCanvas" class="annotate-canvas" aria-hidden="true"></canvas>
     <div id="statsOverlay" class="stats-overlay" hidden></div>
+    <div id="pathTraceHud" class="pt-hud" hidden>
+        <span class="pt-label">Samples</span>
+        <span id="pathTraceSamples" class="pt-samples">0</span>
+        <span id="pathTraceSpeed" class="pt-speed">0/s</span>
+        <button id="pathTraceShot" class="btn" type="button">Сделать кадр</button>
+    </div>
+    <div id="pathTracePanel" class="pt-panel" hidden>
+        <div class="pt-panel-row">
+            <label for="ptBounces">Bounces</label>
+            <input id="ptBounces" type="number" min="1" max="12" step="1" value="3" />
+        </div>
+        <div class="pt-panel-row">
+            <label for="ptTransmissive">Transmissive</label>
+            <input id="ptTransmissive" type="number" min="0" max="12" step="1" value="3" />
+        </div>
+        <div class="pt-panel-row">
+            <label for="ptGlossy">Glossy</label>
+            <input id="ptGlossy" type="number" min="0" max="1" step="0.05" value="0.0" />
+        </div>
+        <div class="pt-panel-row">
+            <label for="ptClamp">Clamp</label>
+            <input id="ptClamp" type="number" min="1" max="50" step="1" value="20" />
+        </div>
+        <div class="pt-panel-row">
+            <label for="ptRenderScale">Render scale</label>
+            <input id="ptRenderScale" type="number" min="0.25" max="1" step="0.05" value="1" />
+        </div>
+        <div class="pt-panel-row">
+            <label for="ptLowResScale">Low-res scale</label>
+            <input id="ptLowResScale" type="number" min="0.1" max="1" step="0.05" value="0.25" />
+        </div>
+        <div class="pt-panel-row">
+            <label>Tiles</label>
+            <div class="pt-tiles">
+                <input id="ptTilesX" type="number" min="1" max="8" step="1" value="3" />
+                <span class="pt-tiles-sep">×</span>
+                <input id="ptTilesY" type="number" min="1" max="8" step="1" value="3" />
+            </div>
+        </div>
+        <div class="pt-panel-row pt-panel-check">
+            <label><input id="ptDynamicLowRes" type="checkbox" /> Dynamic low-res</label>
+        </div>
+        <div class="pt-panel-row pt-panel-check">
+            <label><input id="ptStableNoise" type="checkbox" /> Stable noise</label>
+        </div>
+        <div class="pt-panel-row pt-panel-check">
+            <label><input id="ptMIS" type="checkbox" checked /> MIS</label>
+        </div>
+        <div class="pt-panel-row pt-panel-actions">
+            <button id="ptReset" class="btn" type="button">Reset</button>
+            <label class="pt-pause"><input id="ptPause" type="checkbox" /> Pause</label>
+        </div>
+    </div>
     <div id="status" class="status-overlay muted" hidden>—</div>
     <button id="emptyHint" class="status-overlay btn" type="button">Перетяните файлы сюда или нажмите, чтобы выбрать. zip / fbx</button>
 
@@ -480,10 +534,13 @@
 
     <script type="importmap">
         {
-            "imports": {
+                "imports": {
                 "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/src/Three.js",
                 "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-                "three/src/": "https://cdn.jsdelivr.net/npm/three@0.180.0/src/"
+                "three/src/": "https://cdn.jsdelivr.net/npm/three@0.180.0/src/",
+                "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/",
+                "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.4/build/index.module.js",
+                "three-gpu-pathtracer": "https://cdn.jsdelivr.net/npm/three-gpu-pathtracer@0.0.23/build/index.module.js"
             }
         }
     </script>

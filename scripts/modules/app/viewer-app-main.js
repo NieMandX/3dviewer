@@ -40,6 +40,7 @@ import { createDebugTextureProvider } from '../render/debug-textures.js';
 import { createEnvironmentWiring } from '../render/environment-wiring.js';
 import { createBackfaceOverlayController } from '../render/backface-overlay.js';
 import { createShadingController } from '../render/shading-controller.js';
+import { createPathTracerController } from '../render/path-tracer.js';
 import { createAssetLoaders } from '../io/asset-loaders.js';
 import { createImportHandlers } from '../io/import-handlers.js';
 import { createFileFlowUIController } from '../io/file-flow-ui.js';
@@ -204,6 +205,7 @@ class ViewerApp {
 	        const resetViewerBtn = dom.resetViewerBtn;
 	        const resetViewBtn = dom.resetViewBtn;
 	        const exportBtn = dom.exportBtn;
+	        const pathTraceBtn = dom.pathTraceBtn;
 	        const fullscreenBtn = dom.fullscreenBtn;
 	        const statsBtn = dom.statsBtn;
 	        const solidToggleBtn = dom.solidToggleBtn;
@@ -222,6 +224,24 @@ class ViewerApp {
 	        const camPropsDetailsEl = dom.camPropsDetailsEl;
 	        const camPropsTitleEl = dom.camPropsTitleEl;
 	        const camPropsPanelEl = dom.camPropsPanelEl;
+	        const pathTraceHudEl = dom.pathTraceHudEl;
+	        const pathTraceSamplesEl = dom.pathTraceSamplesEl;
+	        const pathTraceSpeedEl = dom.pathTraceSpeedEl;
+	        const pathTraceShotBtn = dom.pathTraceShotBtn;
+	        const pathTracePanelEl = dom.pathTracePanelEl;
+	        const ptBouncesEl = dom.ptBouncesEl;
+	        const ptTransmissiveEl = dom.ptTransmissiveEl;
+	        const ptGlossyEl = dom.ptGlossyEl;
+	        const ptClampEl = dom.ptClampEl;
+	        const ptRenderScaleEl = dom.ptRenderScaleEl;
+	        const ptLowResScaleEl = dom.ptLowResScaleEl;
+	        const ptTilesXEl = dom.ptTilesXEl;
+	        const ptTilesYEl = dom.ptTilesYEl;
+	        const ptDynamicLowResEl = dom.ptDynamicLowResEl;
+	        const ptStableNoiseEl = dom.ptStableNoiseEl;
+	        const ptMISEl = dom.ptMISEl;
+	        const ptPauseEl = dom.ptPauseEl;
+	        const ptResetBtn = dom.ptResetBtn;
 
         const glassOpacityEl = dom.glassOpacityEl;
         const glassIorEl = dom.glassIorEl;
@@ -264,12 +284,27 @@ class ViewerApp {
 		        let renderLoop = null;
 		        let glassController = null;
 		        let materialsPanel = null;
-		        let appbarVisibilityToggles = null;
-		        let schedulePanelRefreshImpl = () => {};
-		        let syncCollisionButtonsImpl = () => {
-		            appbarVisibilityToggles?.enforceSuppressionIfNeeded?.();
-		            appbarVisibilityToggles?.updateAll?.();
-		        };
+	        let appbarVisibilityToggles = null;
+	        let schedulePanelRefreshImpl = () => {};
+	        let syncCollisionButtonsImpl = () => {
+	            appbarVisibilityToggles?.enforceSuppressionIfNeeded?.();
+	            appbarVisibilityToggles?.updateAll?.();
+	        };
+	        const notifyPathTracerEnv = () => {
+	            if (app.pathTracer?.isEnabled?.()) {
+	                app.pathTracer.updateEnvironment?.();
+	            }
+	        };
+	        const notifyPathTracerLights = () => {
+	            if (app.pathTracer?.isEnabled?.()) {
+	                app.pathTracer.updateLights?.();
+	            }
+	        };
+	        const notifyPathTracerMaterials = () => {
+	            if (app.pathTracer?.isEnabled?.()) {
+	                app.pathTracer.updateMaterials?.();
+	            }
+	        };
 
         const rootEl = dom.rootEl;
         const dropEl = dom.dropEl;
@@ -361,11 +396,11 @@ class ViewerApp {
 		        });
 		        app.cameraPresets = cameraPresets;
 
-		        exportBtn?.addEventListener?.('click', () => {
-		            void (async () => {
-		                const selection = await exportModal.open({
-		                    title: 'Экспорт сцены',
-		                    format: 'glb',
+        exportBtn?.addEventListener?.('click', () => {
+            void (async () => {
+                const selection = await exportModal.open({
+                    title: 'Экспорт сцены',
+                    format: 'glb',
 		                    coords: 'rebased',
 		                });
 		                if (!selection) return;
@@ -383,9 +418,9 @@ class ViewerApp {
 		                } catch (err) {
 		                    console.error(err);
 		                    setStatusMessage('Экспорт: ошибка — ' + (err?.message || err));
-		                }
-		            })();
-		        });
+                }
+            })();
+        });
 
 		        const sunDir = new THREE.Vector3(0, 1, 0); // актуальное направление солнца (единичный)
 
@@ -516,6 +551,7 @@ class ViewerApp {
 		            hdriExposureEl,
 		            hdriSaturationEl,
 		            hdriBlurEl,
+		            onEnvironmentUpdated: notifyPathTracerEnv,
 		            getIntensity: () => parseFloat(iblIntEl?.value) || 1.0,
 		            initialRotationDeg: parseFloat(iblRotEl?.value) || 0,
 		            enabled: !!iblChk?.checked,
@@ -740,9 +776,9 @@ class ViewerApp {
 				        appbarVisibilityToggles.updateAll();
 
 
-				        createSunInputsController({
-				            sunHourEl,
-			            sunHourInputEl,
+			        createSunInputsController({
+			            sunHourEl,
+		            sunHourInputEl,
 	            sunDayEl,
 	            sunMonthEl,
 	            sunNorthEl,
@@ -750,6 +786,7 @@ class ViewerApp {
 	            sunIntensityInputEl,
 	            dirLight,
 	            updateSun,
+		            onLightsUpdated: notifyPathTracerLights,
 		            requestRender,
 		        });
 
@@ -801,6 +838,7 @@ class ViewerApp {
 	            THREE,
 	            loadedModels,
 	            requestRender,
+	            onLightsUpdated: notifyPathTracerLights,
 	            logBind,
 	        });
 		        importedLightsController.bindUI({
@@ -973,6 +1011,7 @@ class ViewerApp {
 	         */
 	        function applyGlassControlsToScene() {
 	            glassController?.applyToScene?.();
+	            notifyPathTracerMaterials();
 	        }
 
 
@@ -1015,11 +1054,12 @@ class ViewerApp {
 	        // =====================
 	        // LIGHT CONTROLL
 	        // =====================
-	        createHemiLightControlsController({
+        createHemiLightControlsController({
             hemiLight,
             hemiIntEl,
             hemiSkyEl,
             hemiGroundEl,
+            onLightsUpdated: notifyPathTracerLights,
             requestRender,
         });
 
@@ -1188,6 +1228,40 @@ class ViewerApp {
 	                backgroundController.syncToCamera();
 	            },
         });
+	        const pathTracerController = createPathTracerController({
+	            THREE,
+	            scene,
+	            camera,
+	            renderer,
+	            rootEl,
+	            controls,
+	            flightControls,
+	            renderLoop,
+	            requestRender,
+	            setStatusMessage,
+            pathTraceBtn,
+            pathTraceHudEl,
+            pathTraceSamplesEl,
+            pathTraceSpeedEl,
+            pathTraceShotBtn,
+            pathTracePanelEl,
+            ptBouncesEl,
+            ptTransmissiveEl,
+            ptGlossyEl,
+            ptClampEl,
+            ptRenderScaleEl,
+            ptLowResScaleEl,
+            ptTilesXEl,
+	            ptTilesYEl,
+	            ptDynamicLowResEl,
+	            ptStableNoiseEl,
+	            ptMISEl,
+	            ptPauseEl,
+	            ptResetBtn,
+	            window,
+	            document,
+	        });
+	        app.pathTracer = pathTracerController;
         layout();
         // IBL не запускаем автоматически — управляется чекбоксом
     }

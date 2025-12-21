@@ -5,6 +5,7 @@ export function createHemiLightControlsController(options = {}) {
     const hemiGroundEl = options.hemiGroundEl || null;
 
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
+    const onLightsUpdated = typeof options.onLightsUpdated === 'function' ? options.onLightsUpdated : () => {};
 
     function applyFromInputs() {
         if (!hemiLight) return;
@@ -26,6 +27,7 @@ export function createHemiLightControlsController(options = {}) {
     function syncAndRender() {
         applyFromInputs();
         requestRender();
+        onLightsUpdated();
     }
 
     [hemiIntEl, hemiSkyEl, hemiGroundEl].filter(Boolean).forEach((el) => {

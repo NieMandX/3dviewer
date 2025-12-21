@@ -449,6 +449,7 @@ export async function exportWorldAsGLTF(options = {}) {
     const coords = normalizeCoords(options.coords);
     const baseName = options.baseName || makeBaseName({ coords });
     const filename = options.filename || makeFilename({ format, coords });
+    const returnBlob = !!options.returnBlob;
 
     if (!world) throw new Error('exportWorldAsGLTF: world is required');
 
@@ -524,11 +525,14 @@ export async function exportWorldAsGLTF(options = {}) {
     }
 
     if (format === 'glb') {
-        downloadBlob(documentRef, new Blob([glbArrayBuffer], { type: 'model/gltf-binary' }), filename);
+        const blob = new Blob([glbArrayBuffer], { type: 'model/gltf-binary' });
+        if (returnBlob) return { filename, format, coords, blob, arrayBuffer: glbArrayBuffer };
+        downloadBlob(documentRef, blob, filename);
         return { filename, format, coords };
     }
 
     const zipBlob = await buildGLTFZip({ glbArrayBuffer, baseName, JSZipCtor });
+    if (returnBlob) return { filename, format, coords, blob: zipBlob, arrayBuffer: glbArrayBuffer };
     downloadBlob(documentRef, zipBlob, filename);
     return { filename, format, coords };
 }
