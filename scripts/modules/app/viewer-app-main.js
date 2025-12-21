@@ -360,6 +360,7 @@ class ViewerApp {
 			            controls,
 			            annotateCanvasEl: dom.annotateCanvasEl,
 			            annotateToolbarEl: dom.annotateToolbarEl,
+			            annoToggleBtn: dom.annoToggleBtn,
 			            annoVisibleBtn: dom.annoVisibleBtn,
 			            annoDrawBtn: dom.annoDrawBtn,
 			            annoColorEl: dom.annoColorEl,

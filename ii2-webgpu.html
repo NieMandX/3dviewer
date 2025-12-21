@@ -54,13 +54,14 @@
             <button id="pathTraceBtn" class="btn" type="button" title="Photo / Path Trace" aria-pressed="false">PHOTO</button>
 		        <button id="solidToggleBtn" class="btn" type="button" title="Оставить только стекло">SOL</button>
 		        <button id="collToggleBtn" class="btn" type="button" title="Показать/скрыть коллизии (UCX)">UCX</button>
-	        <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">VPM</button>
-	        <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">NPM</button>
-	        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">CAMS</button>
-	        <button id="bgToggleBtn" class="btn bg-btn" type="button" title="Тёмная тема" aria-label="Тёмная тема">&#9790;&#65038;</button>
-	        <a class="btn order-btn" href="https://lpmview.ru/#order" target="_blank" rel="noopener">Заказать модель</a>
+		        <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">VPM</button>
+		        <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">NPM</button>
+		        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">CAMS</button>
+		        <button id="annoToggleBtn" class="btn" type="button" title="Аннотации" aria-label="Аннотации" aria-pressed="false">✎</button>
+		        <button id="bgToggleBtn" class="btn bg-btn" type="button" title="Тёмная тема" aria-label="Тёмная тема">&#9790;&#65038;</button>
+		        <a class="btn order-btn" href="https://lpmview.ru/#order" target="_blank" rel="noopener">Заказать модель</a>
 
-	    </div>
+		    </div>
 
 	    <div id="camsBar" class="cams-bar" hidden>
 	        <div id="camsBarList" class="cams-strip"></div>
@@ -68,7 +69,7 @@
 
 	    <div id="viewer"></div>
 	    <canvas id="annotateCanvas" class="annotate-canvas" aria-hidden="true"></canvas>
-	    <div id="annotateToolbar" class="anno-toolbar" aria-label="Аннотации">
+	    <div id="annotateToolbar" class="anno-toolbar" aria-label="Аннотации" hidden>
 	        <button id="annoVisibleBtn" class="btn anno-btn" type="button" title="Показать/скрыть аннотации (H)" aria-label="Показать/скрыть аннотации">👁</button>
 	        <button id="annoDrawBtn" class="btn anno-btn" type="button" title="Режим рисования (X)" aria-label="Режим рисования">✎</button>
 	        <span class="anno-divider" aria-hidden="true"></span>

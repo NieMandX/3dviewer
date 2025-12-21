@@ -37,6 +37,9 @@ body {
     background: transparent;
 }
 
+/* Enforce native `hidden` attribute behavior across browsers. */
+[hidden] { display: none !important; }
+
 /* <!-- --------------------------- -->
 <!--      DEBUG SHADDOW PANNEL      -->
 <!-- --------------------------- --> */

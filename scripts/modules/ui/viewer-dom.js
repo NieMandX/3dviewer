@@ -7,6 +7,7 @@ export function collectViewerDom(document) {
         rootEl: get('viewer'),
         annotateCanvasEl: get('annotateCanvas'),
         annotateToolbarEl: get('annotateToolbar'),
+        annoToggleBtn: get('annoToggleBtn'),
         annoVisibleBtn: get('annoVisibleBtn'),
         annoDrawBtn: get('annoDrawBtn'),
         annoColorEl: get('annoColor'),

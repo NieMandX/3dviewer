@@ -28,6 +28,7 @@ export function createCameraPresetsController(options = {}) {
     const controls = options.controls || null;
     const annotateCanvasEl = options.annotateCanvasEl || null;
     const annotateToolbarEl = options.annotateToolbarEl || null;
+    const annoToggleBtn = options.annoToggleBtn || null;
     const annoVisibleBtn = options.annoVisibleBtn || null;
     const annoDrawBtn = options.annoDrawBtn || null;
     const annoColorEl = options.annoColorEl || null;
@@ -94,6 +95,22 @@ export function createCameraPresetsController(options = {}) {
     const annotations = createAnnotationsController();
     let annoToolbarReady = false;
     let annoHotkeysReady = false;
+
+    function setAnnotationsToolbarVisible(visible) {
+        if (!annotateToolbarEl) return;
+        const next = !!visible;
+        annotateToolbarEl.hidden = !next;
+        if (annoToggleBtn) {
+            annoToggleBtn.classList.toggle('active', next);
+            annoToggleBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        }
+        syncAnnotationsToolbar();
+    }
+
+    function toggleAnnotationsToolbarVisible() {
+        if (!annotateToolbarEl) return;
+        setAnnotationsToolbarVisible(!!annotateToolbarEl.hidden);
+    }
 
     function syncAnnotationsToolbar() {
         if (!annotateToolbarEl) return;
@@ -174,6 +191,8 @@ export function createCameraPresetsController(options = {}) {
     }
 
     ensureAnnotationsToolbar();
+    setAnnotationsToolbarVisible(false);
+    annoToggleBtn?.addEventListener?.('click', toggleAnnotationsToolbarVisible);
 
     function isEditableElement(el) {
         if (!el) return false;
