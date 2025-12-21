@@ -1075,7 +1075,8 @@ body.side-hidden { --sideW: 0px; }
     gap: 8px;
     padding: 12px;
     min-width: 260px;
-    background: var(--surfaceStrong);
+    /* Make panel more opaque so noisy path tracing doesn't "flicker" through it. */
+    background: rgba(255, 255, 255, 0.94);
     color: var(--ink);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -1084,6 +1085,10 @@ body.side-hidden { --sideW: 0px; }
     backdrop-filter: blur(var(--glassBlur));
     z-index: 6;
     font-size: 12px;
+}
+
+body.bg-black .pt-panel {
+    background: rgba(0, 0, 0, 0.88);
 }
 
 .pt-panel-head {
