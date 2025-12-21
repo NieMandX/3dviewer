@@ -354,15 +354,23 @@ class ViewerApp {
 	        app.renderer = renderer;
 	        app.rendererInitPromise = rendererInitPromise;
 
-		        const cameraPresets = createCameraPresetsController({
-		            THREE,
-		            camera,
-		            controls,
-		            annotateCanvasEl: dom.annotateCanvasEl,
-		            requestRender,
-		            requestLayout: () => getLayoutController().layout(),
-		            promptCameraName: (defaultName) => promptModal.open({
-		                title: 'Имя камеры',
+			        const cameraPresets = createCameraPresetsController({
+			            THREE,
+			            camera,
+			            controls,
+			            annotateCanvasEl: dom.annotateCanvasEl,
+			            annotateToolbarEl: dom.annotateToolbarEl,
+			            annoVisibleBtn: dom.annoVisibleBtn,
+			            annoDrawBtn: dom.annoDrawBtn,
+			            annoColorEl: dom.annoColorEl,
+			            annoDashEl: dom.annoDashEl,
+			            annoWidthEl: dom.annoWidthEl,
+			            annoUndoBtn: dom.annoUndoBtn,
+			            annoClearBtn: dom.annoClearBtn,
+			            requestRender,
+			            requestLayout: () => getLayoutController().layout(),
+			            promptCameraName: (defaultName) => promptModal.open({
+			                title: 'Имя камеры',
 		                value: defaultName,
 		                placeholder: 'Имя камеры',
 		                type: 'text',

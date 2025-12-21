@@ -27,6 +27,14 @@ export function createCameraPresetsController(options = {}) {
     const camera = options.camera || null;
     const controls = options.controls || null;
     const annotateCanvasEl = options.annotateCanvasEl || null;
+    const annotateToolbarEl = options.annotateToolbarEl || null;
+    const annoVisibleBtn = options.annoVisibleBtn || null;
+    const annoDrawBtn = options.annoDrawBtn || null;
+    const annoColorEl = options.annoColorEl || null;
+    const annoDashEl = options.annoDashEl || null;
+    const annoWidthEl = options.annoWidthEl || null;
+    const annoUndoBtn = options.annoUndoBtn || null;
+    const annoClearBtn = options.annoClearBtn || null;
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const requestLayout = typeof options.requestLayout === 'function' ? options.requestLayout : () => {};
 
@@ -84,6 +92,186 @@ export function createCameraPresetsController(options = {}) {
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
     ensureDefaultPreset();
     const annotations = createAnnotationsController();
+    let annoToolbarReady = false;
+    let annoHotkeysReady = false;
+
+    function syncAnnotationsToolbar() {
+        if (!annotateToolbarEl) return;
+        const visible = annotations.getVisibleForActivePreset();
+        const drawing = annotations.getDrawEnabled();
+
+        if (annoVisibleBtn) annoVisibleBtn.classList.toggle('active', !!visible);
+        if (annoDrawBtn) annoDrawBtn.classList.toggle('active', !!drawing);
+
+        const tool = annotations.getTool();
+        annotateToolbarEl.querySelectorAll?.('.anno-tool')?.forEach((btn) => {
+            const t = btn?.dataset?.tool;
+            btn.classList.toggle('active', t && t === tool);
+        });
+
+        if (annoColorEl && typeof annoColorEl.value === 'string') annoColorEl.value = annotations.getColor();
+        if (annoDashEl && typeof annoDashEl.value === 'string') annoDashEl.value = annotations.getDash();
+        if (annoWidthEl) annoWidthEl.value = String(annotations.getWidth());
+    }
+
+    function ensureAnnotationsToolbar() {
+        if (!annotateToolbarEl || annoToolbarReady) return;
+        annoToolbarReady = true;
+
+        annotateToolbarEl.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const btn = target.closest?.('.anno-tool');
+            if (!btn) return;
+            const tool = btn.dataset.tool;
+            if (!tool) return;
+            annotations.setTool(tool);
+            annotations.setVisibleForActivePreset(true);
+            annotations.setDrawEnabled(true);
+            syncAnnotationsToolbar();
+        });
+
+        annoVisibleBtn?.addEventListener?.('click', () => {
+            const next = !annotations.getVisibleForActivePreset();
+            if (!next) annotations.setDrawEnabled(false);
+            annotations.setVisibleForActivePreset(next);
+            syncAnnotationsToolbar();
+        });
+
+        annoDrawBtn?.addEventListener?.('click', () => {
+            const next = !annotations.getDrawEnabled();
+            if (next) annotations.setVisibleForActivePreset(true);
+            annotations.setDrawEnabled(next);
+            syncAnnotationsToolbar();
+        });
+
+        annoUndoBtn?.addEventListener?.('click', () => {
+            annotations.undo();
+            syncAnnotationsToolbar();
+        });
+
+        annoClearBtn?.addEventListener?.('click', () => {
+            annotations.clear();
+            syncAnnotationsToolbar();
+        });
+
+        annoColorEl?.addEventListener?.('input', () => {
+            annotations.setColor(annoColorEl.value);
+            syncAnnotationsToolbar();
+        });
+
+        annoDashEl?.addEventListener?.('change', () => {
+            annotations.setDash(annoDashEl.value);
+            syncAnnotationsToolbar();
+        });
+
+        annoWidthEl?.addEventListener?.('input', () => {
+            annotations.setWidth(annoWidthEl.value);
+            syncAnnotationsToolbar();
+        });
+
+        syncAnnotationsToolbar();
+    }
+
+    ensureAnnotationsToolbar();
+
+    function isEditableElement(el) {
+        if (!el) return false;
+        const tag = String(el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+        if (el.isContentEditable) return true;
+        return false;
+    }
+
+    function isAnyModalOpen() {
+        if (typeof document === 'undefined') return false;
+        return !!document.querySelector?.('.modal.show');
+    }
+
+    function ensureAnnotationsHotkeys() {
+        if (annoHotkeysReady) return;
+        const win =
+            (typeof globalThis !== 'undefined' ? globalThis.window : null) ||
+            null;
+        if (!win?.addEventListener) return;
+        annoHotkeysReady = true;
+
+        const repeatSensitiveCodes = new Set(['KeyX', 'KeyH', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5']);
+        const toolByDigit = Object.freeze({
+            Digit1: 'pencil',
+            Digit2: 'line',
+            Digit3: 'rect',
+            Digit4: 'circle',
+            Digit5: 'text',
+        });
+
+        win.addEventListener('keydown', (event) => {
+            if (!event) return;
+            if (event.defaultPrevented) return;
+            if (isAnyModalOpen()) return;
+            if (isEditableElement(event.target)) return;
+
+            const code = event.code;
+
+            // Undo (Ctrl+Z / ⌘Z)
+            if ((event.ctrlKey || event.metaKey) && code === 'KeyZ' && !event.shiftKey) {
+                if (annotations.undo()) syncAnnotationsToolbar();
+                event.preventDefault?.();
+                return;
+            }
+
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+            if (event.repeat && repeatSensitiveCodes.has(code)) return;
+
+            if (code === 'KeyX') {
+                const next = !annotations.getDrawEnabled();
+                if (next) annotations.setVisibleForActivePreset(true);
+                annotations.setDrawEnabled(next);
+                syncAnnotationsToolbar();
+                event.preventDefault?.();
+                return;
+            }
+
+            if (code === 'Escape') {
+                if (annotations.getDrawEnabled()) {
+                    annotations.setDrawEnabled(false);
+                    syncAnnotationsToolbar();
+                    event.preventDefault?.();
+                }
+                return;
+            }
+
+            if (code === 'KeyH') {
+                const next = !annotations.getVisibleForActivePreset();
+                if (!next) annotations.setDrawEnabled(false);
+                annotations.setVisibleForActivePreset(next);
+                syncAnnotationsToolbar();
+                event.preventDefault?.();
+                return;
+            }
+
+            const tool = toolByDigit[code];
+            if (tool) {
+                annotations.setTool(tool);
+                annotations.setVisibleForActivePreset(true);
+                annotations.setDrawEnabled(true);
+                syncAnnotationsToolbar();
+                event.preventDefault?.();
+                return;
+            }
+
+            if (code === 'BracketLeft' || code === 'BracketRight') {
+                const delta = code === 'BracketRight' ? 1 : -1;
+                annotations.setWidth(annotations.getWidth() + delta);
+                syncAnnotationsToolbar();
+                event.preventDefault?.();
+                return;
+            }
+        });
+    }
+
+    ensureAnnotationsHotkeys();
 
     function normalizePoint(p) {
         return {
@@ -1108,6 +1296,7 @@ export function createCameraPresetsController(options = {}) {
             preset.annotationsVisible = !preset.annotationsVisible;
             annotations.scheduleDraw();
             syncAnnotButtons();
+            syncAnnotationsToolbar();
         });
 
         annotDrawBtn.addEventListener('click', () => {
@@ -1121,33 +1310,40 @@ export function createCameraPresetsController(options = {}) {
                 }
             }
             syncAnnotButtons();
+            syncAnnotationsToolbar();
         });
 
         annotUndoBtn.addEventListener('click', () => {
             annotations.undo();
             syncAnnotButtons();
+            syncAnnotationsToolbar();
         });
 
         annotClearBtn.addEventListener('click', () => {
             annotations.clear();
             syncAnnotButtons();
+            syncAnnotationsToolbar();
         });
 
         annotToolSel.addEventListener('change', () => {
             annotations.setTool(annotToolSel.value);
             syncAnnotButtons();
+            syncAnnotationsToolbar();
         });
         annotDashSel.addEventListener('change', () => {
             annotations.setDash(annotDashSel.value);
             syncAnnotButtons();
+            syncAnnotationsToolbar();
         });
         annotColorInput.addEventListener('input', () => {
             annotations.setColor(annotColorInput.value);
             syncAnnotButtons();
+            syncAnnotationsToolbar();
         });
         annotWidthInput.addEventListener('input', () => {
             annotations.setWidth(annotWidthInput.value);
             syncAnnotButtons();
+            syncAnnotationsToolbar();
         });
 
         propsUI = {
@@ -1324,6 +1520,7 @@ export function createCameraPresetsController(options = {}) {
         updateCounts();
         renderBar();
         renderSide();
+        syncAnnotationsToolbar();
         if (barVisible) requestLayout();
     }
 

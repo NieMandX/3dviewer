@@ -66,12 +66,35 @@
 	        <div id="camsBarList" class="cams-strip"></div>
 	    </div>
 
-    <div id="viewer"></div>
-    <canvas id="annotateCanvas" class="annotate-canvas" aria-hidden="true"></canvas>
-    <div id="statsOverlay" class="stats-overlay" hidden></div>
-    <div id="pathTraceHud" class="pt-hud" hidden>
-        <span class="pt-label">Samples</span>
-        <span id="pathTraceSamples" class="pt-samples">0</span>
+	    <div id="viewer"></div>
+	    <canvas id="annotateCanvas" class="annotate-canvas" aria-hidden="true"></canvas>
+	    <div id="annotateToolbar" class="anno-toolbar" aria-label="Аннотации">
+	        <button id="annoVisibleBtn" class="btn anno-btn" type="button" title="Показать/скрыть аннотации (H)" aria-label="Показать/скрыть аннотации">👁</button>
+	        <button id="annoDrawBtn" class="btn anno-btn" type="button" title="Режим рисования (X)" aria-label="Режим рисования">✎</button>
+	        <span class="anno-divider" aria-hidden="true"></span>
+	        <button class="btn anno-tool" type="button" data-tool="pencil" title="Карандаш (1)" aria-label="Карандаш">✎</button>
+	        <button class="btn anno-tool" type="button" data-tool="line" title="Линия (2)" aria-label="Линия">／</button>
+	        <button class="btn anno-tool" type="button" data-tool="rect" title="Прямоугольник (3)" aria-label="Прямоугольник">▭</button>
+	        <button class="btn anno-tool" type="button" data-tool="circle" title="Окружность (4)" aria-label="Окружность">○</button>
+	        <button class="btn anno-tool" type="button" data-tool="text" title="Текст (5)" aria-label="Текст">T</button>
+	        <span class="anno-divider" aria-hidden="true"></span>
+	        <label class="anno-color" title="Цвет линии">
+	            <input id="annoColor" type="color" value="#ffcc00" aria-label="Цвет линии" />
+	        </label>
+	        <select id="annoDash" class="anno-select" title="Тип линии" aria-label="Тип линии">
+	            <option value="solid">—</option>
+	            <option value="dashed">– –</option>
+	            <option value="dotted">···</option>
+	        </select>
+	        <input id="annoWidth" class="anno-number" type="number" min="1" max="40" step="1" value="3" title="Толщина ([ / ])" aria-label="Толщина линии" />
+	        <span class="anno-divider" aria-hidden="true"></span>
+	        <button id="annoUndoBtn" class="btn anno-btn" type="button" title="Undo (Ctrl+Z / ⌘Z)" aria-label="Undo">↶</button>
+	        <button id="annoClearBtn" class="btn anno-btn" type="button" title="Clear" aria-label="Clear">⌫</button>
+	    </div>
+	    <div id="statsOverlay" class="stats-overlay" hidden></div>
+	    <div id="pathTraceHud" class="pt-hud" hidden>
+	        <span class="pt-label">Samples</span>
+	        <span id="pathTraceSamples" class="pt-samples">0</span>
         <span id="pathTraceSpeed" class="pt-speed">0/s</span>
         <button id="pathTraceShot" class="btn" type="button">Сделать кадр</button>
     </div>
