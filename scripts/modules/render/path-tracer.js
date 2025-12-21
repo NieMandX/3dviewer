@@ -53,6 +53,9 @@ export function createPathTracerController(options = {}) {
     let ptRenderer = null;
     let ptCamera = null;
     let pathTracer = null;
+    let ptScene = null;
+    let ptSceneMap = null;
+    let ptGeneratedGeoms = [];
 
     let rafId = 0;
     let resizeHandler = null;
@@ -215,6 +218,235 @@ export function createPathTracerController(options = {}) {
 
     function clamp(value, min, max) {
         return Math.min(Math.max(value, min), max);
+    }
+
+    function disposePathTraceScene() {
+        if (ptGeneratedGeoms?.length) {
+            ptGeneratedGeoms.forEach((geom) => {
+                if (geom?.dispose) geom.dispose();
+            });
+        }
+        ptGeneratedGeoms = [];
+        ptScene = null;
+        ptSceneMap = null;
+    }
+
+    function copyLightProps(src, dst) {
+        if (!src || !dst) return;
+        if (src.color && dst.color?.copy) dst.color.copy(src.color);
+        if ('intensity' in src) dst.intensity = src.intensity;
+        if ('distance' in src) dst.distance = src.distance;
+        if ('decay' in src) dst.decay = src.decay;
+        if ('angle' in src) dst.angle = src.angle;
+        if ('penumbra' in src) dst.penumbra = src.penumbra;
+        if ('power' in src) dst.power = src.power;
+        dst.visible = src.visible;
+        dst.castShadow = src.castShadow;
+        dst.position.copy(src.position);
+        dst.quaternion.copy(src.quaternion);
+        dst.scale.copy(src.scale);
+        if (src.target && dst.target) {
+            dst.target.position.copy(src.target.position);
+            dst.target.quaternion.copy(src.target.quaternion);
+            dst.target.scale.copy(src.target.scale);
+            dst.target.updateMatrixWorld?.(true);
+        }
+        dst.updateMatrixWorld?.(true);
+    }
+
+    function syncPathTraceEnvironment() {
+        if (!ptScene || !scene) return;
+        ptScene.environment = scene.environment;
+        ptScene.background = scene.background;
+        if (scene.environmentRotation?.isEuler && ptScene.environmentRotation?.copy) {
+            ptScene.environmentRotation.copy(scene.environmentRotation);
+        }
+        if (scene.backgroundRotation?.isEuler && ptScene.backgroundRotation?.copy) {
+            ptScene.backgroundRotation.copy(scene.backgroundRotation);
+        }
+    }
+
+    function syncPathTraceLights() {
+        if (!ptSceneMap || !scene) return;
+        for (const [src, dst] of ptSceneMap.entries()) {
+            if (!src?.isLight || !dst?.isLight) continue;
+            copyLightProps(src, dst);
+        }
+        ptScene?.updateMatrixWorld?.(true);
+    }
+
+    function buildGroupGeometry(geometry, group) {
+        if (!geometry || !group || !THREE) return null;
+        if (!geometry.attributes?.position) return null;
+        if (Object.keys(geometry.morphAttributes || {}).length) return null;
+
+        const start = Math.max(0, group.start ?? 0);
+        const count = Math.max(0, group.count ?? 0);
+        if (!count) return null;
+
+        const srcAttrs = geometry.attributes;
+        const entries = Object.entries(srcAttrs);
+
+        if (geometry.index) {
+            const srcIndex = geometry.index.array;
+            const indexSlice = srcIndex.slice(start, start + count);
+            if (!indexSlice.length) return null;
+
+            const indexMap = new Map();
+            const attrBuffers = {};
+            const itemSizes = {};
+            const normalizedMap = {};
+            const usageMap = {};
+
+            for (const [name, attr] of entries) {
+                attrBuffers[name] = [];
+                itemSizes[name] = attr.itemSize || 1;
+                normalizedMap[name] = !!attr.normalized;
+                usageMap[name] = attr.usage;
+            }
+
+            let nextIndex = 0;
+            const newIndex = new (srcIndex.constructor)(indexSlice.length);
+
+            for (let i = 0; i < indexSlice.length; i++) {
+                const oldIndex = indexSlice[i];
+                let mapped = indexMap.get(oldIndex);
+                if (mapped == null) {
+                    mapped = nextIndex++;
+                    indexMap.set(oldIndex, mapped);
+                    for (const [name, attr] of entries) {
+                        const itemSize = itemSizes[name];
+                        const srcArray = attr.array;
+                        const base = oldIndex * itemSize;
+                        const dest = attrBuffers[name];
+                        for (let k = 0; k < itemSize; k++) dest.push(srcArray[base + k]);
+                    }
+                }
+                newIndex[i] = mapped;
+            }
+
+            const newGeom = new THREE.BufferGeometry();
+            for (const [name, attr] of entries) {
+                const ctor = attr.array.constructor;
+                const data = attrBuffers[name];
+                if (!data?.length) continue;
+                const typed = new ctor(data);
+                const bufferAttr = new THREE.BufferAttribute(typed, itemSizes[name], normalizedMap[name]);
+                bufferAttr.name = attr.name;
+                if (usageMap[name]) bufferAttr.setUsage(usageMap[name]);
+                newGeom.setAttribute(name, bufferAttr);
+            }
+            newGeom.setIndex(new THREE.BufferAttribute(newIndex, 1));
+            if (geometry.boundingBox) newGeom.boundingBox = geometry.boundingBox.clone();
+            else newGeom.computeBoundingBox();
+            if (geometry.boundingSphere) newGeom.boundingSphere = geometry.boundingSphere.clone();
+            else newGeom.computeBoundingSphere();
+            newGeom.userData._ptGenerated = true;
+            return newGeom;
+        }
+
+        const newGeom = new THREE.BufferGeometry();
+        for (const [name, attr] of entries) {
+            const itemSize = attr.itemSize || 1;
+            const srcArray = attr.array;
+            const begin = start * itemSize;
+            const end = (start + count) * itemSize;
+            const slice = srcArray.slice(begin, end);
+            if (!slice.length) continue;
+            const bufferAttr = new THREE.BufferAttribute(slice, itemSize, attr.normalized);
+            bufferAttr.name = attr.name;
+            if (attr.usage) bufferAttr.setUsage(attr.usage);
+            newGeom.setAttribute(name, bufferAttr);
+        }
+        if (geometry.boundingBox) newGeom.boundingBox = geometry.boundingBox.clone();
+        else newGeom.computeBoundingBox();
+        if (geometry.boundingSphere) newGeom.boundingSphere = geometry.boundingSphere.clone();
+        else newGeom.computeBoundingSphere();
+        newGeom.userData._ptGenerated = true;
+        return newGeom;
+    }
+
+    function splitMultiMaterialMeshes(root) {
+        if (!root || !THREE) return [];
+        const targets = [];
+        root.traverse((obj) => {
+            if (!obj?.isMesh) return;
+            if (!Array.isArray(obj.material) || obj.material.length <= 1) return;
+            if (!obj.geometry?.groups?.length) return;
+            if (obj.isSkinnedMesh || obj.isInstancedMesh) return;
+            targets.push(obj);
+        });
+
+        const generated = [];
+        targets.forEach((mesh) => {
+            const parent = mesh.parent;
+            if (!parent) return;
+            const groups = mesh.geometry.groups || [];
+            const materials = mesh.material;
+            const newMeshes = [];
+
+            for (const group of groups) {
+                const matIndex = Number.isFinite(group?.materialIndex) ? group.materialIndex : 0;
+                const material = materials[matIndex] || materials[0];
+                const geom = buildGroupGeometry(mesh.geometry, group);
+                if (!geom || !material) continue;
+
+                const child = new THREE.Mesh(geom, material);
+                child.name = `${mesh.name || mesh.type} · ${material.name || `mat${matIndex}`}`;
+                child.castShadow = mesh.castShadow;
+                child.receiveShadow = mesh.receiveShadow;
+                child.visible = mesh.visible;
+                child.matrixAutoUpdate = mesh.matrixAutoUpdate;
+                child.position.copy(mesh.position);
+                child.quaternion.copy(mesh.quaternion);
+                child.scale.copy(mesh.scale);
+                if (!mesh.matrixAutoUpdate) child.matrix.copy(mesh.matrix);
+                child.userData = { ...(mesh.userData || {}) };
+                newMeshes.push(child);
+                generated.push(geom);
+            }
+
+            if (!newMeshes.length) return;
+            const insertAt = parent.children.indexOf(mesh);
+            parent.remove(mesh);
+            parent.children.splice(insertAt, 0, ...newMeshes);
+            newMeshes.forEach((child) => {
+                child.parent = parent;
+            });
+        });
+
+        return generated;
+    }
+
+    function buildPathTracingScene() {
+        if (!scene || !THREE) return null;
+        disposePathTraceScene();
+
+        const cloned = scene.clone(true);
+        cloned.background = scene.background;
+        cloned.environment = scene.environment;
+        if (scene.environmentRotation?.isEuler && cloned.environmentRotation?.copy) {
+            cloned.environmentRotation.copy(scene.environmentRotation);
+        }
+        if (scene.backgroundRotation?.isEuler && cloned.backgroundRotation?.copy) {
+            cloned.backgroundRotation.copy(scene.backgroundRotation);
+        }
+        if (scene.fog) cloned.fog = scene.fog;
+
+        const srcList = [];
+        scene.traverse((obj) => srcList.push(obj));
+        const cloneList = [];
+        cloned.traverse((obj) => cloneList.push(obj));
+        const map = new Map();
+        const len = Math.min(srcList.length, cloneList.length);
+        for (let i = 0; i < len; i++) {
+            map.set(srcList[i], cloneList[i]);
+        }
+
+        ptGeneratedGeoms = splitMultiMaterialMeshes(cloned);
+        ptScene = cloned;
+        ptSceneMap = map;
+        return cloned;
     }
 
     function getClampTargets() {
@@ -407,7 +639,8 @@ export function createPathTracerController(options = {}) {
 
     async function buildScene() {
         if (!pathTracer) return;
-        const result = pathTracer.setScene(scene, ptCamera);
+        const sourceScene = ptScene || scene;
+        const result = pathTracer.setScene(sourceScene, ptCamera);
         if (result && typeof result.then === 'function') {
             await result;
         }
@@ -430,6 +663,7 @@ export function createPathTracerController(options = {}) {
             if (!ptRenderer || !pathTracer || !ptCamera) {
                 throw new Error('Path tracer not initialized.');
             }
+            buildPathTracingScene();
             if (ptRenderer.capabilities && ptRenderer.capabilities.isWebGL2 === false) {
                 throw new Error('WebGL2 is required for path tracing.');
             }
@@ -457,6 +691,7 @@ export function createPathTracerController(options = {}) {
             setPanelVisible(false);
             showPathTraceCanvas(false);
             hideMainCanvas(false);
+            disposePathTraceScene();
         } finally {
             busy = false;
             updateButtonState();
@@ -474,6 +709,7 @@ export function createPathTracerController(options = {}) {
         setPanelVisible(false);
         updateButtonState();
         requestRender();
+        disposePathTraceScene();
     }
 
     function toggle() {
@@ -531,11 +767,13 @@ export function createPathTracerController(options = {}) {
         reset: resetAccumulation,
         updateEnvironment: () => {
             if (!enabled || !pathTracer?.updateEnvironment) return;
+            syncPathTraceEnvironment();
             pathTracer.updateEnvironment();
             resetAccumulation();
         },
         updateLights: () => {
             if (!enabled || !pathTracer?.updateLights) return;
+            syncPathTraceLights();
             pathTracer.updateLights();
             resetAccumulation();
         },
@@ -546,6 +784,7 @@ export function createPathTracerController(options = {}) {
         },
         dispose: () => {
             disable();
+            disposePathTraceScene();
             pathTracer?.dispose?.();
             ptRenderer?.dispose?.();
         },
