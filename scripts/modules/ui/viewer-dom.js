@@ -50,7 +50,6 @@ export function collectViewerDom(document) {
         resetViewBtn: get('resetViewBtn'),
         exportBtn: get('exportBtn'),
         pathTraceBtn: get('pathTraceBtn'),
-        rayToggleBtn: get('rayToggleBtn'),
         fullscreenBtn: get('fullscreenBtn'),
 	        statsBtn: get('statsBtn'),
 	        bgToggleBtn: get('bgToggleBtn'),
