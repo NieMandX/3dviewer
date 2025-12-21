@@ -418,11 +418,84 @@ export function createPathTracerController(options = {}) {
         return generated;
     }
 
+    function shouldSkipObjectForPathTrace(obj) {
+        if (!obj || typeof obj !== 'object') return true;
+        const ud = obj.userData || null;
+        if (ud?.excludeFromExport) return true;
+        if (ud?._isBackfaceOverlay) return true;
+        if (ud?.lightHelper) return true;
+        if (ud?._geoId !== undefined) return true;
+        if (ud?._angle !== undefined) return true;
+
+        const type = String(obj.type || obj.constructor?.name || '');
+        if (type.endsWith('Helper')) return true;
+
+        const name = String(obj.name || '');
+        if (name.includes('(wireframe)') || name.includes('(beautywire)')) return true;
+
+        if ((obj.isLine || obj.isLineSegments) && ud?.excludeFromBounds && obj.parent?.isMesh) return true;
+
+        return (
+            !!obj.isHelper ||
+            !!obj.isAxesHelper ||
+            !!obj.isGridHelper ||
+            !!obj.isPolarGridHelper
+        );
+    }
+
+    function cloneObject3DFilteredWithMap(root, shouldSkipFn) {
+        if (!root || typeof root !== 'object') return { root: null, map: new Map() };
+        if (shouldSkipFn && shouldSkipFn(root)) return { root: null, map: new Map() };
+
+        const stack = [{ src: root, parentClone: null }];
+        let rootClone = null;
+        const map = new Map();
+
+        while (stack.length) {
+            const { src, parentClone } = stack.pop();
+            if (!src || typeof src !== 'object') continue;
+            if (shouldSkipFn && shouldSkipFn(src)) continue;
+
+            let cloned = null;
+            try {
+                const prevUserData = src.userData;
+                let didClear = false;
+                try {
+                    if (prevUserData && typeof prevUserData === 'object' && Object.keys(prevUserData).length > 0) {
+                        src.userData = {};
+                        didClear = true;
+                    }
+                    cloned = src.clone(false);
+                    if (cloned && typeof cloned === 'object' && cloned.userData && Object.keys(cloned.userData).length > 0) {
+                        cloned.userData = {};
+                    }
+                } finally {
+                    if (didClear) src.userData = prevUserData;
+                }
+            } catch (err) {
+                console.warn('Path trace: skipping uncloneable object', src?.type || src?.name || src, err);
+                continue;
+            }
+
+            if (!rootClone) rootClone = cloned;
+            if (parentClone) parentClone.add(cloned);
+            map.set(src, cloned);
+
+            const children = Array.isArray(src.children) ? src.children : [];
+            for (let i = children.length - 1; i >= 0; i--) {
+                stack.push({ src: children[i], parentClone: cloned });
+            }
+        }
+
+        return { root: rootClone, map };
+    }
+
     function buildPathTracingScene() {
         if (!scene || !THREE) return null;
         disposePathTraceScene();
 
-        const cloned = scene.clone(true);
+        const { root: cloned, map } = cloneObject3DFilteredWithMap(scene, shouldSkipObjectForPathTrace);
+        if (!cloned) return null;
         cloned.background = scene.background;
         cloned.environment = scene.environment;
         if (scene.environmentRotation?.isEuler && cloned.environmentRotation?.copy) {
@@ -432,16 +505,6 @@ export function createPathTracerController(options = {}) {
             cloned.backgroundRotation.copy(scene.backgroundRotation);
         }
         if (scene.fog) cloned.fog = scene.fog;
-
-        const srcList = [];
-        scene.traverse((obj) => srcList.push(obj));
-        const cloneList = [];
-        cloned.traverse((obj) => cloneList.push(obj));
-        const map = new Map();
-        const len = Math.min(srcList.length, cloneList.length);
-        for (let i = 0; i < len; i++) {
-            map.set(srcList[i], cloneList[i]);
-        }
 
         ptGeneratedGeoms = splitMultiMaterialMeshes(cloned);
         ptScene = cloned;
