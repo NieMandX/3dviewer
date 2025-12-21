@@ -221,14 +221,13 @@ class ViewerApp {
 	        const camsDetailsEl = dom.camsDetailsEl;
 	        const camsCountEl = dom.camsCountEl;
 	        const camsSideListEl = dom.camsSideListEl;
-	        const camPropsDetailsEl = dom.camPropsDetailsEl;
-	        const camPropsTitleEl = dom.camPropsTitleEl;
-	        const camPropsPanelEl = dom.camPropsPanelEl;
-	        const pathTraceHudEl = dom.pathTraceHudEl;
-	        const pathTraceSamplesEl = dom.pathTraceSamplesEl;
-	        const pathTraceSpeedEl = dom.pathTraceSpeedEl;
-	        const pathTraceShotBtn = dom.pathTraceShotBtn;
-	        const pathTracePanelEl = dom.pathTracePanelEl;
+		        const camPropsDetailsEl = dom.camPropsDetailsEl;
+		        const camPropsTitleEl = dom.camPropsTitleEl;
+		        const camPropsPanelEl = dom.camPropsPanelEl;
+		        const pathTraceSamplesEl = dom.pathTraceSamplesEl;
+		        const pathTraceSpeedEl = dom.pathTraceSpeedEl;
+		        const pathTraceShotBtn = dom.pathTraceShotBtn;
+		        const pathTracePanelEl = dom.pathTracePanelEl;
 	        const ptBouncesEl = dom.ptBouncesEl;
 	        const ptTransmissiveEl = dom.ptTransmissiveEl;
 	        const ptGlossyEl = dom.ptGlossyEl;
@@ -1237,23 +1236,22 @@ class ViewerApp {
 	                backgroundController.syncToCamera();
 	            },
         });
-	        const pathTracerController = createPathTracerController({
-	            THREE,
-	            scene,
-	            camera,
+		        const pathTracerController = createPathTracerController({
+		            THREE,
+		            scene,
+		            camera,
 	            renderer,
 	            rootEl,
 	            controls,
 	            flightControls,
 	            renderLoop,
-	            requestRender,
-	            setStatusMessage,
-            pathTraceBtn,
-            pathTraceHudEl,
-            pathTraceSamplesEl,
-            pathTraceSpeedEl,
-            pathTraceShotBtn,
-            pathTracePanelEl,
+		            requestRender,
+		            setStatusMessage,
+	            pathTraceBtn,
+	            pathTraceSamplesEl,
+	            pathTraceSpeedEl,
+	            pathTraceShotBtn,
+	            pathTracePanelEl,
             ptBouncesEl,
             ptTransmissiveEl,
             ptGlossyEl,

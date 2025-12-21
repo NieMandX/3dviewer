@@ -80,12 +80,11 @@ export function collectViewerDom(document) {
         camPropsTitleEl: get('camPropsTitle'),
         camPropsPanelEl: get('camPropsPanel'),
 
-        // Path trace
-        pathTraceHudEl: get('pathTraceHud'),
-        pathTraceSamplesEl: get('pathTraceSamples'),
-        pathTraceSpeedEl: get('pathTraceSpeed'),
-        pathTraceShotBtn: get('pathTraceShot'),
-        pathTracePanelEl: get('pathTracePanel'),
+	        // Path trace
+	        pathTraceSamplesEl: get('pathTraceSamples'),
+	        pathTraceSpeedEl: get('pathTraceSpeed'),
+	        pathTraceShotBtn: get('pathTraceShot'),
+	        pathTracePanelEl: get('pathTracePanel'),
         ptBouncesEl: get('ptBounces'),
         ptTransmissiveEl: get('ptTransmissive'),
         ptGlossyEl: get('ptGlossy'),

@@ -26,7 +26,6 @@ export function createPathTracerController(options = {}) {
     const setStatusMessage = typeof options.setStatusMessage === 'function' ? options.setStatusMessage : () => {};
 
     const pathTraceBtn = options.pathTraceBtn || null;
-    const pathTraceHudEl = options.pathTraceHudEl || null;
     const pathTraceSamplesEl = options.pathTraceSamplesEl || null;
     const pathTraceSpeedEl = options.pathTraceSpeedEl || null;
     const pathTraceShotBtn = options.pathTraceShotBtn || null;
@@ -72,11 +71,6 @@ export function createPathTracerController(options = {}) {
         pathTraceBtn.classList.toggle('active', enabled);
         pathTraceBtn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
         pathTraceBtn.disabled = busy;
-    }
-
-    function setHudVisible(visible) {
-        if (!pathTraceHudEl) return;
-        pathTraceHudEl.hidden = !visible;
     }
 
     function setPanelVisible(visible) {
@@ -413,7 +407,7 @@ export function createPathTracerController(options = {}) {
 
         busy = true;
         updateButtonState();
-        setHudVisible(true);
+        setPanelVisible(true);
         setSamplesLabel('0');
         resetSampleStats();
         if (pathTraceShotBtn) pathTraceShotBtn.disabled = true;
@@ -442,14 +436,12 @@ export function createPathTracerController(options = {}) {
             renderLoop?.stop?.();
             enabled = true;
             updateButtonState();
-            setPanelVisible(true);
             attachResize();
             startLoop();
             setStatusMessage('');
         } catch (err) {
             console.error(err);
             setStatusMessage('Photo mode: failed to start.');
-            setHudVisible(false);
             setPanelVisible(false);
             showPathTraceCanvas(false);
             hideMainCanvas(false);
@@ -467,7 +459,6 @@ export function createPathTracerController(options = {}) {
         showPathTraceCanvas(false);
         hideMainCanvas(false);
         renderLoop?.start?.();
-        setHudVisible(false);
         setPanelVisible(false);
         updateButtonState();
         requestRender();

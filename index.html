@@ -93,17 +93,17 @@
 	        <button id="annoClearBtn" class="btn anno-btn" type="button" title="Clear" aria-label="Clear">⌫</button>
 	    </div>
 	    <div id="statsOverlay" class="stats-overlay" hidden></div>
-	    <div id="pathTraceHud" class="pt-hud" hidden>
-	        <span class="pt-label">Samples</span>
-	        <span id="pathTraceSamples" class="pt-samples">0</span>
-        <span id="pathTraceSpeed" class="pt-speed">0/s</span>
-        <button id="pathTraceShot" class="btn" type="button">Сделать кадр</button>
-    </div>
-    <div id="pathTracePanel" class="pt-panel" hidden>
-        <div class="pt-panel-row">
-            <label for="ptBounces">Bounces</label>
-            <input id="ptBounces" type="number" min="1" max="12" step="1" value="3" />
-        </div>
+	    <div id="pathTracePanel" class="pt-panel" hidden>
+	        <div class="pt-panel-head">
+	            <span class="pt-label">Samples</span>
+	            <span id="pathTraceSamples" class="pt-samples">0</span>
+	            <span id="pathTraceSpeed" class="pt-speed">0/s</span>
+	            <button id="pathTraceShot" class="btn" type="button">Сделать кадр</button>
+	        </div>
+	        <div class="pt-panel-row">
+	            <label for="ptBounces">Bounces</label>
+	            <input id="ptBounces" type="number" min="1" max="12" step="1" value="3" />
+	        </div>
         <div class="pt-panel-row">
             <label for="ptTransmissive">Transmissive</label>
             <input id="ptTransmissive" type="number" min="0" max="12" step="1" value="3" />

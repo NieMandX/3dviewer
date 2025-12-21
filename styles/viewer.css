@@ -1067,55 +1067,14 @@ body.side-hidden { --sideW: 0px; }
     pointer-events: none;
 }
 
-.pt-hud {
-    position: fixed;
-    top: calc(var(--appbarH) + var(--camsBarH) + 12px);
-    right: calc(var(--sideW) + 16px);
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    background: var(--surfaceStrong);
-    color: var(--ink);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    box-shadow: var(--shadow);
-    -webkit-backdrop-filter: blur(var(--glassBlur));
-    backdrop-filter: blur(var(--glassBlur));
-    z-index: 6;
-    font-size: 12px;
-}
-
-.pt-hud .pt-label {
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-weight: 600;
-}
-
-.pt-hud .pt-samples {
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-}
-
-.pt-hud .pt-speed {
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-}
-
-.pt-hud .btn {
-    padding: 4px 10px;
-}
-
 .pt-panel {
     position: fixed;
-    top: calc(var(--appbarH) + var(--camsBarH) + 56px);
+    top: calc(var(--appbarH) + var(--camsBarH) + 12px);
     right: calc(var(--sideW) + 16px);
     display: grid;
     gap: 8px;
     padding: 12px;
-    min-width: 220px;
+    min-width: 260px;
     background: var(--surfaceStrong);
     color: var(--ink);
     border: 1px solid var(--border);
@@ -1125,6 +1084,37 @@ body.side-hidden { --sideW: 0px; }
     backdrop-filter: blur(var(--glassBlur));
     z-index: 6;
     font-size: 12px;
+}
+
+.pt-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.pt-panel-head .pt-label {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.pt-panel-head .pt-samples {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+}
+
+.pt-panel-head .pt-speed {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    margin-right: auto;
+}
+
+.pt-panel-head .btn {
+    padding: 4px 10px;
 }
 
 .pt-panel-row {
