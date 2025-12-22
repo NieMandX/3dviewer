@@ -25,10 +25,12 @@ import { createStatusUIController } from '../ui/status-ui.js';
 import { createAppbarControlsController } from '../ui/appbar-controls.js';
 import { createAppbarVisibilityTogglesController } from '../ui/appbar-visibility-toggles.js';
 import { createCameraPresetsController } from '../ui/camera-presets.js';
+import { createAnnotations3DController } from '../annotations/annotations-3d.js';
 import { createPromptModalController } from '../ui/prompt-modal.js';
 import { createConfirmModalController } from '../ui/confirm-modal.js';
 import { createTransitionModalController } from '../ui/transition-modal.js';
 import { createExportModalController } from '../ui/export-modal.js';
+import { createRectAnnotationModalController } from '../ui/rect-annotation-modal.js';
 import { createGridVisibilityController } from '../ui/grid-visibility.js';
 import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
@@ -133,6 +135,20 @@ class ViewerApp {
             okBtn: dom.exportOkBtn,
             cancelBtn: dom.exportCancelBtn,
             closeBtn: dom.exportCloseBtn,
+        });
+
+        const rectAnnotModal = createRectAnnotationModalController({
+            modalEl: dom.rectAnnotModalEl,
+            titleEl: dom.rectAnnotTitleEl,
+            closeBtn: dom.rectAnnotCloseBtn,
+            okBtn: dom.rectAnnotOkBtn,
+            cancelBtn: dom.rectAnnotCancelBtn,
+            colorEl: dom.rectAnnotColorEl,
+            fillEl: dom.rectAnnotFillEl,
+            infoEl: dom.rectAnnotInfoEl,
+            areaEl: dom.rectAnnotAreaEl,
+            textEl: dom.rectAnnotTextEl,
+            textRowEl: dom.rectAnnotTextRowEl,
         });
 
         const statusUI = createStatusUIController({
@@ -353,15 +369,16 @@ class ViewerApp {
 	        app.renderer = renderer;
 	        app.rendererInitPromise = rendererInitPromise;
 
-			        const cameraPresets = createCameraPresetsController({
-			            THREE,
-			            camera,
-			            controls,
-			            annotateCanvasEl: dom.annotateCanvasEl,
-			            annotateToolbarEl: dom.annotateToolbarEl,
-			            annoToggleBtn: dom.annoToggleBtn,
-			            annoVisibleBtn: dom.annoVisibleBtn,
-			            annoDrawBtn: dom.annoDrawBtn,
+        const cameraPresets = createCameraPresetsController({
+            THREE,
+            camera,
+            controls,
+            annotationsEnabled: false,
+            annotateCanvasEl: dom.annotateCanvasEl,
+            annotateToolbarEl: dom.annotateToolbarEl,
+            annoToggleBtn: dom.annoToggleBtn,
+            annoVisibleBtn: dom.annoVisibleBtn,
+            annoDrawBtn: dom.annoDrawBtn,
 			            annoColorEl: dom.annoColorEl,
 			            annoDashEl: dom.annoDashEl,
 			            annoWidthEl: dom.annoWidthEl,
@@ -398,11 +415,44 @@ class ViewerApp {
 		            camsDetailsEl,
 		            camsCountEl,
 		            camsSideListEl,
-		            camPropsDetailsEl,
-		            camPropsTitleEl,
-		            camPropsPanelEl,
-		        });
-		        app.cameraPresets = cameraPresets;
+            camPropsDetailsEl,
+            camPropsTitleEl,
+            camPropsPanelEl,
+        });
+        app.cameraPresets = cameraPresets;
+
+        const annotations3d = createAnnotations3DController({
+            THREE,
+            world,
+            camera,
+            controls,
+            flightControls,
+            renderer,
+            annotateCanvasEl: dom.annotateCanvasEl,
+            annotateToolbarEl: dom.annotateToolbarEl,
+            annoToggleBtn: dom.annoToggleBtn,
+            annoVisibleBtn: dom.annoVisibleBtn,
+            annoDrawBtn: dom.annoDrawBtn,
+            annoColorEl: dom.annoColorEl,
+            annoDashEl: dom.annoDashEl,
+            annoWidthEl: dom.annoWidthEl,
+            annoUndoBtn: dom.annoUndoBtn,
+            annoClearBtn: dom.annoClearBtn,
+            annoLayerSelectEl: dom.annoLayerSelectEl,
+            annoLayerAddBtn: dom.annoLayerAddBtn,
+            requestRender,
+            promptLayerName: (defaultName) => promptModal.open({
+                title: 'Имя слоя',
+                value: defaultName,
+                placeholder: 'Имя слоя',
+                type: 'text',
+            }),
+            promptRectSettings: (options) => rectAnnotModal.open({
+                title: 'Прямоугольник',
+                ...(options || {}),
+            }),
+        });
+        app.annotations3d = annotations3d;
 
         exportBtn?.addEventListener?.('click', () => {
             void (async () => {

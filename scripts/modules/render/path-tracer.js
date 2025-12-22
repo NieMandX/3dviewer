@@ -70,6 +70,12 @@ export function createPathTracerController(options = {}) {
     let sampleSpeed = 0;
     let lastUiUpdate = 0;
     const uiUpdateInterval = 120;
+    const interactionHoldMs = 260;
+    const interactiveTileMin = 4;
+    let interactiveActive = false;
+    let lastInteractionTime = 0;
+    let baseRenderScale = null;
+    let baseTiles = null;
 
     function updateButtonState() {
         if (!pathTraceBtn) return;
@@ -574,6 +580,76 @@ export function createPathTracerController(options = {}) {
         });
     }
 
+    function cacheBaseSettings() {
+        if (!pathTracer) return;
+        if (Number.isFinite(pathTracer.renderScale)) {
+            baseRenderScale = pathTracer.renderScale;
+        }
+        const tiles = pathTracer.tiles;
+        if (tiles) {
+            baseTiles = {
+                x: Number.isFinite(tiles.x) ? tiles.x : 1,
+                y: Number.isFinite(tiles.y) ? tiles.y : 1,
+            };
+        }
+    }
+
+    function applyInteractiveSettings() {
+        if (!pathTracer) return;
+        const baseScale = Number.isFinite(baseRenderScale) ? baseRenderScale : pathTracer.renderScale ?? 1;
+        const lowResScale = Number.isFinite(pathTracer.lowResScale) ? pathTracer.lowResScale : baseScale;
+        const interactiveScale = clamp(Math.min(baseScale, lowResScale), 0.1, 1);
+        if (Number.isFinite(interactiveScale)) {
+            pathTracer.renderScale = interactiveScale;
+        }
+        const tiles = pathTracer.tiles;
+        if (tiles?.set) {
+            const baseX = baseTiles?.x ?? tiles.x ?? 1;
+            const baseY = baseTiles?.y ?? tiles.y ?? 1;
+            const interactiveX = clamp(Math.max(baseX, interactiveTileMin), 1, 8);
+            const interactiveY = clamp(Math.max(baseY, interactiveTileMin), 1, 8);
+            if (tiles.x !== interactiveX || tiles.y !== interactiveY) {
+                tiles.set(interactiveX, interactiveY);
+            }
+        }
+    }
+
+    function restoreBaseSettings() {
+        if (!pathTracer) return;
+        if (Number.isFinite(baseRenderScale)) {
+            pathTracer.renderScale = baseRenderScale;
+        }
+        const tiles = pathTracer.tiles;
+        if (tiles?.set && baseTiles) {
+            const restoreX = clamp(Number.isFinite(baseTiles.x) ? baseTiles.x : tiles.x ?? 1, 1, 8);
+            const restoreY = clamp(Number.isFinite(baseTiles.y) ? baseTiles.y : tiles.y ?? 1, 1, 8);
+            if (tiles.x !== restoreX || tiles.y !== restoreY) {
+                tiles.set(restoreX, restoreY);
+            }
+        }
+    }
+
+    function enterInteractiveMode() {
+        if (!pathTracer || interactiveActive) return;
+        cacheBaseSettings();
+        interactiveActive = true;
+        applyInteractiveSettings();
+    }
+
+    function exitInteractiveMode({ reset = true } = {}) {
+        if (!pathTracer || !interactiveActive) return;
+        interactiveActive = false;
+        restoreBaseSettings();
+        if (reset) resetAccumulation();
+    }
+
+    function clearInteractiveState() {
+        interactiveActive = false;
+        lastInteractionTime = 0;
+        baseRenderScale = null;
+        baseTiles = null;
+    }
+
     function applySettingsFromUI({ reset = true } = {}) {
         if (!pathTracer) return;
         if (ptBouncesEl) {
@@ -627,6 +703,10 @@ export function createPathTracerController(options = {}) {
             pathTracer.pausePathTracing = !!ptPauseEl.checked;
         }
 
+        cacheBaseSettings();
+        if (interactiveActive) {
+            applyInteractiveSettings();
+        }
         if (reset) resetAccumulation();
     }
 
@@ -642,13 +722,26 @@ export function createPathTracerController(options = {}) {
             if (!enabled || !pathTracer) return;
             const controlsChanged = !!controls?.update?.();
             const flightChanged = !!flightControls?.update?.();
+            const now = win?.performance?.now ? win.performance.now() : Date.now();
             if (controlsChanged || flightChanged) {
+                if (!interactiveActive) {
+                    enterInteractiveMode();
+                }
+                if (Number.isFinite(now)) {
+                    lastInteractionTime = now;
+                }
                 syncCameraFromMain();
                 resetAccumulation();
+            } else if (
+                interactiveActive &&
+                Number.isFinite(now) &&
+                lastInteractionTime &&
+                (now - lastInteractionTime) >= interactionHoldMs
+            ) {
+                exitInteractiveMode();
             }
             pathTracer.renderSample();
             const samples = pathTracer.samples;
-            const now = win?.performance?.now ? win.performance.now() : Date.now();
             const shouldUpdateUi =
                 !lastUiUpdate ||
                 (Number.isFinite(now) && (now - lastUiUpdate) >= uiUpdateInterval) ||
@@ -713,6 +806,7 @@ export function createPathTracerController(options = {}) {
         if (enabled || busy) return;
         if (!scene || !camera || !renderer || !rootEl) return;
 
+        clearInteractiveState();
         busy = true;
         updateButtonState();
         setPanelVisible(true);
@@ -772,6 +866,8 @@ export function createPathTracerController(options = {}) {
         setPanelVisible(false);
         updateButtonState();
         requestRender();
+        exitInteractiveMode({ reset: false });
+        clearInteractiveState();
         disposePathTraceScene();
     }
 

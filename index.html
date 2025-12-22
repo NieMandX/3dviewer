@@ -77,8 +77,11 @@
 	        <button class="btn anno-tool" type="button" data-tool="line" title="Линия (2)" aria-label="Линия">／</button>
 	        <button class="btn anno-tool" type="button" data-tool="rect" title="Прямоугольник (3)" aria-label="Прямоугольник">▭</button>
 	        <button class="btn anno-tool" type="button" data-tool="circle" title="Окружность (4)" aria-label="Окружность">○</button>
-	        <button class="btn anno-tool" type="button" data-tool="text" title="Текст (5)" aria-label="Текст">T</button>
-	        <span class="anno-divider" aria-hidden="true"></span>
+        <button class="btn anno-tool" type="button" data-tool="eraser" title="Eraser (5)" aria-label="Eraser">E</button>
+        <span class="anno-divider" aria-hidden="true"></span>
+        <select id="annoLayerSelect" class="anno-select anno-layer-select" title="Layer" aria-label="Layer"></select>
+        <button id="annoLayerAddBtn" class="btn anno-btn" type="button" title="New layer" aria-label="New layer">+</button>
+        <span class="anno-divider" aria-hidden="true"></span>
 	        <label class="anno-color" title="Цвет линии">
 	            <input id="annoColor" type="color" value="#ffcc00" aria-label="Цвет линии" />
 	        </label>

@@ -15,6 +15,8 @@ export function collectViewerDom(document) {
         annoWidthEl: get('annoWidth'),
         annoUndoBtn: get('annoUndoBtn'),
         annoClearBtn: get('annoClearBtn'),
+        annoLayerSelectEl: get('annoLayerSelect'),
+        annoLayerAddBtn: get('annoLayerAddBtn'),
         dropEl: get('drop'),
         statusEl,
         appbarStatusEl: get('appbarStatus') || statusEl,
@@ -169,6 +171,19 @@ export function collectViewerDom(document) {
         exportOkBtn: get('exportOk'),
         exportCancelBtn: get('exportCancel'),
         exportCloseBtn: get('exportClose'),
+
+        // Rect annotation modal
+        rectAnnotModalEl: get('rectAnnotModal'),
+        rectAnnotTitleEl: get('rectAnnotTitle'),
+        rectAnnotCloseBtn: get('rectAnnotClose'),
+        rectAnnotColorEl: get('rectAnnotColor'),
+        rectAnnotFillEl: get('rectAnnotFill'),
+        rectAnnotInfoEl: get('rectAnnotInfo'),
+        rectAnnotAreaEl: get('rectAnnotAreaRow'),
+        rectAnnotTextEl: get('rectAnnotText'),
+        rectAnnotTextRowEl: get('rectAnnotTextRow'),
+        rectAnnotOkBtn: get('rectAnnotOk'),
+        rectAnnotCancelBtn: get('rectAnnotCancel'),
 
         // File flow
         fileInput: get('fileInput'),

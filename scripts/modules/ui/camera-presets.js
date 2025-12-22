@@ -48,6 +48,7 @@ export function createCameraPresetsController(options = {}) {
     const camPropsDetailsEl = options.camPropsDetailsEl || null;
     const camPropsTitleEl = options.camPropsTitleEl || null;
     const camPropsPanelEl = options.camPropsPanelEl || null;
+    const annotationsEnabled = options.annotationsEnabled !== false;
 
     const promptFn =
         typeof options.prompt === 'function'
@@ -92,12 +93,12 @@ export function createCameraPresetsController(options = {}) {
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
     ensureDefaultPreset();
-    const annotations = createAnnotationsController();
+    const annotations = annotationsEnabled ? createAnnotationsController() : createNullAnnotationsController();
     let annoToolbarReady = false;
     let annoHotkeysReady = false;
 
     function setAnnotationsToolbarVisible(visible) {
-        if (!annotateToolbarEl) return;
+        if (!annotationsEnabled || !annotateToolbarEl) return;
         const next = !!visible;
         annotateToolbarEl.hidden = !next;
         if (annoToggleBtn) {
@@ -108,12 +109,12 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function toggleAnnotationsToolbarVisible() {
-        if (!annotateToolbarEl) return;
+        if (!annotationsEnabled || !annotateToolbarEl) return;
         setAnnotationsToolbarVisible(!!annotateToolbarEl.hidden);
     }
 
     function syncAnnotationsToolbar() {
-        if (!annotateToolbarEl) return;
+        if (!annotationsEnabled || !annotateToolbarEl) return;
         const visible = annotations.getVisibleForActivePreset();
         const drawing = annotations.getDrawEnabled();
 
@@ -132,7 +133,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function ensureAnnotationsToolbar() {
-        if (!annotateToolbarEl || annoToolbarReady) return;
+        if (!annotationsEnabled || !annotateToolbarEl || annoToolbarReady) return;
         annoToolbarReady = true;
 
         annotateToolbarEl.addEventListener('click', (event) => {
@@ -190,9 +191,11 @@ export function createCameraPresetsController(options = {}) {
         syncAnnotationsToolbar();
     }
 
-    ensureAnnotationsToolbar();
-    setAnnotationsToolbarVisible(false);
-    annoToggleBtn?.addEventListener?.('click', toggleAnnotationsToolbarVisible);
+    if (annotationsEnabled) {
+        ensureAnnotationsToolbar();
+        setAnnotationsToolbarVisible(false);
+        annoToggleBtn?.addEventListener?.('click', toggleAnnotationsToolbarVisible);
+    }
 
     function isEditableElement(el) {
         if (!el) return false;
@@ -208,7 +211,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function ensureAnnotationsHotkeys() {
-        if (annoHotkeysReady) return;
+        if (!annotationsEnabled || annoHotkeysReady) return;
         const win =
             (typeof globalThis !== 'undefined' ? globalThis.window : null) ||
             null;
@@ -290,7 +293,7 @@ export function createCameraPresetsController(options = {}) {
         });
     }
 
-    ensureAnnotationsHotkeys();
+    if (annotationsEnabled) ensureAnnotationsHotkeys();
 
     function normalizePoint(p) {
         return {
@@ -768,6 +771,26 @@ export function createCameraPresetsController(options = {}) {
         });
     }
 
+    function createNullAnnotationsController() {
+        return Object.freeze({
+            scheduleDraw: () => {},
+            setDrawEnabled: () => {},
+            getDrawEnabled: () => false,
+            setTool: () => {},
+            getTool: () => 'pencil',
+            setDash: () => {},
+            getDash: () => 'solid',
+            setColor: () => {},
+            getColor: () => '#ffcc00',
+            setWidth: () => {},
+            getWidth: () => 3,
+            undo: () => false,
+            clear: () => false,
+            setVisibleForActivePreset: () => false,
+            getVisibleForActivePreset: () => false,
+        });
+    }
+
     function readCameraShift() {
         const view = camera?.view;
         if (!view || !view.enabled) return { shiftX: 0, shiftY: 0 };
@@ -1135,90 +1158,102 @@ export function createCameraPresetsController(options = {}) {
         shiftGroup.appendChild(shiftHead);
         shiftGroup.appendChild(shiftGrid);
 
-        const annotGroup = document.createElement('div');
-        annotGroup.className = 'cam-props-group';
-        const annotHead = document.createElement('div');
-        annotHead.className = 'cam-props-head';
-        annotHead.textContent = 'Annotations';
+        let annotGroup = null;
+        let annotVisibleBtn = null;
+        let annotDrawBtn = null;
+        let annotUndoBtn = null;
+        let annotClearBtn = null;
+        let annotToolSel = null;
+        let annotDashSel = null;
+        let annotColorInput = null;
+        let annotWidthInput = null;
 
-        const annotActions = document.createElement('div');
-        annotActions.className = 'cam-props-row';
-        annotActions.style.alignItems = 'center';
+        if (annotationsEnabled) {
+            annotGroup = document.createElement('div');
+            annotGroup.className = 'cam-props-group';
+            const annotHead = document.createElement('div');
+            annotHead.className = 'cam-props-head';
+            annotHead.textContent = 'Annotations';
 
-        const annotVisibleBtn = document.createElement('button');
-        annotVisibleBtn.type = 'button';
-        annotVisibleBtn.className = 'btn cam-annot-visible';
-        annotVisibleBtn.textContent = 'Скрыть';
-        annotVisibleBtn.title = 'Показать/скрыть аннотации этой камеры';
+            const annotActions = document.createElement('div');
+            annotActions.className = 'cam-props-row';
+            annotActions.style.alignItems = 'center';
 
-        const annotDrawBtn = document.createElement('button');
-        annotDrawBtn.type = 'button';
-        annotDrawBtn.className = 'btn cam-annot-draw';
-        annotDrawBtn.textContent = 'Рисовать';
-        annotDrawBtn.title = 'Включить/выключить режим рисования';
+            annotVisibleBtn = document.createElement('button');
+            annotVisibleBtn.type = 'button';
+            annotVisibleBtn.className = 'btn cam-annot-visible';
+            annotVisibleBtn.textContent = 'Скрыть';
+            annotVisibleBtn.title = 'Показать/скрыть аннотации этой камеры';
 
-        const annotUndoBtn = document.createElement('button');
-        annotUndoBtn.type = 'button';
-        annotUndoBtn.className = 'btn cam-annot-undo';
-        annotUndoBtn.textContent = 'Undo';
-        annotUndoBtn.title = 'Отменить последний штрих';
+            annotDrawBtn = document.createElement('button');
+            annotDrawBtn.type = 'button';
+            annotDrawBtn.className = 'btn cam-annot-draw';
+            annotDrawBtn.textContent = 'Рисовать';
+            annotDrawBtn.title = 'Включить/выключить режим рисования';
 
-        const annotClearBtn = document.createElement('button');
-        annotClearBtn.type = 'button';
-        annotClearBtn.className = 'btn cam-annot-clear';
-        annotClearBtn.textContent = 'Clear';
-        annotClearBtn.title = 'Очистить аннотации этой камеры';
+            annotUndoBtn = document.createElement('button');
+            annotUndoBtn.type = 'button';
+            annotUndoBtn.className = 'btn cam-annot-undo';
+            annotUndoBtn.textContent = 'Undo';
+            annotUndoBtn.title = 'Отменить последний штрих';
 
-        annotActions.appendChild(annotVisibleBtn);
-        annotActions.appendChild(annotDrawBtn);
-        annotActions.appendChild(annotUndoBtn);
-        annotActions.appendChild(annotClearBtn);
+            annotClearBtn = document.createElement('button');
+            annotClearBtn.type = 'button';
+            annotClearBtn.className = 'btn cam-annot-clear';
+            annotClearBtn.textContent = 'Clear';
+            annotClearBtn.title = 'Очистить аннотации этой камеры';
 
-        const annotGrid = document.createElement('div');
-        annotGrid.className = 'cam-props-grid cam-props-grid-2';
+            annotActions.appendChild(annotVisibleBtn);
+            annotActions.appendChild(annotDrawBtn);
+            annotActions.appendChild(annotUndoBtn);
+            annotActions.appendChild(annotClearBtn);
 
-        const annotToolSel = document.createElement('select');
-        annotToolSel.className = 'cam-props-select';
-        [
-            ['pencil', 'Pencil'],
-            ['line', 'Line'],
-            ['rect', 'Rect'],
-            ['circle', 'Circle'],
-            ['text', 'Text'],
-        ].forEach(([value, label]) => {
-            const opt = document.createElement('option');
-            opt.value = value;
-            opt.textContent = label;
-            annotToolSel.appendChild(opt);
-        });
+            const annotGrid = document.createElement('div');
+            annotGrid.className = 'cam-props-grid cam-props-grid-2';
 
-        const annotDashSel = document.createElement('select');
-        annotDashSel.className = 'cam-props-select';
-        [
-            ['solid', 'Solid'],
-            ['dashed', 'Dashed'],
-            ['dotted', 'Dotted'],
-        ].forEach(([value, label]) => {
-            const opt = document.createElement('option');
-            opt.value = value;
-            opt.textContent = label;
-            annotDashSel.appendChild(opt);
-        });
+            annotToolSel = document.createElement('select');
+            annotToolSel.className = 'cam-props-select';
+            [
+                ['pencil', 'Pencil'],
+                ['line', 'Line'],
+                ['rect', 'Rect'],
+                ['circle', 'Circle'],
+                ['text', 'Text'],
+            ].forEach(([value, label]) => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = label;
+                annotToolSel.appendChild(opt);
+            });
 
-        const annotColorInput = document.createElement('input');
-        annotColorInput.type = 'color';
-        annotColorInput.value = '#ffcc00';
+            annotDashSel = document.createElement('select');
+            annotDashSel.className = 'cam-props-select';
+            [
+                ['solid', 'Solid'],
+                ['dashed', 'Dashed'],
+                ['dotted', 'Dotted'],
+            ].forEach(([value, label]) => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = label;
+                annotDashSel.appendChild(opt);
+            });
 
-        const annotWidthInput = makeNumberInput({ step: '1', min: 1, max: 40 });
+            annotColorInput = document.createElement('input');
+            annotColorInput.type = 'color';
+            annotColorInput.value = '#ffcc00';
 
-        annotGrid.appendChild(makeLabel('Tool', annotToolSel));
-        annotGrid.appendChild(makeLabel('Line', annotDashSel));
-        annotGrid.appendChild(makeLabel('Color', annotColorInput));
-        annotGrid.appendChild(makeLabel('Width', annotWidthInput));
+            annotWidthInput = makeNumberInput({ step: '1', min: 1, max: 40 });
 
-        annotGroup.appendChild(annotHead);
-        annotGroup.appendChild(annotActions);
-        annotGroup.appendChild(annotGrid);
+            annotGrid.appendChild(makeLabel('Tool', annotToolSel));
+            annotGrid.appendChild(makeLabel('Line', annotDashSel));
+            annotGrid.appendChild(makeLabel('Color', annotColorInput));
+            annotGrid.appendChild(makeLabel('Width', annotWidthInput));
+
+            annotGroup.appendChild(annotHead);
+            annotGroup.appendChild(annotActions);
+            annotGroup.appendChild(annotGrid);
+        }
 
         const hint = document.createElement('div');
         hint.className = 'muted cam-props-hint';
@@ -1230,7 +1265,7 @@ export function createCameraPresetsController(options = {}) {
         root.appendChild(up.group);
         root.appendChild(lensGroup);
         root.appendChild(shiftGroup);
-        root.appendChild(annotGroup);
+        if (annotGroup) root.appendChild(annotGroup);
         root.appendChild(hint);
         camPropsPanelEl.appendChild(root);
 
@@ -1290,6 +1325,7 @@ export function createCameraPresetsController(options = {}) {
             .forEach((input) => input.addEventListener('input', applyFromInputs));
 
         const syncAnnotButtons = () => {
+            if (!annotationsEnabled || !annotVisibleBtn || !annotDrawBtn || !annotToolSel || !annotDashSel || !annotColorInput || !annotWidthInput) return;
             const preset = getPresetById(editingId);
             if (!preset) return;
             ensureAnnotationsDefaults(preset);
@@ -1308,62 +1344,64 @@ export function createCameraPresetsController(options = {}) {
             annotWidthInput.value = String(annotations.getWidth());
         };
 
-        annotVisibleBtn.addEventListener('click', () => {
-            const preset = getPresetById(editingId);
-            if (!preset) return;
-            ensureAnnotationsDefaults(preset);
-            preset.annotationsVisible = !preset.annotationsVisible;
-            annotations.scheduleDraw();
-            syncAnnotButtons();
-            syncAnnotationsToolbar();
-        });
-
-        annotDrawBtn.addEventListener('click', () => {
-            const enabled = !annotations.getDrawEnabled();
-            annotations.setDrawEnabled(enabled);
-            if (enabled) {
+        if (annotationsEnabled && annotVisibleBtn && annotDrawBtn && annotUndoBtn && annotClearBtn && annotToolSel && annotDashSel && annotColorInput && annotWidthInput) {
+            annotVisibleBtn.addEventListener('click', () => {
                 const preset = getPresetById(editingId);
-                if (preset) {
-                    ensureAnnotationsDefaults(preset);
-                    if (!preset.annotationsVisible) preset.annotationsVisible = true;
+                if (!preset) return;
+                ensureAnnotationsDefaults(preset);
+                preset.annotationsVisible = !preset.annotationsVisible;
+                annotations.scheduleDraw();
+                syncAnnotButtons();
+                syncAnnotationsToolbar();
+            });
+
+            annotDrawBtn.addEventListener('click', () => {
+                const enabled = !annotations.getDrawEnabled();
+                annotations.setDrawEnabled(enabled);
+                if (enabled) {
+                    const preset = getPresetById(editingId);
+                    if (preset) {
+                        ensureAnnotationsDefaults(preset);
+                        if (!preset.annotationsVisible) preset.annotationsVisible = true;
+                    }
                 }
-            }
-            syncAnnotButtons();
-            syncAnnotationsToolbar();
-        });
+                syncAnnotButtons();
+                syncAnnotationsToolbar();
+            });
 
-        annotUndoBtn.addEventListener('click', () => {
-            annotations.undo();
-            syncAnnotButtons();
-            syncAnnotationsToolbar();
-        });
+            annotUndoBtn.addEventListener('click', () => {
+                annotations.undo();
+                syncAnnotButtons();
+                syncAnnotationsToolbar();
+            });
 
-        annotClearBtn.addEventListener('click', () => {
-            annotations.clear();
-            syncAnnotButtons();
-            syncAnnotationsToolbar();
-        });
+            annotClearBtn.addEventListener('click', () => {
+                annotations.clear();
+                syncAnnotButtons();
+                syncAnnotationsToolbar();
+            });
 
-        annotToolSel.addEventListener('change', () => {
-            annotations.setTool(annotToolSel.value);
-            syncAnnotButtons();
-            syncAnnotationsToolbar();
-        });
-        annotDashSel.addEventListener('change', () => {
-            annotations.setDash(annotDashSel.value);
-            syncAnnotButtons();
-            syncAnnotationsToolbar();
-        });
-        annotColorInput.addEventListener('input', () => {
-            annotations.setColor(annotColorInput.value);
-            syncAnnotButtons();
-            syncAnnotationsToolbar();
-        });
-        annotWidthInput.addEventListener('input', () => {
-            annotations.setWidth(annotWidthInput.value);
-            syncAnnotButtons();
-            syncAnnotationsToolbar();
-        });
+            annotToolSel.addEventListener('change', () => {
+                annotations.setTool(annotToolSel.value);
+                syncAnnotButtons();
+                syncAnnotationsToolbar();
+            });
+            annotDashSel.addEventListener('change', () => {
+                annotations.setDash(annotDashSel.value);
+                syncAnnotButtons();
+                syncAnnotationsToolbar();
+            });
+            annotColorInput.addEventListener('input', () => {
+                annotations.setColor(annotColorInput.value);
+                syncAnnotButtons();
+                syncAnnotationsToolbar();
+            });
+            annotWidthInput.addEventListener('input', () => {
+                annotations.setWidth(annotWidthInput.value);
+                syncAnnotButtons();
+                syncAnnotationsToolbar();
+            });
+        }
 
         propsUI = {
             nameInput,

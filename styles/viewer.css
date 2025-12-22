@@ -840,6 +840,10 @@ body.bg-black .anno-toolbar .btn.active {
     font-size: 12px;
 }
 
+.anno-toolbar .anno-layer-select {
+    min-width: 120px;
+}
+
 .anno-toolbar .anno-number {
     width: 56px;
     height: 28px;
@@ -1024,6 +1028,19 @@ input[type="range"] { width: 120px; }
 .prompt-input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font:inherit; background: var(--controlBg); color: var(--ink); }
 .prompt-message { font-size: 13px; line-height: 1.4; color: var(--ink); white-space: pre-wrap; }
 .prompt-actions { justify-content:flex-end }
+
+.rect-annot-body { gap: 12px; }
+.rect-annot-field { display:flex; flex-direction:column; gap:6px; }
+.rect-annot-color {
+    width: 100%;
+    height: 40px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--controlBg);
+}
+.rect-annot-select { height: auto; }
+.rect-annot-info { font-size: 12px; }
 .eye {
     font-size: 14px;
     user-select: none;
@@ -1302,6 +1319,12 @@ body.bg-black {
     --shadow: none;
     --shadowStrong: none;
     --inset: none;
+}
+
+body.bg-black .side input[type="number"],
+body.bg-black .side input[type="text"] {
+    background: #000;
+    color: var(--ink);
 }
 
 .bind-log {
