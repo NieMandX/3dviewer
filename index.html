@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mini FBX Viewer — WebGPU</title>
+    <title>АГР WEBViewer</title>
     <link rel="stylesheet" href="./styles/viewer.css">
 </head>
 <body class="side-hidden">
@@ -552,6 +552,46 @@
                 <div class="row prompt-actions">
                     <button id="exportCancel" class="btn" type="button">Отмена</button>
                     <button id="exportOk" class="btn primary" type="button">Скачать</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="rectAnnotModal" class="modal">
+        <div class="sheet sheet-sm">
+            <div class="head">
+                <div id="rectAnnotTitle" class="muted">Прямоугольник</div>
+                <button id="rectAnnotClose" class="btn" type="button" title="Закрыть">×</button>
+            </div>
+            <div class="prompt-body rect-annot-body">
+                <label class="rect-annot-field">
+                    <span class="muted" style="font-size:12px">Цвет</span>
+                    <input id="rectAnnotColor" class="rect-annot-color" type="color" value="#ffcc00" />
+                </label>
+                <label class="rect-annot-field">
+                    <span class="muted" style="font-size:12px">Заливка</span>
+                    <select id="rectAnnotFill" class="prompt-input rect-annot-select">
+                        <option value="none">Нет</option>
+                        <option value="solid" selected>Сплошная</option>
+                        <option value="hatch">Штриховка</option>
+                    </select>
+                </label>
+                <label class="rect-annot-field">
+                    <span class="muted" style="font-size:12px">Информация</span>
+                    <select id="rectAnnotInfo" class="prompt-input rect-annot-select">
+                        <option value="none" selected>Нет</option>
+                        <option value="area">Площадь (м²)</option>
+                        <option value="text">Текст</option>
+                    </select>
+                </label>
+                <div id="rectAnnotAreaRow" class="rect-annot-info muted" hidden>Площадь: — м²</div>
+                <label id="rectAnnotTextRow" class="rect-annot-field" hidden>
+                    <span class="muted" style="font-size:12px">Текст</span>
+                    <input id="rectAnnotText" class="prompt-input" type="text" placeholder="Текст…" />
+                </label>
+                <div class="row prompt-actions">
+                    <button id="rectAnnotCancel" class="btn" type="button">Отмена</button>
+                    <button id="rectAnnotOk" class="btn primary" type="button">OK</button>
                 </div>
             </div>
         </div>
