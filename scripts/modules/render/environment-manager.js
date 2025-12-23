@@ -3,25 +3,25 @@ import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 
 export const DEFAULT_ENV_URL = 'exr/forest-01-1024.exr';
-export const FALLBACK_HDR_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/equirectangular/royal_esplanade_1k.hdr';
+export const FALLBACK_HDR_URL = 'hdr/royal_esplanade_1k.hdr';
 
 export const HDRI_LIBRARY = [
     { name: "Forest EXR (local)", url: DEFAULT_ENV_URL },
-    { name: "Royal Esplanade",    url: "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
-    { name: "Venice Sunset",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr" },
+    { name: "Royal Esplanade",    url: "hdr/royal_esplanade_1k.hdr" },
+    { name: "Venice Sunset",      url: "hdr/venice_sunset_1k.hdr" },
     // { name: "Blouberg Sunrise",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/blouberg_sunrise_1k.hdr" },
     // { name: "Tropical Beach",     url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tropical_beach_1k.hdr" },
     // { name: "Country Field",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/country_field_1k.hdr" },
     // { name: "Construction Site",  url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/construction_1k.hdr" },
-    { name: "Skyline Rooftop",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/roof_garden_1k.hdr" },
+    { name: "Skyline Rooftop",    url: "hdr/roof_garden_1k.hdr" },
     // { name: "City Overpass",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/urban_overpass_1k.hdr" },
     // { name: "Forest Trail",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/forest_trail_1k.hdr" },
-    { name: "Rocky Ridge",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/rocky_ridge_1k.hdr" },
-    { name: "Mountain Sunset",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/mountain_sunset_1k.hdr" },
+    { name: "Rocky Ridge",        url: "hdr/rocky_ridge_1k.hdr" },
+    { name: "Mountain Sunset",    url: "hdr/mountain_sunset_1k.hdr" },
     // { name: "Industrial Yard",    url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/industrial_pipe_1k.hdr" },
     // { name: "Tokyo Night",        url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tokyo_neon_1k.hdr" },
     // { name: "Small Hangar",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/hangar_1k.hdr" },
-    { name: "Studio Small",       url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" }
+    { name: "Studio Small",       url: "hdr/studio_small_09_1k.hdr" }
 ];
 
 export function createEnvironmentManager(options = {}) {
