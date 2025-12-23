@@ -1,5 +1,6 @@
 .DS_Store
 node_modules/
 scripts/vendor/
-exr/
+exr/*
+!exr/forest-01-1024.exr
 tmp/

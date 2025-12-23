@@ -3,11 +3,11 @@ import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 
 export const DEFAULT_ENV_URL = 'exr/forest-01-1024.exr';
-export const FALLBACK_HDR_URL = 'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr';
+export const FALLBACK_HDR_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/equirectangular/royal_esplanade_1k.hdr';
 
 export const HDRI_LIBRARY = [
     { name: "Forest EXR (local)", url: DEFAULT_ENV_URL },
-    { name: "Royal Esplanade",    url: "https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
+    { name: "Royal Esplanade",    url: "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/equirectangular/royal_esplanade_1k.hdr" },
     { name: "Venice Sunset",      url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr" },
     // { name: "Blouberg Sunrise",   url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/blouberg_sunrise_1k.hdr" },
     // { name: "Tropical Beach",     url: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/tropical_beach_1k.hdr" },
