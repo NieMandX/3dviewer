@@ -987,6 +987,117 @@ select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
 #matSelect { flex: 1 1 auto; width: 100%; min-width: 0; }
 input[type="range"] { width: 120px; }
 
+.collab-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.collab-row {
+    align-items: flex-end;
+}
+
+.collab-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.collab-field-wide {
+    flex: 1 1 auto;
+}
+
+.collab-label {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.collab-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--controlBg);
+    color: var(--ink);
+    font: inherit;
+}
+
+.collab-owner {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.collab-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.collab-title {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.collab-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 120px;
+    overflow: auto;
+}
+
+.collab-member {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--controlBg);
+}
+
+.collab-member small {
+    font-size: 10px;
+    color: var(--muted);
+}
+
+.collab-chat-log {
+    max-height: 180px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+    background: var(--controlBg);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.collab-chat-msg {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.collab-chat-meta {
+    font-size: 10px;
+    color: var(--muted);
+}
+
+.collab-chat-text {
+    font-size: 12px;
+}
+
+.collab-chat-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 #gallery{
     display:grid;
     grid-template-columns:repeat(auto-fill, minmax(96px, 1fr));

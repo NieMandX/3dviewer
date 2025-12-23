@@ -42,6 +42,10 @@ export function createAnnotations3DController(options = {}) {
     const annoLayerSelectEl = options.annoLayerSelectEl || null;
     const annoLayerAddBtn = options.annoLayerAddBtn || null;
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
+    const onStrokeCommitted =
+        typeof options.onStrokeCommitted === 'function' ? options.onStrokeCommitted : null;
+    const onStrokeRemoved =
+        typeof options.onStrokeRemoved === 'function' ? options.onStrokeRemoved : null;
     const promptLayerName =
         typeof options.promptLayerName === 'function' ? options.promptLayerName : null;
     const promptRectSettings =
@@ -57,6 +61,11 @@ export function createAnnotations3DController(options = {}) {
         return Object.freeze({
             setEnabled: () => false,
             setVisible: () => false,
+            getDrawEnabled: () => false,
+            isPointerDown: () => false,
+            addRemoteAnnotation: () => null,
+            removeRemoteAnnotation: () => false,
+            registerAnnotationId: () => false,
             dispose: () => {},
         });
     }
@@ -106,9 +115,31 @@ export function createAnnotations3DController(options = {}) {
     let toolbarReady = false;
     let hotkeysReady = false;
     const undoStack = [];
+    const strokesById = new Map();
 
     function makeId() {
         return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    function vecToArray(vec) {
+        if (!vec) return null;
+        return [vec.x, vec.y, vec.z];
+    }
+
+    function arraysToPoints(list) {
+        if (!Array.isArray(list)) return [];
+        return list
+            .map((pt) => (Array.isArray(pt) ? new THREE.Vector3(pt[0], pt[1], pt[2]) : null))
+            .filter((pt) => pt);
+    }
+
+    function serializeStyle(style) {
+        if (!style) return null;
+        return {
+            color: style.color,
+            width: style.width,
+            dash: style.dash,
+        };
     }
 
     function setCanvasActive(active) {
@@ -502,6 +533,106 @@ export function createAnnotations3DController(options = {}) {
         return group;
     }
 
+    function resolveShapePoints(shape) {
+        if (!shape) return null;
+        if (shape.type === 'path') {
+            const widthValue = Number.isFinite(shape.style?.width) ? shape.style.width : widthPx;
+            return simplifyPoints(shape.points || [], widthValue * 0.4);
+        }
+        if (shape.type === 'line') {
+            if (!shape.a || !shape.b) return null;
+            return [shape.a, shape.b];
+        }
+        if (shape.mode === 'surface') {
+            const rect = getViewRect();
+            if (!rect) return null;
+            const stepPx = getSurfaceSampleStepPx();
+            let clientPoints = null;
+            if (shape.type === 'line') {
+                clientPoints = sampleClientLinePoints(shape.startClient, shape.endClient, stepPx);
+            } else if (shape.type === 'rect') {
+                clientPoints = sampleClientRectPoints(shape.startClient, shape.endClient, stepPx);
+            } else if (shape.type === 'circle') {
+                clientPoints = sampleClientCirclePoints(shape.startClient, shape.endClient, stepPx);
+            }
+            const points = projectClientPointsToSurface(clientPoints, rect, shape.style);
+            if (shape.type === 'rect' || shape.type === 'circle') ensureClosedPoints(points);
+            return points;
+        }
+        if (shape.type === 'circle') {
+            const plane = shape.plane || shape.style?.planeState;
+            if (!plane) return null;
+            const segments = 48;
+            const center = toPlaneCoords(shape.c, plane);
+            const points = [];
+            for (let i = 0; i <= segments; i++) {
+                const t = (i / segments) * Math.PI * 2;
+                const x = center.x + Math.cos(t) * shape.r;
+                const y = center.y + Math.sin(t) * shape.r;
+                points.push(fromPlaneCoords(x, y, plane));
+            }
+            return points;
+        }
+        if (shape.type === 'rect') {
+            const plane = shape.plane || shape.style?.planeState;
+            if (!plane) return null;
+            const a2 = toPlaneCoords(shape.a, plane);
+            const b2 = toPlaneCoords(shape.b, plane);
+            const minX = Math.min(a2.x, b2.x);
+            const maxX = Math.max(a2.x, b2.x);
+            const minY = Math.min(a2.y, b2.y);
+            const maxY = Math.max(a2.y, b2.y);
+            return [
+                fromPlaneCoords(minX, minY, plane),
+                fromPlaneCoords(maxX, minY, plane),
+                fromPlaneCoords(maxX, maxY, plane),
+                fromPlaneCoords(minX, maxY, plane),
+            ];
+        }
+        return null;
+    }
+
+    function makeShapeRecord(shape, layer) {
+        if (!shape || !shape.style) return null;
+        const points = resolveShapePoints(shape);
+        if (!Array.isArray(points) || points.length < 2) return null;
+        return {
+            kind: shape.type,
+            payload: {
+                kind: shape.type,
+                points: points.map(vecToArray),
+                style: serializeStyle(shape.style),
+                layerId: layer?.id || null,
+                layerName: layer?.name || null,
+            },
+        };
+    }
+
+    function makeRectRecord(rect, style, settings, layer) {
+        if (!rect || !style) return null;
+        return {
+            kind: 'rect',
+            payload: {
+                kind: 'rect',
+                corners: rect.corners.map(vecToArray),
+                width: rect.width,
+                height: rect.height,
+                normal: rect.normal ? vecToArray(rect.normal) : null,
+                style: serializeStyle(style),
+                settings: {
+                    color: settings?.color || style.color,
+                    fill: settings?.fill || 'none',
+                    info: settings?.info || 'none',
+                    text: settings?.text || '',
+                    labelText: settings?.labelText || '',
+                    area: rect.width * rect.height,
+                },
+                layerId: layer?.id || null,
+                layerName: layer?.name || null,
+            },
+        };
+    }
+
     function formatAreaLabel(area) {
         const value = Number(area);
         if (!Number.isFinite(value)) return '—';
@@ -764,22 +895,30 @@ export function createAnnotations3DController(options = {}) {
         if (activeLayerId) annoLayerSelectEl.value = activeLayerId;
     }
 
-    function createLayer(name) {
+    function createLayer(name, forcedId = null, makeActive = true) {
         const layerName = String(name || '').trim() || `Layer ${layers.length + 1}`;
         const group = new THREE.Group();
         group.name = layerName;
         group.userData.annotationLayer = true;
         annotationsRoot.add(group);
         const layer = {
-            id: makeId(),
+            id: forcedId || makeId(),
             name: layerName,
             group,
             strokes: [],
         };
         layers.push(layer);
-        activeLayerId = layer.id;
+        if (makeActive) activeLayerId = layer.id;
         syncLayerSelect();
         return layer;
+    }
+
+    function ensureLayer(id, name, makeActive = true) {
+        if (id) {
+            const existing = layers.find((layer) => layer.id === id);
+            if (existing) return existing;
+        }
+        return createLayer(name, id || null, makeActive);
     }
 
     createLayer('Layer 1');
@@ -792,15 +931,26 @@ export function createAnnotations3DController(options = {}) {
         syncLayerSelect();
     }
 
-    function addStrokeToLayer(stroke, layer) {
+    function registerStrokeAnnotation(stroke, annotationId) {
+        if (!stroke || !annotationId) return;
+        stroke.userData.annotationId = annotationId;
+        strokesById.set(annotationId, stroke);
+    }
+
+    function addStrokeToLayer(stroke, layer, options = {}) {
         if (!stroke || !layer) return;
         layer.group.add(stroke);
         layer.strokes.push(stroke);
-        undoStack.push({ layerId: layer.id, stroke });
+        if (!options.skipUndo) {
+            undoStack.push({ layerId: layer.id, stroke });
+        }
+        if (options.annotationId) {
+            registerStrokeAnnotation(stroke, options.annotationId);
+        }
         requestRender();
     }
 
-    function removeStroke(stroke) {
+    function removeStroke(stroke, options = {}) {
         if (!stroke) return;
         const layer = layers.find((l) => l.strokes.includes(stroke));
         if (layer) {
@@ -810,7 +960,12 @@ export function createAnnotations3DController(options = {}) {
         if (stroke.parent) stroke.parent.remove(stroke);
         const undoIndex = undoStack.findIndex((entry) => entry.stroke === stroke);
         if (undoIndex >= 0) undoStack.splice(undoIndex, 1);
+        const annotationId = stroke.userData?.annotationId;
+        if (annotationId) strokesById.delete(annotationId);
         disposeObject(stroke);
+        if (!options.skipNotify && onStrokeRemoved) {
+            onStrokeRemoved({ stroke, annotationId: annotationId || null });
+        }
         requestRender();
     }
 
@@ -1093,7 +1248,13 @@ export function createAnnotations3DController(options = {}) {
             };
             const stroke = buildRectangleAnnotation(rect, style, finalSettings);
             const layer = getLayerById(rectDraft.layerId) || getActiveLayer();
-            if (stroke && layer) addStrokeToLayer(stroke, layer);
+            if (stroke && layer) {
+                addStrokeToLayer(stroke, layer);
+                if (onStrokeCommitted) {
+                    const record = makeRectRecord(rect, style, finalSettings, layer);
+                    if (record) onStrokeCommitted({ stroke, record });
+                }
+            }
 
             draft = null;
             clearDraft();
@@ -1128,7 +1289,13 @@ export function createAnnotations3DController(options = {}) {
 
         if (!layer) return;
         const stroke = buildStrokeFromShape(shape);
-        if (stroke) addStrokeToLayer(stroke, layer);
+        if (stroke) {
+            addStrokeToLayer(stroke, layer);
+            if (onStrokeCommitted) {
+                const record = makeShapeRecord(shape, layer);
+                if (record) onStrokeCommitted({ stroke, record });
+            }
+        }
         clearDraft();
     }
 
@@ -1233,6 +1400,50 @@ export function createAnnotations3DController(options = {}) {
         return null;
     }
 
+    function normalizeStrokeStyle(raw) {
+        if (!raw) {
+            return {
+                color,
+                width: widthPx,
+                dash,
+            };
+        }
+        return {
+            color: raw.color || color,
+            width: Number.isFinite(raw.width) ? raw.width : widthPx,
+            dash: raw.dash || dash,
+        };
+    }
+
+    function buildStrokeFromRecord(record) {
+        if (!record) return null;
+        const payload = record.payload || {};
+        const kind = record.kind || payload.kind;
+        if (kind === 'rect') {
+            const corners = arraysToPoints(payload.corners || []);
+            if (corners.length < 4) return null;
+            const widthValue = Number.isFinite(payload.width) ? payload.width : corners[0].distanceTo(corners[1]);
+            const heightValue = Number.isFinite(payload.height) ? payload.height : corners[1].distanceTo(corners[2]);
+            const normal = payload.normal ? new THREE.Vector3(payload.normal[0], payload.normal[1], payload.normal[2]) : null;
+            const rect = {
+                corners,
+                width: widthValue,
+                height: heightValue,
+                normal,
+            };
+            const style = normalizeStrokeStyle(payload.style);
+            const settings = {
+                ...(payload.settings || {}),
+                color: payload.settings?.color || style.color,
+            };
+            return buildRectangleAnnotation(rect, style, settings);
+        }
+        const points = arraysToPoints(payload.points || []);
+        if (!points.length) return null;
+        const style = normalizeStrokeStyle(payload.style);
+        return buildStrokeObject(points, style);
+    }
+
     function undo() {
         while (undoStack.length) {
             const entry = undoStack.pop();
@@ -1249,6 +1460,33 @@ export function createAnnotations3DController(options = {}) {
         if (!layer) return false;
         const strokes = [...layer.strokes];
         strokes.forEach((stroke) => removeStroke(stroke));
+        return true;
+    }
+
+    function addRemoteAnnotation(record) {
+        if (!record || !record.id) return null;
+        if (strokesById.has(record.id)) return strokesById.get(record.id);
+        const payload = record.payload || {};
+        const layer = (payload.layerId || payload.layerName)
+            ? ensureLayer(payload.layerId || null, payload.layerName || 'Layer', false)
+            : getActiveLayer();
+        const stroke = buildStrokeFromRecord(record);
+        if (!stroke) return null;
+        addStrokeToLayer(stroke, layer, { skipUndo: true, annotationId: record.id });
+        return stroke;
+    }
+
+    function removeRemoteAnnotation(annotationId) {
+        if (!annotationId) return false;
+        const stroke = strokesById.get(annotationId);
+        if (!stroke) return false;
+        removeStroke(stroke, { skipNotify: true });
+        return true;
+    }
+
+    function registerAnnotationId(stroke, annotationId) {
+        if (!stroke || !annotationId) return false;
+        registerStrokeAnnotation(stroke, annotationId);
         return true;
     }
 
@@ -1548,6 +1786,7 @@ export function createAnnotations3DController(options = {}) {
         layers.forEach((layer) => {
             layer.strokes.forEach((stroke) => disposeObject(stroke));
         });
+        strokesById.clear();
         annotationsRoot.removeFromParent();
     }
 
@@ -1565,7 +1804,12 @@ export function createAnnotations3DController(options = {}) {
             return drawEnabled;
         },
         setVisible: (next) => setVisible(next),
+        getDrawEnabled: () => drawEnabled,
+        isPointerDown: () => pointerId != null,
         getRoot: () => annotationsRoot,
+        addRemoteAnnotation,
+        removeRemoteAnnotation,
+        registerAnnotationId,
         dispose,
     });
 }

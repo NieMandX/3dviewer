@@ -36,6 +36,8 @@ import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
 import { createVisibilityAndCollisions } from '../ui/visibility-collisions.js';
 import { collectViewerDom } from '../ui/viewer-dom.js';
+import { createCollabController } from '../collab/collab-controller.js';
+import { createCameraSyncController } from '../collab/camera-sync.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
 import { createAndStartRenderLoop } from '../render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from '../render/debug-textures.js';
@@ -421,7 +423,19 @@ class ViewerApp {
         });
         app.cameraPresets = cameraPresets;
 
-        const annotations3d = createAnnotations3DController({
+        let collabController = null;
+        let cameraSync = null;
+        let annotations3d = null;
+        let roomUpdateHandler = null;
+
+        function makeClientId() {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        }
+
+        annotations3d = createAnnotations3DController({
             THREE,
             world,
             camera,
@@ -451,8 +465,292 @@ class ViewerApp {
                 title: 'Прямоугольник',
                 ...(options || {}),
             }),
+            onStrokeCommitted: ({ stroke, record }) => {
+                if (!collabController || !record || !stroke) return;
+                const id = makeClientId();
+                record.id = id;
+                annotations3d?.registerAnnotationId?.(stroke, id);
+                collabController.sendAnnotation(record).catch((err) => {
+                    console.error('Annotation sync failed', err);
+                });
+            },
+            onStrokeRemoved: ({ annotationId }) => {
+                if (!collabController || !annotationId) return;
+                collabController.deleteAnnotation(annotationId).catch((err) => {
+                    console.error('Annotation delete failed', err);
+                });
+            },
         });
         app.annotations3d = annotations3d;
+
+        const collabStatusEl = dom.collabStatusEl;
+        const collabNameEl = dom.collabNameEl;
+        const collabJoinBtn = dom.collabJoinBtn;
+        const collabRoomLinkEl = dom.collabRoomLinkEl;
+        const collabCopyBtn = dom.collabCopyBtn;
+        const collabReserveBtn = dom.collabReserveBtn;
+        const collabOwnerEl = dom.collabOwnerEl;
+        const collabParticipantsEl = dom.collabParticipantsEl;
+        const collabChatLogEl = dom.collabChatLogEl;
+        const collabChatInputEl = dom.collabChatInputEl;
+        const collabChatSendBtn = dom.collabChatSendBtn;
+
+        const supabaseUrl =
+            (typeof window !== 'undefined' && window.__SUPABASE_URL ? String(window.__SUPABASE_URL) : '') ||
+            (typeof localStorage !== 'undefined' ? String(localStorage.getItem('lpmview.supabaseUrl') || '') : '');
+        const supabaseAnonKey =
+            (typeof window !== 'undefined' && window.__SUPABASE_ANON_KEY ? String(window.__SUPABASE_ANON_KEY) : '') ||
+            (typeof localStorage !== 'undefined' ? String(localStorage.getItem('lpmview.supabaseAnonKey') || '') : '');
+
+        const collabReady = !!(supabaseUrl && supabaseAnonKey);
+        let collabOwnerId = null;
+        let collabParticipants = [];
+
+        function setCollabStatus(text) {
+            if (!collabStatusEl) return;
+            const label = String(text || '').trim();
+            collabStatusEl.textContent = label || (collabController ? 'on' : 'off');
+        }
+
+        function getRoomSlugFromUrl() {
+            try {
+                const url = new URL(window.location.href);
+                return url.searchParams.get('room') || '';
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function setRoomSlugInUrl(slug) {
+            try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('room', slug);
+                window.history.replaceState({}, '', url.toString());
+                return url.toString();
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function formatChatTime(value) {
+            if (!value) return '';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '';
+            return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function appendChatMessage(message, options = {}) {
+            if (!collabChatLogEl || !message) return;
+            const row = document.createElement('div');
+            row.className = 'collab-chat-msg';
+            const meta = document.createElement('div');
+            meta.className = 'collab-chat-meta';
+            const timeText = formatChatTime(message.created_at);
+            meta.textContent = `${message.author_name || 'Guest'}${timeText ? ' · ' + timeText : ''}`;
+            const body = document.createElement('div');
+            body.className = 'collab-chat-text';
+            body.textContent = message.body || '';
+            row.append(meta, body);
+            collabChatLogEl.appendChild(row);
+            if (options.scroll) {
+                collabChatLogEl.scrollTop = collabChatLogEl.scrollHeight;
+            }
+        }
+
+        function scrollChatToBottom() {
+            if (!collabChatLogEl) return;
+            collabChatLogEl.scrollTop = collabChatLogEl.scrollHeight;
+        }
+
+        function renderParticipants(list) {
+            collabParticipants = Array.isArray(list) ? list : [];
+            if (!collabParticipantsEl) return;
+            collabParticipantsEl.innerHTML = '';
+            if (!collabParticipants.length) {
+                collabParticipantsEl.textContent = '—';
+                return;
+            }
+            collabParticipants.forEach((participant) => {
+                const row = document.createElement('div');
+                row.className = 'collab-member';
+                const nameEl = document.createElement('span');
+                nameEl.textContent = participant.name || 'Guest';
+                const meta = document.createElement('small');
+                if (participant.id === collabOwnerId) {
+                    meta.textContent = 'ведёт';
+                } else if (participant.id === collabController?.user?.id) {
+                    meta.textContent = 'вы';
+                } else {
+                    meta.textContent = '';
+                }
+                row.append(nameEl, meta);
+                collabParticipantsEl.appendChild(row);
+            });
+        }
+
+        function getOwnerName() {
+            if (!collabOwnerId) return '';
+            const match = collabParticipants.find((p) => p.id === collabOwnerId);
+            return match?.name || '';
+        }
+
+        function updateOwnerLabel() {
+            if (!collabOwnerEl) return;
+            if (!collabOwnerId) {
+                collabOwnerEl.textContent = 'свободно';
+                return;
+            }
+            const name = getOwnerName();
+            collabOwnerEl.textContent = name ? `ведёт: ${name}` : 'ведёт: участник';
+        }
+
+        function updateReserveButton() {
+            if (!collabReserveBtn) return;
+            if (!collabController) {
+                collabReserveBtn.disabled = true;
+                collabReserveBtn.textContent = 'Резерв вращения';
+                return;
+            }
+            const isOwner = !!cameraSync?.isOwner?.();
+            collabReserveBtn.disabled = false;
+            collabReserveBtn.textContent = isOwner ? 'Снять резерв' : 'Резерв вращения';
+        }
+
+        async function connectCollab() {
+            if (!collabReady || !collabJoinBtn || !collabNameEl) return;
+            const name = String(collabNameEl.value || '').trim() || 'Guest';
+            if (collabController) {
+                await collabController.setDisplayName(name);
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem('lpmview.displayName', name);
+                }
+                renderParticipants(collabParticipants);
+                updateOwnerLabel();
+                return;
+            }
+            collabJoinBtn.disabled = true;
+            setCollabStatus('connecting');
+            try {
+                collabController = await createCollabController({
+                    supabaseUrl,
+                    supabaseAnonKey,
+                    roomSlug: getRoomSlugFromUrl(),
+                    displayName: name,
+                    onStatus: setCollabStatus,
+                    onRoomReady: ({ slug }) => {
+                        const shareUrl = setRoomSlugInUrl(slug);
+                        if (collabRoomLinkEl) collabRoomLinkEl.value = shareUrl;
+                    },
+                    onParticipants: (list) => {
+                        renderParticipants(list);
+                        updateOwnerLabel();
+                    },
+                    onMessage: (message, meta) => {
+                        appendChatMessage(message, { scroll: meta?.source !== 'history' });
+                    },
+                    onAnnotation: (record) => {
+                        annotations3d?.addRemoteAnnotation?.(record);
+                    },
+                    onAnnotationDelete: (record) => {
+                        annotations3d?.removeRemoteAnnotation?.(record?.id);
+                    },
+                    onCameraState: (state) => {
+                        cameraSync?.handleRemoteState?.(state);
+                    },
+                    onCameraOwner: (ownerId) => {
+                        collabOwnerId = ownerId;
+                        cameraSync?.setOwner?.(ownerId);
+                        renderParticipants(collabParticipants);
+                        updateOwnerLabel();
+                        updateReserveButton();
+                    },
+                    onRoomUpdate: (room) => roomUpdateHandler?.(room),
+                });
+
+                cameraSync = createCameraSyncController({
+                    camera,
+                    controls,
+                    requestRender,
+                    collab: collabController,
+                    localUserId: collabController.user.id,
+                    isLocalBusy: () => annotations3d?.getDrawEnabled?.() || annotations3d?.isPointerDown?.(),
+                });
+                if (collabOwnerId) {
+                    cameraSync.setOwner(collabOwnerId);
+                }
+                roomUpdateHandler?.(collabController.room);
+
+                if (dom.annotateCanvasEl) {
+                    dom.annotateCanvasEl.addEventListener('pointerdown', () => cameraSync?.markLocalActivity(true));
+                    dom.annotateCanvasEl.addEventListener('pointerup', () => cameraSync?.markLocalActivity(false));
+                    dom.annotateCanvasEl.addEventListener('pointercancel', () => cameraSync?.markLocalActivity(false));
+                }
+
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem('lpmview.displayName', name);
+                }
+                setCollabStatus('on');
+                renderParticipants(collabParticipants);
+                updateReserveButton();
+                updateOwnerLabel();
+                scrollChatToBottom();
+            } catch (err) {
+                console.error('Collab init failed', err);
+                setCollabStatus('error');
+                collabJoinBtn.disabled = false;
+            }
+        }
+
+        if (collabNameEl && typeof localStorage !== 'undefined') {
+            const storedName = localStorage.getItem('lpmview.displayName');
+            if (storedName) collabNameEl.value = storedName;
+        }
+
+        if (collabJoinBtn) {
+            collabJoinBtn.disabled = !collabReady;
+            collabJoinBtn.addEventListener('click', () => {
+                void connectCollab();
+            });
+        }
+
+        if (collabChatSendBtn && collabChatInputEl) {
+            collabChatSendBtn.addEventListener('click', () => {
+                const text = String(collabChatInputEl.value || '').trim();
+                if (!text || !collabController) return;
+                collabController.sendMessage(text).catch((err) => console.error('Chat send failed', err));
+                collabChatInputEl.value = '';
+            });
+            collabChatInputEl.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter' || event.shiftKey) return;
+                event.preventDefault();
+                collabChatSendBtn.click();
+            });
+        }
+
+        if (collabCopyBtn && collabRoomLinkEl) {
+            collabCopyBtn.addEventListener('click', () => {
+                const value = String(collabRoomLinkEl.value || '').trim();
+                if (!value) return;
+                if (navigator?.clipboard?.writeText) {
+                    void navigator.clipboard.writeText(value);
+                }
+            });
+        }
+
+        if (collabReserveBtn) {
+            collabReserveBtn.addEventListener('click', () => {
+                if (!collabController) return;
+                if (cameraSync?.isOwner?.()) {
+                    void collabController.releaseCamera();
+                } else {
+                    void collabController.claimCamera();
+                }
+            });
+        }
+
+        if (collabStatusEl && !collabReady) {
+            collabStatusEl.textContent = 'config';
+        }
 
         exportBtn?.addEventListener?.('click', () => {
             void (async () => {
@@ -1129,12 +1427,12 @@ class ViewerApp {
          * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
          * извлекает embedded текстуры, выполняет автопривязку и обновляет панель/шейдинг.
          */
-		        const { handleFBXFile, handleZIPFile } = createImportHandlers({
-		            THREE,
-		            fbxLoader,
-		            basename,
-		            logSessionHeader,
-		            logBind,
+        const importHandlers = createImportHandlers({
+            THREE,
+            fbxLoader,
+            basename,
+            logSessionHeader,
+            logBind,
 		            hideSidePanel,
 		            setStatusMessage,
 		            requestRender,
@@ -1169,14 +1467,112 @@ class ViewerApp {
 		            autoBindByNamesForModel,
 		            setImportedLightsEnabled: importedLightsController.setImportedLightsEnabled,
 		            getImportedLightsEnabled: importedLightsController.getImportedLightsEnabled,
-		            applyGlassControlsToScene,
-		            setEmptyHintVisible,
-		            markSceneStatsDirty,
-		            unpackZIPInWorker,
-		            makeGeoJsonMeta,
-			            ensureZipCollisionsHidden,
-			            JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
-			        });
+            applyGlassControlsToScene,
+            setEmptyHintVisible,
+            markSceneStatsDirty,
+            unpackZIPInWorker,
+            makeGeoJsonMeta,
+            ensureZipCollisionsHidden,
+            JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
+        });
+        const rawHandleFBXFile = importHandlers.handleFBXFile;
+        const rawHandleZIPFile = importHandlers.handleZIPFile;
+        let lastLocalModelFile = null;
+        let isRemoteModelLoad = false;
+        let activeRoomModelUrl = '';
+
+        async function handleFBXFile(file) {
+            await rawHandleFBXFile(file);
+            if (!isRemoteModelLoad) lastLocalModelFile = file;
+        }
+
+        async function handleZIPFile(file) {
+            await rawHandleZIPFile(file);
+            if (!isRemoteModelLoad) lastLocalModelFile = file;
+        }
+
+        function getModelKindFromName(name) {
+            if (!name) return 'zip';
+            if (/\.fbx$/i.test(name)) return 'fbx';
+            if (/\.zip$/i.test(name)) return 'zip';
+            return 'zip';
+        }
+
+        async function uploadModelToRoom(file) {
+            if (!collabController || !file) return null;
+            const supabase = collabController.supabase;
+            const bucket = supabase.storage.from('models');
+            const safeName = String(file.name || 'model.zip').replace(/\s+/g, '_');
+            const path = `rooms/${collabController.room.id}/${Date.now()}-${safeName}`;
+            const { error: uploadError } = await bucket.upload(path, file, {
+                upsert: true,
+                contentType: file.type || 'application/octet-stream',
+            });
+            if (uploadError) throw uploadError;
+            const { data } = bucket.getPublicUrl(path);
+            return data?.publicUrl || '';
+        }
+
+        async function syncModelToRoom(file) {
+            if (!collabController || !file || isRemoteModelLoad) return;
+            try {
+                setStatusMessage('Синхронизация модели…');
+                const url = await uploadModelToRoom(file);
+                if (!url) return;
+                activeRoomModelUrl = url;
+                const meta = {
+                    size: file.size || 0,
+                    type: file.type || '',
+                    kind: getModelKindFromName(file.name),
+                    lastModified: file.lastModified || null,
+                };
+                await collabController.supabase
+                    .from('rooms')
+                    .update({
+                        model_url: url,
+                        model_name: file.name || 'model.zip',
+                        model_meta: meta,
+                    })
+                    .eq('id', collabController.room.id);
+            } catch (err) {
+                console.error('Model sync failed', err);
+            } finally {
+                setStatusMessage('');
+            }
+        }
+
+        async function loadModelFromRoom(room) {
+            if (!room || !room.model_url || isRemoteModelLoad) return;
+            const url = room.model_url;
+            if (url === activeRoomModelUrl) return;
+            activeRoomModelUrl = url;
+            const name = room.model_name || url.split('/').pop() || 'model.zip';
+            const kind = room.model_meta?.kind || getModelKindFromName(name);
+            try {
+                setStatusMessage('Загрузка модели из комнаты…');
+                const response = await fetch(url, { cache: 'no-cache' });
+                if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+                const blob = await response.blob();
+                const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+                isRemoteModelLoad = true;
+                lastLocalModelFile = null;
+                if (kind === 'fbx') {
+                    await rawHandleFBXFile(file);
+                } else {
+                    await rawHandleZIPFile(file);
+                }
+                await finalizeBatchAfterAllFiles();
+            } catch (err) {
+                console.error('Room model load failed', err);
+            } finally {
+                isRemoteModelLoad = false;
+                setStatusMessage('');
+            }
+        }
+
+        roomUpdateHandler = (room) => {
+            void loadModelFromRoom(room);
+        };
 
 	        // =====================
 	        // File flow
@@ -1250,7 +1646,13 @@ class ViewerApp {
          * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
          */
         async function finalizeBatchAfterAllFiles() {
-            return batchFinalizer.finalizeBatchAfterAllFiles();
+            const result = await batchFinalizer.finalizeBatchAfterAllFiles();
+            if (lastLocalModelFile) {
+                const file = lastLocalModelFile;
+                lastLocalModelFile = null;
+                await syncModelToRoom(file);
+            }
+            return result;
         }
 
         app.api = Object.freeze({

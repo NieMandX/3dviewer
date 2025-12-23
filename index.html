@@ -9,6 +9,8 @@
 <body class="side-hidden">
     <script>
         window.__LPMVIEW_RENDERER = 'webgpu';
+        window.__SUPABASE_URL = window.__SUPABASE_URL || 'https://xlajjnmxvlkygixamyam.supabase.co';
+        window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsYWpqbm14dmxreWdpeGFteWFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NjY2MzEsImV4cCI6MjA4MjA0MjYzMX0.02uAo7lQq8UNVB3yL45WudQ8WSR4opNlZ2frTZNRl8Q';
     </script>
 
     <!--
@@ -215,6 +217,42 @@
             <details id="camsDetails" open>
                 <summary>Камеры · <span id="camsCount" class="chip">0</span></summary>
                 <div id="camsSideList" class="cams-side-list"></div>
+            </details>
+
+            <details id="collabDetails" open>
+                <summary>Совместная работа · <span id="collabStatus" class="chip">off</span></summary>
+                <div class="collab-panel">
+                    <div class="row collab-row">
+                        <label class="collab-field">
+                            <span class="collab-label">Имя</span>
+                            <input id="collabName" class="collab-input" type="text" placeholder="Ваше имя" autocomplete="name" />
+                        </label>
+                        <button id="collabJoinBtn" class="btn" type="button">Войти</button>
+                    </div>
+                    <div class="row collab-row">
+                        <label class="collab-field collab-field-wide">
+                            <span class="collab-label">Комната</span>
+                            <input id="collabRoomLink" class="collab-input" type="text" readonly />
+                        </label>
+                        <button id="collabCopyBtn" class="btn" type="button" title="Скопировать ссылку">Копировать</button>
+                    </div>
+                    <div class="row collab-row">
+                        <button id="collabReserveBtn" class="btn" type="button" disabled>Резерв вращения</button>
+                        <span id="collabOwner" class="collab-owner">—</span>
+                    </div>
+                    <div class="collab-section">
+                        <div class="collab-title">Участники</div>
+                        <div id="collabParticipants" class="collab-list"></div>
+                    </div>
+                    <div class="collab-section">
+                        <div class="collab-title">Чат</div>
+                        <div id="collabChatLog" class="collab-chat-log"></div>
+                        <div class="row collab-row">
+                            <input id="collabChatInput" class="collab-input collab-chat-input" type="text" placeholder="Сообщение…" autocomplete="off" />
+                            <button id="collabChatSend" class="btn" type="button">Отправить</button>
+                        </div>
+                    </div>
+                </div>
             </details>
 
             <details id="imagesDetails" open>

@@ -82,6 +82,20 @@ export function collectViewerDom(document) {
         camPropsTitleEl: get('camPropsTitle'),
         camPropsPanelEl: get('camPropsPanel'),
 
+        // Collaboration
+        collabDetailsEl: get('collabDetails'),
+        collabStatusEl: get('collabStatus'),
+        collabNameEl: get('collabName'),
+        collabJoinBtn: get('collabJoinBtn'),
+        collabRoomLinkEl: get('collabRoomLink'),
+        collabCopyBtn: get('collabCopyBtn'),
+        collabReserveBtn: get('collabReserveBtn'),
+        collabOwnerEl: get('collabOwner'),
+        collabParticipantsEl: get('collabParticipants'),
+        collabChatLogEl: get('collabChatLog'),
+        collabChatInputEl: get('collabChatInput'),
+        collabChatSendBtn: get('collabChatSend'),
+
 	        // Path trace
 	        pathTraceSamplesEl: get('pathTraceSamples'),
 	        pathTraceSpeedEl: get('pathTraceSpeed'),
