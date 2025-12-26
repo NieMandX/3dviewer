@@ -25,6 +25,7 @@ import { createStatusUIController } from '../ui/status-ui.js';
 import { createAppbarControlsController } from '../ui/appbar-controls.js';
 import { createAppbarVisibilityTogglesController } from '../ui/appbar-visibility-toggles.js';
 import { createCameraPresetsController } from '../ui/camera-presets.js';
+import { createCameraPickController } from '../ui/camera-pick.js';
 import { createAnnotations3DController } from '../annotations/annotations-3d.js';
 import { createPromptModalController } from '../ui/prompt-modal.js';
 import { createConfirmModalController } from '../ui/confirm-modal.js';
@@ -36,6 +37,7 @@ import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
 import { createVisibilityAndCollisions } from '../ui/visibility-collisions.js';
 import { collectViewerDom } from '../ui/viewer-dom.js';
+import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
@@ -100,6 +102,8 @@ class ViewerApp {
         // =====================
         const dom = collectViewerDom(document);
         app.dom = dom;
+        const customSelects = createCustomSelectController({ root: document });
+        app.customSelects = customSelects;
 
         const promptModal = createPromptModalController({
             modalEl: dom.promptModalEl,
@@ -222,6 +226,7 @@ class ViewerApp {
 	        const loadParcelsBtn = dom.loadParcelsBtn;
 	        const resetViewerBtn = dom.resetViewerBtn;
 	        const resetViewBtn = dom.resetViewBtn;
+	        const focusPickBtn = dom.focusPickBtn;
 	        const exportBtn = dom.exportBtn;
 	        const pathTraceBtn = dom.pathTraceBtn;
 	        const fullscreenBtn = dom.fullscreenBtn;
@@ -679,6 +684,10 @@ class ViewerApp {
                     cameraSync.setOwner(collabOwnerId);
                 }
                 roomUpdateHandler?.(collabController.room);
+                if (lastLocalModelFile && !collabController.room?.model_url) {
+                    const synced = await syncModelToRoom(lastLocalModelFile);
+                    if (synced) lastLocalModelFile = null;
+                }
 
                 if (dom.annotateCanvasEl) {
                     dom.annotateCanvasEl.addEventListener('pointerdown', () => cameraSync?.markLocalActivity(true));
@@ -1184,7 +1193,19 @@ class ViewerApp {
 			                fitAll();
 			                focusOn(loadedModels.map(m => m.obj));
 			            },
-				        });
+			        });
+
+		        const cameraPickController = createCameraPickController({
+		            THREE,
+		            camera,
+		            controls,
+		            world,
+		            renderer,
+		            pickBtn: focusPickBtn,
+		            requestRender,
+		            isBlocked: () => annotations3d?.getDrawEnabled?.() || annotations3d?.isPointerDown?.(),
+		        });
+		        app.cameraPick = cameraPickController;
 
 			        // =====================
 			        // Utilities
@@ -1514,11 +1535,11 @@ class ViewerApp {
         }
 
         async function syncModelToRoom(file) {
-            if (!collabController || !file || isRemoteModelLoad) return;
+            if (!collabController || !file || isRemoteModelLoad) return false;
             try {
                 setStatusMessage('Синхронизация модели…');
                 const url = await uploadModelToRoom(file);
-                if (!url) return;
+                if (!url) return false;
                 activeRoomModelUrl = url;
                 const meta = {
                     size: file.size || 0,
@@ -1534,8 +1555,10 @@ class ViewerApp {
                         model_meta: meta,
                     })
                     .eq('id', collabController.room.id);
+                return true;
             } catch (err) {
                 console.error('Model sync failed', err);
+                return false;
             } finally {
                 setStatusMessage('');
             }
@@ -1648,9 +1671,8 @@ class ViewerApp {
         async function finalizeBatchAfterAllFiles() {
             const result = await batchFinalizer.finalizeBatchAfterAllFiles();
             if (lastLocalModelFile) {
-                const file = lastLocalModelFile;
-                lastLocalModelFile = null;
-                await syncModelToRoom(file);
+                const synced = await syncModelToRoom(lastLocalModelFile);
+                if (synced) lastLocalModelFile = null;
             }
             return result;
         }

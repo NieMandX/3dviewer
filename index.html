@@ -20,10 +20,37 @@
 
     <div class="appbar">
         <button id="toggleSideBtn" class="btn" title="Показать/скрыть боковую панель">☰</button>
-        <button id="fullscreenBtn" class="btn" type="button">⤢</button>
+        <button id="fullscreenBtn" class="btn" type="button" title="На весь экран" aria-label="На весь экран">
+            <svg class="icon icon-fullscreen" viewBox="0 0 24 24" aria-hidden="true">
+                <polyline points="4 9 4 4 9 4"></polyline>
+                <polyline points="15 4 20 4 20 9"></polyline>
+                <polyline points="20 15 20 20 15 20"></polyline>
+                <polyline points="9 20 4 20 4 15"></polyline>
+            </svg>
+        </button>
         <button id="resetViewerBtn" class="btn" type="button">Reset</button>
-        <button id="resetViewBtn" class="btn" type="button" title="Сбросить вид на объект" aria-label="Сбросить вид на объект">⌂</button>
-        <button id="exportBtn" class="btn" type="button" title="Экспорт сцены (GLB/GLTF)" aria-label="Экспорт сцены (GLB/GLTF)">⤓</button>
+        <button id="resetViewBtn" class="btn" type="button" title="Сбросить вид на объект" aria-label="Сбросить вид на объект">
+            <svg class="icon icon-zoomall" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="5" y="5" width="14" height="14" rx="2"></rect>
+                <circle cx="12" cy="12" r="2"></circle>
+            </svg>
+        </button>
+        <button id="focusPickBtn" class="btn" type="button" title="Позиционировать камеру по клику" aria-label="Позиционировать камеру по клику" aria-pressed="false">
+            <svg class="icon icon-zoompoint" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="3" x2="12" y2="6"></line>
+                <line x1="12" y1="18" x2="12" y2="21"></line>
+                <line x1="3" y1="12" x2="6" y2="12"></line>
+                <line x1="18" y1="12" x2="21" y2="12"></line>
+            </svg>
+        </button>
+        <button id="exportBtn" class="btn" type="button" title="Экспорт сцены (GLB/GLTF)" aria-label="Экспорт сцены (GLB/GLTF)">
+            <svg class="icon icon-export" viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="5" y1="21" x2="19" y2="21"></line>
+            </svg>
+        </button>
         <div class="row appbar-samples">
             <label>
                 <select id="sampleSelect" class="btn" title="Загрузить демонстрационную модель">
@@ -53,14 +80,33 @@
                 </select>
             </label>
 	        </div>
-            <button id="pathTraceBtn" class="btn" type="button" title="Photo / Path Trace" aria-pressed="false">PHOTO</button>
-		        <button id="solidToggleBtn" class="btn" type="button" title="Оставить только стекло">SOL</button>
+            <button id="solidToggleBtn" class="btn" type="button" title="Оставить только стекло">GLS</button>
 		        <button id="collToggleBtn" class="btn" type="button" title="Показать/скрыть коллизии (UCX)">UCX</button>
-		        <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">VPM</button>
-		        <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">NPM</button>
+            <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">ВПМ</button>
+            <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">НПМ</button>
 		        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">CAMS</button>
-		        <button id="annoToggleBtn" class="btn" type="button" title="Аннотации" aria-label="Аннотации" aria-pressed="false">✎</button>
-		        <button id="bgToggleBtn" class="btn bg-btn" type="button" title="Тёмная тема" aria-label="Тёмная тема">&#9790;&#65038;</button>
+		        <button id="annoToggleBtn" class="btn" type="button" title="Аннотации" aria-label="Аннотации" aria-pressed="false">
+                    <svg class="icon icon-pencil" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M17 3a2.8 2.8 0 0 1 4 4L7 21H3v-4z"></path>
+                        <line x1="16" y1="5" x2="20" y2="9"></line>
+                    </svg>
+                </button>
+		        <button id="bgToggleBtn" class="btn bg-btn" type="button" title="Тёмная тема" aria-label="Тёмная тема">
+                    <svg class="icon icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
+                    </svg>
+                    <svg class="icon icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="4"></circle>
+                        <line x1="12" y1="2" x2="12" y2="5"></line>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                        <line x1="2" y1="12" x2="5" y2="12"></line>
+                        <line x1="19" y1="12" x2="22" y2="12"></line>
+                        <line x1="4.2" y1="4.2" x2="6.3" y2="6.3"></line>
+                        <line x1="17.7" y1="17.7" x2="19.8" y2="19.8"></line>
+                        <line x1="17.7" y1="6.3" x2="19.8" y2="4.2"></line>
+                        <line x1="4.2" y1="19.8" x2="6.3" y2="17.7"></line>
+                    </svg>
+                </button>
 		        <a class="btn order-btn" href="https://lpmview.ru/#order" target="_blank" rel="noopener">Заказать модель</a>
 
 		    </div>
@@ -73,9 +119,19 @@
 	    <canvas id="annotateCanvas" class="annotate-canvas" aria-hidden="true"></canvas>
 	    <div id="annotateToolbar" class="anno-toolbar" aria-label="Аннотации" hidden>
 	        <button id="annoVisibleBtn" class="btn anno-btn" type="button" title="Показать/скрыть аннотации (H)" aria-label="Показать/скрыть аннотации">👁</button>
-	        <button id="annoDrawBtn" class="btn anno-btn" type="button" title="Режим рисования (X)" aria-label="Режим рисования">✎</button>
+	        <button id="annoDrawBtn" class="btn anno-btn" type="button" title="Режим рисования (X)" aria-label="Режим рисования">
+                <svg class="icon icon-pencil" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M17 3a2.8 2.8 0 0 1 4 4L7 21H3v-4z"></path>
+                    <line x1="16" y1="5" x2="20" y2="9"></line>
+                </svg>
+            </button>
 	        <span class="anno-divider" aria-hidden="true"></span>
-	        <button class="btn anno-tool" type="button" data-tool="pencil" title="Карандаш (1)" aria-label="Карандаш">✎</button>
+	        <button class="btn anno-tool" type="button" data-tool="pencil" title="Карандаш (1)" aria-label="Карандаш">
+                <svg class="icon icon-pencil" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M17 3a2.8 2.8 0 0 1 4 4L7 21H3v-4z"></path>
+                    <line x1="16" y1="5" x2="20" y2="9"></line>
+                </svg>
+            </button>
 	        <button class="btn anno-tool" type="button" data-tool="line" title="Линия (2)" aria-label="Линия">／</button>
 	        <button class="btn anno-tool" type="button" data-tool="rect" title="Прямоугольник (3)" aria-label="Прямоугольник">▭</button>
 	        <button class="btn anno-tool" type="button" data-tool="circle" title="Окружность (4)" aria-label="Окружность">○</button>
@@ -97,7 +153,6 @@
 	        <button id="annoUndoBtn" class="btn anno-btn" type="button" title="Undo (Ctrl+Z / ⌘Z)" aria-label="Undo">↶</button>
 	        <button id="annoClearBtn" class="btn anno-btn" type="button" title="Clear" aria-label="Clear">⌫</button>
 	    </div>
-	    <div id="statsOverlay" class="stats-overlay" hidden></div>
 	    <div id="pathTracePanel" class="pt-panel" hidden>
 	        <div class="pt-panel-head">
 	            <span class="pt-label">Samples</span>
@@ -458,8 +513,8 @@
                 <summary>Future Dev</summary>
                 <div class="future-controls">
                     <button id="gridToggleBtn" class="btn grid-btn" type="button">Grid off</button>
+                    <button id="pathTraceBtn" class="btn" type="button" title="Photo / Path Trace" aria-pressed="false">PHOTO</button>
                     <button id="loadParcelsBtn" class="btn" type="button" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
-                    <button id="statsBtn" class="btn" title="Показать статистику сцены">Stats</button>
                 </div>
             </details>
 
@@ -635,7 +690,15 @@
         </div>
     </div>
 
-    <footer class="app-footer"><a href="mailto:maragojeep@gmail.com">AGR model 3D viewer · Designed by Yaroslav Akimov · 2025</a></footer>
+    <footer class="app-footer">
+        <div class="footer-left">
+            <button id="statsBtn" class="btn footer-btn" type="button" title="Показать статистику сцены">Stats</button>
+            <div id="statsOverlay" class="stats-overlay" hidden></div>
+        </div>
+        <div class="footer-right">
+            <a href="mailto:maragojeep@gmail.com">AGR model 3D viewer · Designed by Yaroslav Akimov · 2025</a>
+        </div>
+    </footer>
 
     <script type="importmap">
         {

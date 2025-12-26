@@ -37,8 +37,6 @@ export function createStatsOverlayController(options = {}) {
         const info = renderer.info || {};
         const lastRenderStats = getLastRenderStats();
         const renderInfo = lastRenderStats?.render || info.render || {};
-        const programsRaw = lastRenderStats?.programs ?? info.programs ?? 0;
-        const programs = Array.isArray(programsRaw) ? programsRaw.length : programsRaw;
         const formatInt = (value) => (typeof value === 'number' ? value.toLocaleString('ru-RU') : String(value ?? 0));
 
         const fpsEstimate = getFpsEstimate();
@@ -46,14 +44,14 @@ export function createStatsOverlayController(options = {}) {
         const sceneStats = getSceneGeometryStats();
         const modeLabel = String(getRendererMode() || 'webgl').toUpperCase();
 
-        const lines = [
-            `fps        : ${fpsText}`,
-            `draw calls : ${formatInt(renderInfo.drawCalls ?? renderInfo.calls ?? 0)}`,
-            `scene tris : ${formatInt(sceneStats.triangles || 0)}`,
+        const items = [
+            `<span class="stats-mode">${modeLabel}</span>`,
+            `<span class="stats-item">fps ${fpsText}</span>`,
+            `<span class="stats-item">draw calls ${formatInt(renderInfo.drawCalls ?? renderInfo.calls ?? 0)}</span>`,
+            `<span class="stats-item">tris ${formatInt(sceneStats.triangles || 0)}</span>`,
         ];
-        if (programs) lines.push(`programs   : ${formatInt(programs)}`);
 
-        statsOverlayEl.innerHTML = [`<span class="stats-mode">${modeLabel}</span>`, ...lines].join('<br>');
+        statsOverlayEl.innerHTML = items.join('<span class="stats-sep">|</span>');
     }
 
     return Object.freeze({
@@ -62,4 +60,3 @@ export function createStatsOverlayController(options = {}) {
         update,
     });
 }
-

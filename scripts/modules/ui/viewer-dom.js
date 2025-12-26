@@ -59,6 +59,7 @@ export function collectViewerDom(document) {
         loadParcelsBtn: get('loadParcelsBtn'),
         resetViewerBtn: get('resetViewerBtn'),
         resetViewBtn: get('resetViewBtn'),
+        focusPickBtn: get('focusPickBtn'),
         exportBtn: get('exportBtn'),
         pathTraceBtn: get('pathTraceBtn'),
         fullscreenBtn: get('fullscreenBtn'),
