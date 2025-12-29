@@ -303,11 +303,16 @@ export async function createCollabController(options = {}) {
     }
 
     async function claimCamera() {
-        const { error } = await supabase
-            .from('rooms')
-            .update({ camera_owner_id: user.id })
-            .eq('id', room.id);
-        if (error) throw error;
+        let rpcError = null;
+        const { error } = await supabase.rpc('claim_camera', { room_id: room.id });
+        if (error) {
+            rpcError = error;
+            const { error: updateError } = await supabase
+                .from('rooms')
+                .update({ camera_owner_id: user.id })
+                .eq('id', room.id);
+            if (updateError) throw rpcError || updateError;
+        }
         await roomChannel.send({
             type: 'broadcast',
             event: 'camera-lock',
@@ -317,11 +322,16 @@ export async function createCollabController(options = {}) {
     }
 
     async function releaseCamera() {
-        const { error } = await supabase
-            .from('rooms')
-            .update({ camera_owner_id: null })
-            .eq('id', room.id);
-        if (error) throw error;
+        let rpcError = null;
+        const { error } = await supabase.rpc('release_camera', { room_id: room.id });
+        if (error) {
+            rpcError = error;
+            const { error: updateError } = await supabase
+                .from('rooms')
+                .update({ camera_owner_id: null })
+                .eq('id', room.id);
+            if (updateError) throw rpcError || updateError;
+        }
         await roomChannel.send({
             type: 'broadcast',
             event: 'camera-lock',

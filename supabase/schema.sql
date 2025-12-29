@@ -11,6 +11,44 @@ begin
 end;
 $$ language plpgsql;
 
+create or replace function public.claim_camera(room_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    if auth.uid() is null then
+        raise exception 'not authenticated';
+    end if;
+    update public.rooms
+    set camera_owner_id = auth.uid()
+    where id = room_id;
+end;
+$$;
+
+create or replace function public.release_camera(room_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    if auth.uid() is null then
+        raise exception 'not authenticated';
+    end if;
+    update public.rooms
+    set camera_owner_id = null
+    where id = room_id
+      and (camera_owner_id = auth.uid() or owner_id = auth.uid());
+end;
+$$;
+
+revoke all on function public.claim_camera(uuid) from public;
+revoke all on function public.release_camera(uuid) from public;
+grant execute on function public.claim_camera(uuid) to authenticated;
+grant execute on function public.release_camera(uuid) to authenticated;
+
 create table if not exists public.rooms (
     id uuid primary key default gen_random_uuid(),
     slug text not null unique,
