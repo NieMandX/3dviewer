@@ -48,6 +48,7 @@ export function createFileFlowController(options = {}) {
     if (fileInput) {
         fileInput.addEventListener('change', async (e) => {
             const files = [...(e.target.files || [])];
+            setEmptyHintVisible(false);
             await handleFiles(files);
             if (fileInput) fileInput.value = '';
             setEmptyHintVisible(getLoadedModelCount() === 0);
@@ -112,6 +113,7 @@ export function createFileFlowController(options = {}) {
         e.stopPropagation();
         dragHoverCount = 0;
         if (dropEl) dropEl.classList.remove('show');
+        setEmptyHintVisible(false);
         await handleFiles(files);
         await finalizeBatchAfterAllFiles();
     };

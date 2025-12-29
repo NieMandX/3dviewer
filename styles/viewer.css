@@ -914,10 +914,10 @@ body.bg-black button.status-overlay {
 #status.status-overlay {
     position: fixed;
     left: 50%;
-    bottom: 50%;
+    bottom: calc(50% + 100px);
     transform: translate(-50%, 50%);
-    background: rgba(17, 17, 17, 0.8);
-    color: #fff;
+    background: rgba(255, 255, 255, 0.8);
+    color: #000000;
     padding: 8px 18px;
 	    border-radius: 999px;
 	    font-size: 13px;
@@ -929,6 +929,10 @@ body.bg-black button.status-overlay {
     backdrop-filter: blur(6px);
     transition: opacity 0.2s ease;
     z-index: 6;
+}
+body.bg-black #status.status-overlay {
+    background: rgba(0, 0, 0, 0.82);
+    color: #ffffff;
 }
 
 .side {
@@ -1292,6 +1296,35 @@ input[type="range"] { width: 120px; }
 .prompt-input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font:inherit; background: var(--controlBg); color: var(--ink); }
 .prompt-message { font-size: 13px; line-height: 1.4; color: var(--ink); white-space: pre-wrap; }
 .prompt-actions { justify-content:flex-end }
+.order-body { align-items:center; text-align:center; gap:14px; font-size: 18px; padding: 16px; }
+.order-title { font-size: 24px; font-weight: 700; color: var(--ink); letter-spacing: 0.2px; }
+.order-actions { display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap; }
+.order-action { display:inline-flex; align-items:center; justify-content:center; width: 42px; height: 42px; border-radius: 50%; border:1px solid var(--border); background: var(--controlBg); color: var(--ink); text-decoration:none; box-shadow: var(--inset); }
+.order-action:hover { border-color: var(--borderStrong); background: var(--controlBgHover); }
+.order-action-icon { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.order-action-telegram .order-action-icon { fill: currentColor; stroke: none; }
+.order-action-telegram { color: #229ed9; border-color: rgba(34, 158, 217, 0.35); background: rgba(34, 158, 217, 0.12); }
+.order-action-telegram:hover { background: rgba(34, 158, 217, 0.2); }
+.order-contacts { display:grid; gap:8px; }
+.order-line { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0px; color: var(--ink); }
+.order-phone { color: var(--ink); text-decoration: none; font-weight: 600; }
+.order-phone:hover { text-decoration: underline; }
+.order-name { color: var(--muted); font-size: 14px; }
+
+#orderModal .sheet {
+    background: var(--surfaceStrong);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadowStrong);
+    -webkit-backdrop-filter: blur(var(--glassBlur));
+    backdrop-filter: blur(var(--glassBlur));
+    position: fixed;
+    left: 50%;
+    bottom: calc(50% + 100px);
+    transform: translate(-50%, 50%);
+    width: fit-content;
+    max-width: calc(100vw - 40px);
+    min-width: 0;
+}
 
 .rect-annot-body { gap: 12px; }
 .rect-annot-field { display:flex; flex-direction:column; gap:6px; }

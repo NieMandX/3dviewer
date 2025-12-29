@@ -107,7 +107,7 @@
                         <line x1="4.2" y1="19.8" x2="6.3" y2="17.7"></line>
                     </svg>
                 </button>
-		        <a class="btn order-btn" href="https://lpmview.ru/#order" target="_blank" rel="noopener">Заказать модель</a>
+		        <button id="orderBtn" class="btn order-btn" type="button" title="Заказать модель">Заказать модель</button>
 
 		    </div>
 
@@ -207,7 +207,7 @@
         </div>
     </div>
     <div id="status" class="status-overlay muted" hidden>—</div>
-    <button id="emptyHint" class="status-overlay btn" type="button">Перетяните файлы сюда или нажмите, чтобы выбрать. zip / fbx</button>
+    <button id="emptyHint" class="status-overlay btn" type="button" hidden>Перетяните файлы сюда или нажмите, чтобы выбрать. zip / fbx</button>
 
 <!-- --------------------------- -->
 <!--     DEBUG SHADDOW PANNEL    -->
@@ -515,6 +515,7 @@
                     <button id="gridToggleBtn" class="btn grid-btn" type="button">Grid off</button>
                     <button id="pathTraceBtn" class="btn" type="button" title="Photo / Path Trace" aria-pressed="false">PHOTO</button>
                     <button id="loadParcelsBtn" class="btn" type="button" title="Загрузить границы участков (data.mos.ru)">Parcels</button>
+                    <a class="btn" href="mailto:maragojeep@gmail.com">2025</a>
                 </div>
             </details>
 
@@ -575,6 +576,37 @@
         </div>
     </div>
 
+    <div id="orderModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="orderTitle">
+        <div class="sheet sheet-sm">
+            <div class="prompt-body order-body">
+                <div id="orderTitle" class="order-title">IMA Vision</div>
+                <div class="order-actions">
+                    <a class="order-action order-action-telegram" href="https://t.me/imavision_bot" target="_blank" rel="noopener" aria-label="Telegram @imavision_bot" title="@imavision_bot">
+                        <svg class="order-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M20.4 3.6L2.9 10.6c-.7.3-.7 1.3.1 1.6l4.6 1.7 1.7 5.6c.2.7 1.1.9 1.6.4l2.7-2.7 4.9 3.6c.6.4 1.4.1 1.5-.6l2.9-16.2c.1-.8-.6-1.4-1.4-1.1zM9 13.7l8.3-6.6-6.7 7.2-.3 3.7-1.2-4-4.1-1.6 12.5-4.5L9 13.7z"></path>
+                        </svg>
+                    </a>
+                    <a class="order-action order-action-email" href="mailto:ima.vision@yandex.com" aria-label="Email ima.vision@yandex.com" title="ima.vision@yandex.com">
+                        <svg class="order-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                            <path d="M3 7l9 6 9-6"></path>
+                        </svg>
+                    </a>
+                </div>
+                <div class="order-contacts">
+                    <div class="order-line">
+                        <a class="order-phone" href="tel:+79688962034">+79688962034</a>
+                        <span class="order-name">Ярослав Акимов</span>
+                    </div>
+                    <div class="order-line">
+                        <a class="order-phone" href="tel:+79265881095">+79265881095</a>
+                        <span class="order-name">Алексей Овчиников</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="confirmModal" class="modal">
         <div class="sheet sheet-sm">
             <div class="head">
@@ -606,8 +638,19 @@
                     <label class="prompt-field" style="flex:1">
                         <span class="muted" style="font-size:12px">Type</span>
                         <select id="transitionType" class="prompt-input">
-                            <option value="soft" selected>Soft</option>
+                            <option value="ease-in-out" selected>Ease In-Out</option>
+                            <option value="soft-in">Soft In</option>
+                            <option value="soft-out">Soft Out</option>
                             <option value="linear">Linear</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="row" style="width:100%">
+                    <label class="prompt-field" style="flex:1">
+                        <span class="muted" style="font-size:12px">Trajectory</span>
+                        <select id="transitionTrajectory" class="prompt-input">
+                            <option value="linear" selected>Linear</option>
+                            <option value="spline">Spline</option>
                         </select>
                     </label>
                 </div>
@@ -694,9 +737,6 @@
         <div class="footer-left">
             <button id="statsBtn" class="btn footer-btn" type="button" title="Показать статистику сцены">Stats</button>
             <div id="statsOverlay" class="stats-overlay" hidden></div>
-        </div>
-        <div class="footer-right">
-            <a href="mailto:maragojeep@gmail.com">AGR model 3D viewer · Designed by Yaroslav Akimov · 2025</a>
         </div>
     </footer>
 

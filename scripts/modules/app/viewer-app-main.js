@@ -128,6 +128,7 @@ class ViewerApp {
             titleEl: dom.transitionTitleEl,
             secondsEl: dom.transitionSecondsEl,
             typeEl: dom.transitionTypeEl,
+            trajectoryEl: dom.transitionTrajectoryEl,
             okBtn: dom.transitionOkBtn,
             cancelBtn: dom.transitionCancelBtn,
             closeBtn: dom.transitionCloseBtn,
@@ -228,8 +229,42 @@ class ViewerApp {
 	        const resetViewBtn = dom.resetViewBtn;
 	        const focusPickBtn = dom.focusPickBtn;
 	        const exportBtn = dom.exportBtn;
+	        const orderBtn = dom.orderBtn;
 	        const pathTraceBtn = dom.pathTraceBtn;
 	        const fullscreenBtn = dom.fullscreenBtn;
+
+        const orderModalEl = dom.orderModalEl;
+        let prevEmptyHintVisible = null;
+        const setOrderModalVisible = (visible) => {
+            if (!orderModalEl) return;
+            const nextVisible = !!visible;
+            orderModalEl.classList.toggle('show', nextVisible);
+            if (!emptyHintEl) return;
+            if (nextVisible) {
+                prevEmptyHintVisible = !emptyHintEl.hidden;
+                setEmptyHintVisible(false);
+            } else if (prevEmptyHintVisible != null) {
+                setEmptyHintVisible(prevEmptyHintVisible);
+                prevEmptyHintVisible = null;
+            }
+        };
+        if (orderBtn && orderModalEl) {
+            orderBtn.addEventListener('click', () => setOrderModalVisible(true));
+        }
+        if (orderModalEl) {
+            orderModalEl.addEventListener('click', (event) => {
+                if (event.target === orderModalEl) {
+                    setOrderModalVisible(false);
+                }
+            });
+        }
+        if (typeof window !== 'undefined' && orderModalEl) {
+            window.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && orderModalEl.classList.contains('show')) {
+                    setOrderModalVisible(false);
+                }
+            });
+        }
 	        const statsBtn = dom.statsBtn;
 	        const solidToggleBtn = dom.solidToggleBtn;
 	        const collToggleBtn = dom.collToggleBtn;
@@ -411,10 +446,11 @@ class ViewerApp {
 		                okText: 'Удалить',
 		                cancelText: 'Отмена',
 		            }),
-		            promptTransition: ({ from, to, seconds, type }) => transitionModal.open({
+		            promptTransition: ({ from, to, seconds, type, trajectory }) => transitionModal.open({
 		                title: `Переход: ${(from?.name || 'Camera')} → ${(to?.name || 'Camera')}`,
 		                seconds: seconds ?? 0,
 		                type: type ?? 'soft',
+		                trajectory: trajectory ?? 'linear',
 		            }),
 		            camsToggleBtn,
 		            camsBarEl,
@@ -1619,6 +1655,26 @@ class ViewerApp {
 	            setEmptyHintVisible,
 	            getLoadedModelCount: () => loadedModels.length,
 	        });
+
+        const revealEmptyHintWhenReady = async () => {
+            try {
+                await rendererInitPromise;
+            } catch (_) {
+                /* ignore */
+            }
+            setEmptyHintVisible(loadedModels.length === 0);
+        };
+        if (typeof window !== 'undefined') {
+            if (document.readyState === 'complete') {
+                void revealEmptyHintWhenReady();
+            } else {
+                window.addEventListener('load', () => {
+                    void revealEmptyHintWhenReady();
+                }, { once: true });
+            }
+        } else {
+            void revealEmptyHintWhenReady();
+        }
 
 	        const batchFinalizer = createBatchFinalizer({
 	            loadedModels,

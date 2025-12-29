@@ -3,6 +3,7 @@ export function createTransitionModalController(options = {}) {
     const titleEl = options.titleEl || null;
     const secondsEl = options.secondsEl || null;
     const typeEl = options.typeEl || null;
+    const trajectoryEl = options.trajectoryEl || null;
     const okBtn = options.okBtn || null;
     const cancelBtn = options.cancelBtn || null;
     const closeBtn = options.closeBtn || null;
@@ -25,17 +26,19 @@ export function createTransitionModalController(options = {}) {
         if (!secondsEl) return close(null);
         const seconds = Number.parseFloat(String(secondsEl.value || '0').replace(',', '.'));
         if (!Number.isFinite(seconds) || seconds < 0) return close(null);
-        const type = String(typeEl?.value || 'soft') || 'soft';
-        close({ seconds, type });
+        const type = String(typeEl?.value || 'ease-in-out') || 'ease-in-out';
+        const trajectory = String(trajectoryEl?.value || 'linear') || 'linear';
+        close({ seconds, type, trajectory });
     }
 
-    function open({ title = 'Переход камеры', seconds = 0, type = 'soft' } = {}) {
-        if (!modalEl || !secondsEl || !typeEl) return Promise.resolve(null);
+    function open({ title = 'Переход камеры', seconds = 0, type = 'ease-in-out', trajectory = 'linear' } = {}) {
+        if (!modalEl || !secondsEl || !typeEl || !trajectoryEl) return Promise.resolve(null);
         if (resolver) close(null);
 
         if (titleEl) titleEl.textContent = title;
         secondsEl.value = String(Number.isFinite(seconds) ? Math.max(0, seconds) : 0);
-        typeEl.value = type || 'soft';
+        typeEl.value = type || 'ease-in-out';
+        trajectoryEl.value = trajectory || 'linear';
 
         modalEl.classList.add('show');
 
@@ -70,6 +73,7 @@ export function createTransitionModalController(options = {}) {
     };
     secondsEl?.addEventListener?.('keydown', onKey);
     typeEl?.addEventListener?.('keydown', onKey);
+    trajectoryEl?.addEventListener?.('keydown', onKey);
 
     return Object.freeze({
         open,

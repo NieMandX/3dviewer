@@ -61,6 +61,7 @@ export function collectViewerDom(document) {
         resetViewBtn: get('resetViewBtn'),
         focusPickBtn: get('focusPickBtn'),
         exportBtn: get('exportBtn'),
+        orderBtn: get('orderBtn'),
         pathTraceBtn: get('pathTraceBtn'),
         fullscreenBtn: get('fullscreenBtn'),
 	        statsBtn: get('statsBtn'),
@@ -174,6 +175,7 @@ export function collectViewerDom(document) {
         transitionTitleEl: get('transitionTitle'),
         transitionSecondsEl: get('transitionSeconds'),
         transitionTypeEl: get('transitionType'),
+        transitionTrajectoryEl: get('transitionTrajectory'),
         transitionOkBtn: get('transitionOk'),
         transitionCancelBtn: get('transitionCancel'),
         transitionCloseBtn: get('transitionClose'),
@@ -186,6 +188,9 @@ export function collectViewerDom(document) {
         exportOkBtn: get('exportOk'),
         exportCancelBtn: get('exportCancel'),
         exportCloseBtn: get('exportClose'),
+
+        // Order modal
+        orderModalEl: get('orderModal'),
 
         // Rect annotation modal
         rectAnnotModalEl: get('rectAnnotModal'),

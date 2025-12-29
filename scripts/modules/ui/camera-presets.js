@@ -914,17 +914,27 @@ export function createCameraPresetsController(options = {}) {
     function normalizeTransitionType(type) {
         const v = String(type || '').trim().toLowerCase();
         if (v === 'linear') return 'linear';
-        return 'soft';
+        if (v === 'soft-in' || v === 'ease-in') return 'soft-in';
+        if (v === 'soft-out' || v === 'ease-out') return 'soft-out';
+        if (v === 'ease-in-out' || v === 'soft') return 'ease-in-out';
+        return 'ease-in-out';
+    }
+
+    function normalizeTransitionTrajectory(trajectory) {
+        const v = String(trajectory || '').trim().toLowerCase();
+        if (v === 'spline' || v === 'curve' || v === 'curved') return 'spline';
+        if (v === 'linear' || v === 'line') return 'linear';
+        return 'linear';
     }
 
     function getTransition(fromId, toId) {
         const key = transitionKey(fromId, toId);
         const raw = transitions.get(key);
         if (typeof raw === 'number' && Number.isFinite(raw)) {
-            return { seconds: Math.max(0, raw), type: 'soft' };
+            return { seconds: Math.max(0, raw), type: 'ease-in-out', trajectory: 'linear' };
         }
         if (!raw || typeof raw !== 'object') {
-            return { seconds: 0, type: 'soft' };
+            return { seconds: 0, type: 'ease-in-out', trajectory: 'linear' };
         }
         const seconds =
             typeof raw.seconds === 'number' && Number.isFinite(raw.seconds)
@@ -933,14 +943,16 @@ export function createCameraPresetsController(options = {}) {
         return {
             seconds,
             type: normalizeTransitionType(raw.type),
+            trajectory: normalizeTransitionTrajectory(raw.trajectory),
         };
     }
 
-    function setTransition(fromId, toId, { seconds, type } = {}) {
+    function setTransition(fromId, toId, { seconds, type, trajectory } = {}) {
         const key = transitionKey(fromId, toId);
         transitions.set(key, {
             seconds: Math.max(0, Number(seconds) || 0),
             type: normalizeTransitionType(type),
+            trajectory: normalizeTransitionTrajectory(trajectory),
         });
     }
 
@@ -959,6 +971,7 @@ export function createCameraPresetsController(options = {}) {
                     to,
                     seconds: current.seconds,
                     type: current.type,
+                    trajectory: current.trajectory,
                 }));
             } catch (_) {
                 result = null;
@@ -975,9 +988,11 @@ export function createCameraPresetsController(options = {}) {
             const seconds = Number.parseFloat(String(secRaw).replace(',', '.'));
             if (!Number.isFinite(seconds) || seconds < 0) return;
 
-            const typeRaw = safePrompt(promptFn, 'Тип перехода: soft / linear', current.type);
+            const typeRaw = safePrompt(promptFn, 'Тип перехода: soft-in / soft-out / ease-in-out / linear', current.type);
             if (typeRaw == null) return;
-            setTransition(fromId, toId, { seconds, type: typeRaw });
+            const trajectoryRaw = safePrompt(promptFn, 'Траектория: linear / spline', current.trajectory);
+            if (trajectoryRaw == null) return;
+            setTransition(fromId, toId, { seconds, type: typeRaw, trajectory: trajectoryRaw });
             render();
             return;
         }
@@ -985,14 +1000,18 @@ export function createCameraPresetsController(options = {}) {
         if (typeof result === 'number' || typeof result === 'string') {
             const seconds = Number.parseFloat(String(result).replace(',', '.'));
             if (!Number.isFinite(seconds) || seconds < 0) return;
-            setTransition(fromId, toId, { seconds, type: current.type });
+            setTransition(fromId, toId, { seconds, type: current.type, trajectory: current.trajectory });
             render();
             return;
         }
 
         const seconds = Number.parseFloat(String(result.seconds ?? current.seconds).replace(',', '.'));
         if (!Number.isFinite(seconds) || seconds < 0) return;
-        setTransition(fromId, toId, { seconds, type: result.type ?? current.type });
+        setTransition(fromId, toId, {
+            seconds,
+            type: result.type ?? current.type,
+            trajectory: result.trajectory ?? current.trajectory,
+        });
         render();
     }
 
@@ -1044,7 +1063,7 @@ export function createCameraPresetsController(options = {}) {
         const tr = getTransition(fromPreset.id, toPreset.id);
         const fromName = fromPreset.name || 'Camera';
         const toName = toPreset.name || 'Camera';
-        btn.title = `Переход ${fromName} → ${toName}: ${tr.seconds}s · ${tr.type}`;
+        btn.title = `Переход ${fromName} → ${toName}: ${tr.seconds}s · ${tr.type} · ${tr.trajectory}`;
         btn.setAttribute('aria-label', btn.title);
         return btn;
     }
@@ -1705,7 +1724,21 @@ export function createCameraPresetsController(options = {}) {
         return t * t * (3 - 2 * t);
     }
 
-    function animateTransition(fromPreset, toPreset, seconds, type, token) {
+    function easeIn(t) {
+        return t * t * t;
+    }
+
+    function easeOut(t) {
+        const inv = 1 - t;
+        return 1 - inv * inv * inv;
+    }
+
+    function buildCatmullSegmentCurve(p0, p1, p2, p3) {
+        if (!THREE) return null;
+        return new THREE.CatmullRomCurve3([p0, p1, p2, p3], false, 'centripetal');
+    }
+
+    function animateTransition(fromPreset, toPreset, seconds, type, trajectory, token) {
         if (!THREE || !camera || !controls) return Promise.resolve(false);
         const duration = Math.max(0, Number(seconds) || 0);
         if (duration <= 0) {
@@ -1738,6 +1771,40 @@ export function createCameraPresetsController(options = {}) {
         const tmpTgt = new THREE.Vector3();
         const tmpUp = new THREE.Vector3();
 
+        const path = normalizeTransitionTrajectory(trajectory);
+        const useSpline = path === 'spline';
+        let posCurve = null;
+        let tgtCurve = null;
+        let segStart = 0;
+        let segScale = 1;
+        if (useSpline) {
+            const fromIndex = presets.findIndex((p) => p && p.id === fromPreset.id);
+            const toIndex = presets.findIndex((p) => p && p.id === toPreset.id);
+            if (fromIndex >= 0 && toIndex === fromIndex + 1) {
+                const prevPreset = presets[fromIndex - 1] || null;
+                const nextPreset = presets[toIndex + 1] || null;
+                const p0 = Array.isArray(prevPreset?.position) && prevPreset.position.length >= 3
+                    ? new THREE.Vector3().fromArray(prevPreset.position)
+                    : fromPos.clone();
+                const p3 = Array.isArray(nextPreset?.position) && nextPreset.position.length >= 3
+                    ? new THREE.Vector3().fromArray(nextPreset.position)
+                    : toPos.clone();
+                posCurve = buildCatmullSegmentCurve(p0, fromPos, toPos, p3);
+
+                const t0 = Array.isArray(prevPreset?.target) && prevPreset.target.length >= 3
+                    ? new THREE.Vector3().fromArray(prevPreset.target)
+                    : fromTgt.clone();
+                const t3 = Array.isArray(nextPreset?.target) && nextPreset.target.length >= 3
+                    ? new THREE.Vector3().fromArray(nextPreset.target)
+                    : toTgt.clone();
+                tgtCurve = buildCatmullSegmentCurve(t0, fromTgt, toTgt, t3);
+
+                const segments = 3;
+                segStart = 1 / segments;
+                segScale = 1 / segments;
+            }
+        }
+
         return new Promise((resolve) => {
             const start = performance.now();
             const durMs = duration * 1000;
@@ -1749,10 +1816,20 @@ export function createCameraPresetsController(options = {}) {
                 }
 
                 const t = Math.min(1, Math.max(0, (now - start) / durMs));
-                const k = normalizeTransitionType(type) === 'linear' ? t : smoothstep(t);
+                const easing = normalizeTransitionType(type);
+                const k = easing === 'linear'
+                    ? t
+                    : (easing === 'soft-in'
+                        ? easeIn(t)
+                        : (easing === 'soft-out'
+                            ? easeOut(t)
+                            : smoothstep(t)));
 
-                tmpPos.lerpVectors(fromPos, toPos, k);
                 tmpTgt.lerpVectors(fromTgt, toTgt, k);
+                if (posCurve) posCurve.getPoint(segStart + segScale * k, tmpPos);
+                else tmpPos.lerpVectors(fromPos, toPos, k);
+                if (tgtCurve) tgtCurve.getPoint(segStart + segScale * k, tmpTgt);
+                else tmpTgt.lerpVectors(fromTgt, toTgt, k);
                 tmpUp.lerpVectors(fromUp, toUp, k);
                 if (tmpUp.lengthSq() > 1e-12) tmpUp.normalize();
 
@@ -1811,7 +1888,7 @@ export function createCameraPresetsController(options = {}) {
                 const fromPreset = presets[i];
                 const toPreset = presets[i + 1];
                 const tr = getTransition(fromPreset.id, toPreset.id);
-                await animateTransition(fromPreset, toPreset, tr.seconds, tr.type, token);
+                await animateTransition(fromPreset, toPreset, tr.seconds, tr.type, tr.trajectory, token);
                 if (token !== playToken) return;
                 setActive(toPreset.id);
             }
