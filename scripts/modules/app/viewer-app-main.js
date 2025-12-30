@@ -1207,6 +1207,16 @@ class ViewerApp {
             });
         }
 
+        if (typeof document !== 'undefined') {
+            document.addEventListener('keydown', (event) => {
+                const target = event?.target;
+                const tag = String(target?.tagName || '').toLowerCase();
+                if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) {
+                    event.stopImmediatePropagation();
+                }
+            }, true);
+        }
+
         stopKeydownPropagation(collabNameEl);
         stopKeydownPropagation(collabEmailEl);
         stopKeydownPropagation(collabPasswordEl);
