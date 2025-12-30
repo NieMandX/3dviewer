@@ -739,6 +739,14 @@ class ViewerApp {
             collabOwnerEl.textContent = name ? `ведёт: ${name}` : 'ведёт: участник';
         }
 
+        function setCollabOwner(ownerId) {
+            collabOwnerId = ownerId || null;
+            cameraSync?.setOwner?.(collabOwnerId);
+            renderParticipants(collabParticipants);
+            updateOwnerLabel();
+            updateReserveButton();
+        }
+
         function updateReserveButton() {
             if (!collabReserveBtn) return;
             if (!collabController) {
@@ -976,11 +984,7 @@ class ViewerApp {
                         cameraSync?.handleRemoteState?.(state);
                     },
                     onCameraOwner: (ownerId) => {
-                        collabOwnerId = ownerId;
-                        cameraSync?.setOwner?.(ownerId);
-                        renderParticipants(collabParticipants);
-                        updateOwnerLabel();
-                        updateReserveButton();
+                        setCollabOwner(ownerId);
                     },
                     onRoomUpdate: (room) => roomUpdateHandler?.(room),
                 });
@@ -994,7 +998,7 @@ class ViewerApp {
                     isLocalBusy: () => annotations3d?.getDrawEnabled?.() || annotations3d?.isPointerDown?.(),
                 });
                 if (collabOwnerId) {
-                    cameraSync.setOwner(collabOwnerId);
+                    setCollabOwner(collabOwnerId);
                 }
                 roomUpdateHandler?.(collabController.room);
                 await loadRoomModels();
@@ -1156,12 +1160,21 @@ class ViewerApp {
         }
 
         if (collabReserveBtn) {
-            collabReserveBtn.addEventListener('click', () => {
+            collabReserveBtn.addEventListener('click', async () => {
                 if (!collabController) return;
-                if (cameraSync?.isOwner?.()) {
-                    void collabController.releaseCamera();
-                } else {
-                    void collabController.claimCamera();
+                collabReserveBtn.disabled = true;
+                try {
+                    if (cameraSync?.isOwner?.()) {
+                        await collabController.releaseCamera();
+                        setCollabOwner(null);
+                    } else {
+                        await collabController.claimCamera();
+                        setCollabOwner(collabController.user?.id || null);
+                    }
+                } catch (err) {
+                    console.error('Camera reserve failed', err);
+                } finally {
+                    collabReserveBtn.disabled = false;
                 }
             });
         }
