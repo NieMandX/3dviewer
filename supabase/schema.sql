@@ -13,12 +13,15 @@ drop table if exists public.project_models cascade;
 drop table if exists public.project_members cascade;
 drop table if exists public.projects cascade;
 drop table if exists public.profiles cascade;
+drop table if exists public.user_roles cascade;
 
 drop function if exists public.release_camera(uuid);
 drop function if exists public.claim_camera(uuid);
 drop function if exists public.join_project_by_slug(text);
 drop function if exists public.add_project_owner_member();
 drop function if exists public.set_updated_at();
+drop function if exists public.is_registered_user();
+drop function if exists public.is_superuser();
 
 create extension if not exists "pgcrypto";
 
@@ -29,6 +32,14 @@ begin
     return new;
 end;
 $$ language plpgsql;
+
+create or replace function public.is_registered_user()
+returns boolean
+language sql
+stable
+as $$
+    select coalesce(auth.jwt() ->> 'email', '') <> '';
+$$;
 
 create table if not exists public.projects (
     id uuid primary key default gen_random_uuid(),
@@ -156,6 +167,28 @@ create table if not exists public.profiles (
     created_at timestamptz not null default now()
 );
 
+create table if not exists public.user_roles (
+    user_id uuid not null references auth.users(id) on delete cascade,
+    role text not null,
+    created_at timestamptz not null default now(),
+    primary key (user_id, role)
+);
+
+create or replace function public.is_superuser()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select exists (
+        select 1
+        from public.user_roles
+        where user_id = auth.uid()
+          and role = 'superuser'
+    );
+$$;
+
 create table if not exists public.annotations (
     id uuid primary key default gen_random_uuid(),
     room_id uuid not null references public.rooms(id) on delete cascade,
@@ -264,6 +297,8 @@ revoke all on function public.release_camera(uuid) from public;
 grant execute on function public.join_project_by_slug(text) to authenticated;
 grant execute on function public.claim_camera(uuid) to authenticated;
 grant execute on function public.release_camera(uuid) to authenticated;
+grant execute on function public.is_registered_user() to authenticated;
+grant execute on function public.is_superuser() to authenticated;
 
 alter table public.projects enable row level security;
 alter table public.project_members enable row level security;
@@ -273,6 +308,7 @@ alter table public.room_models enable row level security;
 alter table public.room_cameras enable row level security;
 alter table public.room_transitions enable row level security;
 alter table public.profiles enable row level security;
+alter table public.user_roles enable row level security;
 alter table public.annotations enable row level security;
 alter table public.messages enable row level security;
 
@@ -280,6 +316,7 @@ create policy "projects_select" on public.projects
     for select to authenticated
     using (
         owner_id = auth.uid()
+        or public.is_superuser()
         or exists (
             select 1
             from public.project_members pm
@@ -290,7 +327,7 @@ create policy "projects_select" on public.projects
 
 create policy "projects_insert" on public.projects
     for insert to authenticated
-    with check (owner_id = auth.uid());
+    with check (owner_id = auth.uid() and public.is_registered_user());
 
 create policy "projects_update" on public.projects
     for update to authenticated
@@ -299,12 +336,13 @@ create policy "projects_update" on public.projects
 
 create policy "projects_delete" on public.projects
     for delete to authenticated
-    using (owner_id = auth.uid());
+    using (owner_id = auth.uid() or public.is_superuser());
 
 create policy "project_members_select" on public.project_members
     for select to authenticated
     using (
         user_id = auth.uid()
+        or public.is_superuser()
     );
 
 create policy "project_members_insert" on public.project_members
@@ -322,6 +360,7 @@ create policy "project_members_delete" on public.project_members
     for delete to authenticated
     using (
         user_id = auth.uid()
+        or public.is_superuser()
         or exists (
             select 1
             from public.projects p
@@ -333,7 +372,8 @@ create policy "project_members_delete" on public.project_members
 create policy "project_models_select" on public.project_models
     for select to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.project_members pm
             where pm.project_id = project_models.project_id
@@ -374,7 +414,8 @@ create policy "project_models_update" on public.project_models
 create policy "project_models_delete" on public.project_models
     for delete to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.project_members pm
             where pm.project_id = project_models.project_id
@@ -385,7 +426,8 @@ create policy "project_models_delete" on public.project_models
 create policy "rooms_select" on public.rooms
     for select to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.project_members pm
             where pm.project_id = rooms.project_id
@@ -397,6 +439,7 @@ create policy "rooms_insert" on public.rooms
     for insert to authenticated
     with check (
         owner_id = auth.uid()
+        and public.is_registered_user()
         and exists (
             select 1
             from public.project_members pm
@@ -433,10 +476,24 @@ create policy "rooms_update" on public.rooms
         )
     );
 
+create policy "rooms_delete" on public.rooms
+    for delete to authenticated
+    using (
+        owner_id = auth.uid()
+        or public.is_superuser()
+        or exists (
+            select 1
+            from public.projects p
+            where p.id = rooms.project_id
+              and p.owner_id = auth.uid()
+        )
+    );
+
 create policy "room_models_select" on public.room_models
     for select to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.project_members pm
             where pm.project_id = room_models.project_id
@@ -477,7 +534,8 @@ create policy "room_models_update" on public.room_models
 create policy "room_models_delete" on public.room_models
     for delete to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.project_members pm
             where pm.project_id = room_models.project_id
@@ -488,7 +546,8 @@ create policy "room_models_delete" on public.room_models
 create policy "room_cameras_select" on public.room_cameras
     for select to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.rooms r
             join public.project_members pm on pm.project_id = r.project_id
@@ -533,7 +592,8 @@ create policy "room_cameras_update" on public.room_cameras
 create policy "room_cameras_delete" on public.room_cameras
     for delete to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.rooms r
             join public.project_members pm on pm.project_id = r.project_id
@@ -545,7 +605,8 @@ create policy "room_cameras_delete" on public.room_cameras
 create policy "room_transitions_select" on public.room_transitions
     for select to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.rooms r
             join public.project_members pm on pm.project_id = r.project_id
@@ -590,7 +651,8 @@ create policy "room_transitions_update" on public.room_transitions
 create policy "room_transitions_delete" on public.room_transitions
     for delete to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.rooms r
             join public.project_members pm on pm.project_id = r.project_id
@@ -615,7 +677,8 @@ create policy "profiles_update" on public.profiles
 create policy "annotations_select" on public.annotations
     for select to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.rooms r
             join public.project_members pm on pm.project_id = r.project_id
@@ -639,12 +702,13 @@ create policy "annotations_insert" on public.annotations
 
 create policy "annotations_delete" on public.annotations
     for delete to authenticated
-    using (author_id = auth.uid());
+    using (author_id = auth.uid() or public.is_superuser());
 
 create policy "messages_select" on public.messages
     for select to authenticated
     using (
-        exists (
+        public.is_superuser()
+        or exists (
             select 1
             from public.rooms r
             join public.project_members pm on pm.project_id = r.project_id
@@ -668,7 +732,14 @@ create policy "messages_insert" on public.messages
 
 create policy "messages_delete" on public.messages
     for delete to authenticated
-    using (author_id = auth.uid());
+    using (author_id = auth.uid() or public.is_superuser());
+
+-- Superuser bootstrap (run after the user registers).
+insert into public.user_roles (user_id, role)
+select id, 'superuser'
+from auth.users
+where email = 'maragojeep@gmail.com'
+on conflict do nothing;
 
 -- Realtime (optional): enable row changes in Supabase Realtime.
 -- alter publication supabase_realtime add table public.projects;

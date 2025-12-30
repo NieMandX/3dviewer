@@ -1156,6 +1156,14 @@ select.custom-select-native:disabled {
     align-items: flex-end;
 }
 
+.collab-actions {
+    gap: 6px;
+}
+
+.collab-actions .btn {
+    flex: 1 1 auto;
+}
+
 .collab-field {
     display: flex;
     flex-direction: column;
