@@ -1200,6 +1200,18 @@ class ViewerApp {
             if (storedName) collabNameEl.value = storedName;
         }
 
+        function stopKeydownPropagation(el) {
+            if (!el?.addEventListener) return;
+            el.addEventListener('keydown', (event) => {
+                event.stopPropagation();
+            });
+        }
+
+        stopKeydownPropagation(collabNameEl);
+        stopKeydownPropagation(collabEmailEl);
+        stopKeydownPropagation(collabPasswordEl);
+        stopKeydownPropagation(collabChatInputEl);
+
         if (collabJoinBtn) {
             collabJoinBtn.disabled = !collabReady;
             collabJoinBtn.addEventListener('click', () => {
