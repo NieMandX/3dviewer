@@ -286,7 +286,25 @@
                     </div>
                     <div class="row collab-row">
                         <label class="collab-field collab-field-wide">
+                            <span class="collab-label">Проект</span>
+                            <select id="collabProjectSelect" class="collab-input" disabled>
+                                <option value="">— выберите проект —</option>
+                            </select>
+                        </label>
+                        <button id="collabProjectNewBtn" class="btn" type="button" disabled>Новый</button>
+                    </div>
+                    <div class="row collab-row">
+                        <label class="collab-field collab-field-wide">
                             <span class="collab-label">Комната</span>
+                            <select id="collabRoomSelect" class="collab-input" disabled>
+                                <option value="">— выберите комнату —</option>
+                            </select>
+                        </label>
+                        <button id="collabRoomNewBtn" class="btn" type="button" disabled>Новая</button>
+                    </div>
+                    <div class="row collab-row">
+                        <label class="collab-field collab-field-wide">
+                            <span class="collab-label">Ссылка</span>
                             <input id="collabRoomLink" class="collab-input" type="text" readonly />
                         </label>
                         <button id="collabCopyBtn" class="btn" type="button" title="Скопировать ссылку">Копировать</button>

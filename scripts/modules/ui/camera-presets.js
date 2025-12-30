@@ -19,7 +19,15 @@ function safeConfirm(confirmFn, message) {
 }
 
 function makeId() {
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
+    return template.replace(/[xy]/g, (ch) => {
+        const rnd = Math.floor(Math.random() * 16);
+        const val = ch === 'x' ? rnd : (rnd & 0x3) | 0x8;
+        return val.toString(16);
+    });
 }
 
 export function createCameraPresetsController(options = {}) {
@@ -68,6 +76,10 @@ export function createCameraPresetsController(options = {}) {
         typeof options.promptAnnotationText === 'function'
             ? options.promptAnnotationText
             : null;
+    const onChange =
+        typeof options.onChange === 'function'
+            ? options.onChange
+            : null;
     const confirmCameraDelete =
         typeof options.confirmCameraDelete === 'function'
             ? options.confirmCameraDelete
@@ -90,6 +102,8 @@ export function createCameraPresetsController(options = {}) {
     let propsUI = null;
     let playToken = 0;
     let playing = false;
+    let changeTimer = null;
+    let suppressChange = false;
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
     ensureDefaultPreset();
@@ -326,6 +340,82 @@ export function createCameraPresetsController(options = {}) {
         presets.push(snap);
         activeId = snap.id;
         lastCreatedId = snap.id;
+    }
+
+    function clonePreset(preset) {
+        if (!preset) return null;
+        return {
+            ...preset,
+            position: Array.isArray(preset.position) ? [...preset.position] : preset.position,
+            target: Array.isArray(preset.target) ? [...preset.target] : preset.target,
+            up: Array.isArray(preset.up) ? [...preset.up] : preset.up,
+            annotations: Array.isArray(preset.annotations) ? [...preset.annotations] : preset.annotations,
+        };
+    }
+
+    function serializeTransitions() {
+        const result = [];
+        transitions.forEach((value, key) => {
+            const [fromId, toId] = String(key).split('->');
+            if (!fromId || !toId) return;
+            result.push({
+                fromId,
+                toId,
+                seconds: value?.seconds ?? 0,
+                type: value?.type ?? 'ease-in-out',
+                trajectory: value?.trajectory ?? 'linear',
+            });
+        });
+        return result;
+    }
+
+    function scheduleChange() {
+        if (!onChange || suppressChange) return;
+        if (changeTimer) clearTimeout(changeTimer);
+        changeTimer = setTimeout(() => {
+            if (suppressChange) return;
+            onChange({
+                presets: presets.map(clonePreset).filter((p) => p),
+                transitions: serializeTransitions(),
+                activeId,
+                lastCreatedId,
+            });
+        }, 200);
+    }
+
+    function loadState(state = {}) {
+        const nextPresets = Array.isArray(state.presets) ? state.presets : null;
+        if (!nextPresets) return false;
+        suppressChange = true;
+        presets.length = 0;
+        nextPresets.forEach((preset) => {
+            if (!preset) return;
+            const clone = clonePreset(preset);
+            if (!clone.id) clone.id = makeId();
+            presets.push(clone);
+        });
+        transitions.clear();
+        const nextTransitions = Array.isArray(state.transitions) ? state.transitions : [];
+        nextTransitions.forEach((tr) => {
+            if (!tr?.fromId || !tr?.toId) return;
+            transitions.set(transitionKey(tr.fromId, tr.toId), {
+                seconds: Math.max(0, Number(tr.seconds) || 0),
+                type: normalizeTransitionType(tr.type),
+                trajectory: normalizeTransitionTrajectory(tr.trajectory),
+            });
+        });
+        ensureDefaultPreset();
+        const nextActive = state.activeId && presets.some((p) => p.id === state.activeId)
+            ? state.activeId
+            : presets[0]?.id || null;
+        const nextLast = state.lastCreatedId && presets.some((p) => p.id === state.lastCreatedId)
+            ? state.lastCreatedId
+            : nextActive;
+        activeId = nextActive;
+        lastCreatedId = nextLast;
+        suppressChange = false;
+        render();
+        return true;
     }
 
     function createAnnotationsController() {
@@ -954,6 +1044,7 @@ export function createCameraPresetsController(options = {}) {
             type: normalizeTransitionType(type),
             trajectory: normalizeTransitionTrajectory(trajectory),
         });
+        scheduleChange();
     }
 
     async function editTransition(fromId, toId) {
@@ -1337,6 +1428,7 @@ export function createCameraPresetsController(options = {}) {
 
             updatePresetLabels(preset);
             if (activeId === preset.id) applyPreset(preset);
+            scheduleChange();
         };
 
         nameInput.addEventListener('change', applyFromInputs);
@@ -1638,6 +1730,7 @@ export function createCameraPresetsController(options = {}) {
         lastCreatedId = snap.id;
         setActive(snap.id);
         render();
+        scheduleChange();
         return snap;
     }
 
@@ -1675,6 +1768,7 @@ export function createCameraPresetsController(options = {}) {
             setPropsPanelVisible(false);
         }
         render();
+        scheduleChange();
         return true;
     }
 
@@ -1695,6 +1789,7 @@ export function createCameraPresetsController(options = {}) {
         preset.shiftY = snap.shiftY;
 
         if (editingId === id) syncPropsPanel(preset);
+        scheduleChange();
         return true;
     }
 
@@ -1713,6 +1808,7 @@ export function createCameraPresetsController(options = {}) {
         const nextIndex = Math.max(0, Math.min(presets.length, toIndex));
         presets.splice(nextIndex, 0, moved);
         render();
+        scheduleChange();
         return true;
     }
 
@@ -2083,6 +2179,7 @@ export function createCameraPresetsController(options = {}) {
 
     return Object.freeze({
         getPresets: () => [...presets],
+        getTransitions: () => serializeTransitions(),
         getActiveId: () => activeId,
         getLastCreatedId: () => lastCreatedId,
         addFromCurrentView,
@@ -2092,6 +2189,7 @@ export function createCameraPresetsController(options = {}) {
         setActive,
         setBarVisible,
         isBarVisible: () => barVisible,
+        loadState,
         dispose,
         captureDebugPoint,
     });

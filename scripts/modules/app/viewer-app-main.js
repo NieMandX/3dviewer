@@ -40,6 +40,7 @@ import { collectViewerDom } from '../ui/viewer-dom.js';
 import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
+import { createSupabaseClient } from '../collab/supabase-client.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
 import { createAndStartRenderLoop } from '../render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from '../render/debug-textures.js';
@@ -408,9 +409,10 @@ class ViewerApp {
 	        const markSceneStatsDirty = sceneCore.markSceneStatsDirty;
 	        const getSceneGeometryStats = sceneCore.getSceneGeometryStats;
 
-	        app.renderer = renderer;
-	        app.rendererInitPromise = rendererInitPromise;
+        app.renderer = renderer;
+        app.rendererInitPromise = rendererInitPromise;
 
+        let cameraPresetsChangeHandler = null;
         const cameraPresets = createCameraPresetsController({
             THREE,
             camera,
@@ -452,6 +454,7 @@ class ViewerApp {
 		                type: type ?? 'soft',
 		                trajectory: trajectory ?? 'linear',
 		            }),
+		            onChange: (state) => cameraPresetsChangeHandler?.(state),
 		            camsToggleBtn,
 		            camsBarEl,
 		            camsBarListEl,
@@ -527,6 +530,10 @@ class ViewerApp {
         const collabStatusEl = dom.collabStatusEl;
         const collabNameEl = dom.collabNameEl;
         const collabJoinBtn = dom.collabJoinBtn;
+        const collabProjectSelectEl = dom.collabProjectSelectEl;
+        const collabProjectNewBtn = dom.collabProjectNewBtn;
+        const collabRoomSelectEl = dom.collabRoomSelectEl;
+        const collabRoomNewBtn = dom.collabRoomNewBtn;
         const collabRoomLinkEl = dom.collabRoomLinkEl;
         const collabCopyBtn = dom.collabCopyBtn;
         const collabReserveBtn = dom.collabReserveBtn;
@@ -544,8 +551,24 @@ class ViewerApp {
             (typeof localStorage !== 'undefined' ? String(localStorage.getItem('lpmview.supabaseAnonKey') || '') : '');
 
         const collabReady = !!(supabaseUrl && supabaseAnonKey);
+        let collabSupabase = null;
+        let collabUser = null;
+        let collabAuthed = false;
+        let collabProject = null;
+        let collabRoom = null;
+        let collabProjects = [];
+        let collabRooms = [];
         let collabOwnerId = null;
         let collabParticipants = [];
+        let roomModelsChannel = null;
+        const loadedRoomModelIds = new Set();
+        let isLoadingRoomModels = false;
+        let roomModelCount = 0;
+        let roomCamerasChannel = null;
+        let roomTransitionsChannel = null;
+        let cameraSyncMuted = false;
+        let cameraPersistTimer = null;
+        let roomCameraCount = 0;
 
         function setCollabStatus(text) {
             if (!collabStatusEl) return;
@@ -562,10 +585,20 @@ class ViewerApp {
             }
         }
 
-        function setRoomSlugInUrl(slug) {
+        function getProjectSlugFromUrl() {
             try {
                 const url = new URL(window.location.href);
-                url.searchParams.set('room', slug);
+                return url.searchParams.get('project') || '';
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function setRoomSlugInUrl(projectSlug, roomSlug) {
+            try {
+                const url = new URL(window.location.href);
+                if (projectSlug) url.searchParams.set('project', projectSlug);
+                if (roomSlug) url.searchParams.set('room', roomSlug);
                 window.history.replaceState({}, '', url.toString());
                 return url.toString();
             } catch (_) {
@@ -578,6 +611,67 @@ class ViewerApp {
             const date = new Date(value);
             if (Number.isNaN(date.getTime())) return '';
             return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function makeSlug(length = 8) {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let out = '';
+            for (let i = 0; i < length; i += 1) {
+                out += chars[Math.floor(Math.random() * chars.length)];
+            }
+            return out;
+        }
+
+        function slugifyName(value) {
+            const cleaned = String(value || '')
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+            return cleaned || '';
+        }
+
+        function setCollabControlsDisabled(disabled) {
+            const targets = [
+                collabProjectSelectEl,
+                collabProjectNewBtn,
+                collabRoomSelectEl,
+                collabRoomNewBtn,
+            ];
+            targets.forEach((el) => {
+                if (!el) return;
+                el.disabled = !!disabled;
+            });
+        }
+
+        function setCollabSessionEnabled(enabled) {
+            const targets = [
+                collabCopyBtn,
+                collabReserveBtn,
+                collabChatInputEl,
+                collabChatSendBtn,
+            ];
+            targets.forEach((el) => {
+                if (!el) return;
+                el.disabled = !enabled;
+            });
+        }
+
+        function setCollabToolsEnabled(enabled) {
+            const next = !!enabled;
+            if (camsToggleBtn) camsToggleBtn.disabled = !next;
+            if (dom.camsDetailsEl) {
+                dom.camsDetailsEl.classList.toggle('collab-disabled', !next);
+            }
+            if (!next && camsBarEl) camsBarEl.hidden = true;
+            if (dom.camPropsDetailsEl) {
+                dom.camPropsDetailsEl.classList.toggle('collab-disabled', !next);
+            }
+            if (dom.annoToggleBtn) dom.annoToggleBtn.disabled = !next;
+            if (dom.annotateToolbarEl) dom.annotateToolbarEl.classList.toggle('collab-disabled', !next);
+            if (!next) {
+                annotations3d?.setEnabled?.(false);
+            }
         }
 
         function appendChatMessage(message, options = {}) {
@@ -657,29 +751,212 @@ class ViewerApp {
             collabReserveBtn.textContent = isOwner ? 'Снять резерв' : 'Резерв вращения';
         }
 
-        async function connectCollab() {
-            if (!collabReady || !collabJoinBtn || !collabNameEl) return;
-            const name = String(collabNameEl.value || '').trim() || 'Guest';
-            if (collabController) {
-                await collabController.setDisplayName(name);
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem('lpmview.displayName', name);
-                }
-                renderParticipants(collabParticipants);
-                updateOwnerLabel();
-                return;
+        async function ensureCollabAuth(name) {
+            if (!collabReady) return null;
+            if (!collabSupabase) {
+                collabSupabase = await createSupabaseClient({ url: supabaseUrl, anonKey: supabaseAnonKey });
             }
+            if (!collabUser) {
+                const { data: userData } = await collabSupabase.auth.getUser();
+                if (userData?.user) {
+                    collabUser = userData.user;
+                } else {
+                    const { data, error } = await collabSupabase.auth.signInAnonymously();
+                    if (error) throw error;
+                    collabUser = data.user;
+                }
+            }
+            collabAuthed = true;
+            const displayName = String(name || '').trim() || 'Guest';
+            await collabSupabase.from('profiles').upsert({
+                id: collabUser.id,
+                display_name: displayName,
+            });
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('lpmview.displayName', displayName);
+            }
+            return collabUser;
+        }
+
+        function renderProjectOptions(list, selectedId) {
+            if (!collabProjectSelectEl) return;
+            collabProjectSelectEl.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = '— выберите проект —';
+            collabProjectSelectEl.appendChild(placeholder);
+            list.forEach((project) => {
+                const opt = document.createElement('option');
+                opt.value = project.id;
+                opt.textContent = project.name || project.slug || 'Проект';
+                collabProjectSelectEl.appendChild(opt);
+            });
+            collabProjectSelectEl.value = selectedId || '';
+        }
+
+        function renderRoomOptions(list, selectedId) {
+            if (!collabRoomSelectEl) return;
+            collabRoomSelectEl.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = '— выберите комнату —';
+            collabRoomSelectEl.appendChild(placeholder);
+            list.forEach((room) => {
+                const opt = document.createElement('option');
+                opt.value = room.id;
+                opt.textContent = room.slug || 'Комната';
+                collabRoomSelectEl.appendChild(opt);
+            });
+            collabRoomSelectEl.value = selectedId || '';
+            const enabled = !!collabProject;
+            collabRoomSelectEl.disabled = !enabled;
+            if (collabRoomNewBtn) collabRoomNewBtn.disabled = !enabled;
+        }
+
+        async function loadProjects() {
+            if (!collabSupabase) return [];
+            const { data, error } = await collabSupabase
+                .from('projects')
+                .select('id, name, slug, created_at')
+                .order('created_at', { ascending: true });
+            if (error) throw error;
+            collabProjects = Array.isArray(data) ? data : [];
+            renderProjectOptions(collabProjects, collabProject?.id || '');
+            return collabProjects;
+        }
+
+        async function loadRooms(projectId) {
+            if (!collabSupabase || !projectId) return [];
+            const { data, error } = await collabSupabase
+                .from('rooms')
+                .select('id, slug, created_at')
+                .eq('project_id', projectId)
+                .order('created_at', { ascending: true });
+            if (error) throw error;
+            collabRooms = Array.isArray(data) ? data : [];
+            renderRoomOptions(collabRooms, collabRoom?.id || '');
+            return collabRooms;
+        }
+
+        async function createProjectFlow() {
+            if (!collabSupabase || !collabUser) return;
+            const name = await promptModal.open({
+                title: 'Новый проект',
+                value: '',
+                placeholder: 'Название проекта',
+                type: 'text',
+            });
+            const trimmed = String(name || '').trim();
+            if (!trimmed) return;
+            const baseSlug = slugifyName(trimmed) || makeSlug(6);
+            let nextSlug = baseSlug;
+            let created = null;
+            for (let i = 0; i < 3; i += 1) {
+                const { data, error } = await collabSupabase
+                    .from('projects')
+                    .insert({
+                        name: trimmed,
+                        slug: nextSlug,
+                        owner_id: collabUser.id,
+                    })
+                    .select('id, name, slug, created_at')
+                    .single();
+                if (!error) {
+                    created = data;
+                    break;
+                }
+                nextSlug = `${baseSlug}-${makeSlug(4)}`;
+            }
+            if (!created) return;
+            collabProject = created;
+            await loadProjects();
+            await loadRooms(created.id);
+        }
+
+        async function createRoomFlow() {
+            if (!collabSupabase || !collabUser || !collabProject) return;
+            const name = await promptModal.open({
+                title: 'Новая комната',
+                value: '',
+                placeholder: 'Название комнаты',
+                type: 'text',
+            });
+            const trimmed = String(name || '').trim();
+            if (!trimmed) return;
+            const baseSlug = slugifyName(trimmed) || makeSlug(6);
+            let nextSlug = baseSlug;
+            let created = null;
+            for (let i = 0; i < 3; i += 1) {
+                const { data, error } = await collabSupabase
+                    .from('rooms')
+                    .insert({
+                        project_id: collabProject.id,
+                        slug: nextSlug,
+                        owner_id: collabUser.id,
+                    })
+                    .select('id, slug, created_at')
+                    .single();
+                if (!error) {
+                    created = data;
+                    break;
+                }
+                nextSlug = `${baseSlug}-${makeSlug(4)}`;
+            }
+            if (!created) return;
+            collabRoom = created;
+            await loadRooms(collabProject.id);
+            if (collabAuthed && !collabController) {
+                await connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
+            }
+        }
+
+        async function ensureRoomBySlug(projectId, slug) {
+            if (!collabSupabase || !projectId || !slug) return null;
+            const { data: existing, error: findError } = await collabSupabase
+                .from('rooms')
+                .select('id, slug, project_id, created_at')
+                .eq('project_id', projectId)
+                .eq('slug', slug)
+                .limit(1)
+                .maybeSingle();
+            if (findError) throw findError;
+            if (existing) return existing;
+            const { data: created, error } = await collabSupabase
+                .from('rooms')
+                .insert({
+                    project_id: projectId,
+                    slug,
+                    owner_id: collabUser?.id,
+                })
+                .select('id, slug, project_id, created_at')
+                .single();
+            if (error) throw error;
+            return created;
+        }
+
+        async function connectToRoom(name) {
+            if (!collabSupabase || !collabUser || !collabProject || !collabRoom) return;
             collabJoinBtn.disabled = true;
             setCollabStatus('connecting');
             try {
                 collabController = await createCollabController({
                     supabaseUrl,
                     supabaseAnonKey,
-                    roomSlug: getRoomSlugFromUrl(),
+                    supabase: collabSupabase,
+                    user: collabUser,
+                    project: collabProject,
+                    room: collabRoom,
+                    projectSlug: collabProject.slug,
+                    roomSlug: collabRoom.slug,
                     displayName: name,
                     onStatus: setCollabStatus,
-                    onRoomReady: ({ slug }) => {
-                        const shareUrl = setRoomSlugInUrl(slug);
+                    onProjectReady: (project) => {
+                        collabProject = project;
+                    },
+                    onRoomReady: ({ project, room }) => {
+                        collabProject = project || collabProject;
+                        collabRoom = room || collabRoom;
+                        const shareUrl = setRoomSlugInUrl(collabProject?.slug, collabRoom?.slug);
                         if (collabRoomLinkEl) collabRoomLinkEl.value = shareUrl;
                     },
                     onParticipants: (list) => {
@@ -720,7 +997,16 @@ class ViewerApp {
                     cameraSync.setOwner(collabOwnerId);
                 }
                 roomUpdateHandler?.(collabController.room);
-                if (lastLocalModelFile && !collabController.room?.model_url) {
+                await loadRoomModels();
+                await loadRoomCameras();
+                if (roomCameraCount === 0) {
+                    scheduleCameraPersist({
+                        presets: cameraPresets.getPresets?.() || [],
+                        transitions: cameraPresets.getTransitions?.() || [],
+                    });
+                }
+                subscribeRoomCameraChanges();
+                if (lastLocalModelFile && !collabRoomModelsPresent()) {
                     const synced = await syncModelToRoom(lastLocalModelFile);
                     if (synced) lastLocalModelFile = null;
                 }
@@ -731,17 +1017,74 @@ class ViewerApp {
                     dom.annotateCanvasEl.addEventListener('pointercancel', () => cameraSync?.markLocalActivity(false));
                 }
 
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem('lpmview.displayName', name);
-                }
                 setCollabStatus('on');
                 renderParticipants(collabParticipants);
                 updateReserveButton();
                 updateOwnerLabel();
                 scrollChatToBottom();
+                setCollabControlsDisabled(true);
+                setCollabSessionEnabled(true);
+                setCollabToolsEnabled(true);
             } catch (err) {
                 console.error('Collab init failed', err);
                 setCollabStatus('error');
+            } finally {
+                collabJoinBtn.disabled = false;
+            }
+        }
+
+        async function connectCollab() {
+            if (!collabReady || !collabJoinBtn || !collabNameEl) return;
+            const name = String(collabNameEl.value || '').trim() || 'Guest';
+            if (collabController) {
+                await collabController.setDisplayName(name);
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem('lpmview.displayName', name);
+                }
+                renderParticipants(collabParticipants);
+                updateOwnerLabel();
+                return;
+            }
+            collabJoinBtn.disabled = true;
+            setCollabStatus('auth');
+            try {
+                await ensureCollabAuth(name);
+                setCollabControlsDisabled(false);
+                collabProjectSelectEl && (collabProjectSelectEl.disabled = false);
+                collabProjectNewBtn && (collabProjectNewBtn.disabled = false);
+
+                const projectSlug = getProjectSlugFromUrl();
+                const roomSlug = getRoomSlugFromUrl();
+                if (projectSlug) {
+                    const joinedProject = await collabSupabase.rpc('join_project_by_slug', { project_slug: projectSlug });
+                    if (joinedProject.error) throw joinedProject.error;
+                    collabProject = joinedProject.data;
+                    await loadProjects();
+                    await loadRooms(collabProject.id);
+                    if (roomSlug) {
+                        const room = await ensureRoomBySlug(collabProject.id, roomSlug);
+                        collabRoom = room;
+                        await loadRooms(collabProject.id);
+                        await connectToRoom(name);
+                        return;
+                    }
+                }
+
+                await loadProjects();
+                if (collabProjects.length === 1) {
+                    collabProject = collabProjects[0];
+                    renderProjectOptions(collabProjects, collabProject.id);
+                    await loadRooms(collabProject.id);
+                } else {
+                    collabProject = null;
+                    renderRoomOptions([], '');
+                }
+
+                setCollabStatus('ready');
+            } catch (err) {
+                console.error('Collab auth failed', err);
+                setCollabStatus('error');
+            } finally {
                 collabJoinBtn.disabled = false;
             }
         }
@@ -757,6 +1100,36 @@ class ViewerApp {
                 void connectCollab();
             });
         }
+
+        if (collabProjectSelectEl) {
+            collabProjectSelectEl.addEventListener('change', () => {
+                const id = collabProjectSelectEl.value;
+                collabProject = collabProjects.find((p) => p.id === id) || null;
+                collabRoom = null;
+                renderRoomOptions([], '');
+                if (collabProject) {
+                    void loadRooms(collabProject.id);
+                }
+            });
+        }
+
+        if (collabRoomSelectEl) {
+            collabRoomSelectEl.addEventListener('change', () => {
+                const id = collabRoomSelectEl.value;
+                collabRoom = collabRooms.find((r) => r.id === id) || null;
+                if (collabRoom && collabAuthed && !collabController) {
+                    void connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
+                }
+            });
+        }
+
+        collabProjectNewBtn?.addEventListener?.('click', () => {
+            void createProjectFlow();
+        });
+
+        collabRoomNewBtn?.addEventListener?.('click', () => {
+            void createRoomFlow();
+        });
 
         if (collabChatSendBtn && collabChatInputEl) {
             collabChatSendBtn.addEventListener('click', () => {
@@ -796,6 +1169,9 @@ class ViewerApp {
         if (collabStatusEl && !collabReady) {
             collabStatusEl.textContent = 'config';
         }
+        setCollabControlsDisabled(true);
+        setCollabSessionEnabled(false);
+        setCollabToolsEnabled(false);
 
         exportBtn?.addEventListener?.('click', () => {
             void (async () => {
@@ -1536,7 +1912,7 @@ class ViewerApp {
         const rawHandleZIPFile = importHandlers.handleZIPFile;
         let lastLocalModelFile = null;
         let isRemoteModelLoad = false;
-        let activeRoomModelUrl = '';
+        let activeRoomModelId = '';
 
         async function handleFBXFile(file) {
             await rawHandleFBXFile(file);
@@ -1555,12 +1931,13 @@ class ViewerApp {
             return 'zip';
         }
 
-        async function uploadModelToRoom(file) {
+        async function uploadModelToProject(file) {
             if (!collabController || !file) return null;
             const supabase = collabController.supabase;
             const bucket = supabase.storage.from('models');
             const safeName = String(file.name || 'model.zip').replace(/\s+/g, '_');
-            const path = `rooms/${collabController.room.id}/${Date.now()}-${safeName}`;
+            const projectId = collabController.project?.id || 'project';
+            const path = `projects/${projectId}/${Date.now()}-${safeName}`;
             const { error: uploadError } = await bucket.upload(path, file, {
                 upsert: true,
                 contentType: file.type || 'application/octet-stream',
@@ -1574,23 +1951,43 @@ class ViewerApp {
             if (!collabController || !file || isRemoteModelLoad) return false;
             try {
                 setStatusMessage('Синхронизация модели…');
-                const url = await uploadModelToRoom(file);
+                const url = await uploadModelToProject(file);
                 if (!url) return false;
-                activeRoomModelUrl = url;
                 const meta = {
                     size: file.size || 0,
                     type: file.type || '',
                     kind: getModelKindFromName(file.name),
                     lastModified: file.lastModified || null,
                 };
+                const { data: modelRow, error: modelError } = await collabController.supabase
+                    .from('project_models')
+                    .insert({
+                        project_id: collabController.project.id,
+                        name: file.name || 'model.zip',
+                        url,
+                        meta,
+                    })
+                    .select('*')
+                    .single();
+                if (modelError) throw modelError;
+
+                await collabController.supabase
+                    .from('room_models')
+                    .insert({
+                        room_id: collabController.room.id,
+                        project_id: collabController.project.id,
+                        model_id: modelRow.id,
+                        sort_order: roomModelCount,
+                    });
+
                 await collabController.supabase
                     .from('rooms')
-                    .update({
-                        model_url: url,
-                        model_name: file.name || 'model.zip',
-                        model_meta: meta,
-                    })
+                    .update({ active_model_id: modelRow.id })
                     .eq('id', collabController.room.id);
+
+                activeRoomModelId = modelRow.id;
+                loadedRoomModelIds.add(modelRow.id);
+                roomModelCount += 1;
                 return true;
             } catch (err) {
                 console.error('Model sync failed', err);
@@ -1600,13 +1997,12 @@ class ViewerApp {
             }
         }
 
-        async function loadModelFromRoom(room) {
-            if (!room || !room.model_url || isRemoteModelLoad) return;
-            const url = room.model_url;
-            if (url === activeRoomModelUrl) return;
-            activeRoomModelUrl = url;
-            const name = room.model_name || url.split('/').pop() || 'model.zip';
-            const kind = room.model_meta?.kind || getModelKindFromName(name);
+        async function loadProjectModel(model) {
+            if (!model || !model.url || isRemoteModelLoad) return;
+            if (loadedRoomModelIds.has(model.id)) return;
+            const url = model.url;
+            const name = model.name || url.split('/').pop() || 'model.zip';
+            const kind = model.meta?.kind || getModelKindFromName(name);
             try {
                 setStatusMessage('Загрузка модели из комнаты…');
                 const response = await fetch(url, { cache: 'no-cache' });
@@ -1621,12 +2017,225 @@ class ViewerApp {
                     await rawHandleZIPFile(file);
                 }
                 await finalizeBatchAfterAllFiles();
+                loadedRoomModelIds.add(model.id);
             } catch (err) {
                 console.error('Room model load failed', err);
             } finally {
                 isRemoteModelLoad = false;
                 setStatusMessage('');
             }
+        }
+
+        async function loadRoomModels() {
+            if (!collabController || isLoadingRoomModels) return;
+            isLoadingRoomModels = true;
+            try {
+                const { data, error } = await collabController.supabase
+                    .from('room_models')
+                    .select('model_id, sort_order, project_models (id, url, name, meta)')
+                    .eq('room_id', collabController.room.id)
+                    .order('sort_order', { ascending: true });
+                if (error) throw error;
+                const rows = Array.isArray(data) ? data : [];
+                roomModelCount = rows.length;
+                for (const row of rows) {
+                    const model = row.project_models;
+                    if (model) {
+                        await loadProjectModel(model);
+                    }
+                }
+                if (!roomModelsChannel && collabController) {
+                    roomModelsChannel = collabController.supabase.channel(`room:${collabController.room.id}:models`);
+                    roomModelsChannel.on(
+                        'postgres_changes',
+                        { event: 'INSERT', schema: 'public', table: 'room_models', filter: `room_id=eq.${collabController.room.id}` },
+                        async (payload) => {
+                            const row = payload.new;
+                            if (!row?.model_id) return;
+                            roomModelCount += 1;
+                            const { data: modelRow, error: modelError } = await collabController.supabase
+                                .from('project_models')
+                                .select('*')
+                                .eq('id', row.model_id)
+                                .limit(1)
+                                .maybeSingle();
+                            if (modelError) return;
+                            if (modelRow) await loadProjectModel(modelRow);
+                        }
+                    );
+                    roomModelsChannel.subscribe();
+                }
+            } catch (err) {
+                console.error('Room models load failed', err);
+            } finally {
+                isLoadingRoomModels = false;
+            }
+        }
+
+        function collabRoomModelsPresent() {
+            return roomModelCount > 0;
+        }
+
+        async function loadRoomCameras() {
+            if (!collabController || !cameraPresets?.loadState) return;
+            cameraSyncMuted = true;
+            try {
+                const roomId = collabController.room.id;
+                const { data: camRows, error: camError } = await collabController.supabase
+                    .from('room_cameras')
+                    .select('*')
+                    .eq('room_id', roomId)
+                    .order('created_at', { ascending: true });
+                if (camError) throw camError;
+                roomCameraCount = Array.isArray(camRows) ? camRows.length : 0;
+
+                const { data: trRows, error: trError } = await collabController.supabase
+                    .from('room_transitions')
+                    .select('*')
+                    .eq('room_id', roomId);
+                if (trError) throw trError;
+
+                const presets = (camRows || []).map((row) => ({
+                    id: row.id,
+                    name: row.name,
+                    position: row.position,
+                    target: row.target,
+                    up: row.up,
+                    fov: row.fov,
+                    zoom: row.zoom,
+                    near: row.near,
+                    far: row.far,
+                    shiftX: row.shift_x,
+                    shiftY: row.shift_y,
+                }));
+                const transitions = (trRows || []).map((row) => ({
+                    fromId: row.from_camera_id,
+                    toId: row.to_camera_id,
+                    seconds: row.seconds,
+                    type: row.type,
+                    trajectory: row.trajectory,
+                }));
+                cameraPresets.loadState({
+                    presets,
+                    transitions,
+                    activeId: cameraPresets.getActiveId?.(),
+                    lastCreatedId: cameraPresets.getLastCreatedId?.(),
+                });
+            } catch (err) {
+                console.error('Room cameras load failed', err);
+            } finally {
+                cameraSyncMuted = false;
+            }
+        }
+
+        function scheduleCameraPersist(state) {
+            if (!collabController || cameraSyncMuted) return;
+            if (cameraPersistTimer) clearTimeout(cameraPersistTimer);
+            cameraPersistTimer = setTimeout(async () => {
+                if (!collabController || cameraSyncMuted) return;
+                cameraSyncMuted = true;
+                try {
+                    const roomId = collabController.room.id;
+                    const presets = Array.isArray(state?.presets) ? state.presets : [];
+                    const transitions = Array.isArray(state?.transitions) ? state.transitions : [];
+
+                    await collabController.supabase
+                        .from('room_transitions')
+                        .delete()
+                        .eq('room_id', roomId);
+
+                    await collabController.supabase
+                        .from('room_cameras')
+                        .delete()
+                        .eq('room_id', roomId);
+
+                    if (presets.length) {
+                        const camRows = presets.map((preset) => ({
+                            id: preset.id,
+                            room_id: roomId,
+                            name: preset.name || 'Camera',
+                            position: preset.position || [0, 0, 0],
+                            target: preset.target || [0, 0, 0],
+                            up: preset.up || [0, 1, 0],
+                            fov: preset.fov,
+                            zoom: preset.zoom,
+                            near: preset.near,
+                            far: preset.far,
+                            shift_x: preset.shiftX ?? 0,
+                            shift_y: preset.shiftY ?? 0,
+                        }));
+                        await collabController.supabase.from('room_cameras').insert(camRows);
+                    }
+
+                    if (transitions.length) {
+                        const trRows = transitions
+                            .filter((tr) => tr.fromId && tr.toId)
+                            .map((tr) => ({
+                                room_id: roomId,
+                                from_camera_id: tr.fromId,
+                                to_camera_id: tr.toId,
+                                seconds: tr.seconds ?? 0,
+                                type: tr.type || 'ease-in-out',
+                                trajectory: tr.trajectory || 'linear',
+                            }));
+                        if (trRows.length) {
+                            await collabController.supabase.from('room_transitions').insert(trRows);
+                        }
+                    }
+                } catch (err) {
+                    console.error('Room cameras sync failed', err);
+                } finally {
+                    cameraSyncMuted = false;
+                }
+            }, 300);
+        }
+
+        cameraPresetsChangeHandler = scheduleCameraPersist;
+
+        function subscribeRoomCameraChanges() {
+            if (!collabController) return;
+            const roomId = collabController.room.id;
+            if (!roomCamerasChannel) {
+                roomCamerasChannel = collabController.supabase.channel(`room:${roomId}:cameras`);
+                roomCamerasChannel.on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public', table: 'room_cameras', filter: `room_id=eq.${roomId}` },
+                    () => {
+                        if (!cameraSyncMuted) {
+                            void loadRoomCameras();
+                        }
+                    }
+                );
+                roomCamerasChannel.subscribe();
+            }
+            if (!roomTransitionsChannel) {
+                roomTransitionsChannel = collabController.supabase.channel(`room:${roomId}:transitions`);
+                roomTransitionsChannel.on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public', table: 'room_transitions', filter: `room_id=eq.${roomId}` },
+                    () => {
+                        if (!cameraSyncMuted) {
+                            void loadRoomCameras();
+                        }
+                    }
+                );
+                roomTransitionsChannel.subscribe();
+            }
+        }
+
+        async function loadModelFromRoom(room) {
+            if (!room || !room.active_model_id || isRemoteModelLoad) return;
+            if (room.active_model_id === activeRoomModelId) return;
+            activeRoomModelId = room.active_model_id;
+            if (!collabController) return;
+            const { data: modelRow, error } = await collabController.supabase
+                .from('project_models')
+                .select('*')
+                .eq('id', room.active_model_id)
+                .limit(1)
+                .maybeSingle();
+            if (error || !modelRow) return;
+            await loadProjectModel(modelRow);
         }
 
         roomUpdateHandler = (room) => {

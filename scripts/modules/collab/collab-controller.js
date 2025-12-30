@@ -34,8 +34,34 @@ async function fetchRoomBySlug(supabase, slug) {
     return data || null;
 }
 
-async function createRoom(supabase, slug, ownerId) {
+async function fetchRoomByProjectAndSlug(supabase, projectId, slug) {
+    if (!projectId || !slug) return null;
+    const { data, error } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('slug', slug)
+        .limit(1)
+        .maybeSingle();
+    if (error) throw error;
+    return data || null;
+}
+
+async function fetchRoomById(supabase, roomId) {
+    if (!roomId) return null;
+    const { data, error } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('id', roomId)
+        .limit(1)
+        .maybeSingle();
+    if (error) throw error;
+    return data || null;
+}
+
+async function createRoom(supabase, projectId, slug, ownerId) {
     const payload = {
+        project_id: projectId,
         slug,
         owner_id: ownerId,
     };
@@ -48,21 +74,40 @@ async function createRoom(supabase, slug, ownerId) {
     return data;
 }
 
-async function ensureRoom(supabase, slug, ownerId) {
+async function fetchProjectById(supabase, projectId) {
+    if (!projectId) return null;
+    const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .limit(1)
+        .maybeSingle();
+    if (error) throw error;
+    return data || null;
+}
+
+async function joinProjectBySlug(supabase, slug) {
+    if (!slug) return null;
+    const { data, error } = await supabase.rpc('join_project_by_slug', { project_slug: slug });
+    if (error) throw error;
+    return data || null;
+}
+
+async function ensureRoom(supabase, projectId, slug, ownerId) {
     const safeSlug = String(slug || '').trim();
     if (safeSlug) {
-        const existing = await fetchRoomBySlug(supabase, safeSlug);
+        const existing = await fetchRoomByProjectAndSlug(supabase, projectId, safeSlug);
         if (existing) return { room: existing, slug: safeSlug, created: false };
-        const created = await createRoom(supabase, safeSlug, ownerId);
+        const created = await createRoom(supabase, projectId, safeSlug, ownerId);
         return { room: created, slug: safeSlug, created: true };
     }
     let attempts = 0;
     while (attempts < 5) {
         attempts += 1;
         const nextSlug = makeSlug(8);
-        const existing = await fetchRoomBySlug(supabase, nextSlug);
+        const existing = await fetchRoomByProjectAndSlug(supabase, projectId, nextSlug);
         if (existing) continue;
-        const created = await createRoom(supabase, nextSlug, ownerId);
+        const created = await createRoom(supabase, projectId, nextSlug, ownerId);
         return { room: created, slug: nextSlug, created: true };
     }
     throw new Error('Failed to allocate a room slug.');
@@ -86,9 +131,17 @@ export async function createCollabController(options = {}) {
     const {
         supabaseUrl,
         supabaseAnonKey,
+        supabase: injectedSupabase,
+        user: injectedUser,
+        projectSlug,
+        projectId,
+        project: injectedProject,
         roomSlug,
+        roomId,
+        room: injectedRoom,
         displayName,
         onStatus,
+        onProjectReady,
         onRoomReady,
         onParticipants,
         onMessage,
@@ -102,15 +155,46 @@ export async function createCollabController(options = {}) {
     const status = typeof onStatus === 'function' ? onStatus : () => {};
     status('Connecting…');
 
-    const supabase = await createSupabaseClient({
+    const supabase = injectedSupabase || await createSupabaseClient({
         url: supabaseUrl,
         anonKey: supabaseAnonKey,
     });
 
-    const user = await ensureAuth(supabase);
+    const user = injectedUser || await ensureAuth(supabase);
     let currentName = normalizeName(displayName);
 
-    const { room, slug, created } = await ensureRoom(supabase, roomSlug, user.id);
+    let project = injectedProject || null;
+    if (!project) {
+        if (projectId) {
+            project = await fetchProjectById(supabase, projectId);
+        } else if (projectSlug) {
+            project = await joinProjectBySlug(supabase, projectSlug);
+        }
+    }
+    if (!project) {
+        throw new Error('Project not found.');
+    }
+
+    if (typeof onProjectReady === 'function') {
+        onProjectReady(project);
+    }
+
+    let room = injectedRoom || null;
+    let slug = roomSlug || room?.slug || '';
+    let created = false;
+    if (!room) {
+        if (roomId) {
+            room = await fetchRoomById(supabase, roomId);
+        } else {
+            const result = await ensureRoom(supabase, project.id, roomSlug, user.id);
+            room = result.room;
+            slug = result.slug;
+            created = result.created;
+        }
+    }
+    if (!room) {
+        throw new Error('Room not found.');
+    }
 
     if (currentName) {
         await supabase.from('profiles').upsert({
@@ -120,7 +204,7 @@ export async function createCollabController(options = {}) {
     }
 
     if (typeof onRoomReady === 'function') {
-        onRoomReady({ room, slug, created });
+        onRoomReady({ project, room, slug, created });
     }
 
     const channels = [];
@@ -371,6 +455,7 @@ export async function createCollabController(options = {}) {
     return Object.freeze({
         supabase,
         user,
+        project,
         room,
         slug,
         getDisplayName: () => currentName,

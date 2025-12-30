@@ -1033,7 +1033,8 @@ input[type="range"] { width: 120px; }
     width: 100%;
 }
 
-.custom-select-native {
+select.custom-select-native,
+select.custom-select-native:disabled {
     opacity: 0;
     pointer-events: none;
     width: 100%;
@@ -1181,6 +1182,16 @@ input[type="range"] { width: 120px; }
     background: var(--controlBg);
     color: var(--ink);
     font: inherit;
+}
+
+.collab-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.collab-disabled {
+    opacity: 0.55;
+    pointer-events: none;
 }
 
 .collab-owner {
