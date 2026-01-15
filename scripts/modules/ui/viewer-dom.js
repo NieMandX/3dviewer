@@ -94,6 +94,7 @@ export function collectViewerDom(document) {
         collabSignupBtn: get('collabSignupBtn'),
         collabGuestBtn: get('collabGuestBtn'),
         collabResetBtn: get('collabResetBtn'),
+        collabResendBtn: get('collabResendBtn'),
         collabProjectSelectEl: get('collabProjectSelect'),
         collabProjectNewBtn: get('collabProjectNewBtn'),
         collabRoomSelectEl: get('collabRoomSelect'),

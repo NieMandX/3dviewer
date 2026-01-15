@@ -547,6 +547,7 @@ class ViewerApp {
         const collabSignupBtn = dom.collabSignupBtn;
         const collabGuestBtn = dom.collabGuestBtn;
         const collabResetBtn = dom.collabResetBtn;
+        const collabResendBtn = dom.collabResendBtn;
         const collabProjectSelectEl = dom.collabProjectSelectEl;
         const collabProjectNewBtn = dom.collabProjectNewBtn;
         const collabRoomSelectEl = dom.collabRoomSelectEl;
@@ -912,6 +913,35 @@ class ViewerApp {
             return 'Guest';
         }
 
+        function normalizeEmailInput(value) {
+            let email = String(value || '').trim();
+            const angleMatch = email.match(/<([^>]+)>/);
+            if (angleMatch) {
+                email = angleMatch[1];
+            }
+            return email.replace(/\s+/g, '');
+        }
+
+        function isValidEmail(value) {
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+        }
+
+        function isExistingSignupError(err) {
+            const code = String(err?.code || '').toLowerCase();
+            if (code === 'user_already_exists' || code === 'email_address_already_in_use') {
+                return true;
+            }
+            const message = String(err?.message || '').toLowerCase();
+            return (
+                message.includes('already registered') ||
+                message.includes('already been registered') ||
+                message.includes('user already') ||
+                message.includes('user exists') ||
+                message.includes('email already') ||
+                message.includes('user_already_exists')
+            );
+        }
+
         function isRegisteredUser(user) {
             return !!(user && user.email);
         }
@@ -1018,10 +1048,13 @@ class ViewerApp {
         }
 
         async function requestPasswordReset() {
-            const email = String(collabEmailEl?.value || '').trim();
-            if (!email) {
+            const email = normalizeEmailInput(collabEmailEl?.value);
+            if (collabEmailEl && email) {
+                collabEmailEl.value = email;
+            }
+            if (!email || !isValidEmail(email)) {
                 setCollabStatus('email');
-                alert('Введите email для сброса пароля.');
+                alert('Введите корректный email для сброса пароля.');
                 return;
             }
             try {
@@ -1034,6 +1067,33 @@ class ViewerApp {
             } catch (err) {
                 console.error('Password reset email failed', err);
                 alert('Не удалось отправить письмо для сброса пароля.');
+            }
+        }
+
+        async function requestSignupConfirmation() {
+            const email = normalizeEmailInput(collabEmailEl?.value);
+            if (collabEmailEl && email) {
+                collabEmailEl.value = email;
+            }
+            if (!email || !isValidEmail(email)) {
+                setCollabStatus('email');
+                alert('Введите корректный email для подтверждения.');
+                return;
+            }
+            try {
+                const supabase = await ensureSupabaseClient();
+                if (!supabase) return;
+                const redirectTo = buildResetRedirectUrl();
+                const { error } = await supabase.auth.resend({
+                    type: 'signup',
+                    email,
+                    options: { emailRedirectTo: redirectTo },
+                });
+                if (error) throw error;
+                alert('Письмо подтверждения отправлено на email.');
+            } catch (err) {
+                console.error('Resend signup email failed', err);
+                alert('Не удалось отправить письмо подтверждения.');
             }
         }
 
@@ -1096,9 +1156,11 @@ class ViewerApp {
                     if (error) throw error;
                     collabUser = data.user;
                 } else if (mode === 'signup') {
+                    const redirectTo = buildResetRedirectUrl();
                     const { data, error } = await collabSupabase.auth.signUp({
                         email: String(email || '').trim(),
                         password: String(password || ''),
+                        options: { emailRedirectTo: redirectTo },
                     });
                     if (error) throw error;
                     if (!data?.session) {
@@ -1396,14 +1458,17 @@ class ViewerApp {
         async function connectCollab(mode) {
             if (!collabReady || !collabJoinBtn) return;
             const name = String(collabNameEl?.value || '').trim();
-            const email = String(collabEmailEl?.value || '').trim();
+            const email = normalizeEmailInput(collabEmailEl?.value);
             const password = String(collabPasswordEl?.value || '');
             const authMode = mode || 'login';
 
             if (authMode === 'login' || authMode === 'signup') {
-                if (!email || !password) {
+                if (collabEmailEl && email) {
+                    collabEmailEl.value = email;
+                }
+                if (!email || !password || !isValidEmail(email)) {
                     setCollabStatus('email');
-                    alert('Введите email и пароль.');
+                    alert('Введите корректный email и пароль.');
                     return;
                 }
             }
@@ -1471,7 +1536,10 @@ class ViewerApp {
             } catch (err) {
                 console.error('Collab auth failed', err);
                 const message = String(err?.message || '');
-                if (message.includes('Подтвердите email')) {
+                if (authMode === 'signup' && isExistingSignupError(err)) {
+                    setCollabStatus('confirm email');
+                    await requestSignupConfirmation();
+                } else if (message.includes('Подтвердите email')) {
                     setCollabStatus('confirm email');
                 } else {
                     setCollabStatus('error');
@@ -1535,6 +1603,13 @@ class ViewerApp {
             collabResetBtn.disabled = !collabReady;
             collabResetBtn.addEventListener('click', () => {
                 void requestPasswordReset();
+            });
+        }
+
+        if (collabResendBtn) {
+            collabResendBtn.disabled = !collabReady;
+            collabResendBtn.addEventListener('click', () => {
+                void requestSignupConfirmation();
             });
         }
 
