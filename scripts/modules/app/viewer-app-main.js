@@ -982,6 +982,7 @@ class ViewerApp {
         }
 
         let resetFlowActive = false;
+        let clearedPersistedEmailSession = false;
 
         async function openPasswordResetFlow() {
             if (resetFlowActive || !resetModal) return;
@@ -1039,6 +1040,33 @@ class ViewerApp {
         async function maybeHandlePasswordRecovery() {
             if (!isRecoveryUrl()) return;
             await openPasswordResetFlow();
+        }
+
+        async function clearPersistedEmailSession() {
+            if (clearedPersistedEmailSession) return;
+            clearedPersistedEmailSession = true;
+            if (!collabReady) return;
+            if (isRecoveryUrl()) return;
+            try {
+                const supabase = await ensureSupabaseClient();
+                if (!supabase) return;
+                const { data } = await supabase.auth.getUser();
+                const user = data?.user;
+                if (!user?.email) return;
+                await supabase.auth.signOut();
+                collabUser = null;
+                collabAuthed = false;
+                collabIsRegistered = false;
+                collabIsSuperuser = false;
+                setCollabControlsDisabled(true);
+                setCollabCreateEnabled(false);
+                setCollabSessionEnabled(false);
+                setCollabToolsEnabled(false);
+                setCollabStatus('off');
+                updateAdminControls();
+            } catch (err) {
+                console.error('Session clear failed', err);
+            }
         }
 
         async function ensureCollabAuth({ mode, name, email, password } = {}) {
@@ -1610,6 +1638,7 @@ class ViewerApp {
         setCollabToolsEnabled(false);
         updateAdminControls();
         void maybeHandlePasswordRecovery();
+        void clearPersistedEmailSession();
 
         exportBtn?.addEventListener?.('click', () => {
             void (async () => {
