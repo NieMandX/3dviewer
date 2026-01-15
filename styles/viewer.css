@@ -739,6 +739,27 @@ body.bg-black details.cam-props-panel .btn.active:not(.primary) {
     box-shadow: none;
 }
 
+.btn.danger {
+    background: rgba(198, 40, 40, 0.12);
+    border-color: rgba(198, 40, 40, 0.35);
+    color: #b71c1c;
+}
+
+.btn.danger:hover {
+    background: rgba(198, 40, 40, 0.18);
+    border-color: rgba(198, 40, 40, 0.5);
+}
+
+body.bg-black .btn.danger {
+    background: rgba(239, 83, 80, 0.18);
+    border-color: rgba(239, 83, 80, 0.5);
+    color: #ffd3d3;
+}
+
+body.bg-black .btn.danger:hover {
+    background: rgba(239, 83, 80, 0.26);
+}
+
 .appbar .btn.active:not(.bg-btn):not(.primary) {
     background: rgba(0, 0, 0, 0.08);
     border-color: var(--borderStrong);
@@ -1161,6 +1182,10 @@ select.custom-select-native:disabled {
 }
 
 .collab-actions .btn {
+    flex: 1 1 auto;
+}
+
+.collab-admin .btn {
     flex: 1 1 auto;
 }
 

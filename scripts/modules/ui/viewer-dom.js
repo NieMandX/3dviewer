@@ -93,12 +93,16 @@ export function collectViewerDom(document) {
         collabJoinBtn: get('collabJoinBtn'),
         collabSignupBtn: get('collabSignupBtn'),
         collabGuestBtn: get('collabGuestBtn'),
+        collabResetBtn: get('collabResetBtn'),
         collabProjectSelectEl: get('collabProjectSelect'),
         collabProjectNewBtn: get('collabProjectNewBtn'),
         collabRoomSelectEl: get('collabRoomSelect'),
         collabRoomNewBtn: get('collabRoomNewBtn'),
         collabRoomLinkEl: get('collabRoomLink'),
         collabCopyBtn: get('collabCopyBtn'),
+        collabAdminSectionEl: get('collabAdminSection'),
+        collabProjectDeleteBtn: get('collabProjectDeleteBtn'),
+        collabRoomDeleteBtn: get('collabRoomDeleteBtn'),
         collabReserveBtn: get('collabReserveBtn'),
         collabOwnerEl: get('collabOwner'),
         collabParticipantsEl: get('collabParticipants'),
@@ -177,6 +181,16 @@ export function collectViewerDom(document) {
         confirmOkBtn: get('confirmOk'),
         confirmCancelBtn: get('confirmCancel'),
         confirmCloseBtn: get('confirmClose'),
+
+        // Password reset modal
+        resetModalEl: get('resetModal'),
+        resetTitleEl: get('resetTitle'),
+        resetMessageEl: get('resetMessage'),
+        resetPasswordEl: get('resetPassword'),
+        resetPasswordRepeatEl: get('resetPasswordRepeat'),
+        resetOkBtn: get('resetOk'),
+        resetCancelBtn: get('resetCancel'),
+        resetCloseBtn: get('resetClose'),
 
         // Transition modal
         transitionModalEl: get('transitionModal'),

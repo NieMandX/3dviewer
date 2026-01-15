@@ -298,6 +298,9 @@
                         <button id="collabJoinBtn" class="btn" type="button">Войти</button>
                         <button id="collabSignupBtn" class="btn" type="button">Регистрация</button>
                     </div>
+                    <div class="row collab-row collab-actions">
+                        <button id="collabResetBtn" class="btn" type="button">Сброс пароля</button>
+                    </div>
                     <div class="row collab-row">
                         <label class="collab-field collab-field-wide">
                             <span class="collab-label">Проект</span>
@@ -322,6 +325,13 @@
                             <input id="collabRoomLink" class="collab-input" type="text" readonly />
                         </label>
                         <button id="collabCopyBtn" class="btn" type="button" title="Скопировать ссылку">Копировать</button>
+                    </div>
+                    <div id="collabAdminSection" class="collab-section collab-admin" hidden>
+                        <div class="collab-title">Админ</div>
+                        <div class="row collab-row">
+                            <button id="collabProjectDeleteBtn" class="btn danger" type="button" disabled>Удалить проект</button>
+                            <button id="collabRoomDeleteBtn" class="btn danger" type="button" disabled>Удалить комнату</button>
+                        </div>
                     </div>
                     <div class="row collab-row">
                         <button id="collabReserveBtn" class="btn" type="button" disabled>Резерв вращения</button>
@@ -650,6 +660,24 @@
                 <div class="row prompt-actions">
                     <button id="confirmCancel" class="btn" type="button">Отмена</button>
                     <button id="confirmOk" class="btn primary" type="button">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="resetModal" class="modal">
+        <div class="sheet sheet-sm">
+            <div class="head">
+                <div id="resetTitle" class="muted">Сброс пароля</div>
+                <button id="resetClose" class="btn" type="button" title="Закрыть">×</button>
+            </div>
+            <div class="prompt-body">
+                <div id="resetMessage" class="prompt-message">Введите новый пароль.</div>
+                <input id="resetPassword" class="prompt-input" type="password" placeholder="Новый пароль" autocomplete="new-password" />
+                <input id="resetPasswordRepeat" class="prompt-input" type="password" placeholder="Повторите пароль" autocomplete="new-password" />
+                <div class="row prompt-actions">
+                    <button id="resetCancel" class="btn" type="button">Отмена</button>
+                    <button id="resetOk" class="btn primary" type="button">Сохранить</button>
                 </div>
             </div>
         </div>
