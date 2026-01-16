@@ -85,6 +85,14 @@
             <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">ВПМ</button>
             <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">НПМ</button>
 		        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">CAMS</button>
+                <button id="collabPanelBtn" class="btn" type="button" title="Совместная работа" aria-label="Совместная работа" aria-pressed="false">
+                    <svg class="icon icon-collab" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="8" cy="9" r="3"></circle>
+                        <circle cx="16" cy="10" r="3"></circle>
+                        <path d="M2.5 19c.7-3.2 3-5 5.5-5"></path>
+                        <path d="M10.5 19c.7-3.2 3-5 5.5-5"></path>
+                    </svg>
+                </button>
 		        <button id="annoToggleBtn" class="btn" type="button" title="Аннотации" aria-label="Аннотации" aria-pressed="false">
                     <svg class="icon icon-pencil" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M17 3a2.8 2.8 0 0 1 4 4L7 21H3v-4z"></path>
@@ -153,6 +161,90 @@
 	        <button id="annoUndoBtn" class="btn anno-btn" type="button" title="Undo (Ctrl+Z / ⌘Z)" aria-label="Undo">↶</button>
 	        <button id="annoClearBtn" class="btn anno-btn" type="button" title="Clear" aria-label="Clear">⌫</button>
 	    </div>
+        <div id="collabDrawer" class="collab-drawer" hidden>
+            <div class="collab-drawer-head">
+                <div class="collab-drawer-title">Совместная работа</div>
+                <span id="collabStatus" class="chip">off</span>
+                <button id="collabDrawerClose" class="btn collab-drawer-close" type="button" title="Скрыть панель" aria-label="Скрыть панель">✕</button>
+            </div>
+            <div class="collab-drawer-body">
+                <div class="collab-panel">
+                    <div class="row collab-row">
+                        <label class="collab-field">
+                            <span class="collab-label">Имя</span>
+                            <input id="collabName" class="collab-input" type="text" placeholder="Ваше имя" autocomplete="off" />
+                        </label>
+                        <button id="collabGuestBtn" class="btn" type="button" title="Войти без регистрации">Гость</button>
+                    </div>
+                    <div class="row collab-row">
+                        <label class="collab-field">
+                            <span class="collab-label">Email</span>
+                            <input id="collabEmail" class="collab-input" type="email" placeholder="you@example.com" autocomplete="email" />
+                        </label>
+                        <label class="collab-field">
+                            <span class="collab-label">Пароль</span>
+                            <input id="collabPassword" class="collab-input" type="password" placeholder="••••••••" autocomplete="current-password" />
+                        </label>
+                    </div>
+                    <div class="row collab-row collab-actions">
+                        <button id="collabJoinBtn" class="btn" type="button">Войти</button>
+                        <button id="collabSignupBtn" class="btn" type="button">Регистрация</button>
+                    </div>
+                    <div class="row collab-row collab-actions">
+                        <button id="collabResetBtn" class="btn" type="button">Сброс пароля</button>
+                        <button id="collabResendBtn" class="btn" type="button">Повторить письмо</button>
+                    </div>
+                    <div class="row collab-row">
+                        <label class="collab-field collab-field-wide">
+                            <span class="collab-label">Проект</span>
+                            <select id="collabProjectSelect" class="collab-input" disabled>
+                                <option value="">— выберите проект —</option>
+                            </select>
+                        </label>
+                        <button id="collabProjectNewBtn" class="btn" type="button" disabled>Новый</button>
+                    </div>
+                    <div class="row collab-row">
+                        <label class="collab-field collab-field-wide">
+                            <span class="collab-label">Комната</span>
+                            <select id="collabRoomSelect" class="collab-input" disabled>
+                                <option value="">— выберите комнату —</option>
+                            </select>
+                        </label>
+                        <button id="collabRoomNewBtn" class="btn" type="button" disabled>Новая</button>
+                    </div>
+                    <div class="row collab-row">
+                        <label class="collab-field collab-field-wide">
+                            <span class="collab-label">Ссылка</span>
+                            <input id="collabRoomLink" class="collab-input" type="text" readonly />
+                        </label>
+                        <button id="collabCopyBtn" class="btn" type="button" title="Скопировать ссылку">Копировать</button>
+                    </div>
+                    <div id="collabAdminSection" class="collab-section collab-admin" hidden>
+                        <div class="collab-title">Админ</div>
+                        <div class="row collab-row">
+                            <button id="collabProjectDeleteBtn" class="btn danger" type="button" disabled>Удалить проект</button>
+                            <button id="collabRoomDeleteBtn" class="btn danger" type="button" disabled>Удалить комнату</button>
+                        </div>
+                    </div>
+                    <div class="row collab-row">
+                        <button id="collabReserveBtn" class="btn" type="button" disabled>Резерв вращения</button>
+                        <span id="collabOwner" class="collab-owner">—</span>
+                    </div>
+                    <div class="collab-section">
+                        <div class="collab-title">Участники</div>
+                        <div id="collabParticipants" class="collab-list"></div>
+                    </div>
+                    <div class="collab-section">
+                        <div class="collab-title">Чат</div>
+                        <div id="collabChatLog" class="collab-chat-log"></div>
+                        <div class="row collab-row">
+                            <input id="collabChatInput" class="collab-input collab-chat-input" type="text" placeholder="Сообщение…" autocomplete="off" />
+                            <button id="collabChatSend" class="btn" type="button">Отправить</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 	    <div id="pathTracePanel" class="pt-panel" hidden>
 	        <div class="pt-panel-head">
 	            <span class="pt-label">Samples</span>
@@ -272,85 +364,6 @@
             <details id="camsDetails" open>
                 <summary>Камеры · <span id="camsCount" class="chip">0</span></summary>
                 <div id="camsSideList" class="cams-side-list"></div>
-            </details>
-
-            <details id="collabDetails" open>
-                <summary>Совместная работа · <span id="collabStatus" class="chip">off</span></summary>
-                <div class="collab-panel">
-                    <div class="row collab-row">
-                        <label class="collab-field">
-                            <span class="collab-label">Имя</span>
-                            <input id="collabName" class="collab-input" type="text" placeholder="Ваше имя" autocomplete="off" />
-                        </label>
-                        <button id="collabGuestBtn" class="btn" type="button" title="Войти без регистрации">Гость</button>
-                    </div>
-                    <div class="row collab-row">
-                        <label class="collab-field">
-                            <span class="collab-label">Email</span>
-                            <input id="collabEmail" class="collab-input" type="email" placeholder="you@example.com" autocomplete="email" />
-                        </label>
-                        <label class="collab-field">
-                            <span class="collab-label">Пароль</span>
-                            <input id="collabPassword" class="collab-input" type="password" placeholder="••••••••" autocomplete="current-password" />
-                        </label>
-                    </div>
-                    <div class="row collab-row collab-actions">
-                        <button id="collabJoinBtn" class="btn" type="button">Войти</button>
-                        <button id="collabSignupBtn" class="btn" type="button">Регистрация</button>
-                    </div>
-                    <div class="row collab-row collab-actions">
-                        <button id="collabResetBtn" class="btn" type="button">Сброс пароля</button>
-                        <button id="collabResendBtn" class="btn" type="button">Повторить письмо</button>
-                    </div>
-                    <div class="row collab-row">
-                        <label class="collab-field collab-field-wide">
-                            <span class="collab-label">Проект</span>
-                            <select id="collabProjectSelect" class="collab-input" disabled>
-                                <option value="">— выберите проект —</option>
-                            </select>
-                        </label>
-                        <button id="collabProjectNewBtn" class="btn" type="button" disabled>Новый</button>
-                    </div>
-                    <div class="row collab-row">
-                        <label class="collab-field collab-field-wide">
-                            <span class="collab-label">Комната</span>
-                            <select id="collabRoomSelect" class="collab-input" disabled>
-                                <option value="">— выберите комнату —</option>
-                            </select>
-                        </label>
-                        <button id="collabRoomNewBtn" class="btn" type="button" disabled>Новая</button>
-                    </div>
-                    <div class="row collab-row">
-                        <label class="collab-field collab-field-wide">
-                            <span class="collab-label">Ссылка</span>
-                            <input id="collabRoomLink" class="collab-input" type="text" readonly />
-                        </label>
-                        <button id="collabCopyBtn" class="btn" type="button" title="Скопировать ссылку">Копировать</button>
-                    </div>
-                    <div id="collabAdminSection" class="collab-section collab-admin" hidden>
-                        <div class="collab-title">Админ</div>
-                        <div class="row collab-row">
-                            <button id="collabProjectDeleteBtn" class="btn danger" type="button" disabled>Удалить проект</button>
-                            <button id="collabRoomDeleteBtn" class="btn danger" type="button" disabled>Удалить комнату</button>
-                        </div>
-                    </div>
-                    <div class="row collab-row">
-                        <button id="collabReserveBtn" class="btn" type="button" disabled>Резерв вращения</button>
-                        <span id="collabOwner" class="collab-owner">—</span>
-                    </div>
-                    <div class="collab-section">
-                        <div class="collab-title">Участники</div>
-                        <div id="collabParticipants" class="collab-list"></div>
-                    </div>
-                    <div class="collab-section">
-                        <div class="collab-title">Чат</div>
-                        <div id="collabChatLog" class="collab-chat-log"></div>
-                        <div class="row collab-row">
-                            <input id="collabChatInput" class="collab-input collab-chat-input" type="text" placeholder="Сообщение…" autocomplete="off" />
-                            <button id="collabChatSend" class="btn" type="button">Отправить</button>
-                        </div>
-                    </div>
-                </div>
             </details>
 
             <details id="imagesDetails" open>

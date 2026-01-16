@@ -23,6 +23,7 @@
     --appbarH: 48px;
     --camsBarH: 0px;
     --sideW: 460px;
+    --footerH: 28px;
 }
 
 html,
@@ -713,6 +714,7 @@ body.bg-black details.cam-props-panel .btn.active:not(.primary) {
 .appbar #resetViewBtn,
 .appbar #focusPickBtn,
 .appbar #exportBtn,
+.appbar #collabPanelBtn,
 .appbar #annoToggleBtn,
 .appbar #bgToggleBtn {
     width: 28px;
@@ -1171,6 +1173,56 @@ select.custom-select-native:disabled {
     flex-direction: column;
     gap: 12px;
     margin-top: 6px;
+}
+
+.collab-drawer {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--footerH) + 8px);
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    background: var(--surfaceStrong);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    -webkit-backdrop-filter: blur(var(--glassBlur));
+    backdrop-filter: blur(var(--glassBlur));
+    max-height: calc(100vh - var(--appbarH) - var(--camsBarH) - var(--footerH) - 24px);
+}
+
+.collab-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.collab-drawer-title {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.collab-drawer-close {
+    margin-left: auto;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.collab-drawer-body {
+    min-height: 0;
+    overflow: auto;
+}
+
+.collab-drawer .collab-panel {
+    margin-top: 0;
 }
 
 .collab-row {

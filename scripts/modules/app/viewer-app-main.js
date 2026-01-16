@@ -548,6 +548,9 @@ class ViewerApp {
         const collabGuestBtn = dom.collabGuestBtn;
         const collabResetBtn = dom.collabResetBtn;
         const collabResendBtn = dom.collabResendBtn;
+        const collabPanelBtn = dom.collabPanelBtn;
+        const collabDrawerEl = dom.collabDrawerEl;
+        const collabDrawerCloseBtn = dom.collabDrawerCloseBtn;
         const collabProjectSelectEl = dom.collabProjectSelectEl;
         const collabProjectNewBtn = dom.collabProjectNewBtn;
         const collabRoomSelectEl = dom.collabRoomSelectEl;
@@ -563,6 +566,16 @@ class ViewerApp {
         const collabChatLogEl = dom.collabChatLogEl;
         const collabChatInputEl = dom.collabChatInputEl;
         const collabChatSendBtn = dom.collabChatSendBtn;
+
+        function setCollabDrawerOpen(next) {
+            if (!collabDrawerEl) return;
+            const isOpen = !!next;
+            collabDrawerEl.hidden = !isOpen;
+            if (collabPanelBtn) {
+                collabPanelBtn.classList.toggle('active', isOpen);
+                collabPanelBtn.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
+            }
+        }
 
         const supabaseUrl =
             (typeof window !== 'undefined' && window.__SUPABASE_URL ? String(window.__SUPABASE_URL) : '') ||
@@ -1596,6 +1609,18 @@ class ViewerApp {
             collabGuestBtn.disabled = !collabReady;
             collabGuestBtn.addEventListener('click', () => {
                 void connectCollab('guest');
+            });
+        }
+
+        if (collabPanelBtn && collabDrawerEl) {
+            collabPanelBtn.addEventListener('click', () => {
+                setCollabDrawerOpen(collabDrawerEl.hidden);
+            });
+        }
+
+        if (collabDrawerCloseBtn) {
+            collabDrawerCloseBtn.addEventListener('click', () => {
+                setCollabDrawerOpen(false);
             });
         }
 

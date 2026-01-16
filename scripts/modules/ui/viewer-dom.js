@@ -67,6 +67,7 @@ export function collectViewerDom(document) {
 	        statsBtn: get('statsBtn'),
 	        bgToggleBtn: get('bgToggleBtn'),
 	        camsToggleBtn: get('camsToggleBtn'),
+            collabPanelBtn: get('collabPanelBtn'),
 	        collToggleBtn: get('collToggleBtn'),
 	        solidToggleBtn: get('solidToggleBtn'),
 	        vpmToggleBtn: get('vpmToggleBtn'),
@@ -86,6 +87,8 @@ export function collectViewerDom(document) {
 
         // Collaboration
         collabDetailsEl: get('collabDetails'),
+        collabDrawerEl: get('collabDrawer'),
+        collabDrawerCloseBtn: get('collabDrawerClose'),
         collabStatusEl: get('collabStatus'),
         collabNameEl: get('collabName'),
         collabEmailEl: get('collabEmail'),
