@@ -1877,11 +1877,13 @@ body.bg-black .side input[type="text"] {
     align-items: center;
     gap: 8px;
     margin-left: 12px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     font-size: 12px;
     line-height: 1;
     color: var(--muted);
     font-family: "SFMono-Regular", Consolas, Monaco, "Liberation Mono", monospace;
+    white-space: nowrap;
+    overflow-x: auto;
 }
 
 .collab-footer-guest,
@@ -1889,19 +1891,19 @@ body.bg-black .side input[type="text"] {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 
 .collab-footer-registered {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
 }
 
 .collab-footer-row {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 
 .collab-footer-label {
@@ -1932,13 +1934,13 @@ body.bg-black .side input[type="text"] {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 
 .collab-footer-admin {
     display: flex;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 
 .collab-copy-btn {
