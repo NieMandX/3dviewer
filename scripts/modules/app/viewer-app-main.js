@@ -1792,10 +1792,10 @@ class ViewerApp {
             submitAuthFromEnter();
         };
 
-        collabEmailEl?.addEventListener?.('keydown', authEnterHandler);
-        collabNameEl?.addEventListener?.('keydown', authEnterHandler);
-        collabPasswordEl?.addEventListener?.('keydown', authEnterHandler);
-        collabPasswordConfirmEl?.addEventListener?.('keydown', authEnterHandler);
+        collabEmailEl?.addEventListener?.('keyup', authEnterHandler);
+        collabNameEl?.addEventListener?.('keyup', authEnterHandler);
+        collabPasswordEl?.addEventListener?.('keyup', authEnterHandler);
+        collabPasswordConfirmEl?.addEventListener?.('keyup', authEnterHandler);
 
         setAuthMode(getInitialAuthMode());
 
@@ -1901,13 +1901,13 @@ class ViewerApp {
             });
         }
 
-        collabProjectNameInputEl?.addEventListener?.('keydown', (event) => {
+        collabProjectNameInputEl?.addEventListener?.('keyup', (event) => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             void submitProjectCreate();
         });
 
-        collabRoomNameInputEl?.addEventListener?.('keydown', (event) => {
+        collabRoomNameInputEl?.addEventListener?.('keyup', (event) => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             void submitRoomCreate();
@@ -1932,7 +1932,7 @@ class ViewerApp {
                 collabController.sendMessage(text).catch((err) => console.error('Chat send failed', err));
                 collabChatInputEl.value = '';
             });
-            collabChatInputEl.addEventListener('keydown', (event) => {
+            collabChatInputEl.addEventListener('keyup', (event) => {
                 if (event.key !== 'Enter' || event.shiftKey) return;
                 event.preventDefault();
                 collabChatSendBtn.click();
