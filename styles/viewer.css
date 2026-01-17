@@ -1177,13 +1177,17 @@ select.custom-select-native:disabled {
 
 .collab-drawer {
     position: fixed;
-    left: 12px;
-    right: 12px;
+    left: 50%;
     bottom: calc(var(--footerH) + 8px);
+    transform: translateX(-50%);
+    width: min(360px, calc(100vw - 24px));
     z-index: 6;
+}
+
+.auth-panel {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     padding: 10px 12px 12px;
     background: var(--surfaceStrong);
     border: 1px solid var(--border);
@@ -1191,21 +1195,20 @@ select.custom-select-native:disabled {
     box-shadow: var(--shadow);
     -webkit-backdrop-filter: blur(var(--glassBlur));
     backdrop-filter: blur(var(--glassBlur));
-    max-height: calc(100vh - var(--appbarH) - var(--camsBarH) - var(--footerH) - 24px);
 }
 
-.collab-drawer-head {
+.auth-head {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.collab-drawer-title {
+.auth-title {
     font-size: 12px;
     font-weight: 600;
 }
 
-.collab-drawer-close {
+.auth-close {
     margin-left: auto;
     width: 28px;
     height: 28px;
@@ -1216,13 +1219,113 @@ select.custom-select-native:disabled {
     line-height: 1;
 }
 
-.collab-drawer-body {
-    min-height: 0;
-    overflow: auto;
+.auth-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
-.collab-drawer .collab-panel {
-    margin-top: 0;
+.auth-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.auth-field,
+.auth-actions,
+.auth-back {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(6px);
+    pointer-events: none;
+    overflow: hidden;
+    transition: max-height 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+.auth-panel[data-mode="login"] .auth-email,
+.auth-panel[data-mode="register"] .auth-email {
+    max-height: 80px;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+
+.auth-panel[data-mode="register"] .auth-name,
+.auth-panel[data-mode="roomEntry"] .auth-name {
+    max-height: 80px;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+
+.auth-panel[data-mode="login"] .auth-password,
+.auth-panel[data-mode="register"] .auth-password {
+    max-height: 80px;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+
+.auth-panel[data-mode="register"] .auth-password-confirm {
+    max-height: 80px;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+
+.auth-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.auth-panel[data-mode="initial"] .auth-actions-initial,
+.auth-panel[data-mode="login"] .auth-actions-login,
+.auth-panel[data-mode="register"] .auth-actions-register,
+.auth-panel[data-mode="roomEntry"] .auth-actions-room {
+    max-height: 60px;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+
+.auth-actions .btn {
+    flex: 1 1 auto;
+}
+
+.auth-link {
+    border: none;
+    background: transparent;
+    padding: 0;
+    font-size: 11px;
+    color: var(--muted);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.auth-foot {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.auth-panel[data-mode="login"] .auth-back,
+.auth-panel[data-mode="register"] .auth-back {
+    max-height: 36px;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+
+.field-error {
+    font-size: 11px;
+    color: #b00020;
+    min-height: 12px;
+}
+
+.auth-error {
+    font-size: 11px;
+    color: #b00020;
+    min-height: 12px;
 }
 
 .collab-row {
@@ -1731,7 +1834,7 @@ body.bg-black .side input[type="text"] {
     right: 0;
     bottom: 0;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
     justify-content: space-between;
     padding: 4px 10px;
@@ -1749,6 +1852,7 @@ body.bg-black .side input[type="text"] {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
     min-width: 0;
     pointer-events: auto;
 }
@@ -1766,6 +1870,90 @@ body.bg-black .side input[type="text"] {
 .app-footer .btn.active {
     background: rgba(0, 0, 0, 0.08);
     border-color: var(--borderStrong);
+}
+
+.collab-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: 12px;
+    flex-wrap: wrap;
+}
+
+.collab-footer-guest,
+.collab-footer-registered {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.collab-footer-registered {
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.collab-footer-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.collab-footer-label {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.collab-footer-value {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.collab-footer .collab-input {
+    padding: 4px 8px;
+    font-size: 11px;
+    height: 24px;
+}
+
+.collab-footer-select {
+    min-width: 160px;
+}
+
+.collab-footer-create {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.collab-footer-admin {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.collab-copy-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+}
+
+.collab-link-input {
+    display: none;
+}
+
+.collab-reserve-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 body.bg-black .app-footer .btn.active {

@@ -162,86 +162,54 @@
 	        <button id="annoClearBtn" class="btn anno-btn" type="button" title="Clear" aria-label="Clear">⌫</button>
 	    </div>
         <div id="collabDrawer" class="collab-drawer" hidden>
-            <div class="collab-drawer-head">
-                <div class="collab-drawer-title">Совместная работа</div>
-                <span id="collabStatus" class="chip">off</span>
-                <button id="collabDrawerClose" class="btn collab-drawer-close" type="button" title="Скрыть панель" aria-label="Скрыть панель">✕</button>
-            </div>
-            <div class="collab-drawer-body">
-                <div class="collab-panel">
-                    <div class="row collab-row">
-                        <label class="collab-field">
-                            <span class="collab-label">Имя</span>
-                            <input id="collabName" class="collab-input" type="text" placeholder="Ваше имя" autocomplete="off" />
-                        </label>
-                        <button id="collabGuestBtn" class="btn" type="button" title="Войти без регистрации">Гость</button>
-                    </div>
-                    <div class="row collab-row">
-                        <label class="collab-field">
+            <div id="collabAuthPanel" class="auth-panel" data-mode="initial">
+                <div class="auth-head">
+                    <div class="auth-title">Совместная работа</div>
+                    <span id="collabStatus" class="chip">off</span>
+                    <button id="collabDrawerClose" class="btn auth-close" type="button" title="Скрыть панель" aria-label="Скрыть панель">✕</button>
+                </div>
+                <div class="auth-body">
+                    <div class="auth-fields">
+                        <label class="auth-field auth-email">
                             <span class="collab-label">Email</span>
-                            <input id="collabEmail" class="collab-input" type="email" placeholder="you@example.com" autocomplete="email" />
+                            <input id="collabEmail" class="collab-input" type="email" placeholder="you@example.com" autocomplete="email" required />
+                            <div id="collabEmailError" class="field-error" aria-live="polite"></div>
                         </label>
-                        <label class="collab-field">
+                        <label class="auth-field auth-name">
+                            <span class="collab-label">Имя пользователя</span>
+                            <input id="collabName" class="collab-input" type="text" placeholder="Ваше имя" autocomplete="off" required />
+                            <div id="collabNameError" class="field-error" aria-live="polite"></div>
+                        </label>
+                        <label class="auth-field auth-password">
                             <span class="collab-label">Пароль</span>
-                            <input id="collabPassword" class="collab-input" type="password" placeholder="••••••••" autocomplete="current-password" />
+                            <input id="collabPassword" class="collab-input" type="password" placeholder="••••••••" autocomplete="current-password" required />
+                            <div id="collabPasswordError" class="field-error" aria-live="polite"></div>
+                        </label>
+                        <label class="auth-field auth-password-confirm">
+                            <span class="collab-label">Подтверждение пароля</span>
+                            <input id="collabPasswordConfirm" class="collab-input" type="password" placeholder="••••••••" autocomplete="new-password" required />
+                            <div id="collabPasswordConfirmError" class="field-error" aria-live="polite"></div>
                         </label>
                     </div>
-                    <div class="row collab-row collab-actions">
-                        <button id="collabJoinBtn" class="btn" type="button">Войти</button>
-                        <button id="collabSignupBtn" class="btn" type="button">Регистрация</button>
+                    <div id="collabAuthError" class="auth-error" aria-live="polite"></div>
+                    <div class="auth-actions auth-actions-initial">
+                        <button id="collabShowLoginBtn" class="btn" type="button">Вход</button>
+                        <button id="collabShowRegisterBtn" class="btn" type="button">Регистрация</button>
                     </div>
-                    <div class="row collab-row collab-actions">
-                        <button id="collabResetBtn" class="btn" type="button">Сброс пароля</button>
-                        <button id="collabResendBtn" class="btn" type="button">Повторить письмо</button>
+                    <div class="auth-actions auth-actions-login">
+                        <button id="collabJoinBtn" class="btn primary" type="button">Войти</button>
+                        <button id="collabResetBtn" class="btn auth-link" type="button">Забыли пароль?</button>
                     </div>
-                    <div class="row collab-row">
-                        <label class="collab-field collab-field-wide">
-                            <span class="collab-label">Проект</span>
-                            <select id="collabProjectSelect" class="collab-input" disabled>
-                                <option value="">— выберите проект —</option>
-                            </select>
-                        </label>
-                        <button id="collabProjectNewBtn" class="btn" type="button" disabled>Новый</button>
+                    <div class="auth-actions auth-actions-register">
+                        <button id="collabSignupBtn" class="btn primary" type="button">Зарегистрироваться</button>
+                        <button id="collabResendBtn" class="btn auth-link" type="button">Повторить письмо</button>
                     </div>
-                    <div class="row collab-row">
-                        <label class="collab-field collab-field-wide">
-                            <span class="collab-label">Комната</span>
-                            <select id="collabRoomSelect" class="collab-input" disabled>
-                                <option value="">— выберите комнату —</option>
-                            </select>
-                        </label>
-                        <button id="collabRoomNewBtn" class="btn" type="button" disabled>Новая</button>
+                    <div class="auth-actions auth-actions-room">
+                        <button id="collabGuestBtn" class="btn primary" type="button">Войти</button>
                     </div>
-                    <div class="row collab-row">
-                        <label class="collab-field collab-field-wide">
-                            <span class="collab-label">Ссылка</span>
-                            <input id="collabRoomLink" class="collab-input" type="text" readonly />
-                        </label>
-                        <button id="collabCopyBtn" class="btn" type="button" title="Скопировать ссылку">Копировать</button>
-                    </div>
-                    <div id="collabAdminSection" class="collab-section collab-admin" hidden>
-                        <div class="collab-title">Админ</div>
-                        <div class="row collab-row">
-                            <button id="collabProjectDeleteBtn" class="btn danger" type="button" disabled>Удалить проект</button>
-                            <button id="collabRoomDeleteBtn" class="btn danger" type="button" disabled>Удалить комнату</button>
-                        </div>
-                    </div>
-                    <div class="row collab-row">
-                        <button id="collabReserveBtn" class="btn" type="button" disabled>Резерв вращения</button>
-                        <span id="collabOwner" class="collab-owner">—</span>
-                    </div>
-                    <div class="collab-section">
-                        <div class="collab-title">Участники</div>
-                        <div id="collabParticipants" class="collab-list"></div>
-                    </div>
-                    <div class="collab-section">
-                        <div class="collab-title">Чат</div>
-                        <div id="collabChatLog" class="collab-chat-log"></div>
-                        <div class="row collab-row">
-                            <input id="collabChatInput" class="collab-input collab-chat-input" type="text" placeholder="Сообщение…" autocomplete="off" />
-                            <button id="collabChatSend" class="btn" type="button">Отправить</button>
-                        </div>
-                    </div>
+                </div>
+                <div class="auth-foot">
+                    <button id="collabBackBtn" class="btn auth-back" type="button">Назад</button>
                 </div>
             </div>
         </div>
@@ -811,6 +779,51 @@
         <div class="footer-left">
             <button id="statsBtn" class="btn footer-btn" type="button" title="Показать статистику сцены">Stats</button>
             <div id="statsOverlay" class="stats-overlay" hidden></div>
+            <div id="collabFooter" class="collab-footer" hidden>
+                <div id="collabFooterGuest" class="collab-footer-guest" hidden>
+                    <span class="collab-footer-label">Проект: <strong id="collabFooterProjectName" class="collab-footer-value">—</strong></span>
+                    <span class="collab-footer-label">Комната: <strong id="collabFooterRoomName" class="collab-footer-value">—</strong></span>
+                </div>
+                <div id="collabFooterRegistered" class="collab-footer-registered" hidden>
+                    <div class="collab-footer-row">
+                        <select id="collabProjectSelect" class="collab-input collab-footer-select" disabled>
+                            <option value="">— выберите проект —</option>
+                        </select>
+                        <button id="collabProjectNewBtn" class="btn" type="button" disabled>Создать</button>
+                    </div>
+                    <div id="collabProjectCreate" class="collab-footer-create" hidden>
+                        <input id="collabProjectNameInput" class="collab-input" type="text" placeholder="Название проекта" required />
+                        <button id="collabProjectCreateBtn" class="btn" type="button">Создать</button>
+                    </div>
+                    <div class="collab-footer-row">
+                        <select id="collabRoomSelect" class="collab-input collab-footer-select" disabled>
+                            <option value="">— выберите комнату —</option>
+                        </select>
+                        <button id="collabRoomNewBtn" class="btn" type="button" disabled>Создать</button>
+                        <button id="collabCopyBtn" class="btn collab-copy-btn" type="button" title="Скопировать ссылку" aria-label="Скопировать ссылку">🔗</button>
+                        <input id="collabRoomLink" class="collab-input collab-link-input" type="text" readonly />
+                    </div>
+                    <div id="collabRoomCreate" class="collab-footer-create" hidden>
+                        <input id="collabRoomNameInput" class="collab-input" type="text" placeholder="Название комнаты" required />
+                        <button id="collabRoomCreateBtn" class="btn" type="button">Создать</button>
+                    </div>
+                    <div id="collabAdminSection" class="collab-footer-admin" hidden>
+                        <button id="collabProjectDeleteBtn" class="btn danger" type="button" disabled>Удалить проект</button>
+                        <button id="collabRoomDeleteBtn" class="btn danger" type="button" disabled>Удалить комнату</button>
+                    </div>
+                </div>
+                <div class="collab-footer-row collab-footer-reserve">
+                    <button id="collabReserveBtn" class="btn collab-reserve-btn" type="button" title="Резерв вращения" aria-label="Резерв вращения" disabled>
+                        <svg class="icon icon-steering" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle cx="12" cy="12" r="7"></circle>
+                            <circle cx="12" cy="12" r="2"></circle>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <line x1="12" y1="5" x2="12" y2="9"></line>
+                        </svg>
+                    </button>
+                    <span id="collabOwner" class="collab-owner">—</span>
+                </div>
+            </div>
         </div>
     </footer>
 

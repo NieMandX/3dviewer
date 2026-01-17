@@ -543,6 +543,15 @@ class ViewerApp {
         const collabNameEl = dom.collabNameEl;
         const collabEmailEl = dom.collabEmailEl;
         const collabPasswordEl = dom.collabPasswordEl;
+        const collabPasswordConfirmEl = dom.collabPasswordConfirmEl;
+        const collabEmailErrorEl = dom.collabEmailErrorEl;
+        const collabNameErrorEl = dom.collabNameErrorEl;
+        const collabPasswordErrorEl = dom.collabPasswordErrorEl;
+        const collabPasswordConfirmErrorEl = dom.collabPasswordConfirmErrorEl;
+        const collabAuthErrorEl = dom.collabAuthErrorEl;
+        const collabShowLoginBtn = dom.collabShowLoginBtn;
+        const collabShowRegisterBtn = dom.collabShowRegisterBtn;
+        const collabBackBtn = dom.collabBackBtn;
         const collabJoinBtn = dom.collabJoinBtn;
         const collabSignupBtn = dom.collabSignupBtn;
         const collabGuestBtn = dom.collabGuestBtn;
@@ -551,10 +560,22 @@ class ViewerApp {
         const collabPanelBtn = dom.collabPanelBtn;
         const collabDrawerEl = dom.collabDrawerEl;
         const collabDrawerCloseBtn = dom.collabDrawerCloseBtn;
+        const collabAuthPanelEl = dom.collabAuthPanelEl;
+        const collabFooterEl = dom.collabFooterEl;
+        const collabFooterGuestEl = dom.collabFooterGuestEl;
+        const collabFooterRegisteredEl = dom.collabFooterRegisteredEl;
+        const collabFooterProjectNameEl = dom.collabFooterProjectNameEl;
+        const collabFooterRoomNameEl = dom.collabFooterRoomNameEl;
         const collabProjectSelectEl = dom.collabProjectSelectEl;
         const collabProjectNewBtn = dom.collabProjectNewBtn;
+        const collabProjectCreateEl = dom.collabProjectCreateEl;
+        const collabProjectNameInputEl = dom.collabProjectNameInputEl;
+        const collabProjectCreateBtnEl = dom.collabProjectCreateBtnEl;
         const collabRoomSelectEl = dom.collabRoomSelectEl;
         const collabRoomNewBtn = dom.collabRoomNewBtn;
+        const collabRoomCreateEl = dom.collabRoomCreateEl;
+        const collabRoomNameInputEl = dom.collabRoomNameInputEl;
+        const collabRoomCreateBtnEl = dom.collabRoomCreateBtnEl;
         const collabRoomLinkEl = dom.collabRoomLinkEl;
         const collabCopyBtn = dom.collabCopyBtn;
         const collabAdminSectionEl = dom.collabAdminSectionEl;
@@ -567,6 +588,8 @@ class ViewerApp {
         const collabChatInputEl = dom.collabChatInputEl;
         const collabChatSendBtn = dom.collabChatSendBtn;
 
+        let collabAuthMode = 'initial';
+
         function setCollabDrawerOpen(next) {
             if (!collabDrawerEl) return;
             const isOpen = !!next;
@@ -574,6 +597,78 @@ class ViewerApp {
             if (collabPanelBtn) {
                 collabPanelBtn.classList.toggle('active', isOpen);
                 collabPanelBtn.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
+            }
+            if (isOpen && !collabAuthed) {
+                setAuthMode(getInitialAuthMode());
+            }
+        }
+
+        function getInitialAuthMode() {
+            const hasProject = !!getProjectSlugFromUrl();
+            const hasRoom = !!getRoomSlugFromUrl();
+            return hasProject && hasRoom ? 'roomEntry' : 'initial';
+        }
+
+        function setAuthMode(mode) {
+            const next = mode || 'initial';
+            collabAuthMode = next;
+            if (collabAuthPanelEl) {
+                collabAuthPanelEl.dataset.mode = next;
+            }
+            clearAuthErrors();
+        }
+
+        function clearAuthErrors() {
+            const targets = [
+                collabEmailErrorEl,
+                collabNameErrorEl,
+                collabPasswordErrorEl,
+                collabPasswordConfirmErrorEl,
+                collabAuthErrorEl,
+            ];
+            targets.forEach((el) => {
+                if (!el) return;
+                el.textContent = '';
+            });
+        }
+
+        function setFieldError(el, message) {
+            if (!el) return;
+            el.textContent = String(message || '').trim();
+        }
+
+        function setAuthError(message) {
+            setFieldError(collabAuthErrorEl, message);
+        }
+
+        function canGuestEnter() {
+            return !!getProjectSlugFromUrl() && !!getRoomSlugFromUrl();
+        }
+
+        function updateCollabFooter() {
+            if (!collabFooterEl) return;
+            const hasSession = !!collabAuthed;
+            collabFooterEl.hidden = !hasSession;
+            if (!hasSession) return;
+
+            const isRegistered = !!collabIsRegistered;
+            if (collabFooterGuestEl) collabFooterGuestEl.hidden = isRegistered;
+            if (collabFooterRegisteredEl) collabFooterRegisteredEl.hidden = !isRegistered;
+
+            if (!isRegistered) {
+                if (collabFooterProjectNameEl) {
+                    collabFooterProjectNameEl.textContent = collabProject?.name || collabProject?.slug || '—';
+                }
+                if (collabFooterRoomNameEl) {
+                    collabFooterRoomNameEl.textContent = collabRoom?.slug || '—';
+                }
+            }
+
+            if (collabReserveBtn) {
+                collabReserveBtn.hidden = !collabController;
+            }
+            if (collabOwnerEl) {
+                collabOwnerEl.hidden = !collabController;
             }
         }
 
@@ -689,12 +784,16 @@ class ViewerApp {
         function setCollabCreateEnabled(enabled) {
             if (collabProjectNewBtn) collabProjectNewBtn.disabled = !enabled;
             if (collabRoomNewBtn) collabRoomNewBtn.disabled = !enabled;
+            if (!enabled) {
+                toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, false);
+                toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, false);
+            }
         }
 
         function requireRegistered() {
             if (collabIsRegistered) return true;
             setCollabStatus('регистрация');
-            alert('Только зарегистрированные пользователи могут создавать проекты и комнаты.');
+            setAuthError('Только зарегистрированные пользователи могут создавать проекты и комнаты.');
             return false;
         }
 
@@ -908,12 +1007,16 @@ class ViewerApp {
             if (!collabReserveBtn) return;
             if (!collabController) {
                 collabReserveBtn.disabled = true;
-                collabReserveBtn.textContent = 'Резерв вращения';
+                collabReserveBtn.classList.remove('active');
+                collabReserveBtn.setAttribute('aria-pressed', 'false');
+                collabReserveBtn.title = 'Резерв вращения';
                 return;
             }
             const isOwner = !!cameraSync?.isOwner?.();
             collabReserveBtn.disabled = false;
-            collabReserveBtn.textContent = isOwner ? 'Снять резерв' : 'Резерв вращения';
+            collabReserveBtn.classList.toggle('active', isOwner);
+            collabReserveBtn.setAttribute('aria-pressed', isOwner ? 'true' : 'false');
+            collabReserveBtn.title = isOwner ? 'Снять резерв' : 'Резерв вращения';
         }
 
         function resolveDisplayName(value) {
@@ -1066,8 +1169,7 @@ class ViewerApp {
                 collabEmailEl.value = email;
             }
             if (!email || !isValidEmail(email)) {
-                setCollabStatus('email');
-                alert('Введите корректный email для сброса пароля.');
+                setFieldError(collabEmailErrorEl, 'Введите корректный email.');
                 return;
             }
             try {
@@ -1076,10 +1178,10 @@ class ViewerApp {
                 const redirectTo = buildResetRedirectUrl();
                 const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
                 if (error) throw error;
-                alert('Ссылка для сброса пароля отправлена на email.');
+                setAuthError('Ссылка для сброса отправлена на email.');
             } catch (err) {
                 console.error('Password reset email failed', err);
-                alert('Не удалось отправить письмо для сброса пароля.');
+                setAuthError('Не удалось отправить письмо для сброса.');
             }
         }
 
@@ -1089,8 +1191,7 @@ class ViewerApp {
                 collabEmailEl.value = email;
             }
             if (!email || !isValidEmail(email)) {
-                setCollabStatus('email');
-                alert('Введите корректный email для подтверждения.');
+                setFieldError(collabEmailErrorEl, 'Введите корректный email.');
                 return;
             }
             try {
@@ -1103,10 +1204,10 @@ class ViewerApp {
                     options: { emailRedirectTo: redirectTo },
                 });
                 if (error) throw error;
-                alert('Письмо подтверждения отправлено на email.');
+                setAuthError('Письмо подтверждения отправлено.');
             } catch (err) {
                 console.error('Resend signup email failed', err);
-                alert('Не удалось отправить письмо подтверждения.');
+                setAuthError('Не удалось отправить письмо подтверждения.');
             }
         }
 
@@ -1137,6 +1238,7 @@ class ViewerApp {
                 setCollabToolsEnabled(false);
                 setCollabStatus('off');
                 updateAdminControls();
+                updateCollabFooter();
             } catch (err) {
                 console.error('Session clear failed', err);
             }
@@ -1194,6 +1296,7 @@ class ViewerApp {
 
             collabAuthed = true;
             collabIsRegistered = isRegisteredUser(collabUser);
+            updateCollabFooter();
 
             const displayName = resolveDisplayName(name);
             await collabSupabase.from('profiles').upsert({
@@ -1224,6 +1327,7 @@ class ViewerApp {
             });
             collabProjectSelectEl.value = selectedId || '';
             updateAdminControls();
+            updateCollabFooter();
         }
 
         function renderRoomOptions(list, selectedId) {
@@ -1244,6 +1348,7 @@ class ViewerApp {
             collabRoomSelectEl.disabled = !enabled;
             if (collabRoomNewBtn) collabRoomNewBtn.disabled = !enabled || !collabIsRegistered;
             updateAdminControls();
+            updateCollabFooter();
         }
 
         async function loadProjects() {
@@ -1271,16 +1376,10 @@ class ViewerApp {
             return collabRooms;
         }
 
-        async function createProjectFlow() {
+        async function createProjectFlow(nameOverride) {
             if (!collabSupabase || !collabUser) return;
             if (!requireRegistered()) return;
-            const name = await promptModal.open({
-                title: 'Новый проект',
-                value: '',
-                placeholder: 'Название проекта',
-                type: 'text',
-            });
-            const trimmed = String(name || '').trim();
+            let trimmed = String(nameOverride || '').trim();
             if (!trimmed) return;
             const baseSlug = slugifyName(trimmed) || makeSlug(6);
             let nextSlug = baseSlug;
@@ -1306,18 +1405,13 @@ class ViewerApp {
             await loadProjects();
             await loadRooms(created.id);
             updateAdminControls();
+            updateCollabFooter();
         }
 
-        async function createRoomFlow() {
+        async function createRoomFlow(nameOverride) {
             if (!collabSupabase || !collabUser || !collabProject) return;
             if (!requireRegistered()) return;
-            const name = await promptModal.open({
-                title: 'Новая комната',
-                value: '',
-                placeholder: 'Название комнаты',
-                type: 'text',
-            });
-            const trimmed = String(name || '').trim();
+            let trimmed = String(nameOverride || '').trim();
             if (!trimmed) return;
             const baseSlug = slugifyName(trimmed) || makeSlug(6);
             let nextSlug = baseSlug;
@@ -1345,6 +1439,35 @@ class ViewerApp {
                 await connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
             }
             updateAdminControls();
+            updateCollabFooter();
+        }
+
+        function toggleCreatePanel(panelEl, inputEl, forceOpen) {
+            if (!panelEl) return;
+            const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : panelEl.hidden;
+            panelEl.hidden = !nextOpen;
+            if (nextOpen && inputEl?.focus) {
+                inputEl.focus();
+                inputEl.select?.();
+            }
+        }
+
+        async function submitProjectCreate() {
+            if (!collabProjectNameInputEl) return;
+            const name = String(collabProjectNameInputEl.value || '').trim();
+            if (!name) return;
+            await createProjectFlow(name);
+            collabProjectNameInputEl.value = '';
+            toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, false);
+        }
+
+        async function submitRoomCreate() {
+            if (!collabRoomNameInputEl) return;
+            const name = String(collabRoomNameInputEl.value || '').trim();
+            if (!name) return;
+            await createRoomFlow(name);
+            collabRoomNameInputEl.value = '';
+            toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, false);
         }
 
         async function ensureRoomBySlug(projectId, slug) {
@@ -1390,12 +1513,14 @@ class ViewerApp {
                     onStatus: setCollabStatus,
                     onProjectReady: (project) => {
                         collabProject = project;
+                        updateCollabFooter();
                     },
                     onRoomReady: ({ project, room }) => {
                         collabProject = project || collabProject;
                         collabRoom = room || collabRoom;
                         const shareUrl = setRoomSlugInUrl(collabProject?.slug, collabRoom?.slug);
                         if (collabRoomLinkEl) collabRoomLinkEl.value = shareUrl;
+                        updateCollabFooter();
                     },
                     onParticipants: (list) => {
                         renderParticipants(list);
@@ -1473,15 +1598,55 @@ class ViewerApp {
             const name = String(collabNameEl?.value || '').trim();
             const email = normalizeEmailInput(collabEmailEl?.value);
             const password = String(collabPasswordEl?.value || '');
+            const passwordConfirm = String(collabPasswordConfirmEl?.value || '');
             const authMode = mode || 'login';
 
-            if (authMode === 'login' || authMode === 'signup') {
-                if (collabEmailEl && email) {
-                    collabEmailEl.value = email;
+            clearAuthErrors();
+            if (collabEmailEl && email) {
+                collabEmailEl.value = email;
+            }
+            if (authMode === 'login') {
+                let valid = true;
+                if (!email || !isValidEmail(email)) {
+                    setFieldError(collabEmailErrorEl, 'Введите корректный email.');
+                    valid = false;
                 }
-                if (!email || !password || !isValidEmail(email)) {
-                    setCollabStatus('email');
-                    alert('Введите корректный email и пароль.');
+                if (!password) {
+                    setFieldError(collabPasswordErrorEl, 'Введите пароль.');
+                    valid = false;
+                }
+                if (!valid) return;
+            }
+            if (authMode === 'signup') {
+                let valid = true;
+                if (!email || !isValidEmail(email)) {
+                    setFieldError(collabEmailErrorEl, 'Введите корректный email.');
+                    valid = false;
+                }
+                if (!name) {
+                    setFieldError(collabNameErrorEl, 'Введите имя пользователя.');
+                    valid = false;
+                }
+                if (!password) {
+                    setFieldError(collabPasswordErrorEl, 'Введите пароль.');
+                    valid = false;
+                }
+                if (!passwordConfirm) {
+                    setFieldError(collabPasswordConfirmErrorEl, 'Подтвердите пароль.');
+                    valid = false;
+                } else if (password && passwordConfirm && password !== passwordConfirm) {
+                    setFieldError(collabPasswordConfirmErrorEl, 'Пароли не совпадают.');
+                    valid = false;
+                }
+                if (!valid) return;
+            }
+            if (authMode === 'guest') {
+                if (!canGuestEnter()) {
+                    setAuthError('Гостевой вход доступен только по ссылке комнаты.');
+                    return;
+                }
+                if (!name) {
+                    setFieldError(collabNameErrorEl, 'Введите имя пользователя.');
                     return;
                 }
             }
@@ -1508,10 +1673,12 @@ class ViewerApp {
                     email,
                     password,
                 });
+                setCollabDrawerOpen(false);
                 await refreshSuperuserFlag();
                 updateAdminControls();
                 setCollabControlsDisabled(false);
                 setCollabCreateEnabled(collabIsRegistered);
+                updateCollabFooter();
 
                 const projectSlug = getProjectSlugFromUrl();
                 const roomSlug = getRoomSlugFromUrl();
@@ -1552,10 +1719,17 @@ class ViewerApp {
                 if (authMode === 'signup' && isExistingSignupError(err)) {
                     setCollabStatus('confirm email');
                     await requestSignupConfirmation();
+                    setAuthError('Аккаунт уже существует. Отправили письмо для подтверждения.');
                 } else if (message.includes('Подтвердите email')) {
                     setCollabStatus('confirm email');
+                    setAuthError('Подтвердите email, чтобы войти.');
+                } else if (message.toLowerCase().includes('invalid login credentials')) {
+                    setFieldError(collabPasswordErrorEl, 'Неверный email или пароль.');
+                } else if (message.toLowerCase().includes('invalid format')) {
+                    setFieldError(collabEmailErrorEl, 'Некорректный email.');
                 } else {
                     setCollabStatus('error');
+                    setAuthError('Не удалось войти. Проверьте данные.');
                 }
             } finally {
                 collabJoinBtn.disabled = false;
@@ -1589,7 +1763,30 @@ class ViewerApp {
         stopKeydownPropagation(collabNameEl);
         stopKeydownPropagation(collabEmailEl);
         stopKeydownPropagation(collabPasswordEl);
+        stopKeydownPropagation(collabPasswordConfirmEl);
+        stopKeydownPropagation(collabProjectNameInputEl);
+        stopKeydownPropagation(collabRoomNameInputEl);
         stopKeydownPropagation(collabChatInputEl);
+
+        setAuthMode(getInitialAuthMode());
+
+        if (collabShowLoginBtn) {
+            collabShowLoginBtn.addEventListener('click', () => {
+                setAuthMode('login');
+            });
+        }
+
+        if (collabShowRegisterBtn) {
+            collabShowRegisterBtn.addEventListener('click', () => {
+                setAuthMode('register');
+            });
+        }
+
+        if (collabBackBtn) {
+            collabBackBtn.addEventListener('click', () => {
+                setAuthMode(getInitialAuthMode());
+            });
+        }
 
         if (collabJoinBtn) {
             collabJoinBtn.disabled = !collabReady;
@@ -1666,11 +1863,31 @@ class ViewerApp {
         }
 
         collabProjectNewBtn?.addEventListener?.('click', () => {
-            void createProjectFlow();
+            toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl);
+        });
+
+        collabProjectCreateBtnEl?.addEventListener?.('click', () => {
+            void submitProjectCreate();
+        });
+
+        collabProjectNameInputEl?.addEventListener?.('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            void submitProjectCreate();
         });
 
         collabRoomNewBtn?.addEventListener?.('click', () => {
-            void createRoomFlow();
+            toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl);
+        });
+
+        collabRoomCreateBtnEl?.addEventListener?.('click', () => {
+            void submitRoomCreate();
+        });
+
+        collabRoomNameInputEl?.addEventListener?.('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            void submitRoomCreate();
         });
 
         if (collabProjectDeleteBtn) {
