@@ -569,11 +569,9 @@ class ViewerApp {
         const collabProjectSelectEl = dom.collabProjectSelectEl;
         const collabProjectCreateEl = dom.collabProjectCreateEl;
         const collabProjectNameInputEl = dom.collabProjectNameInputEl;
-        const collabProjectCreateBtnEl = dom.collabProjectCreateBtnEl;
         const collabRoomSelectEl = dom.collabRoomSelectEl;
         const collabRoomCreateEl = dom.collabRoomCreateEl;
         const collabRoomNameInputEl = dom.collabRoomNameInputEl;
-        const collabRoomCreateBtnEl = dom.collabRoomCreateBtnEl;
         const collabRoomLinkEl = dom.collabRoomLinkEl;
         const collabCopyBtn = dom.collabCopyBtn;
         const collabAdminSectionEl = dom.collabAdminSectionEl;
@@ -1880,18 +1878,10 @@ class ViewerApp {
             });
         }
 
-        collabProjectCreateBtnEl?.addEventListener?.('click', () => {
-            void submitProjectCreate();
-        });
-
         collabProjectNameInputEl?.addEventListener?.('keydown', (event) => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             void submitProjectCreate();
-        });
-
-        collabRoomCreateBtnEl?.addEventListener?.('click', () => {
-            void submitRoomCreate();
         });
 
         collabRoomNameInputEl?.addEventListener?.('keydown', (event) => {
