@@ -1917,8 +1917,10 @@ body.bg-black .side input[type="text"] {
 
 .collab-footer .collab-input {
     padding: 0 2px;
+    margin: 0;
     font-size: 12px;
-    height: auto;
+    height: 16px;
+    line-height: 16px;
     border: 1px solid transparent;
     background: transparent;
     box-shadow: none;
@@ -1928,6 +1930,9 @@ body.bg-black .side input[type="text"] {
 .collab-footer-select {
     min-width: 160px;
     appearance: none;
+    padding-right: 14px;
+    position: relative;
+    top: -1px;
 }
 
 .collab-footer-create {
