@@ -615,6 +615,18 @@ class ViewerApp {
             clearAuthErrors();
         }
 
+        function submitAuthFromEnter() {
+            if (!collabDrawerEl || collabDrawerEl.hidden) return;
+            const mode = collabAuthPanelEl?.dataset?.mode || collabAuthMode || getInitialAuthMode();
+            if (mode === 'login') {
+                void connectCollab('login');
+            } else if (mode === 'register') {
+                void connectCollab('signup');
+            } else if (mode === 'roomEntry') {
+                void connectCollab('guest');
+            }
+        }
+
         function clearAuthErrors() {
             const targets = [
                 collabEmailErrorEl,
@@ -1773,6 +1785,17 @@ class ViewerApp {
         stopKeydownPropagation(collabProjectNameInputEl);
         stopKeydownPropagation(collabRoomNameInputEl);
         stopKeydownPropagation(collabChatInputEl);
+
+        const authEnterHandler = (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            submitAuthFromEnter();
+        };
+
+        collabEmailEl?.addEventListener?.('keydown', authEnterHandler);
+        collabNameEl?.addEventListener?.('keydown', authEnterHandler);
+        collabPasswordEl?.addEventListener?.('keydown', authEnterHandler);
+        collabPasswordConfirmEl?.addEventListener?.('keydown', authEnterHandler);
 
         setAuthMode(getInitialAuthMode());
 
