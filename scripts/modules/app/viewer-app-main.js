@@ -567,12 +567,10 @@ class ViewerApp {
         const collabFooterProjectNameEl = dom.collabFooterProjectNameEl;
         const collabFooterRoomNameEl = dom.collabFooterRoomNameEl;
         const collabProjectSelectEl = dom.collabProjectSelectEl;
-        const collabProjectNewBtn = dom.collabProjectNewBtn;
         const collabProjectCreateEl = dom.collabProjectCreateEl;
         const collabProjectNameInputEl = dom.collabProjectNameInputEl;
         const collabProjectCreateBtnEl = dom.collabProjectCreateBtnEl;
         const collabRoomSelectEl = dom.collabRoomSelectEl;
-        const collabRoomNewBtn = dom.collabRoomNewBtn;
         const collabRoomCreateEl = dom.collabRoomCreateEl;
         const collabRoomNameInputEl = dom.collabRoomNameInputEl;
         const collabRoomCreateBtnEl = dom.collabRoomCreateBtnEl;
@@ -589,6 +587,7 @@ class ViewerApp {
         const collabChatSendBtn = dom.collabChatSendBtn;
 
         let collabAuthMode = 'initial';
+        const collabCreateOptionValue = '__create__';
 
         function setCollabDrawerOpen(next) {
             if (!collabDrawerEl) return;
@@ -782,8 +781,6 @@ class ViewerApp {
         }
 
         function setCollabCreateEnabled(enabled) {
-            if (collabProjectNewBtn) collabProjectNewBtn.disabled = !enabled;
-            if (collabRoomNewBtn) collabRoomNewBtn.disabled = !enabled;
             if (!enabled) {
                 toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, false);
                 toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, false);
@@ -1325,6 +1322,12 @@ class ViewerApp {
                 opt.textContent = project.name || project.slug || 'Проект';
                 collabProjectSelectEl.appendChild(opt);
             });
+            if (collabIsRegistered) {
+                const createOpt = document.createElement('option');
+                createOpt.value = collabCreateOptionValue;
+                createOpt.textContent = '+ Создать проект';
+                collabProjectSelectEl.appendChild(createOpt);
+            }
             collabProjectSelectEl.value = selectedId || '';
             updateAdminControls();
             updateCollabFooter();
@@ -1343,10 +1346,15 @@ class ViewerApp {
                 opt.textContent = room.slug || 'Комната';
                 collabRoomSelectEl.appendChild(opt);
             });
-            collabRoomSelectEl.value = selectedId || '';
             const enabled = !!collabProject;
+            if (collabIsRegistered && enabled) {
+                const createOpt = document.createElement('option');
+                createOpt.value = collabCreateOptionValue;
+                createOpt.textContent = '+ Создать комнату';
+                collabRoomSelectEl.appendChild(createOpt);
+            }
+            collabRoomSelectEl.value = selectedId || '';
             collabRoomSelectEl.disabled = !enabled;
-            if (collabRoomNewBtn) collabRoomNewBtn.disabled = !enabled || !collabIsRegistered;
             updateAdminControls();
             updateCollabFooter();
         }
@@ -1838,6 +1846,11 @@ class ViewerApp {
         if (collabProjectSelectEl) {
             collabProjectSelectEl.addEventListener('change', () => {
                 const id = collabProjectSelectEl.value;
+                if (id === collabCreateOptionValue) {
+                    toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, true);
+                    collabProjectSelectEl.value = collabProject?.id || '';
+                    return;
+                }
                 collabProject = collabProjects.find((p) => p.id === id) || null;
                 collabRoom = null;
                 renderRoomOptions([], '');
@@ -1854,6 +1867,11 @@ class ViewerApp {
         if (collabRoomSelectEl) {
             collabRoomSelectEl.addEventListener('change', () => {
                 const id = collabRoomSelectEl.value;
+                if (id === collabCreateOptionValue) {
+                    toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, true);
+                    collabRoomSelectEl.value = collabRoom?.id || '';
+                    return;
+                }
                 collabRoom = collabRooms.find((r) => r.id === id) || null;
                 if (collabRoom && collabAuthed && !collabController) {
                     void connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
@@ -1861,10 +1879,6 @@ class ViewerApp {
                 updateAdminControls();
             });
         }
-
-        collabProjectNewBtn?.addEventListener?.('click', () => {
-            toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl);
-        });
 
         collabProjectCreateBtnEl?.addEventListener?.('click', () => {
             void submitProjectCreate();
@@ -1874,10 +1888,6 @@ class ViewerApp {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             void submitProjectCreate();
-        });
-
-        collabRoomNewBtn?.addEventListener?.('click', () => {
-            toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl);
         });
 
         collabRoomCreateBtnEl?.addEventListener?.('click', () => {
