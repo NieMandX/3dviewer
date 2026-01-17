@@ -1129,12 +1129,10 @@ select.custom-select-native:disabled {
 .custom-select-option:hover,
 .custom-select-option:focus-visible {
     background: var(--controlBgHover);
-    border-color: var(--borderStrong);
 }
 
 .custom-select-option.is-selected {
     background: var(--controlBgHover);
-    border-color: var(--borderStrong);
     font-weight: 600;
 }
 
