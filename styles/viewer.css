@@ -1834,7 +1834,7 @@ body.bg-black .side input[type="text"] {
     right: 0;
     bottom: 0;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
     justify-content: space-between;
     padding: 4px 10px;
@@ -1852,12 +1852,18 @@ body.bg-black .side input[type="text"] {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     min-width: 0;
     pointer-events: auto;
 }
 
 .app-footer .footer-right { margin-left: auto; }
+
+.app-footer .footer-left {
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
 
 .app-footer .footer-btn {
     padding: 2px 8px;
@@ -1883,7 +1889,6 @@ body.bg-black .side input[type="text"] {
     color: var(--muted);
     font-family: "SFMono-Regular", Consolas, Monaco, "Liberation Mono", monospace;
     white-space: nowrap;
-    overflow-x: auto;
 }
 
 .collab-footer-guest,
