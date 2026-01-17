@@ -574,9 +574,6 @@ class ViewerApp {
         const collabRoomNameInputEl = dom.collabRoomNameInputEl;
         const collabRoomLinkEl = dom.collabRoomLinkEl;
         const collabCopyBtn = dom.collabCopyBtn;
-        const collabAdminSectionEl = dom.collabAdminSectionEl;
-        const collabProjectDeleteBtn = dom.collabProjectDeleteBtn;
-        const collabRoomDeleteBtn = dom.collabRoomDeleteBtn;
         const collabReserveBtn = dom.collabReserveBtn;
         const collabOwnerEl = dom.collabOwnerEl;
         const collabParticipantsEl = dom.collabParticipantsEl;
@@ -897,7 +894,6 @@ class ViewerApp {
                 cancelText: 'Отмена',
             });
             if (!confirmed) return;
-            if (collabProjectDeleteBtn) collabProjectDeleteBtn.disabled = true;
             try {
                 const { error } = await collabSupabase.from('projects').delete().eq('id', projectId);
                 if (error) throw error;
@@ -931,7 +927,6 @@ class ViewerApp {
                 cancelText: 'Отмена',
             });
             if (!confirmed) return;
-            if (collabRoomDeleteBtn) collabRoomDeleteBtn.disabled = true;
             try {
                 const { error } = await collabSupabase.from('rooms').delete().eq('id', roomId);
                 if (error) throw error;
@@ -1112,13 +1107,11 @@ class ViewerApp {
         }
 
         function updateAdminControls() {
-            if (collabAdminSectionEl) {
-                collabAdminSectionEl.hidden = !collabIsSuperuser;
-            }
             const canDeleteProject = !!collabProject && canDeleteProjectItem(collabProject);
             const canDeleteRoom = !!collabRoom && canDeleteRoomItem(collabRoom);
-            if (collabProjectDeleteBtn) collabProjectDeleteBtn.disabled = !canDeleteProject;
-            if (collabRoomDeleteBtn) collabRoomDeleteBtn.disabled = !canDeleteRoom;
+            if (canDeleteProject || canDeleteRoom) {
+                setCollabStatus('ready');
+            }
         }
 
         function buildResetRedirectUrl() {
@@ -1956,18 +1949,6 @@ class ViewerApp {
             event.preventDefault();
             void submitRoomCreate();
         });
-
-        if (collabProjectDeleteBtn) {
-            collabProjectDeleteBtn.addEventListener('click', () => {
-                void deleteCurrentProject();
-            });
-        }
-
-        if (collabRoomDeleteBtn) {
-            collabRoomDeleteBtn.addEventListener('click', () => {
-                void deleteCurrentRoom();
-            });
-        }
 
         if (collabChatSendBtn && collabChatInputEl) {
             collabChatSendBtn.addEventListener('click', () => {
