@@ -131,10 +131,50 @@ function createCustomSelect(select) {
             const item = document.createElement('button');
             item.type = 'button';
             item.className = 'custom-select-option';
-            item.textContent = option.textContent;
             item.dataset.value = option.value;
             item.dataset.index = String(index);
             item.disabled = option.disabled;
+
+            const labelEl = document.createElement('span');
+            labelEl.className = 'custom-select-option-label';
+            labelEl.textContent = option.textContent;
+            item.appendChild(labelEl);
+
+            const canDelete = option.dataset?.deletable === '1' && !option.disabled;
+            if (canDelete) {
+                const deleteBtn = document.createElement('span');
+                deleteBtn.className = 'custom-select-option-delete';
+                deleteBtn.setAttribute('role', 'button');
+                deleteBtn.setAttribute('tabindex', '0');
+                deleteBtn.setAttribute('aria-label', 'Удалить');
+                deleteBtn.innerHTML =
+                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M7 7l1 12h8l1-12"/></svg>';
+                deleteBtn.addEventListener('click', (event) => {
+                    event.preventDefault?.();
+                    event.stopPropagation?.();
+                    const detail = {
+                        value: option.value,
+                        index,
+                        label: option.textContent,
+                    };
+                    select.dispatchEvent(new CustomEvent('customselect:delete', { detail, bubbles: true }));
+                    close();
+                });
+                deleteBtn.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault?.();
+                    event.stopPropagation?.();
+                    const detail = {
+                        value: option.value,
+                        index,
+                        label: option.textContent,
+                    };
+                    select.dispatchEvent(new CustomEvent('customselect:delete', { detail, bubbles: true }));
+                    close();
+                });
+                item.appendChild(deleteBtn);
+            }
+
             if (option.selected) item.classList.add('is-selected');
             item.addEventListener('click', (event) => {
                 event.preventDefault?.();

@@ -873,42 +873,23 @@ class ViewerApp {
             if (collabRoomLinkEl) collabRoomLinkEl.value = '';
         }
 
-        async function deleteCurrentRoom() {
-            if (!collabSupabase || !collabRoom || !collabIsSuperuser) return;
-            const name = collabRoom.slug || 'комната';
-            const confirmed = await confirmModal.open({
-                title: 'Удалить комнату',
-                message: `Удалить комнату "${name}"?`,
-                okText: 'Удалить',
-                cancelText: 'Отмена',
-            });
-            if (!confirmed) return;
-            if (collabRoomDeleteBtn) collabRoomDeleteBtn.disabled = true;
-            try {
-                const roomId = collabRoom.id;
-                const { error } = await collabSupabase.from('rooms').delete().eq('id', roomId);
-                if (error) throw error;
-                if (collabController?.room?.id === roomId) {
-                    await teardownCollabSession();
-                }
-                collabRoom = null;
-                if (collabProject) {
-                    await loadRooms(collabProject.id);
-                } else {
-                    renderRoomOptions([], '');
-                }
-                setRoomSlugInUrl(collabProject?.slug || '', '');
-            } catch (err) {
-                console.error('Room delete failed', err);
-                setCollabStatus('error');
-            } finally {
-                updateAdminControls();
-            }
+        function canDeleteProjectItem(project) {
+            if (!project || !collabUser) return false;
+            return collabIsSuperuser || project.owner_id === collabUser.id;
         }
 
-        async function deleteCurrentProject() {
-            if (!collabSupabase || !collabProject || !collabIsSuperuser) return;
-            const name = collabProject.name || collabProject.slug || 'проект';
+        function canDeleteRoomItem(room) {
+            if (!room || !collabUser) return false;
+            if (collabIsSuperuser) return true;
+            if (room.owner_id === collabUser.id) return true;
+            return collabProject?.owner_id === collabUser.id;
+        }
+
+        async function deleteProjectById(projectId) {
+            if (!collabSupabase || !projectId) return;
+            const project = collabProjects.find((p) => p.id === projectId) || collabProject;
+            if (!canDeleteProjectItem(project)) return;
+            const name = project?.name || project?.slug || 'проект';
             const confirmed = await confirmModal.open({
                 title: 'Удалить проект',
                 message: `Удалить проект "${name}" и все комнаты внутри?`,
@@ -918,23 +899,70 @@ class ViewerApp {
             if (!confirmed) return;
             if (collabProjectDeleteBtn) collabProjectDeleteBtn.disabled = true;
             try {
-                const projectId = collabProject.id;
                 const { error } = await collabSupabase.from('projects').delete().eq('id', projectId);
                 if (error) throw error;
                 if (collabController?.project?.id === projectId) {
                     await teardownCollabSession();
                 }
-                collabProject = null;
-                collabRoom = null;
+                if (collabProject?.id === projectId) {
+                    collabProject = null;
+                    collabRoom = null;
+                    setRoomSlugInUrl('', '');
+                }
                 await loadProjects();
                 renderRoomOptions([], '');
-                setRoomSlugInUrl('', '');
             } catch (err) {
                 console.error('Project delete failed', err);
                 setCollabStatus('error');
             } finally {
                 updateAdminControls();
             }
+        }
+
+        async function deleteRoomById(roomId) {
+            if (!collabSupabase || !roomId) return;
+            const room = collabRooms.find((r) => r.id === roomId) || collabRoom;
+            if (!canDeleteRoomItem(room)) return;
+            const name = room?.slug || 'комната';
+            const confirmed = await confirmModal.open({
+                title: 'Удалить комнату',
+                message: `Удалить комнату "${name}"?`,
+                okText: 'Удалить',
+                cancelText: 'Отмена',
+            });
+            if (!confirmed) return;
+            if (collabRoomDeleteBtn) collabRoomDeleteBtn.disabled = true;
+            try {
+                const { error } = await collabSupabase.from('rooms').delete().eq('id', roomId);
+                if (error) throw error;
+                if (collabController?.room?.id === roomId) {
+                    await teardownCollabSession();
+                }
+                if (collabRoom?.id === roomId) {
+                    collabRoom = null;
+                    setRoomSlugInUrl(collabProject?.slug || '', '');
+                }
+                if (collabProject) {
+                    await loadRooms(collabProject.id);
+                } else {
+                    renderRoomOptions([], '');
+                }
+            } catch (err) {
+                console.error('Room delete failed', err);
+                setCollabStatus('error');
+            } finally {
+                updateAdminControls();
+            }
+        }
+
+        async function deleteCurrentRoom() {
+            if (!collabRoom) return;
+            await deleteRoomById(collabRoom.id);
+        }
+
+        async function deleteCurrentProject() {
+            if (!collabProject) return;
+            await deleteProjectById(collabProject.id);
         }
 
         function appendChatMessage(message, options = {}) {
@@ -1087,8 +1115,8 @@ class ViewerApp {
             if (collabAdminSectionEl) {
                 collabAdminSectionEl.hidden = !collabIsSuperuser;
             }
-            const canDeleteProject = collabIsSuperuser && !!collabProject;
-            const canDeleteRoom = collabIsSuperuser && !!collabRoom;
+            const canDeleteProject = !!collabProject && canDeleteProjectItem(collabProject);
+            const canDeleteRoom = !!collabRoom && canDeleteRoomItem(collabRoom);
             if (collabProjectDeleteBtn) collabProjectDeleteBtn.disabled = !canDeleteProject;
             if (collabRoomDeleteBtn) collabRoomDeleteBtn.disabled = !canDeleteRoom;
         }
@@ -1330,6 +1358,8 @@ class ViewerApp {
                 const opt = document.createElement('option');
                 opt.value = project.id;
                 opt.textContent = project.name || project.slug || 'Проект';
+                if (project.owner_id) opt.dataset.ownerId = project.owner_id;
+                if (canDeleteProjectItem(project)) opt.dataset.deletable = '1';
                 collabProjectSelectEl.appendChild(opt);
             });
             if (collabIsRegistered) {
@@ -1354,6 +1384,8 @@ class ViewerApp {
                 const opt = document.createElement('option');
                 opt.value = room.id;
                 opt.textContent = room.slug || 'Комната';
+                if (room.owner_id) opt.dataset.ownerId = room.owner_id;
+                if (canDeleteRoomItem(room)) opt.dataset.deletable = '1';
                 collabRoomSelectEl.appendChild(opt);
             });
             const enabled = !!collabProject;
@@ -1373,7 +1405,7 @@ class ViewerApp {
             if (!collabSupabase) return [];
             const { data, error } = await collabSupabase
                 .from('projects')
-                .select('id, name, slug, created_at')
+                .select('id, name, slug, owner_id, created_at')
                 .order('created_at', { ascending: true });
             if (error) throw error;
             collabProjects = Array.isArray(data) ? data : [];
@@ -1385,7 +1417,7 @@ class ViewerApp {
             if (!collabSupabase || !projectId) return [];
             const { data, error } = await collabSupabase
                 .from('rooms')
-                .select('id, slug, created_at')
+                .select('id, slug, owner_id, created_at')
                 .eq('project_id', projectId)
                 .order('created_at', { ascending: true });
             if (error) throw error;
@@ -1410,7 +1442,7 @@ class ViewerApp {
                         slug: nextSlug,
                         owner_id: collabUser.id,
                     })
-                    .select('id, name, slug, created_at')
+                    .select('id, name, slug, owner_id, created_at')
                     .single();
                 if (!error) {
                     created = data;
@@ -1419,6 +1451,7 @@ class ViewerApp {
                 nextSlug = `${baseSlug}-${makeSlug(4)}`;
             }
             if (!created) return;
+            if (!created.owner_id) created.owner_id = collabUser.id;
             collabProject = created;
             await loadProjects();
             await loadRooms(created.id);
@@ -1442,7 +1475,7 @@ class ViewerApp {
                         slug: nextSlug,
                         owner_id: collabUser.id,
                     })
-                    .select('id, slug, created_at')
+                    .select('id, slug, owner_id, created_at')
                     .single();
                 if (!error) {
                     created = data;
@@ -1451,6 +1484,7 @@ class ViewerApp {
                 nextSlug = `${baseSlug}-${makeSlug(4)}`;
             }
             if (!created) return;
+            if (!created.owner_id) created.owner_id = collabUser.id;
             collabRoom = created;
             await loadRooms(collabProject.id);
             if (collabAuthed && !collabController) {
@@ -1492,7 +1526,7 @@ class ViewerApp {
             if (!collabSupabase || !projectId || !slug) return null;
             const { data: existing, error: findError } = await collabSupabase
                 .from('rooms')
-                .select('id, slug, project_id, created_at')
+                .select('id, slug, project_id, owner_id, created_at')
                 .eq('project_id', projectId)
                 .eq('slug', slug)
                 .limit(1)
@@ -1507,7 +1541,7 @@ class ViewerApp {
                     slug,
                     owner_id: collabUser?.id,
                 })
-                .select('id, slug, project_id, created_at')
+                .select('id, slug, project_id, owner_id, created_at')
                 .single();
             if (error) throw error;
             return created;
@@ -1883,6 +1917,11 @@ class ViewerApp {
                 }
                 updateAdminControls();
             });
+            collabProjectSelectEl.addEventListener('customselect:delete', (event) => {
+                const value = event?.detail?.value;
+                if (!value) return;
+                void deleteProjectById(String(value));
+            });
         }
 
         if (collabRoomSelectEl) {
@@ -1898,6 +1937,11 @@ class ViewerApp {
                     void connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
                 }
                 updateAdminControls();
+            });
+            collabRoomSelectEl.addEventListener('customselect:delete', (event) => {
+                const value = event?.detail?.value;
+                if (!value) return;
+                void deleteRoomById(String(value));
             });
         }
 
