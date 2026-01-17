@@ -1116,7 +1116,7 @@ select.custom-select-native:disabled {
 .custom-select-list.is-open { display: flex; }
 
 .custom-select-option {
-    border: 0;
+    border: 1px solid transparent;
     background: transparent;
     color: inherit;
     padding: 6px 8px;
@@ -1126,12 +1126,15 @@ select.custom-select-native:disabled {
     cursor: pointer;
 }
 
-.custom-select-option:hover {
+.custom-select-option:hover,
+.custom-select-option:focus-visible {
     background: var(--controlBgHover);
+    border-color: var(--borderStrong);
 }
 
 .custom-select-option.is-selected {
-    background: rgba(0, 0, 0, 0.08);
+    background: var(--controlBgHover);
+    border-color: var(--borderStrong);
     font-weight: 600;
 }
 
