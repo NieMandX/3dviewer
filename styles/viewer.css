@@ -1128,11 +1128,11 @@ select.custom-select-native:disabled {
 
 .custom-select-option:hover,
 .custom-select-option:focus-visible {
-    background: var(--controlBgHover);
+    background: rgba(0, 0, 0, 0.06);
 }
 
 .custom-select-option.is-selected {
-    background: var(--controlBgHover);
+    background: rgba(0, 0, 0, 0.08);
     font-weight: 600;
 }
 
@@ -1804,6 +1804,15 @@ body.bg-black .side input[type="number"],
 body.bg-black .side input[type="text"] {
     background: #000;
     color: var(--ink);
+}
+
+body.bg-black .custom-select-option:hover,
+body.bg-black .custom-select-option:focus-visible {
+    background: var(--controlBgHover);
+}
+
+body.bg-black .custom-select-option.is-selected {
+    background: rgba(255, 255, 255, 0.16);
 }
 
 .bind-log {
