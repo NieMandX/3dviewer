@@ -1929,7 +1929,7 @@ body.bg-black .custom-select-option.is-selected {
     min-width: 160px;
     appearance: none;
     padding-right: 2px;
-    top: -1px;
+    top: -6px;
 }
 
 .collab-footer-create {
