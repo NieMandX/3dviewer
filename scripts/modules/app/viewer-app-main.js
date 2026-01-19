@@ -1260,7 +1260,7 @@ class ViewerApp {
                 collabAuthed = false;
                 collabIsRegistered = false;
                 collabIsSuperuser = false;
-                setCollabControlsDisabled(true);
+                setCollabControlsDisabled(false);
                 setCollabCreateEnabled(false);
                 setCollabSessionEnabled(false);
                 setCollabToolsEnabled(false);
@@ -1892,12 +1892,15 @@ class ViewerApp {
         }
 
         if (collabProjectSelectEl) {
-            collabProjectSelectEl.addEventListener('change', () => {
+            collabProjectSelectEl.addEventListener('change', async () => {
                 const id = collabProjectSelectEl.value;
                 if (id === collabCreateOptionValue) {
                     toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, true);
                     collabProjectSelectEl.value = collabProject?.id || '';
                     return;
+                }
+                if (collabController && collabProject?.id && collabProject.id !== id) {
+                    await teardownCollabSession();
                 }
                 collabProject = collabProjects.find((p) => p.id === id) || null;
                 collabRoom = null;
@@ -1906,7 +1909,7 @@ class ViewerApp {
                     collabRoomLinkEl.value = '';
                 }
                 if (collabProject) {
-                    void loadRooms(collabProject.id);
+                    await loadRooms(collabProject.id);
                 }
                 updateAdminControls();
             });
@@ -1918,12 +1921,15 @@ class ViewerApp {
         }
 
         if (collabRoomSelectEl) {
-            collabRoomSelectEl.addEventListener('change', () => {
+            collabRoomSelectEl.addEventListener('change', async () => {
                 const id = collabRoomSelectEl.value;
                 if (id === collabCreateOptionValue) {
                     toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, true);
                     collabRoomSelectEl.value = collabRoom?.id || '';
                     return;
+                }
+                if (collabController && collabRoom?.id && collabRoom.id !== id) {
+                    await teardownCollabSession();
                 }
                 collabRoom = collabRooms.find((r) => r.id === id) || null;
                 if (collabRoom && collabAuthed && !collabController) {
