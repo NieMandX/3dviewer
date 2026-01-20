@@ -22,6 +22,7 @@ drop function if exists public.add_project_owner_member();
 drop function if exists public.set_updated_at();
 drop function if exists public.is_registered_user();
 drop function if exists public.is_superuser();
+drop function if exists public.delete_project_model_storage_object();
 
 create extension if not exists "pgcrypto";
 
@@ -39,6 +40,45 @@ language sql
 stable
 as $$
     select coalesce(auth.jwt() ->> 'email', '') <> '';
+$$;
+
+create or replace function public.delete_project_model_storage_object()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, storage
+as $$
+declare
+    raw_path text;
+    bucket text;
+    object_name text;
+begin
+    if old.url is null or old.url = '' then
+        return old;
+    end if;
+    if position('/storage/v1/object/' in old.url) = 0 then
+        return old;
+    end if;
+
+    raw_path := split_part(old.url, '/storage/v1/object/', 2);
+    raw_path := split_part(raw_path, '?', 1);
+    if raw_path = '' then
+        return old;
+    end if;
+
+    raw_path := regexp_replace(raw_path, '^(public|sign)/', '');
+    bucket := split_part(raw_path, '/', 1);
+    object_name := substr(raw_path, length(bucket) + 2);
+    if bucket = '' or object_name = '' then
+        return old;
+    end if;
+
+    delete from storage.objects
+    where bucket_id = bucket
+      and name = object_name;
+
+    return old;
+end;
 $$;
 
 create table if not exists public.projects (
@@ -94,6 +134,11 @@ drop trigger if exists project_models_updated_at on public.project_models;
 create trigger project_models_updated_at
 before update on public.project_models
 for each row execute function public.set_updated_at();
+
+drop trigger if exists project_models_storage_delete on public.project_models;
+create trigger project_models_storage_delete
+after delete on public.project_models
+for each row execute function public.delete_project_model_storage_object();
 
 create table if not exists public.rooms (
     id uuid primary key default gen_random_uuid(),
