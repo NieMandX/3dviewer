@@ -1199,7 +1199,7 @@ select.custom-select-native:disabled {
 .collab-drawer {
     position: fixed;
     left: 50%;
-    bottom: calc(50% - 280px);
+    bottom: calc(50% - 320px);
     transform: translateX(-50%);
     width: min(360px, calc(100vw - 24px));
     z-index: 6;
@@ -1249,7 +1249,7 @@ select.custom-select-native:disabled {
 .auth-fields {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 0px;
 }
 
 .auth-field,
@@ -1261,6 +1261,16 @@ select.custom-select-native:disabled {
     pointer-events: none;
     overflow: hidden;
     transition: max-height 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+.auth-panel[data-mode="login"] .auth-email,
+.auth-panel[data-mode="register"] .auth-email,
+.auth-panel[data-mode="register"] .auth-name,
+.auth-panel[data-mode="roomEntry"] .auth-name,
+.auth-panel[data-mode="login"] .auth-password,
+.auth-panel[data-mode="register"] .auth-password,
+.auth-panel[data-mode="register"] .auth-password-confirm {
+    overflow: visible;
 }
 
 .auth-panel[data-mode="login"] .auth-email,
