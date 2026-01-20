@@ -66,6 +66,7 @@ export function createAnnotations3DController(options = {}) {
             addRemoteAnnotation: () => null,
             removeRemoteAnnotation: () => false,
             registerAnnotationId: () => false,
+            applyWorldOffsetDelta: () => {},
             dispose: () => {},
         });
     }
@@ -126,10 +127,25 @@ export function createAnnotations3DController(options = {}) {
         return [vec.x, vec.y, vec.z];
     }
 
-    function arraysToPoints(list) {
+    function toStoredPoint(vec) {
+        if (!vec) return null;
+        const stored = vec.clone();
+        if (world?.position) stored.sub(world.position);
+        return stored;
+    }
+
+    function fromStoredPoint(vec, coordSpace) {
+        if (!vec) return null;
+        if (coordSpace === 'world' && world?.position) {
+            vec.add(world.position);
+        }
+        return vec;
+    }
+
+    function arraysToPoints(list, coordSpace) {
         if (!Array.isArray(list)) return [];
         return list
-            .map((pt) => (Array.isArray(pt) ? new THREE.Vector3(pt[0], pt[1], pt[2]) : null))
+            .map((pt) => (Array.isArray(pt) ? fromStoredPoint(new THREE.Vector3(pt[0], pt[1], pt[2]), coordSpace) : null))
             .filter((pt) => pt);
     }
 
@@ -600,10 +616,11 @@ export function createAnnotations3DController(options = {}) {
             kind: shape.type,
             payload: {
                 kind: shape.type,
-                points: points.map(vecToArray),
+                points: points.map((pt) => vecToArray(toStoredPoint(pt))),
                 style: serializeStyle(shape.style),
                 layerId: layer?.id || null,
                 layerName: layer?.name || null,
+                coordSpace: 'world',
             },
         };
     }
@@ -614,7 +631,7 @@ export function createAnnotations3DController(options = {}) {
             kind: 'rect',
             payload: {
                 kind: 'rect',
-                corners: rect.corners.map(vecToArray),
+                corners: rect.corners.map((pt) => vecToArray(toStoredPoint(pt))),
                 width: rect.width,
                 height: rect.height,
                 normal: rect.normal ? vecToArray(rect.normal) : null,
@@ -629,6 +646,7 @@ export function createAnnotations3DController(options = {}) {
                 },
                 layerId: layer?.id || null,
                 layerName: layer?.name || null,
+                coordSpace: 'world',
             },
         };
     }
@@ -1418,9 +1436,10 @@ export function createAnnotations3DController(options = {}) {
     function buildStrokeFromRecord(record) {
         if (!record) return null;
         const payload = record.payload || {};
+        const coordSpace = payload.coordSpace || null;
         const kind = record.kind || payload.kind;
         if (kind === 'rect') {
-            const corners = arraysToPoints(payload.corners || []);
+            const corners = arraysToPoints(payload.corners || [], coordSpace);
             if (corners.length < 4) return null;
             const widthValue = Number.isFinite(payload.width) ? payload.width : corners[0].distanceTo(corners[1]);
             const heightValue = Number.isFinite(payload.height) ? payload.height : corners[1].distanceTo(corners[2]);
@@ -1436,12 +1455,24 @@ export function createAnnotations3DController(options = {}) {
                 ...(payload.settings || {}),
                 color: payload.settings?.color || style.color,
             };
-            return buildRectangleAnnotation(rect, style, settings);
+            const stroke = buildRectangleAnnotation(rect, style, settings);
+            if (stroke && !coordSpace) {
+                stroke.userData = stroke.userData || {};
+                stroke.userData.legacyCoordSpace = true;
+                stroke.userData.legacyWorldPos = world?.position ? world.position.clone() : null;
+            }
+            return stroke;
         }
-        const points = arraysToPoints(payload.points || []);
+        const points = arraysToPoints(payload.points || [], coordSpace);
         if (!points.length) return null;
         const style = normalizeStrokeStyle(payload.style);
-        return buildStrokeObject(points, style);
+        const stroke = buildStrokeObject(points, style);
+        if (stroke && !coordSpace) {
+            stroke.userData = stroke.userData || {};
+            stroke.userData.legacyCoordSpace = true;
+            stroke.userData.legacyWorldPos = world?.position ? world.position.clone() : null;
+        }
+        return stroke;
     }
 
     function undo() {
@@ -1493,6 +1524,20 @@ export function createAnnotations3DController(options = {}) {
         if (!stroke || !annotationId) return false;
         registerStrokeAnnotation(stroke, annotationId);
         return true;
+    }
+
+    function applyWorldOffsetDelta(delta) {
+        if (!delta || !Number.isFinite(delta.x) || !Number.isFinite(delta.y) || !Number.isFinite(delta.z)) return;
+        if (delta.lengthSq() < 1e-12) return;
+        layers.forEach((layer) => {
+            layer.strokes.forEach((stroke) => {
+                if (!stroke?.userData?.legacyCoordSpace) return;
+                const legacyWorldPos = stroke.userData.legacyWorldPos;
+                if (legacyWorldPos && legacyWorldPos.lengthSq() > 1e-10) return;
+                stroke.position.sub(delta);
+            });
+        });
+        requestRender();
     }
 
     function ensurePointerCapture(e) {
@@ -1815,6 +1860,7 @@ export function createAnnotations3DController(options = {}) {
         addRemoteAnnotation,
         removeRemoteAnnotation,
         registerAnnotationId,
+        applyWorldOffsetDelta,
         dispose,
     });
 }

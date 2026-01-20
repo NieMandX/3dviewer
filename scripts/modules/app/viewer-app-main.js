@@ -2223,9 +2223,17 @@ class ViewerApp {
 	            return worldOffsetController.computeAutoOffsetHorizontalOnly();
 	        }
 
-	        function setWorldOffset(offset) {
-	            worldOffsetController.setWorldOffset(offset);
-	        }
+        function setWorldOffset(offset) {
+            const prevWorldPos = world?.position ? world.position.clone() : null;
+            worldOffsetController.setWorldOffset(offset);
+            if (prevWorldPos && annotations3d?.applyWorldOffsetDelta) {
+                const nextWorldPos = world?.position ? world.position.clone() : null;
+                if (nextWorldPos) {
+                    const delta = nextWorldPos.sub(prevWorldPos);
+                    annotations3d.applyWorldOffsetDelta(delta);
+                }
+            }
+        }
 
 		        // =====================
 		        // Layout helper
