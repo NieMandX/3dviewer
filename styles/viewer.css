@@ -1307,6 +1307,16 @@ select.custom-select-native:disabled {
     margin-top: 10px;
 }
 
+.auth-panel[data-mode="initial"],
+.auth-panel[data-mode="roomEntry"] {
+    gap: 6px;
+}
+
+.auth-panel[data-mode="initial"] .auth-actions-initial,
+.auth-panel[data-mode="roomEntry"] .auth-actions-room {
+    margin-top: 0;
+}
+
 .auth-panel[data-mode="initial"] .auth-actions-initial,
 .auth-panel[data-mode="login"] .auth-actions-login,
 .auth-panel[data-mode="register"] .auth-actions-register,
