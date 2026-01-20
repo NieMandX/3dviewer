@@ -1309,7 +1309,7 @@ select.custom-select-native:disabled {
 
 .auth-panel[data-mode="initial"],
 .auth-panel[data-mode="roomEntry"] {
-    gap: 2px;
+    gap: 20px;
 }
 
 .auth-panel[data-mode="initial"] .auth-fields,
