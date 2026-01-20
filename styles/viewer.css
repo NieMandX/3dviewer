@@ -1249,7 +1249,7 @@ select.custom-select-native:disabled {
 .auth-fields {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 5px;
 }
 
 .auth-field,
@@ -1300,11 +1300,23 @@ select.custom-select-native:disabled {
     gap: 8px;
 }
 
+.auth-actions-login,
+.auth-actions-register {
+    flex-wrap: nowrap;
+}
+
+.auth-actions-login .btn,
+.auth-actions-register .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: nowrap;
+}
+
 .auth-panel[data-mode="initial"] .auth-actions-initial,
 .auth-panel[data-mode="login"] .auth-actions-login,
 .auth-panel[data-mode="register"] .auth-actions-register,
 .auth-panel[data-mode="roomEntry"] .auth-actions-room {
-    margin-top: 10px;
+    margin-top: 6px;
 }
 
 .auth-panel[data-mode="initial"],

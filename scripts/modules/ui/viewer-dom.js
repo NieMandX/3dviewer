@@ -102,7 +102,7 @@ export function collectViewerDom(document) {
         collabAuthErrorEl: get('collabAuthError'),
         collabShowLoginBtn: get('collabShowLoginBtn'),
         collabShowRegisterBtn: get('collabShowRegisterBtn'),
-        collabBackBtn: get('collabBackBtn'),
+        collabBackBtns: Array.from(document.querySelectorAll('.collab-back')),
         collabJoinBtn: get('collabJoinBtn'),
         collabSignupBtn: get('collabSignupBtn'),
         collabGuestBtn: get('collabGuestBtn'),

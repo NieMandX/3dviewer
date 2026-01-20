@@ -551,7 +551,7 @@ class ViewerApp {
         const collabAuthErrorEl = dom.collabAuthErrorEl;
         const collabShowLoginBtn = dom.collabShowLoginBtn;
         const collabShowRegisterBtn = dom.collabShowRegisterBtn;
-        const collabBackBtn = dom.collabBackBtn;
+        const collabBackBtns = dom.collabBackBtns;
         const collabJoinBtn = dom.collabJoinBtn;
         const collabSignupBtn = dom.collabSignupBtn;
         const collabGuestBtn = dom.collabGuestBtn;
@@ -1838,9 +1838,11 @@ class ViewerApp {
             });
         }
 
-        if (collabBackBtn) {
-            collabBackBtn.addEventListener('click', () => {
-                setAuthMode(getInitialAuthMode());
+        if (collabBackBtns && collabBackBtns.length) {
+            collabBackBtns.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    setAuthMode(getInitialAuthMode());
+                });
             });
         }
 
