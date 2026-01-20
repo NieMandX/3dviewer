@@ -1335,9 +1335,7 @@ select.custom-select-native:disabled {
 }
 
 .auth-panel[data-mode="initial"] .auth-fields,
-.auth-panel[data-mode="roomEntry"] .auth-fields,
-.auth-panel[data-mode="initial"] .auth-error,
-.auth-panel[data-mode="roomEntry"] .auth-error {
+.auth-panel[data-mode="initial"] .auth-error {
     display: none;
 }
 
