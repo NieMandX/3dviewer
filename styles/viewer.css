@@ -1243,7 +1243,7 @@ select.custom-select-native:disabled {
 .auth-body {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 0;
 }
 
 .auth-fields {
@@ -1298,6 +1298,13 @@ select.custom-select-native:disabled {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+.auth-panel[data-mode="initial"] .auth-actions-initial,
+.auth-panel[data-mode="login"] .auth-actions-login,
+.auth-panel[data-mode="register"] .auth-actions-register,
+.auth-panel[data-mode="roomEntry"] .auth-actions-room {
+    margin-top: 10px;
 }
 
 .auth-panel[data-mode="initial"] .auth-actions-initial,
