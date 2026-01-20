@@ -239,6 +239,11 @@ export async function createCollabController(options = {}) {
         if (typeof onCameraOwner === 'function') onCameraOwner(payload.ownerId || null);
     });
 
+    roomChannel.on('broadcast', { event: 'annotation' }, ({ payload }) => {
+        if (!payload || payload.sender === user.id) return;
+        if (typeof onAnnotation === 'function') onAnnotation(payload, { source: 'broadcast' });
+    });
+
     await new Promise((resolve, reject) => {
         roomChannel.subscribe((statusValue, err) => {
             if (err) {
@@ -376,6 +381,11 @@ export async function createCollabController(options = {}) {
             .select('*')
             .single();
         if (error) throw error;
+        await roomChannel.send({
+            type: 'broadcast',
+            event: 'annotation',
+            payload: { ...data, sender: user.id },
+        });
         return data;
     }
 

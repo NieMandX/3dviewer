@@ -1472,6 +1472,11 @@ export function createAnnotations3DController(options = {}) {
             : getActiveLayer();
         const stroke = buildStrokeFromRecord(record);
         if (!stroke) return null;
+        if (record.author_name) {
+            stroke.userData = stroke.userData || {};
+            stroke.userData.authorName = record.author_name;
+            if (record.author_id) stroke.userData.authorId = record.author_id;
+        }
         addStrokeToLayer(stroke, layer, { skipUndo: true, annotationId: record.id });
         return stroke;
     }

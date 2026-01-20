@@ -525,6 +525,13 @@ class ViewerApp {
                 if (!collabController || !record || !stroke) return;
                 const id = makeClientId();
                 record.id = id;
+                const authorName = collabController.getDisplayName?.();
+                if (authorName) {
+                    record.author_name = authorName;
+                    stroke.userData = stroke.userData || {};
+                    stroke.userData.authorName = authorName;
+                    stroke.userData.authorId = collabController.user?.id || null;
+                }
                 annotations3d?.registerAnnotationId?.(stroke, id);
                 collabController.sendAnnotation(record).catch((err) => {
                     console.error('Annotation sync failed', err);
