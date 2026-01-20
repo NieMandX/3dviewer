@@ -674,7 +674,7 @@ body.bg-black details.cam-props-panel .btn.active:not(.primary) {
 .btn {
     border: 1px solid var(--border);
     background: var(--controlBg);
-    padding: 6px 8px;
+    padding: 6px 0px;
     border-radius: 8px;
     cursor: pointer;
     color: var(--ink);
@@ -1199,7 +1199,7 @@ select.custom-select-native:disabled {
 .collab-drawer {
     position: fixed;
     left: 50%;
-    bottom: calc(50% - 230px);
+    bottom: calc(50% - 180px);
     transform: translateX(-50%);
     width: min(360px, calc(100vw - 24px));
     z-index: 6;
@@ -1209,7 +1209,7 @@ select.custom-select-native:disabled {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 10px 12px 8px;
+    padding: 10px 12px 12px;
     background: var(--surfaceStrong);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -1334,6 +1334,11 @@ select.custom-select-native:disabled {
 .auth-foot {
     display: flex;
     justify-content: flex-start;
+}
+
+.auth-panel[data-mode="initial"] .auth-foot,
+.auth-panel[data-mode="roomEntry"] .auth-foot {
+    display: none;
 }
 
 .auth-panel[data-mode="login"] .auth-back,
