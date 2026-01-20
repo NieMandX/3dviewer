@@ -1208,8 +1208,8 @@ select.custom-select-native:disabled {
 .auth-panel {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 10px 12px 12px;
+    gap: 5px;
+    padding: 6px 8px 8px;
     background: var(--surfaceStrong);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -1221,18 +1221,18 @@ select.custom-select-native:disabled {
 .auth-head {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
 }
 
 .auth-title {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
 }
 
 .auth-close {
     margin-left: auto;
-    width: 28px;
-    height: 28px;
+    width: 20px;
+    height: 20px;
     padding: 0;
     display: inline-flex;
     align-items: center;
@@ -1243,13 +1243,13 @@ select.custom-select-native:disabled {
 .auth-body {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 5px;
 }
 
 .auth-fields {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
 }
 
 .auth-field,
@@ -1265,7 +1265,7 @@ select.custom-select-native:disabled {
 
 .auth-panel[data-mode="login"] .auth-email,
 .auth-panel[data-mode="register"] .auth-email {
-    max-height: 80px;
+    max-height: 40px;
     opacity: 1;
     transform: none;
     pointer-events: auto;
@@ -1273,7 +1273,7 @@ select.custom-select-native:disabled {
 
 .auth-panel[data-mode="register"] .auth-name,
 .auth-panel[data-mode="roomEntry"] .auth-name {
-    max-height: 80px;
+    max-height: 40px;
     opacity: 1;
     transform: none;
     pointer-events: auto;
@@ -1281,14 +1281,14 @@ select.custom-select-native:disabled {
 
 .auth-panel[data-mode="login"] .auth-password,
 .auth-panel[data-mode="register"] .auth-password {
-    max-height: 80px;
+    max-height: 40px;
     opacity: 1;
     transform: none;
     pointer-events: auto;
 }
 
 .auth-panel[data-mode="register"] .auth-password-confirm {
-    max-height: 80px;
+    max-height: 40px;
     opacity: 1;
     transform: none;
     pointer-events: auto;
@@ -1304,7 +1304,7 @@ select.custom-select-native:disabled {
 .auth-panel[data-mode="login"] .auth-actions-login,
 .auth-panel[data-mode="register"] .auth-actions-register,
 .auth-panel[data-mode="roomEntry"] .auth-actions-room {
-    max-height: 60px;
+    max-height: 30px;
     opacity: 1;
     transform: none;
     pointer-events: auto;
@@ -1312,6 +1312,19 @@ select.custom-select-native:disabled {
 
 .auth-actions .btn {
     flex: 1 1 auto;
+}
+
+.auth-panel .collab-label {
+    font-size: 10px;
+}
+
+.auth-panel .collab-input {
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.auth-panel .btn {
+    padding: 4px 6px;
 }
 
 .auth-link {
