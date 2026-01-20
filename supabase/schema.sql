@@ -730,18 +730,34 @@ create policy "annotations_select" on public.annotations
             where r.id = annotations.room_id
               and pm.user_id = auth.uid()
         )
+        or exists (
+            select 1
+            from public.rooms r
+            join public.projects p on p.id = r.project_id
+            where r.id = annotations.room_id
+              and p.owner_id = auth.uid()
+        )
     );
 
 create policy "annotations_insert" on public.annotations
     for insert to authenticated
     with check (
         author_id = auth.uid()
-        and exists (
-            select 1
-            from public.rooms r
-            join public.project_members pm on pm.project_id = r.project_id
-            where r.id = annotations.room_id
-              and pm.user_id = auth.uid()
+        and (
+            exists (
+                select 1
+                from public.rooms r
+                join public.project_members pm on pm.project_id = r.project_id
+                where r.id = annotations.room_id
+                  and pm.user_id = auth.uid()
+            )
+            or exists (
+                select 1
+                from public.rooms r
+                join public.projects p on p.id = r.project_id
+                where r.id = annotations.room_id
+                  and p.owner_id = auth.uid()
+            )
         )
     );
 
@@ -760,18 +776,34 @@ create policy "messages_select" on public.messages
             where r.id = messages.room_id
               and pm.user_id = auth.uid()
         )
+        or exists (
+            select 1
+            from public.rooms r
+            join public.projects p on p.id = r.project_id
+            where r.id = messages.room_id
+              and p.owner_id = auth.uid()
+        )
     );
 
 create policy "messages_insert" on public.messages
     for insert to authenticated
     with check (
         author_id = auth.uid()
-        and exists (
-            select 1
-            from public.rooms r
-            join public.project_members pm on pm.project_id = r.project_id
-            where r.id = messages.room_id
-              and pm.user_id = auth.uid()
+        and (
+            exists (
+                select 1
+                from public.rooms r
+                join public.project_members pm on pm.project_id = r.project_id
+                where r.id = messages.room_id
+                  and pm.user_id = auth.uid()
+            )
+            or exists (
+                select 1
+                from public.rooms r
+                join public.projects p on p.id = r.project_id
+                where r.id = messages.room_id
+                  and p.owner_id = auth.uid()
+            )
         )
     );
 
