@@ -1249,7 +1249,7 @@ select.custom-select-native:disabled {
 .auth-fields {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 3px;
 }
 
 .auth-field,
