@@ -1199,7 +1199,7 @@ select.custom-select-native:disabled {
 .collab-drawer {
     position: fixed;
     left: 50%;
-    bottom: calc(50% - 80px);
+    bottom: calc(50% - 230px);
     transform: translateX(-50%);
     width: min(360px, calc(100vw - 24px));
     z-index: 6;
