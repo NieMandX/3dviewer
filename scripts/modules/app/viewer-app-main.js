@@ -1595,6 +1595,7 @@ class ViewerApp {
                     },
                     onRoomUpdate: (room) => roomUpdateHandler?.(room),
                 });
+                updateCollabFooter();
 
                 cameraSync = createCameraSyncController({
                     camera,
