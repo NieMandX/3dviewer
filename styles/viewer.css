@@ -1599,9 +1599,21 @@ select.custom-select-native:disabled {
     min-width: 100px;
 }
 .order-samples .custom-select {
-    width: 200px;
+    width: 100px;
     min-width: 100px;
-    max-width: 150px;
+    max-width: 100px;
+    height: 44px;
+}
+.order-samples .custom-select-trigger {
+    min-height: 44px;
+    justify-content: center;
+}
+.order-samples .custom-select-label {
+    text-align: center;
+    white-space: pre-line;
+    overflow: visible;
+    text-overflow: unset;
+    line-height: 1.1;
 }
 .order-sample-select:hover {
     border-color: var(--borderStrong);
