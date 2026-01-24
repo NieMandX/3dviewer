@@ -1581,6 +1581,33 @@ select.custom-select-native:disabled {
 .order-phone { color: var(--ink); text-decoration: none; font-weight: 600; }
 .order-phone:hover { text-decoration: underline; }
 .order-name { color: var(--muted); font-size: 14px; }
+.order-samples { display:flex; align-items:center; justify-content:center; width:100%; }
+.order-sample-select {
+    text-align: center;
+    font: inherit;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--controlBg);
+    color: var(--ink);
+    box-shadow: var(--inset);
+    cursor: pointer;
+}
+.order-sample-btn {
+    width: 100px;
+    min-width: 100px;
+}
+.order-samples .custom-select {
+    width: 200px;
+    min-width: 100px;
+    max-width: 150px;
+}
+.order-sample-select:hover {
+    border-color: var(--borderStrong);
+    background: var(--controlBgHover);
+}
+.order-sample-select:active { transform: translateY(0.5px); }
 
 #orderModal .sheet {
     background: var(--surfaceStrong);
