@@ -115,6 +115,12 @@ export function createAnnotations3DController(options = {}) {
     let onKeyDownBound = null;
     let toolbarReady = false;
     let hotkeysReady = false;
+    const pendingDisposals = new Set();
+    let disposeScheduled = false;
+    const raf =
+        typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
+            ? globalThis.requestAnimationFrame.bind(globalThis)
+            : null;
     const undoStack = [];
     const strokesById = new Map();
 
@@ -163,7 +169,11 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function setDrawEnabled(next) {
-        drawEnabled = !!next;
+        const nextEnabled = !!next;
+        if (!nextEnabled && (draft || pointerId != null)) {
+            cancelStroke();
+        }
+        drawEnabled = nextEnabled;
         if (drawEnabled) {
             planeDistance = getDefaultPlaneDistance();
         }
@@ -178,9 +188,14 @@ export function createAnnotations3DController(options = {}) {
         requestRender();
     }
 
-    function setTool(nextTool) {
+    function normalizeTool(nextTool) {
         const t = String(nextTool || '').trim().toLowerCase();
-        tool = ['pencil', 'line', 'rect', 'circle', 'eraser'].includes(t) ? t : 'pencil';
+        return ['pencil', 'line', 'rect', 'eraser'].includes(t) ? t : null;
+    }
+
+    function setTool(nextTool) {
+        const t = normalizeTool(nextTool) || 'pencil';
+        tool = t;
         syncToolbar();
     }
 
@@ -878,7 +893,40 @@ export function createAnnotations3DController(options = {}) {
         return group;
     }
 
-    function disposeObject(obj) {
+    function getWebGPUDevice() {
+        if (!renderer) return null;
+        if (renderer.device) return renderer.device;
+        if (typeof renderer.getDevice === 'function') {
+            try {
+                return renderer.getDevice();
+            } catch (_) {
+                return null;
+            }
+        }
+        const backend = renderer.backend || renderer._backend || null;
+        if (backend?.device) return backend.device;
+        if (typeof backend?.getDevice === 'function') {
+            try {
+                return backend.getDevice();
+            } catch (_) {
+                return null;
+            }
+        }
+        return renderer._device || null;
+    }
+
+    function getWebGPUQueue() {
+        const device = getWebGPUDevice();
+        return device?.queue || null;
+    }
+
+    function shouldDeferDispose() {
+        if (!renderer) return false;
+        if (renderer.isWebGPURenderer) return true;
+        return !!getWebGPUQueue()?.onSubmittedWorkDone;
+    }
+
+    function disposeObjectNow(obj) {
         if (!obj) return;
         obj.traverse?.((child) => {
             if (child?.geometry?.dispose) child.geometry.dispose();
@@ -890,6 +938,58 @@ export function createAnnotations3DController(options = {}) {
                 }
             }
         });
+    }
+
+    function flushDisposals() {
+        if (!pendingDisposals.size) return;
+        const items = Array.from(pendingDisposals);
+        pendingDisposals.clear();
+        items.forEach((item) => disposeObjectNow(item));
+    }
+
+    function waitFrames(count, cb) {
+        if (!raf || count <= 0) {
+            cb();
+            return;
+        }
+        let remaining = count;
+        const step = () => {
+            remaining -= 1;
+            if (remaining <= 0) {
+                cb();
+                return;
+            }
+            raf(step);
+        };
+        raf(step);
+    }
+
+    function scheduleDisposeFlush() {
+        if (disposeScheduled) return;
+        disposeScheduled = true;
+        const finalize = () => {
+            disposeScheduled = false;
+            flushDisposals();
+            if (pendingDisposals.size) scheduleDisposeFlush();
+        };
+        waitFrames(2, () => {
+            const queue = getWebGPUQueue();
+            if (queue?.onSubmittedWorkDone) {
+                queue.onSubmittedWorkDone().then(finalize).catch(() => waitFrames(2, finalize));
+                return;
+            }
+            waitFrames(2, finalize);
+        });
+    }
+
+    function disposeObject(obj) {
+        if (!obj) return;
+        if (shouldDeferDispose()) {
+            pendingDisposals.add(obj);
+            scheduleDisposeFlush();
+            return;
+        }
+        disposeObjectNow(obj);
     }
 
     function getActiveLayer() {
@@ -970,30 +1070,34 @@ export function createAnnotations3DController(options = {}) {
 
     function removeStroke(stroke, options = {}) {
         if (!stroke) return;
-        const layer = layers.find((l) => l.strokes.includes(stroke));
+        const root = getStrokeRoot(stroke) || stroke;
+        const layer = layers.find((l) => l.strokes.includes(root));
         if (layer) {
-            const idx = layer.strokes.indexOf(stroke);
+            const idx = layer.strokes.indexOf(root);
             if (idx >= 0) layer.strokes.splice(idx, 1);
         }
-        if (stroke.parent) stroke.parent.remove(stroke);
-        const undoIndex = undoStack.findIndex((entry) => entry.stroke === stroke);
+        if (root.parent) root.parent.remove(root);
+        const undoIndex = undoStack.findIndex((entry) => entry.stroke === root);
         if (undoIndex >= 0) undoStack.splice(undoIndex, 1);
-        const annotationId = stroke.userData?.annotationId;
+        const annotationId = root.userData?.annotationId;
         if (annotationId) strokesById.delete(annotationId);
-        disposeObject(stroke);
+        disposeObject(root);
         if (!options.skipNotify && onStrokeRemoved) {
-            onStrokeRemoved({ stroke, annotationId: annotationId || null });
+            onStrokeRemoved({ stroke: root, annotationId: annotationId || null });
         }
         requestRender();
     }
 
     function getStrokeRoot(obj) {
         let current = obj;
+        let found = null;
         while (current) {
-            if (current.userData?.annotationStroke && !current.userData?.excludeFromExport) return current;
+            if (current.userData?.annotationStroke && !current.userData?.excludeFromExport) {
+                found = current;
+            }
             current = current.parent;
         }
-        return null;
+        return found;
     }
 
     function pickStroke(e) {
@@ -1233,15 +1337,15 @@ export function createAnnotations3DController(options = {}) {
             const settings = promptRectSettings
                 ? await Promise.resolve(promptRectSettings({
                     color: baseColor,
-                    fill: 'solid',
-                    info: 'none',
+                    fill: 'hatch',
+                    info: 'area',
                     area,
                     text: '',
                 }))
                 : {
                     color: baseColor,
-                    fill: 'none',
-                    info: 'none',
+                    fill: 'hatch',
+                    info: 'area',
                     text: '',
                     area,
                 };
@@ -1318,8 +1422,14 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function cancelStroke(e) {
-        if (pointerId != null && e?.pointerId === pointerId) {
-            releasePointerCapture(e);
+        if (pointerId != null) {
+            if (e?.pointerId === pointerId) {
+                releasePointerCapture(e);
+            } else {
+                try {
+                    canvas?.releasePointerCapture?.(pointerId);
+                } catch (_) {}
+            }
         }
         draft = null;
         pointerId = null;
@@ -1589,7 +1699,7 @@ export function createAnnotations3DController(options = {}) {
         if (!toolbarEl) return;
         toolbarEl.querySelectorAll?.('.anno-tool')?.forEach((btn) => {
             const t = btn?.dataset?.tool;
-            btn.classList.toggle('active', t && t === tool);
+            btn.classList.toggle('active', drawEnabled && t && t === tool);
         });
         if (annoVisibleBtn) annoVisibleBtn.classList.toggle('active', visible);
         if (annoDrawBtn) annoDrawBtn.classList.toggle('active', drawEnabled);
@@ -1606,6 +1716,12 @@ export function createAnnotations3DController(options = {}) {
         if (annoToggleBtn) {
             annoToggleBtn.classList.toggle('active', next);
             annoToggleBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        }
+        if (next) {
+            setVisible(true);
+            setDrawEnabled(true);
+        } else {
+            setDrawEnabled(false);
         }
         syncToolbar();
     }
@@ -1624,12 +1740,15 @@ export function createAnnotations3DController(options = {}) {
             if (!(target instanceof HTMLElement)) return;
             const btn = target.closest?.('.anno-tool');
             if (!btn) return;
-            const nextTool = btn.dataset.tool;
+            const nextTool = normalizeTool(btn.dataset.tool);
             if (!nextTool) return;
+            if (drawEnabled && tool === nextTool) {
+                setDrawEnabled(false);
+                return;
+            }
             setTool(nextTool);
             setVisible(true);
             setDrawEnabled(true);
-            syncToolbar();
         });
 
         annoVisibleBtn?.addEventListener?.('click', () => {
@@ -1701,12 +1820,11 @@ export function createAnnotations3DController(options = {}) {
         if (!win?.addEventListener) return;
         hotkeysReady = true;
 
-        const repeatSensitive = new Set(['KeyX', 'KeyH', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5']);
+        const repeatSensitive = new Set(['KeyH', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit5']);
         const toolByDigit = Object.freeze({
             Digit1: 'pencil',
             Digit2: 'line',
             Digit3: 'rect',
-            Digit4: 'circle',
             Digit5: 'eraser',
         });
 
@@ -1725,15 +1843,6 @@ export function createAnnotations3DController(options = {}) {
 
             if (event.ctrlKey || event.metaKey || event.altKey) return;
             if (event.repeat && repeatSensitive.has(code)) return;
-
-            if (code === 'KeyX') {
-                const next = !drawEnabled;
-                if (next) setVisible(true);
-                setDrawEnabled(next);
-                syncToolbar();
-                event.preventDefault?.();
-                return;
-            }
 
             if (code === 'Escape') {
                 if (drawEnabled) {

@@ -50,8 +50,8 @@ export function createRectAnnotationModalController(options = {}) {
     function open({
         title = 'Прямоугольник',
         color = '#ffcc00',
-        fill = 'solid',
-        info = 'none',
+        fill = 'hatch',
+        info = 'area',
         area = null,
         text = '',
     } = {}) {

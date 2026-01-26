@@ -1586,7 +1586,7 @@ select.custom-select-native:disabled {
     text-align: center;
     font: inherit;
     font-weight: 600;
-    padding: 8px 16px;
+    padding: 8px 8px;
     border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--controlBg);
@@ -1595,17 +1595,18 @@ select.custom-select-native:disabled {
     cursor: pointer;
 }
 .order-sample-btn {
-    width: 100px;
-    min-width: 100px;
+    width: 158px;
+    min-width: 158px;
+    font-size: 14px;
 }
 .order-samples .custom-select {
-    width: 100px;
-    min-width: 100px;
-    max-width: 100px;
-    height: 44px;
+    width: 160px;
+    min-width: 160px;
+    max-width: 160px;
+    height: 36px;
 }
 .order-samples .custom-select-trigger {
-    min-height: 44px;
+    min-height: 36px;
     justify-content: center;
 }
 .order-samples .custom-select-label {
