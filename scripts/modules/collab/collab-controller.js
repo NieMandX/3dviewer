@@ -346,6 +346,29 @@ export async function createCollabController(options = {}) {
 
     status('');
 
+    function canRealtimeSend(channel) {
+        if (!channel) return false;
+        const socket = channel.socket || null;
+        const connected = typeof socket?.isConnected === 'function' ? socket.isConnected() : false;
+        const state = String(channel.state || '').toLowerCase();
+        return connected && state === 'joined';
+    }
+
+    function getBroadcastSender(channel) {
+        if (!channel) return null;
+        const sendFn = typeof channel.send === 'function' ? channel.send.bind(channel) : null;
+        const httpSendFn = typeof channel.httpSend === 'function' ? channel.httpSend.bind(channel) : null;
+        if (sendFn && canRealtimeSend(channel)) return sendFn;
+        return httpSendFn || sendFn;
+    }
+
+    async function sendBroadcast(event, payload) {
+        const sender = getBroadcastSender(roomChannel);
+        if (!sender) return false;
+        await sender({ type: 'broadcast', event, payload });
+        return true;
+    }
+
     async function setDisplayName(name) {
         currentName = normalizeName(name);
         presenceMeta.name = currentName;
@@ -391,11 +414,7 @@ export async function createCollabController(options = {}) {
             .select('*')
             .single();
         if (error) throw error;
-        await roomChannel.send({
-            type: 'broadcast',
-            event: 'annotation',
-            payload: { ...data, sender: user.id },
-        });
+        await sendBroadcast('annotation', { ...data, sender: user.id });
         return data;
     }
 
@@ -503,11 +522,7 @@ export async function createCollabController(options = {}) {
                 .eq('id', room.id);
             if (updateError) throw rpcError || updateError;
         }
-        await roomChannel.send({
-            type: 'broadcast',
-            event: 'camera-lock',
-            payload: { ownerId: user.id, sender: user.id },
-        });
+        await sendBroadcast('camera-lock', { ownerId: user.id, sender: user.id });
         return true;
     }
 
@@ -522,21 +537,13 @@ export async function createCollabController(options = {}) {
                 .eq('id', room.id);
             if (updateError) throw rpcError || updateError;
         }
-        await roomChannel.send({
-            type: 'broadcast',
-            event: 'camera-lock',
-            payload: { ownerId: null, sender: user.id },
-        });
+        await sendBroadcast('camera-lock', { ownerId: null, sender: user.id });
         return true;
     }
 
     async function broadcastCameraState(state) {
         if (!state) return;
-        await roomChannel.send({
-            type: 'broadcast',
-            event: 'camera',
-            payload: { ...state, sender: user.id },
-        });
+        await sendBroadcast('camera', { ...state, sender: user.id });
     }
 
     async function persistCameraState(state) {
