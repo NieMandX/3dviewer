@@ -254,6 +254,11 @@ export async function createCollabController(options = {}) {
         if (typeof onAnnotation === 'function') onAnnotation(payload, { source: 'broadcast' });
     });
 
+    roomChannel.on('broadcast', { event: 'annotation-delete' }, ({ payload }) => {
+        if (!payload || payload.sender === user.id) return;
+        if (typeof onAnnotationDelete === 'function') onAnnotationDelete(payload, { source: 'broadcast' });
+    });
+
     await new Promise((resolve, reject) => {
         roomChannel.subscribe((statusValue, err) => {
             if (err) {
@@ -462,6 +467,7 @@ export async function createCollabController(options = {}) {
                 try {
                     const { error } = await supabase.from('annotations').delete().eq('id', entry.id);
                     if (error) throw error;
+                    await sendBroadcast('annotation-delete', { id: entry.id, sender: user.id });
                     entry.resolve(true);
                     deletePending.delete(entry.id);
                     done = true;

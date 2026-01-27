@@ -511,6 +511,15 @@ class ViewerApp {
             annoLayerSelectEl: dom.annoLayerSelectEl,
             annoLayerAddBtn: dom.annoLayerAddBtn,
             requestRender,
+            canRemoveStroke: (stroke) => {
+                const localUserId = collabController?.user?.id || null;
+                const authorId = stroke?.userData?.authorId || null;
+                if (!localUserId) {
+                    return !authorId;
+                }
+                if (!authorId) return true;
+                return authorId === localUserId;
+            },
             promptLayerName: (defaultName) => promptModal.open({
                 title: 'Имя слоя',
                 value: defaultName,

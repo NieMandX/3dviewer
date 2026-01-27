@@ -50,6 +50,8 @@ export function createAnnotations3DController(options = {}) {
         typeof options.promptLayerName === 'function' ? options.promptLayerName : null;
     const promptRectSettings =
         typeof options.promptRectSettings === 'function' ? options.promptRectSettings : null;
+    const canRemoveStroke =
+        typeof options.canRemoveStroke === 'function' ? options.canRemoveStroke : null;
     const promptFn =
         typeof options.prompt === 'function'
             ? options.prompt
@@ -1071,6 +1073,9 @@ export function createAnnotations3DController(options = {}) {
     function removeStroke(stroke, options = {}) {
         if (!stroke) return;
         const root = getStrokeRoot(stroke) || stroke;
+        if (!options.force && canRemoveStroke && !canRemoveStroke(root)) {
+            return false;
+        }
         const layer = layers.find((l) => l.strokes.includes(root));
         if (layer) {
             const idx = layer.strokes.indexOf(root);
@@ -1086,6 +1091,7 @@ export function createAnnotations3DController(options = {}) {
             onStrokeRemoved({ stroke: root, annotationId: annotationId || null });
         }
         requestRender();
+        return true;
     }
 
     function getStrokeRoot(obj) {
@@ -1122,8 +1128,9 @@ export function createAnnotations3DController(options = {}) {
             pointerId = e.pointerId;
             const hit = pickStroke(e);
             if (hit && hit.uuid !== lastEraseId) {
-                lastEraseId = hit.uuid;
-                removeStroke(hit);
+                if (removeStroke(hit)) {
+                    lastEraseId = hit.uuid;
+                }
             }
             ensurePointerCapture(e);
             setControlsEnabled(false);
@@ -1626,7 +1633,7 @@ export function createAnnotations3DController(options = {}) {
         if (!annotationId) return false;
         const stroke = strokesById.get(annotationId);
         if (!stroke) return false;
-        removeStroke(stroke, { skipNotify: true });
+        removeStroke(stroke, { skipNotify: true, force: true });
         return true;
     }
 
@@ -1900,8 +1907,9 @@ export function createAnnotations3DController(options = {}) {
             }
             const hit = pickStroke(e);
             if (hit && hit.uuid !== lastEraseId) {
-                lastEraseId = hit.uuid;
-                removeStroke(hit);
+                if (removeStroke(hit)) {
+                    lastEraseId = hit.uuid;
+                }
             }
             return;
         }
