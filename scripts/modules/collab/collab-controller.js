@@ -196,6 +196,16 @@ export async function createCollabController(options = {}) {
         throw new Error('Room not found.');
     }
 
+    const deleteQueue = [];
+    const deletePending = new Map();
+    let deleteProcessing = false;
+    let onlineWaitHandler = null;
+    let onlineWaitPromise = null;
+
+    const DELETE_RETRY_LIMIT = 6;
+    const DELETE_RETRY_BASE_MS = 300;
+    const DELETE_BETWEEN_MS = 120;
+
     if (currentName) {
         await supabase.from('profiles').upsert({
             id: user.id,
@@ -389,11 +399,97 @@ export async function createCollabController(options = {}) {
         return data;
     }
 
+    function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function isRetriableDeleteError(err) {
+        const message = String(err?.message || '');
+        const details = String(err?.details || '');
+        const combined = `${message} ${details}`.toLowerCase();
+        if (combined.includes('failed to fetch')) return true;
+        if (combined.includes('timeout') || combined.includes('timed out')) return true;
+        if (combined.includes('network')) return true;
+        const status = Number(err?.status || err?.statusCode || err?.code);
+        if (Number.isFinite(status) && status >= 500) return true;
+        return false;
+    }
+
+    function waitForOnline() {
+        if (typeof window === 'undefined' || typeof navigator === 'undefined') return Promise.resolve();
+        if (navigator.onLine !== false) return Promise.resolve();
+        if (onlineWaitPromise) return onlineWaitPromise;
+        onlineWaitPromise = new Promise((resolve) => {
+            onlineWaitHandler = () => {
+                window.removeEventListener('online', onlineWaitHandler);
+                onlineWaitHandler = null;
+                onlineWaitPromise = null;
+                resolve();
+            };
+            window.addEventListener('online', onlineWaitHandler, { once: true });
+        });
+        return onlineWaitPromise;
+    }
+
+    async function processDeleteQueue() {
+        if (deleteProcessing) return;
+        deleteProcessing = true;
+        while (deleteQueue.length) {
+            const entry = deleteQueue.shift();
+            if (!entry) continue;
+            let done = false;
+            while (!done) {
+                await waitForOnline();
+                try {
+                    const { error } = await supabase.from('annotations').delete().eq('id', entry.id);
+                    if (error) throw error;
+                    entry.resolve(true);
+                    deletePending.delete(entry.id);
+                    done = true;
+                } catch (err) {
+                    entry.attempts += 1;
+                    const canRetry = entry.attempts <= DELETE_RETRY_LIMIT && isRetriableDeleteError(err);
+                    if (!canRetry) {
+                        entry.reject(err);
+                        deletePending.delete(entry.id);
+                        done = true;
+                        break;
+                    }
+                    const backoff = Math.min(10000, DELETE_RETRY_BASE_MS * (2 ** (entry.attempts - 1)));
+                    await delay(backoff);
+                }
+            }
+            if (DELETE_BETWEEN_MS > 0) {
+                await delay(DELETE_BETWEEN_MS);
+            }
+        }
+        deleteProcessing = false;
+    }
+
+    function enqueueDelete(id) {
+        if (deletePending.has(id)) return deletePending.get(id).promise;
+        let resolveFn;
+        let rejectFn;
+        const promise = new Promise((resolve, reject) => {
+            resolveFn = resolve;
+            rejectFn = reject;
+        });
+        const entry = {
+            id,
+            attempts: 0,
+            resolve: resolveFn,
+            reject: rejectFn,
+            promise,
+        };
+        deletePending.set(id, entry);
+        deleteQueue.push(entry);
+        processDeleteQueue();
+        return promise;
+    }
+
     async function deleteAnnotation(id) {
         if (!id) return false;
-        const { error } = await supabase.from('annotations').delete().eq('id', id);
-        if (error) throw error;
-        return true;
+        return enqueueDelete(id);
     }
 
     async function claimCamera() {
@@ -457,6 +553,11 @@ export async function createCollabController(options = {}) {
     }
 
     async function dispose() {
+        if (onlineWaitHandler && typeof window !== 'undefined') {
+            window.removeEventListener('online', onlineWaitHandler);
+            onlineWaitHandler = null;
+            onlineWaitPromise = null;
+        }
         for (const ch of channels) {
             await supabase.removeChannel(ch);
         }
