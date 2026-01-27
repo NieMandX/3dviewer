@@ -1242,6 +1242,11 @@ class ViewerApp {
             return 'Guest';
         }
 
+        function normalizeDisplayName(value) {
+            const trimmed = String(value || '').trim();
+            return trimmed || 'Guest';
+        }
+
         function normalizeEmailInput(value) {
             let email = String(value || '').trim();
             const angleMatch = email.match(/<([^>]+)>/);
@@ -1511,11 +1516,43 @@ class ViewerApp {
             collabIsRegistered = isRegisteredUser(collabUser);
             updateCollabFooter();
 
-            const displayName = resolveDisplayName(name);
-            await collabSupabase.from('profiles').upsert({
-                id: collabUser.id,
-                display_name: displayName,
-            });
+            const fetchProfileDisplayName = async (userId) => {
+                if (!userId) return '';
+                const { data, error } = await collabSupabase
+                    .from('profiles')
+                    .select('display_name')
+                    .eq('id', userId)
+                    .maybeSingle();
+                if (error) return '';
+                return String(data?.display_name || '').trim();
+            };
+
+            const rawName = String(name || '').trim();
+            let displayName = '';
+            if (mode === 'login') {
+                displayName = await fetchProfileDisplayName(collabUser.id);
+                if (!displayName) {
+                    const metaName = String(
+                        collabUser?.user_metadata?.display_name ||
+                        collabUser?.user_metadata?.name ||
+                        ''
+                    ).trim();
+                    displayName = metaName;
+                }
+                if (!displayName && rawName) {
+                    displayName = rawName;
+                }
+            } else {
+                displayName = resolveDisplayName(rawName);
+            }
+            displayName = normalizeDisplayName(displayName);
+
+            if (mode !== 'login' && displayName) {
+                await collabSupabase.from('profiles').upsert({
+                    id: collabUser.id,
+                    display_name: displayName,
+                });
+            }
             if (collabNameEl && displayName) {
                 collabNameEl.value = displayName;
             }
