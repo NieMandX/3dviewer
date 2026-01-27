@@ -766,10 +766,26 @@
         </div>
     </div>
 
+    <div id="collabChatPanel" class="collab-chat-panel" hidden>
+        <div class="collab-chat-layout">
+            <div class="collab-chat-main">
+                <div id="collabChatLog" class="collab-chat-log"></div>
+                <div class="collab-chat-row">
+                    <input id="collabChatInput" class="collab-input collab-chat-input" type="text" placeholder="Сообщение…" />
+                </div>
+            </div>
+            <div class="collab-chat-side">
+                <div class="collab-chat-title">Участники</div>
+                <div id="collabChatParticipants" class="collab-chat-participants"></div>
+            </div>
+        </div>
+    </div>
+
     <footer class="app-footer">
         <div class="footer-left">
             <button id="statsBtn" class="btn footer-btn" type="button" title="Показать статистику сцены">Stats</button>
             <div id="statsOverlay" class="stats-overlay" hidden></div>
+            <button id="collabStatusBtn" class="btn footer-btn collab-status-btn is-offline" type="button" title="Совместная работа" aria-pressed="false">OFFLINE</button>
             <div id="collabFooter" class="collab-footer" hidden>
                 <div id="collabFooterGuest" class="collab-footer-guest" hidden>
                     <span class="collab-footer-label">Проект: <strong id="collabFooterProjectName" class="collab-footer-value">—</strong></span>
@@ -807,6 +823,7 @@
                     <span id="collabOwner" class="collab-owner">—</span>
                 </div>
             </div>
+            <button id="collabChatToggleBtn" class="btn footer-btn collab-chat-toggle" type="button" hidden>Чат</button>
         </div>
     </footer>
 

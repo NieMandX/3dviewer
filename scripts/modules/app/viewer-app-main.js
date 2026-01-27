@@ -540,6 +540,10 @@ class ViewerApp {
                     stroke.userData = stroke.userData || {};
                     stroke.userData.authorName = authorName;
                     stroke.userData.authorId = collabController.user?.id || null;
+                    if (stroke.userData.authorId) {
+                        recordContributor(stroke.userData.authorId, authorName);
+                        annotations3d?.refreshAuthorVisibility?.(stroke.userData.authorId);
+                    }
                 }
                 annotations3d?.registerAnnotationId?.(stroke, id);
                 collabController.sendAnnotation(record).catch((err) => {
@@ -582,6 +586,9 @@ class ViewerApp {
         const collabFooterRegisteredEl = dom.collabFooterRegisteredEl;
         const collabFooterProjectNameEl = dom.collabFooterProjectNameEl;
         const collabFooterRoomNameEl = dom.collabFooterRoomNameEl;
+        const collabStatusBtn = dom.collabStatusBtn;
+        const collabChatPanelEl = dom.collabChatPanelEl;
+        const collabChatToggleBtn = dom.collabChatToggleBtn;
         const collabProjectSelectEl = dom.collabProjectSelectEl;
         const collabProjectCreateEl = dom.collabProjectCreateEl;
         const collabProjectNameInputEl = dom.collabProjectNameInputEl;
@@ -596,6 +603,7 @@ class ViewerApp {
         const collabChatLogEl = dom.collabChatLogEl;
         const collabChatInputEl = dom.collabChatInputEl;
         const collabChatSendBtn = dom.collabChatSendBtn;
+        const collabChatParticipantsEl = dom.collabChatParticipantsEl;
 
         let collabAuthMode = 'initial';
         const collabCreateOptionValue = '__create__';
@@ -722,11 +730,152 @@ class ViewerApp {
         let cameraSyncMuted = false;
         let cameraPersistTimer = null;
         let roomCameraCount = 0;
+        let chatPanelVisible = true;
+        const seenChatMessageIds = new Set();
+        const collabContributors = new Map();
+        let contributorsRenderQueued = false;
 
         function setCollabStatus(text) {
             if (!collabStatusEl) return;
             const label = String(text || '').trim();
             collabStatusEl.textContent = label || (collabController ? 'on' : 'off');
+        }
+
+        function updateCollabStatusButton() {
+            if (!collabStatusBtn) return;
+            if (!collabReady) {
+                collabStatusBtn.hidden = true;
+                return;
+            }
+            const isOnline = !!collabController;
+            collabStatusBtn.hidden = false;
+            collabStatusBtn.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
+            collabStatusBtn.classList.toggle('is-online', isOnline);
+            collabStatusBtn.classList.toggle('is-offline', !isOnline);
+            collabStatusBtn.setAttribute('aria-pressed', isOnline ? 'true' : 'false');
+        }
+
+        function setChatPanelVisible(next) {
+            chatPanelVisible = !!next;
+            if (collabChatPanelEl) {
+                collabChatPanelEl.hidden = !chatPanelVisible;
+            }
+            if (collabChatToggleBtn) {
+                collabChatToggleBtn.classList.toggle('active', chatPanelVisible);
+                collabChatToggleBtn.setAttribute('aria-pressed', chatPanelVisible ? 'true' : 'false');
+            }
+        }
+
+        function setChatPanelAvailability(enabled) {
+            if (collabChatToggleBtn) {
+                collabChatToggleBtn.hidden = !enabled;
+            }
+            if (!enabled) {
+                setChatPanelVisible(false);
+            } else {
+                setChatPanelVisible(true);
+            }
+        }
+
+        function recordContributor(id, name) {
+            if (!id) return;
+            const safeName = String(name || '').trim() || 'Guest';
+            const entry = collabContributors.get(id) || { id, name: safeName, hidden: false };
+            if (safeName && safeName !== entry.name) entry.name = safeName;
+            collabContributors.set(id, entry);
+            scheduleContributorsRender();
+        }
+
+        function scheduleContributorsRender() {
+            if (contributorsRenderQueued) return;
+            contributorsRenderQueued = true;
+            const raf =
+                typeof requestAnimationFrame === 'function'
+                    ? requestAnimationFrame
+                    : (fn) => setTimeout(fn, 0);
+            raf(() => {
+                contributorsRenderQueued = false;
+                renderChatContributors();
+            });
+        }
+
+        function normalizeContributorKey(value) {
+            return String(value || 'Guest').trim().toLowerCase();
+        }
+
+        function renderChatContributors() {
+            if (!collabChatParticipantsEl) return;
+            const onlineIds = new Set((collabParticipants || []).map((p) => p.id));
+            const onlineNameKeys = new Set(
+                (collabParticipants || [])
+                    .map((p) => normalizeContributorKey(p?.name || ''))
+                    .filter((key) => key)
+            );
+            const localUserId = collabController?.user?.id || null;
+            const localNameKey = collabController?.getDisplayName
+                ? normalizeContributorKey(collabController.getDisplayName())
+                : '';
+            if (localNameKey) {
+                onlineNameKeys.add(localNameKey);
+            }
+            const grouped = new Map();
+            collabContributors.forEach((entry) => {
+                const key = normalizeContributorKey(entry.name);
+                const online = onlineIds.has(entry.id) || (localUserId && entry.id === localUserId);
+                const existing = grouped.get(key);
+                if (!existing) {
+                    grouped.set(key, {
+                        name: entry.name || 'Guest',
+                        ids: [entry.id],
+                        online: online || onlineNameKeys.has(key),
+                        hiddenAll: !!entry.hidden,
+                    });
+                    return;
+                }
+                existing.ids.push(entry.id);
+                existing.online = existing.online || online || onlineNameKeys.has(key);
+                existing.hiddenAll = existing.hiddenAll && !!entry.hidden;
+                if (online && entry.name) {
+                    existing.name = entry.name;
+                }
+            });
+            const list = Array.from(grouped.values())
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            collabChatParticipantsEl.innerHTML = '';
+            if (!list.length) {
+                collabChatParticipantsEl.textContent = '—';
+                return;
+            }
+            list.forEach((entry) => {
+                const row = document.createElement('div');
+                const online = entry.online;
+                row.className = `collab-chat-user ${online ? 'online' : 'offline'}`;
+
+                const eyeBtn = document.createElement('button');
+                eyeBtn.type = 'button';
+                eyeBtn.className = 'eye';
+                eyeBtn.textContent = entry.hiddenAll ? '🙈' : '👁';
+                eyeBtn.title = entry.hiddenAll ? 'Показать аннотации' : 'Скрыть аннотации';
+                eyeBtn.addEventListener('click', () => {
+                    const nextHidden = !entry.hiddenAll;
+                    entry.hiddenAll = nextHidden;
+                    entry.ids.forEach((authorId) => {
+                        const stored = collabContributors.get(authorId);
+                        if (stored) {
+                            stored.hidden = nextHidden;
+                        }
+                        annotations3d?.setAuthorVisibility?.(authorId, !nextHidden);
+                    });
+                    scheduleContributorsRender();
+                });
+
+                const nameEl = document.createElement('span');
+                nameEl.className = 'collab-chat-user-name';
+                nameEl.textContent = entry.name || 'Guest';
+
+                row.append(eyeBtn, nameEl);
+                collabChatParticipantsEl.appendChild(row);
+            });
         }
 
         function getRoomSlugFromUrl() {
@@ -878,6 +1027,12 @@ class ViewerApp {
             setCollabSessionEnabled(false);
             setCollabToolsEnabled(false);
             setCollabStatus('off');
+            updateCollabStatusButton();
+            setChatPanelAvailability(false);
+            seenChatMessageIds.clear();
+            if (collabChatLogEl) collabChatLogEl.innerHTML = '';
+            collabContributors.clear();
+            if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
 
             roomModelCount = 0;
             roomCameraCount = 0;
@@ -978,6 +1133,12 @@ class ViewerApp {
 
         function appendChatMessage(message, options = {}) {
             if (!collabChatLogEl || !message) return;
+            const messageId = message.id || message.message_id || null;
+            if (messageId && seenChatMessageIds.has(messageId)) return;
+            if (messageId) seenChatMessageIds.add(messageId);
+            if (message.author_id) {
+                recordContributor(message.author_id, message.author_name);
+            }
             const row = document.createElement('div');
             row.className = 'collab-chat-msg';
             const meta = document.createElement('div');
@@ -1005,6 +1166,7 @@ class ViewerApp {
             collabParticipantsEl.innerHTML = '';
             if (!collabParticipants.length) {
                 collabParticipantsEl.textContent = '—';
+                scheduleContributorsRender();
                 return;
             }
             collabParticipants.forEach((participant) => {
@@ -1022,7 +1184,12 @@ class ViewerApp {
                 }
                 row.append(nameEl, meta);
                 collabParticipantsEl.appendChild(row);
+                const existing = collabContributors.get(participant.id);
+                if (existing && participant.name && participant.name !== existing.name) {
+                    existing.name = participant.name;
+                }
             });
+            scheduleContributorsRender();
         }
 
         function getOwnerName() {
@@ -1281,6 +1448,8 @@ class ViewerApp {
                 setCollabSessionEnabled(false);
                 setCollabToolsEnabled(false);
                 setCollabStatus('off');
+                updateCollabStatusButton();
+                setChatPanelAvailability(false);
                 updateAdminControls();
                 updateCollabFooter();
             } catch (err) {
@@ -1591,6 +1760,9 @@ class ViewerApp {
                         appendChatMessage(message, { scroll: meta?.source !== 'history' });
                     },
                     onAnnotation: (record) => {
+                        if (record?.author_id) {
+                            recordContributor(record.author_id, record.author_name);
+                        }
                         annotations3d?.addRemoteAnnotation?.(record);
                     },
                     onAnnotationDelete: (record) => {
@@ -1647,6 +1819,12 @@ class ViewerApp {
                 setCollabCreateEnabled(false);
                 setCollabSessionEnabled(true);
                 setCollabToolsEnabled(true);
+                updateCollabStatusButton();
+                setChatPanelAvailability(true);
+                if (collabController?.user?.id && collabContributors.has(collabController.user.id)) {
+                    recordContributor(collabController.user.id, collabController.getDisplayName?.());
+                    annotations3d?.refreshAuthorVisibility?.(collabController.user.id);
+                }
             } catch (err) {
                 console.error('Collab init failed', err);
                 setCollabStatus('error');
@@ -1721,6 +1899,11 @@ class ViewerApp {
                 }
                 renderParticipants(collabParticipants);
                 updateOwnerLabel();
+                const localId = collabController.user?.id || null;
+                if (localId && collabContributors.has(localId)) {
+                    recordContributor(localId, displayName);
+                    annotations3d?.refreshAuthorVisibility?.(localId);
+                }
                 return;
             }
 
@@ -1890,6 +2073,25 @@ class ViewerApp {
             });
         }
 
+        if (collabStatusBtn) {
+            collabStatusBtn.disabled = !collabReady;
+            collabStatusBtn.addEventListener('click', async () => {
+                if (!collabReady) return;
+                if (!collabController) {
+                    setCollabDrawerOpen(true);
+                    return;
+                }
+                const confirmed = await confirmModal.open({
+                    title: 'Выйти из совместной работы',
+                    message: 'Вы точно хотите выйти из режима совместной работы?',
+                    okText: 'Выйти',
+                    cancelText: 'Отмена',
+                });
+                if (!confirmed) return;
+                await teardownCollabSession();
+            });
+        }
+
         if (collabDrawerCloseBtn) {
             collabDrawerCloseBtn.addEventListener('click', () => {
                 setCollabDrawerOpen(false);
@@ -1989,6 +2191,31 @@ class ViewerApp {
             });
         }
 
+        if (!collabChatSendBtn && collabChatInputEl) {
+            collabChatInputEl.addEventListener('keyup', (event) => {
+                if (event.key !== 'Enter' || event.shiftKey) return;
+                event.preventDefault();
+                const text = String(collabChatInputEl.value || '').trim();
+                if (!text || !collabController) return;
+                collabChatInputEl.value = '';
+                void (async () => {
+                    try {
+                        const message = await collabController.sendMessage(text);
+                        if (message) appendChatMessage(message, { scroll: true });
+                    } catch (err) {
+                        console.error('Chat send failed', err);
+                    }
+                })();
+            });
+        }
+
+        if (collabChatToggleBtn) {
+            collabChatToggleBtn.addEventListener('click', () => {
+                if (!collabController) return;
+                setChatPanelVisible(!chatPanelVisible);
+            });
+        }
+
         if (collabCopyBtn && collabRoomLinkEl) {
             collabCopyBtn.addEventListener('click', () => {
                 const value = String(collabRoomLinkEl.value || '').trim();
@@ -2026,6 +2253,8 @@ class ViewerApp {
         setCollabCreateEnabled(false);
         setCollabSessionEnabled(false);
         setCollabToolsEnabled(false);
+        updateCollabStatusButton();
+        setChatPanelAvailability(false);
         updateAdminControls();
         void maybeHandlePasswordRecovery();
         void clearPersistedEmailSession();

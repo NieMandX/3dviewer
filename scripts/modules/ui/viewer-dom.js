@@ -113,6 +113,9 @@ export function collectViewerDom(document) {
         collabFooterRegisteredEl: get('collabFooterRegistered'),
         collabFooterProjectNameEl: get('collabFooterProjectName'),
         collabFooterRoomNameEl: get('collabFooterRoomName'),
+        collabStatusBtn: get('collabStatusBtn'),
+        collabChatPanelEl: get('collabChatPanel'),
+        collabChatToggleBtn: get('collabChatToggleBtn'),
         collabProjectSelectEl: get('collabProjectSelect'),
         collabProjectCreateEl: get('collabProjectCreate'),
         collabProjectNameInputEl: get('collabProjectNameInput'),
@@ -127,6 +130,7 @@ export function collectViewerDom(document) {
         collabChatLogEl: get('collabChatLog'),
         collabChatInputEl: get('collabChatInput'),
         collabChatSendBtn: get('collabChatSend'),
+        collabChatParticipantsEl: get('collabChatParticipants'),
 
 	        // Path trace
 	        pathTraceSamplesEl: get('pathTraceSamples'),

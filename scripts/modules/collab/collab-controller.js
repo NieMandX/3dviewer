@@ -259,6 +259,11 @@ export async function createCollabController(options = {}) {
         if (typeof onAnnotationDelete === 'function') onAnnotationDelete(payload, { source: 'broadcast' });
     });
 
+    roomChannel.on('broadcast', { event: 'message' }, ({ payload }) => {
+        if (!payload || payload.sender === user.id) return;
+        if (typeof onMessage === 'function') onMessage(payload, { source: 'broadcast' });
+    });
+
     await new Promise((resolve, reject) => {
         roomChannel.subscribe((statusValue, err) => {
             if (err) {
@@ -400,6 +405,7 @@ export async function createCollabController(options = {}) {
             .select('*')
             .single();
         if (error) throw error;
+        await sendBroadcast('message', { ...data, sender: user.id });
         return data;
     }
 

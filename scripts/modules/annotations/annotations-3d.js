@@ -117,6 +117,7 @@ export function createAnnotations3DController(options = {}) {
     let onKeyDownBound = null;
     let toolbarReady = false;
     let hotkeysReady = false;
+    const authorVisibility = new Map();
     const pendingDisposals = new Set();
     let disposeScheduled = false;
     const raf =
@@ -1067,6 +1068,33 @@ export function createAnnotations3DController(options = {}) {
         if (options.annotationId) {
             registerStrokeAnnotation(stroke, options.annotationId);
         }
+        applyAuthorVisibilityToStroke(stroke);
+        requestRender();
+    }
+
+    function getAuthorVisibility(authorId) {
+        if (!authorId) return true;
+        const value = authorVisibility.get(authorId);
+        return value !== false;
+    }
+
+    function applyAuthorVisibilityToStroke(stroke) {
+        const authorId = stroke?.userData?.authorId || null;
+        if (!authorId) return;
+        const visible = getAuthorVisibility(authorId);
+        stroke.visible = visible;
+    }
+
+    function refreshAuthorVisibility(authorId) {
+        if (!authorId) return;
+        if (!authorVisibility.has(authorId)) return;
+        layers.forEach((layer) => {
+            layer.strokes.forEach((stroke) => {
+                if (stroke?.userData?.authorId === authorId) {
+                    applyAuthorVisibilityToStroke(stroke);
+                }
+            });
+        });
         requestRender();
     }
 
@@ -1637,6 +1665,19 @@ export function createAnnotations3DController(options = {}) {
         return true;
     }
 
+    function setAuthorVisibility(authorId, visible) {
+        if (!authorId) return;
+        authorVisibility.set(authorId, !!visible);
+        layers.forEach((layer) => {
+            layer.strokes.forEach((stroke) => {
+                if (stroke?.userData?.authorId === authorId) {
+                    stroke.visible = !!visible;
+                }
+            });
+        });
+        requestRender();
+    }
+
     function registerAnnotationId(stroke, annotationId) {
         if (!stroke || !annotationId) return false;
         registerStrokeAnnotation(stroke, annotationId);
@@ -1978,6 +2019,9 @@ export function createAnnotations3DController(options = {}) {
         removeRemoteAnnotation,
         registerAnnotationId,
         applyWorldOffsetDelta,
+        setAuthorVisibility,
+        getAuthorVisibility,
+        refreshAuthorVisibility,
         dispose,
     });
 }
