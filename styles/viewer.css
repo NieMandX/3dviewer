@@ -1358,6 +1358,22 @@ select.custom-select-native:disabled {
     flex: 1 1 auto;
 }
 
+.confirm-panel {
+    width: min(360px, calc(100vw - 24px));
+}
+
+.confirm-panel .auth-body {
+    gap: 10px;
+}
+
+.confirm-panel .auth-actions {
+    max-height: none;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    margin-top: 6px;
+}
+
 .auth-link {
     border: none;
     background: transparent;

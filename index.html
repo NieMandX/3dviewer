@@ -624,14 +624,14 @@
     </div>
 
     <div id="confirmModal" class="modal">
-        <div class="sheet sheet-sm">
-            <div class="head">
-                <div id="confirmTitle" class="muted">Подтверждение</div>
-                <button id="confirmClose" class="btn" type="button" title="Закрыть">×</button>
+        <div class="auth-panel confirm-panel" data-mode="confirm">
+            <div class="auth-head">
+                <div id="confirmTitle" class="auth-title">Подтверждение</div>
+                <button id="confirmClose" class="btn auth-close" type="button" title="Закрыть">×</button>
             </div>
-            <div class="prompt-body">
+            <div class="auth-body">
                 <div id="confirmMessage" class="prompt-message">—</div>
-                <div class="row prompt-actions">
+                <div class="auth-actions">
                     <button id="confirmCancel" class="btn" type="button">Отмена</button>
                     <button id="confirmOk" class="btn primary" type="button">OK</button>
                 </div>
