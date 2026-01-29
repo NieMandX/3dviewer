@@ -1836,10 +1836,7 @@ class ViewerApp {
                     });
                 }
                 subscribeRoomCameraChanges();
-                if (lastLocalModelFile && !collabRoomModelsPresent()) {
-                    const synced = await syncModelToRoom(lastLocalModelFile);
-                    if (synced) lastLocalModelFile = null;
-                }
+                await syncPendingLocalModels({ onlyIfRoomEmpty: true });
 
                 if (dom.annotateCanvasEl) {
                     dom.annotateCanvasEl.addEventListener('pointerdown', () => cameraSync?.markLocalActivity(true));
@@ -3041,18 +3038,32 @@ class ViewerApp {
         });
         const rawHandleFBXFile = importHandlers.handleFBXFile;
         const rawHandleZIPFile = importHandlers.handleZIPFile;
-        let lastLocalModelFile = null;
+        const pendingLocalModelFiles = [];
+        const pendingLocalModelKeys = new Set();
         let isRemoteModelLoad = false;
         let activeRoomModelId = '';
 
+        function getModelFileKey(file) {
+            if (!file) return '';
+            return `${file.name || ''}|${file.size || 0}|${file.lastModified || 0}`;
+        }
+
+        function queueLocalModelFile(file) {
+            if (!file || isRemoteModelLoad) return;
+            const key = getModelFileKey(file);
+            if (!key || pendingLocalModelKeys.has(key)) return;
+            pendingLocalModelKeys.add(key);
+            pendingLocalModelFiles.push(file);
+        }
+
         async function handleFBXFile(file) {
             await rawHandleFBXFile(file);
-            if (!isRemoteModelLoad) lastLocalModelFile = file;
+            queueLocalModelFile(file);
         }
 
         async function handleZIPFile(file) {
             await rawHandleZIPFile(file);
-            if (!isRemoteModelLoad) lastLocalModelFile = file;
+            queueLocalModelFile(file);
         }
 
         function getModelKindFromName(name) {
@@ -3128,6 +3139,34 @@ class ViewerApp {
             }
         }
 
+        async function syncPendingLocalModels({ onlyIfRoomEmpty = false } = {}) {
+            if (!collabController || isRemoteModelLoad) return false;
+            if (onlyIfRoomEmpty && collabRoomModelsPresent()) return false;
+            if (!pendingLocalModelFiles.length) return false;
+            let syncedAny = false;
+            const files = pendingLocalModelFiles.slice();
+            pendingLocalModelFiles.length = 0;
+            pendingLocalModelKeys.clear();
+            const failed = [];
+            for (const file of files) {
+                const synced = await syncModelToRoom(file);
+                if (synced) {
+                    syncedAny = true;
+                } else {
+                    failed.push(file);
+                }
+            }
+            if (failed.length) {
+                for (const file of failed) {
+                    const key = getModelFileKey(file);
+                    if (!key || pendingLocalModelKeys.has(key)) continue;
+                    pendingLocalModelKeys.add(key);
+                    pendingLocalModelFiles.push(file);
+                }
+            }
+            return syncedAny;
+        }
+
         async function loadProjectModel(model) {
             if (!model || !model.url || isRemoteModelLoad) return;
             if (loadedRoomModelIds.has(model.id)) return;
@@ -3141,7 +3180,8 @@ class ViewerApp {
                 const blob = await response.blob();
                 const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
                 isRemoteModelLoad = true;
-                lastLocalModelFile = null;
+                pendingLocalModelFiles.length = 0;
+                pendingLocalModelKeys.clear();
                 if (kind === 'fbx') {
                     await rawHandleFBXFile(file);
                 } else {
@@ -3466,10 +3506,7 @@ class ViewerApp {
          */
         async function finalizeBatchAfterAllFiles() {
             const result = await batchFinalizer.finalizeBatchAfterAllFiles();
-            if (lastLocalModelFile) {
-                const synced = await syncModelToRoom(lastLocalModelFile);
-                if (synced) lastLocalModelFile = null;
-            }
+            await syncPendingLocalModels();
             return result;
         }
 
