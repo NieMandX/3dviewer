@@ -2153,6 +2153,9 @@ class ViewerApp {
                     setCollabDrawerOpen(true);
                     return;
                 }
+                const exitAsRegistered = !!collabIsRegistered;
+                const exitProjectSlug = getProjectSlugFromUrl();
+                const exitRoomSlug = getRoomSlugFromUrl();
                 const confirmed = await confirmModal.open({
                     title: 'Выйти из совместной работы',
                     message: 'Вы точно хотите выйти из режима совместной работы?',
@@ -2161,6 +2164,17 @@ class ViewerApp {
                 });
                 if (!confirmed) return;
                 await teardownCollabSession();
+                if (exitAsRegistered) {
+                    setRoomSlugInUrl('', '');
+                    if (typeof window !== 'undefined') {
+                        window.location.reload();
+                    }
+                } else if (exitProjectSlug && exitRoomSlug) {
+                    setRoomSlugInUrl(exitProjectSlug, exitRoomSlug);
+                    if (typeof window !== 'undefined') {
+                        window.location.reload();
+                    }
+                }
             });
         }
 
