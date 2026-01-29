@@ -31,7 +31,7 @@ async function loadSupabaseModule() {
     return cachedPromise;
 }
 
-export async function createSupabaseClient({ url, anonKey }) {
+export async function createSupabaseClient({ url, anonKey, auth: authOptions } = {}) {
     if (!url || !anonKey) {
         throw new Error('Supabase config is missing (url/anonKey).');
     }
@@ -43,6 +43,7 @@ export async function createSupabaseClient({ url, anonKey }) {
         auth: {
             persistSession: true,
             autoRefreshToken: true,
+            ...(authOptions || {}),
         },
     });
 }

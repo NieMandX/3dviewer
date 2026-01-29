@@ -711,6 +711,7 @@ class ViewerApp {
 
         const collabReady = !!(supabaseUrl && supabaseAnonKey);
         let collabSupabase = null;
+        let collabSupabaseMode = 'default';
         let collabUser = null;
         let collabAuthed = false;
         let collabIsRegistered = false;
@@ -1358,10 +1359,25 @@ class ViewerApp {
             } catch (_) {}
         }
 
-        async function ensureSupabaseClient() {
+        async function ensureSupabaseClient(mode = 'default') {
             if (!collabReady) return null;
-            if (!collabSupabase) {
-                collabSupabase = await createSupabaseClient({ url: supabaseUrl, anonKey: supabaseAnonKey });
+            const nextMode = mode === 'guest' ? 'guest' : 'default';
+            if (!collabSupabase || collabSupabaseMode !== nextMode) {
+                collabUser = null;
+                if (nextMode === 'guest' && typeof window !== 'undefined' && window.sessionStorage) {
+                    collabSupabase = await createSupabaseClient({
+                        url: supabaseUrl,
+                        anonKey: supabaseAnonKey,
+                        auth: {
+                            persistSession: true,
+                            storage: window.sessionStorage,
+                            storageKey: 'lpmview.supabase.guest',
+                        },
+                    });
+                } else {
+                    collabSupabase = await createSupabaseClient({ url: supabaseUrl, anonKey: supabaseAnonKey });
+                }
+                collabSupabaseMode = nextMode;
             }
             return collabSupabase;
         }
@@ -1487,14 +1503,7 @@ class ViewerApp {
 
         async function ensureCollabAuth({ mode, name, email, password } = {}) {
             if (!collabReady) return null;
-            if (!collabSupabase) {
-                collabSupabase = await createSupabaseClient({ url: supabaseUrl, anonKey: supabaseAnonKey });
-            }
-
-            if (mode === 'guest' && collabUser && !collabUser.email) {
-                await collabSupabase.auth.signOut();
-                collabUser = null;
-            }
+            await ensureSupabaseClient(mode === 'guest' ? 'guest' : 'default');
 
             if (collabUser && (mode === 'login' || mode === 'signup') && !collabUser.email) {
                 await collabSupabase.auth.signOut();
@@ -1504,11 +1513,7 @@ class ViewerApp {
             if (!collabUser) {
                 const { data: userData } = await collabSupabase.auth.getUser();
                 if (userData?.user) {
-                    if (mode === 'guest' && !userData.user.email) {
-                        await collabSupabase.auth.signOut();
-                    } else {
-                        collabUser = userData.user;
-                    }
+                    collabUser = userData.user;
                 }
             }
 
