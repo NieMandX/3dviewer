@@ -721,6 +721,9 @@ class ViewerApp {
         let collabRooms = [];
         let collabOwnerId = null;
         let collabParticipants = [];
+        let presenceRefreshTimer = null;
+        const PRESENCE_REFRESH_MS = 3000;
+        const PRESENCE_STALE_MS = 15000;
         let roomModelsChannel = null;
         const loadedRoomModelIds = new Set();
         let isLoadingRoomModels = false;
@@ -799,18 +802,37 @@ class ViewerApp {
             });
         }
 
+        function startPresenceRefresh() {
+            if (presenceRefreshTimer) return;
+            presenceRefreshTimer = setInterval(() => {
+                if (!collabController) return;
+                renderChatContributors();
+            }, PRESENCE_REFRESH_MS);
+        }
+
+        function stopPresenceRefresh() {
+            if (!presenceRefreshTimer) return;
+            clearInterval(presenceRefreshTimer);
+            presenceRefreshTimer = null;
+        }
+
         function normalizeContributorKey(value) {
             return String(value || 'Guest').trim().toLowerCase();
         }
 
         function renderChatContributors() {
             if (!collabChatParticipantsEl) return;
-            const onlineIds = new Set((collabParticipants || []).map((p) => p.id));
-            const onlineNameKeys = new Set(
-                (collabParticipants || [])
-                    .map((p) => normalizeContributorKey(p?.name || ''))
-                    .filter((key) => key)
-            );
+            const now = Date.now();
+            const onlineIds = new Set();
+            const onlineNameKeys = new Set();
+            (collabParticipants || []).forEach((participant) => {
+                const lastSeen = participant?.lastSeenAt ? Date.parse(participant.lastSeenAt) : NaN;
+                const isFresh = Number.isFinite(lastSeen) ? now - lastSeen <= PRESENCE_STALE_MS : true;
+                if (!isFresh) return;
+                if (participant?.id) onlineIds.add(participant.id);
+                const key = normalizeContributorKey(participant?.name || '');
+                if (key) onlineNameKeys.add(key);
+            });
             const localUserId = collabController?.user?.id || null;
             const localNameKey = collabController?.getDisplayName
                 ? normalizeContributorKey(collabController.getDisplayName())
@@ -997,6 +1019,7 @@ class ViewerApp {
         }
 
         async function teardownCollabSession() {
+            stopPresenceRefresh();
             cameraSync?.dispose?.();
             cameraSync = null;
             cameraSyncMuted = false;
@@ -1468,6 +1491,11 @@ class ViewerApp {
                 collabSupabase = await createSupabaseClient({ url: supabaseUrl, anonKey: supabaseAnonKey });
             }
 
+            if (mode === 'guest' && collabUser && !collabUser.email) {
+                await collabSupabase.auth.signOut();
+                collabUser = null;
+            }
+
             if (collabUser && (mode === 'login' || mode === 'signup') && !collabUser.email) {
                 await collabSupabase.auth.signOut();
                 collabUser = null;
@@ -1476,7 +1504,11 @@ class ViewerApp {
             if (!collabUser) {
                 const { data: userData } = await collabSupabase.auth.getUser();
                 if (userData?.user) {
-                    collabUser = userData.user;
+                    if (mode === 'guest' && !userData.user.email) {
+                        await collabSupabase.auth.signOut();
+                    } else {
+                        collabUser = userData.user;
+                    }
                 }
             }
 
@@ -1855,6 +1887,7 @@ class ViewerApp {
                 setCollabToolsEnabled(true);
                 updateCollabStatusButton();
                 setChatPanelAvailability(true);
+                startPresenceRefresh();
                 if (collabController?.user?.id && collabContributors.has(collabController.user.id)) {
                     recordContributor(collabController.user.id, collabController.getDisplayName?.());
                     annotations3d?.refreshAuthorVisibility?.(collabController.user.id);

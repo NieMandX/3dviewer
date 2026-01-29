@@ -121,6 +121,7 @@ function parsePresence(state) {
             id,
             name: meta?.name || 'Guest',
             joinedAt: meta?.joinedAt || null,
+            lastSeenAt: meta?.lastSeenAt || null,
         });
     });
     result.sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -227,6 +228,7 @@ export async function createCollabController(options = {}) {
         userId: user.id,
         name: currentName,
         joinedAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
     };
 
     const syncPresence = () => {
@@ -276,6 +278,19 @@ export async function createCollabController(options = {}) {
             }
         });
     });
+
+    let presenceHeartbeat = null;
+    const PRESENCE_HEARTBEAT_MS = 8000;
+    const startPresenceHeartbeat = () => {
+        if (presenceHeartbeat) return;
+        presenceHeartbeat = setInterval(async () => {
+            try {
+                presenceMeta.lastSeenAt = new Date().toISOString();
+                await roomChannel.track(presenceMeta);
+            } catch (_) {}
+        }, PRESENCE_HEARTBEAT_MS);
+    };
+    startPresenceHeartbeat();
 
     const roomUpdates = supabase.channel(`room:${room.id}:updates`);
     roomUpdates.on(
@@ -567,6 +582,9 @@ export async function createCollabController(options = {}) {
 
     async function updatePresence(meta) {
         Object.assign(presenceMeta, meta || {});
+        if (!presenceMeta.lastSeenAt) {
+            presenceMeta.lastSeenAt = new Date().toISOString();
+        }
         await roomChannel.track(presenceMeta);
         syncPresence();
     }
@@ -576,6 +594,10 @@ export async function createCollabController(options = {}) {
             window.removeEventListener('online', onlineWaitHandler);
             onlineWaitHandler = null;
             onlineWaitPromise = null;
+        }
+        if (presenceHeartbeat) {
+            clearInterval(presenceHeartbeat);
+            presenceHeartbeat = null;
         }
         for (const ch of channels) {
             await supabase.removeChannel(ch);
