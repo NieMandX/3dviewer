@@ -127,7 +127,8 @@
                 </svg>
             </button>
 	        <button class="btn anno-tool" type="button" data-tool="line" title="Линия (2)" aria-label="Линия">／</button>
-	        <button class="btn anno-tool" type="button" data-tool="rect" title="Прямоугольник (3)" aria-label="Прямоугольник">▭</button>
+        <button class="btn anno-tool" type="button" data-tool="rect" title="Прямоугольник (3)" aria-label="Прямоугольник">▭</button>
+        <button class="btn anno-tool" type="button" data-tool="pin" title="Pin (4)" aria-label="Pin">▣</button>
         <button class="btn anno-tool" type="button" data-tool="eraser" title="Eraser (5)" aria-label="Eraser">E</button>
         <span class="anno-divider" aria-hidden="true"></span>
         <select id="annoLayerSelect" class="anno-select anno-layer-select" title="Layer" aria-label="Layer"></select>
@@ -738,7 +739,7 @@
                     <span class="muted" style="font-size:12px">Цвет</span>
                     <input id="rectAnnotColor" class="rect-annot-color" type="color" value="#ffcc00" />
                 </label>
-                <label class="rect-annot-field">
+                <label id="rectAnnotFillRow" class="rect-annot-field">
                     <span class="muted" style="font-size:12px">Заливка</span>
                     <select id="rectAnnotFill" class="prompt-input rect-annot-select">
                         <option value="none">Нет</option>
@@ -746,7 +747,7 @@
                         <option value="hatch" selected>Штриховка</option>
                     </select>
                 </label>
-                <label class="rect-annot-field">
+                <label id="rectAnnotInfoRow" class="rect-annot-field">
                     <span class="muted" style="font-size:12px">Информация</span>
                     <select id="rectAnnotInfo" class="prompt-input rect-annot-select">
                         <option value="none">Нет</option>

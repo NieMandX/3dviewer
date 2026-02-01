@@ -164,7 +164,9 @@ class ViewerApp {
             okBtn: dom.rectAnnotOkBtn,
             cancelBtn: dom.rectAnnotCancelBtn,
             colorEl: dom.rectAnnotColorEl,
+            fillRowEl: dom.rectAnnotFillRowEl,
             fillEl: dom.rectAnnotFillEl,
+            infoRowEl: dom.rectAnnotInfoRowEl,
             infoEl: dom.rectAnnotInfoEl,
             areaEl: dom.rectAnnotAreaEl,
             textEl: dom.rectAnnotTextEl,
@@ -534,6 +536,11 @@ class ViewerApp {
                 if (!collabController || !record || !stroke) return;
                 const id = makeClientId();
                 record.id = id;
+                if (record.kind === 'pin' && record.payload?.camera) {
+                    const text = String(record.payload?.settings?.text || '').trim();
+                    const name = text ? `Pin: ${text}` : `Pin ${Date.now()}`;
+                    cameraPresets?.addFromSnapshot?.(record.payload.camera, name, { activate: false });
+                }
                 const authorName = collabController.getDisplayName?.();
                 if (authorName) {
                     record.author_name = authorName;
@@ -784,7 +791,7 @@ class ViewerApp {
         function recordContributor(id, name) {
             if (!id) return;
             const safeName = String(name || '').trim() || 'Guest';
-            const entry = collabContributors.get(id) || { id, name: safeName, hidden: false };
+            const entry = collabContributors.get(id) || { id, name: safeName, hidden: false, hiddenPins: false };
             if (safeName && safeName !== entry.name) entry.name = safeName;
             collabContributors.set(id, entry);
             scheduleContributorsRender();
@@ -852,12 +859,14 @@ class ViewerApp {
                         ids: [entry.id],
                         online: online || onlineNameKeys.has(key),
                         hiddenAll: !!entry.hidden,
+                        hiddenPinsAll: !!entry.hiddenPins,
                     });
                     return;
                 }
                 existing.ids.push(entry.id);
                 existing.online = existing.online || online || onlineNameKeys.has(key);
                 existing.hiddenAll = existing.hiddenAll && !!entry.hidden;
+                existing.hiddenPinsAll = existing.hiddenPinsAll && !!entry.hiddenPins;
                 if (online && entry.name) {
                     existing.name = entry.name;
                 }
@@ -892,11 +901,29 @@ class ViewerApp {
                     scheduleContributorsRender();
                 });
 
+                const pinBtn = document.createElement('button');
+                pinBtn.type = 'button';
+                pinBtn.className = 'eye eye-pin';
+                pinBtn.textContent = entry.hiddenPinsAll ? '📍' : '📌';
+                pinBtn.title = entry.hiddenPinsAll ? 'Показать PIN' : 'Скрыть PIN';
+                pinBtn.addEventListener('click', () => {
+                    const nextHidden = !entry.hiddenPinsAll;
+                    entry.hiddenPinsAll = nextHidden;
+                    entry.ids.forEach((authorId) => {
+                        const stored = collabContributors.get(authorId);
+                        if (stored) {
+                            stored.hiddenPins = nextHidden;
+                        }
+                        annotations3d?.setPinVisibility?.(authorId, !nextHidden);
+                    });
+                    scheduleContributorsRender();
+                });
+
                 const nameEl = document.createElement('span');
                 nameEl.className = 'collab-chat-user-name';
                 nameEl.textContent = entry.name || 'Guest';
 
-                row.append(eyeBtn, nameEl);
+                row.append(eyeBtn, pinBtn, nameEl);
                 collabChatParticipantsEl.appendChild(row);
             });
         }

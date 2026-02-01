@@ -1604,6 +1604,10 @@ select.custom-select-native:disabled {
     background: transparent;
 }
 
+.collab-chat-user .eye-pin {
+    font-size: 12px;
+}
+
 .collab-chat-user.offline {
     color: #ff4e4e;
 }

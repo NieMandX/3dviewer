@@ -118,6 +118,7 @@ export function createAnnotations3DController(options = {}) {
     let toolbarReady = false;
     let hotkeysReady = false;
     const authorVisibility = new Map();
+    const pinAuthorVisibility = new Map();
     const pendingDisposals = new Set();
     let disposeScheduled = false;
     const raf =
@@ -193,7 +194,7 @@ export function createAnnotations3DController(options = {}) {
 
     function normalizeTool(nextTool) {
         const t = String(nextTool || '').trim().toLowerCase();
-        return ['pencil', 'line', 'rect', 'eraser'].includes(t) ? t : null;
+        return ['pencil', 'line', 'rect', 'pin', 'eraser'].includes(t) ? t : null;
     }
 
     function setTool(nextTool) {
@@ -669,12 +670,56 @@ export function createAnnotations3DController(options = {}) {
         };
     }
 
+    function makePinRecord(rect, style, settings, layer, cameraSnapshot) {
+        if (!rect || !style) return null;
+        return {
+            kind: 'pin',
+            payload: {
+                kind: 'pin',
+                corners: rect.corners.map((pt) => vecToArray(toStoredPoint(pt))),
+                width: rect.width,
+                height: rect.height,
+                normal: rect.normal ? vecToArray(rect.normal) : null,
+                style: serializeStyle(style),
+                settings: {
+                    color: settings?.color || style.color,
+                    text: settings?.text || '',
+                    labelText: settings?.text || '',
+                },
+                camera: cameraSnapshot || null,
+                layerId: layer?.id || null,
+                layerName: layer?.name || null,
+                coordSpace: 'world',
+            },
+        };
+    }
+
     function formatAreaLabel(area) {
         const value = Number(area);
         if (!Number.isFinite(value)) return '—';
         let fixed = value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2);
         fixed = fixed.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
         return fixed;
+    }
+
+    function captureCameraSnapshot() {
+        if (!camera || !controls) return null;
+        const view = camera.view;
+        const fullWidth = Number.isFinite(view?.fullWidth) ? view.fullWidth : 1;
+        const fullHeight = Number.isFinite(view?.fullHeight) ? view.fullHeight : 1;
+        const offsetX = Number.isFinite(view?.offsetX) ? view.offsetX : 0;
+        const offsetY = Number.isFinite(view?.offsetY) ? view.offsetY : 0;
+        return {
+            position: camera.position?.toArray?.() || [0, 0, 0],
+            target: controls.target?.toArray?.() || [0, 0, 0],
+            up: camera.up?.toArray?.() || [0, 1, 0],
+            fov: camera.fov,
+            zoom: camera.zoom,
+            near: camera.near,
+            far: camera.far,
+            shiftX: fullWidth ? offsetX / fullWidth : 0,
+            shiftY: fullHeight ? offsetY / fullHeight : 0,
+        };
     }
 
     function computeRectFromThreePoints(a, b, c) {
@@ -700,6 +745,29 @@ export function createAnnotations3DController(options = {}) {
             normal,
             width,
             height,
+        };
+    }
+
+    function computePinRectFromMidpoints(a, b, normal) {
+        if (!a || !b || !normal) return null;
+        const axis = tmpVec.copy(a).sub(b);
+        const length = axis.length();
+        if (!Number.isFinite(length) || length <= 1e-6) return null;
+        const n = normal.clone().normalize();
+        const u = axis.clone().normalize();
+        const side = tmpVec2.copy(n).cross(u);
+        if (side.lengthSq() < 1e-10) return null;
+        side.normalize();
+        const half = length * 0.5;
+        const topRight = a.clone().addScaledVector(side, half);
+        const topLeft = a.clone().addScaledVector(side, -half);
+        const bottomLeft = b.clone().addScaledVector(side, -half);
+        const bottomRight = b.clone().addScaledVector(side, half);
+        return {
+            corners: [topLeft, topRight, bottomRight, bottomLeft],
+            normal: n,
+            width: length,
+            height: length,
         };
     }
 
@@ -896,6 +964,22 @@ export function createAnnotations3DController(options = {}) {
         return group;
     }
 
+    function buildPinAnnotation(rect, style, settings) {
+        if (!rect || !style) return null;
+        const pinSettings = {
+            color: settings?.color || style.color,
+            fill: 'none',
+            info: 'text',
+            text: settings?.text || '',
+            labelText: String(settings?.text || '').trim(),
+        };
+        const group = buildRectangleAnnotation(rect, style, pinSettings);
+        if (!group) return null;
+        group.userData = group.userData || {};
+        group.userData.annotationPin = true;
+        return group;
+    }
+
     function getWebGPUDevice() {
         if (!renderer) return null;
         if (renderer.device) return renderer.device;
@@ -1072,6 +1156,10 @@ export function createAnnotations3DController(options = {}) {
         requestRender();
     }
 
+    function isPinStroke(stroke) {
+        return !!stroke?.userData?.annotationPin;
+    }
+
     function getAuthorVisibility(authorId) {
         if (!authorId) return true;
         const value = authorVisibility.get(authorId);
@@ -1081,8 +1169,16 @@ export function createAnnotations3DController(options = {}) {
     function applyAuthorVisibilityToStroke(stroke) {
         const authorId = stroke?.userData?.authorId || null;
         if (!authorId) return;
-        const visible = getAuthorVisibility(authorId);
+        const visible = isPinStroke(stroke)
+            ? getPinVisibility(authorId)
+            : getAuthorVisibility(authorId);
         stroke.visible = visible;
+    }
+
+    function getPinVisibility(authorId) {
+        if (!authorId) return true;
+        const value = pinAuthorVisibility.get(authorId);
+        return value !== false;
     }
 
     function refreshAuthorVisibility(authorId) {
@@ -1091,6 +1187,21 @@ export function createAnnotations3DController(options = {}) {
         layers.forEach((layer) => {
             layer.strokes.forEach((stroke) => {
                 if (stroke?.userData?.authorId === authorId) {
+                    if (isPinStroke(stroke)) return;
+                    applyAuthorVisibilityToStroke(stroke);
+                }
+            });
+        });
+        requestRender();
+    }
+
+    function refreshPinVisibility(authorId) {
+        if (!authorId) return;
+        if (!pinAuthorVisibility.has(authorId)) return;
+        layers.forEach((layer) => {
+            layer.strokes.forEach((stroke) => {
+                if (stroke?.userData?.authorId === authorId) {
+                    if (!isPinStroke(stroke)) return;
                     applyAuthorVisibilityToStroke(stroke);
                 }
             });
@@ -1162,6 +1273,33 @@ export function createAnnotations3DController(options = {}) {
             }
             ensurePointerCapture(e);
             setControlsEnabled(false);
+            return;
+        }
+
+        if (tool === 'pin') {
+            const layer = getActiveLayer();
+            if (!layer) return;
+            const rect = getViewRect();
+            const surfaceHit = rect ? getSurfaceHitFromClient(e.clientX, e.clientY, rect) : null;
+            if (!surfaceHit) return;
+            planeDistance = Math.max(0.1, surfaceHit.distance);
+            let style = makeStrokeStyle(null);
+            style = { ...style, dash: 'solid' };
+            const point = offsetSurfacePoint(surfaceHit.point, surfaceHit.normal, style);
+            draft = {
+                type: 'pin',
+                mode: 'surface',
+                a: point,
+                b: point,
+                normal: surfaceHit.normal.clone(),
+                style,
+                layerId: layer.id,
+                camera: captureCameraSnapshot(),
+            };
+            pointerId = e.pointerId;
+            ensurePointerCapture(e);
+            setControlsEnabled(false);
+            updateDraftGeometry();
             return;
         }
 
@@ -1277,6 +1415,14 @@ export function createAnnotations3DController(options = {}) {
 
     function moveStroke(e) {
         if (!drawEnabled || !draft || pointerId == null || e.pointerId !== pointerId) return;
+        if (draft.type === 'pin') {
+            const rect = getViewRect();
+            const surfacePoint = rect ? getSurfacePointFromClient(e.clientX, e.clientY, rect, draft.style) : null;
+            if (!surfacePoint) return;
+            draft.b = surfacePoint.point;
+            updateDraftGeometry();
+            return;
+        }
         if (draft.type === 'rect') {
             const rect = getViewRect();
             let point = null;
@@ -1420,6 +1566,72 @@ export function createAnnotations3DController(options = {}) {
         return true;
     }
 
+    function commitPinStroke(e) {
+        const pinDraft = draft;
+        if (!pinDraft || pinDraft.type !== 'pin') return false;
+
+        pointerId = null;
+        releasePointerCapture(e);
+        setControlsEnabled(true);
+
+        const rect = computePinRectFromMidpoints(pinDraft.a, pinDraft.b, pinDraft.normal);
+        if (!rect) {
+            draft = null;
+            clearDraft();
+            return true;
+        }
+
+        updateDraftGeometry();
+        rectModalOpen = true;
+        const baseColor = pinDraft.style?.color || color;
+        const cameraSnapshot = pinDraft.camera || captureCameraSnapshot();
+
+        void (async () => {
+            const settings = promptRectSettings
+                ? await Promise.resolve(promptRectSettings({
+                    title: 'Pin',
+                    color: baseColor,
+                    fill: 'none',
+                    info: 'text',
+                    text: '',
+                    mode: 'pin',
+                }))
+                : {
+                    color: baseColor,
+                    text: '',
+                };
+
+            rectModalOpen = false;
+            if (!settings) {
+                draft = null;
+                clearDraft();
+                return;
+            }
+
+            const finalText = String(settings.text || '').trim();
+            const finalSettings = { color: settings.color || baseColor, text: finalText };
+            const style = {
+                ...pinDraft.style,
+                color: finalSettings.color || pinDraft.style?.color || baseColor,
+                dash: 'solid',
+            };
+            const stroke = buildPinAnnotation(rect, style, finalSettings);
+            const layer = getLayerById(pinDraft.layerId) || getActiveLayer();
+            if (stroke && layer) {
+                addStrokeToLayer(stroke, layer);
+                if (onStrokeCommitted) {
+                    const record = makePinRecord(rect, style, finalSettings, layer, cameraSnapshot);
+                    if (record) onStrokeCommitted({ stroke, record });
+                }
+            }
+
+            draft = null;
+            clearDraft();
+        })();
+
+        return true;
+    }
+
     function endStroke(e) {
         if (pointerId != null && e.pointerId === pointerId && !draft) {
             releasePointerCapture(e);
@@ -1430,6 +1642,10 @@ export function createAnnotations3DController(options = {}) {
         if (!drawEnabled || !draft || pointerId == null || e.pointerId !== pointerId) return;
         if (draft.type === 'rect') {
             commitRectPoint(e);
+            return;
+        }
+        if (draft.type === 'pin') {
+            commitPinStroke(e);
             return;
         }
         const layer = getActiveLayer();
@@ -1476,7 +1692,12 @@ export function createAnnotations3DController(options = {}) {
         clearDraft();
         if (!draft) return;
         let stroke = null;
-        if (draft.type === 'rect' && Array.isArray(draft.points)) {
+        if (draft.type === 'pin') {
+            const rect = computePinRectFromMidpoints(draft.a, draft.b, draft.normal);
+            if (rect) {
+                stroke = buildRectEdgesGroup(rect.corners, draft.style, false);
+            }
+        } else if (draft.type === 'rect' && Array.isArray(draft.points)) {
             stroke = buildRectPreviewStroke(draft.points, draft.preview, draft.style);
         } else {
             stroke = buildStrokeFromShape(draft, true);
@@ -1583,6 +1804,30 @@ export function createAnnotations3DController(options = {}) {
         const payload = record.payload || {};
         const coordSpace = payload.coordSpace || null;
         const kind = record.kind || payload.kind;
+        if (kind === 'pin') {
+            const corners = arraysToPoints(payload.corners || [], coordSpace);
+            if (corners.length < 4) return null;
+            const widthValue = Number.isFinite(payload.width) ? payload.width : corners[0].distanceTo(corners[1]);
+            const heightValue = Number.isFinite(payload.height) ? payload.height : corners[1].distanceTo(corners[2]);
+            const normal = payload.normal ? new THREE.Vector3(payload.normal[0], payload.normal[1], payload.normal[2]) : null;
+            const rect = {
+                corners,
+                width: widthValue,
+                height: heightValue,
+                normal,
+            };
+            const style = normalizeStrokeStyle(payload.style);
+            const settings = {
+                color: payload.settings?.color || style.color,
+                text: payload.settings?.text || '',
+            };
+            const stroke = buildPinAnnotation(rect, style, settings);
+            if (stroke) {
+                stroke.userData = stroke.userData || {};
+                stroke.userData.annotationPin = true;
+            }
+            return stroke;
+        }
         if (kind === 'rect') {
             const corners = arraysToPoints(payload.corners || [], coordSpace);
             if (corners.length < 4) return null;
@@ -1671,6 +1916,21 @@ export function createAnnotations3DController(options = {}) {
         layers.forEach((layer) => {
             layer.strokes.forEach((stroke) => {
                 if (stroke?.userData?.authorId === authorId) {
+                    if (isPinStroke(stroke)) return;
+                    stroke.visible = !!visible;
+                }
+            });
+        });
+        requestRender();
+    }
+
+    function setPinVisibility(authorId, visible) {
+        if (!authorId) return;
+        pinAuthorVisibility.set(authorId, !!visible);
+        layers.forEach((layer) => {
+            layer.strokes.forEach((stroke) => {
+                if (stroke?.userData?.authorId === authorId) {
+                    if (!isPinStroke(stroke)) return;
                     stroke.visible = !!visible;
                 }
             });
@@ -1868,11 +2128,12 @@ export function createAnnotations3DController(options = {}) {
         if (!win?.addEventListener) return;
         hotkeysReady = true;
 
-        const repeatSensitive = new Set(['KeyH', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit5']);
+        const repeatSensitive = new Set(['KeyH', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5']);
         const toolByDigit = Object.freeze({
             Digit1: 'pencil',
             Digit2: 'line',
             Digit3: 'rect',
+            Digit4: 'pin',
             Digit5: 'eraser',
         });
 
@@ -2022,6 +2283,9 @@ export function createAnnotations3DController(options = {}) {
         setAuthorVisibility,
         getAuthorVisibility,
         refreshAuthorVisibility,
+        setPinVisibility,
+        getPinVisibility,
+        refreshPinVisibility,
         dispose,
     });
 }

@@ -5,7 +5,9 @@ export function createRectAnnotationModalController(options = {}) {
     const okBtn = options.okBtn || null;
     const cancelBtn = options.cancelBtn || null;
     const colorEl = options.colorEl || null;
+    const fillRowEl = options.fillRowEl || null;
     const fillEl = options.fillEl || null;
+    const infoRowEl = options.infoRowEl || null;
     const infoEl = options.infoEl || null;
     const areaEl = options.areaEl || null;
     const textEl = options.textEl || null;
@@ -26,9 +28,9 @@ export function createRectAnnotationModalController(options = {}) {
         return fixed;
     }
 
-    function syncInfoVisibility() {
+    function syncInfoVisibility(forceMode = null) {
         if (!infoEl) return;
-        const mode = String(infoEl.value || 'none');
+        const mode = forceMode || String(infoEl.value || 'none');
         if (textRowEl) textRowEl.hidden = mode !== 'text';
         if (areaEl) {
             areaEl.hidden = mode !== 'area';
@@ -54,6 +56,7 @@ export function createRectAnnotationModalController(options = {}) {
         info = 'area',
         area = null,
         text = '',
+        mode = 'rect',
     } = {}) {
         if (!modalEl || !colorEl || !fillEl || !infoEl) return Promise.resolve(null);
         if (resolver) close(null);
@@ -65,7 +68,18 @@ export function createRectAnnotationModalController(options = {}) {
         if (textEl) textEl.value = text != null ? String(text) : '';
         currentArea = area;
 
-        syncInfoVisibility();
+        const isPin = String(mode || '').toLowerCase() === 'pin';
+        if (isPin) {
+            if (fillRowEl) fillRowEl.hidden = true;
+            if (infoRowEl) infoRowEl.hidden = true;
+            fillEl.value = 'none';
+            infoEl.value = 'text';
+            syncInfoVisibility('text');
+        } else {
+            if (fillRowEl) fillRowEl.hidden = false;
+            if (infoRowEl) infoRowEl.hidden = false;
+            syncInfoVisibility();
+        }
         modalEl.classList.add('show');
 
         queueMicrotask(() => {

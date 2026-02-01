@@ -1734,6 +1734,32 @@ export function createCameraPresetsController(options = {}) {
         return snap;
     }
 
+    function addFromSnapshot(snapshot, name, { activate = false } = {}) {
+        if (!snapshot) return null;
+        const snap = {
+            id: makeId(),
+            name: String(name || '').trim() || `Cam ${presets.length + 1}`,
+            position: Array.isArray(snapshot.position) ? [...snapshot.position] : snapshot.position,
+            target: Array.isArray(snapshot.target) ? [...snapshot.target] : snapshot.target,
+            up: Array.isArray(snapshot.up) ? [...snapshot.up] : snapshot.up,
+            fov: snapshot.fov,
+            zoom: snapshot.zoom,
+            near: snapshot.near,
+            far: snapshot.far,
+            shiftX: snapshot.shiftX ?? 0,
+            shiftY: snapshot.shiftY ?? 0,
+        };
+        presets.push(snap);
+        lastCreatedId = snap.id;
+        if (activate) {
+            setActive(snap.id);
+        } else {
+            render();
+        }
+        scheduleChange();
+        return snap;
+    }
+
     async function deletePreset(id) {
         const preset = getPresetById(id);
         if (!preset) return false;
@@ -2183,6 +2209,7 @@ export function createCameraPresetsController(options = {}) {
         getActiveId: () => activeId,
         getLastCreatedId: () => lastCreatedId,
         addFromCurrentView,
+        addFromSnapshot,
         deletePreset,
         updateLastCreatedFromCurrentView,
         applyPreset,
