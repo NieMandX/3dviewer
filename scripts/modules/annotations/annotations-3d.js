@@ -748,12 +748,19 @@ export function createAnnotations3DController(options = {}) {
         };
     }
 
-    function computePinRectFromMidpoints(a, b, normal) {
+    function computePinRectFromMidpoints(a, b, normal, cameraPos) {
         if (!a || !b || !normal) return null;
         const axis = tmpVec.copy(a).sub(b);
         const length = axis.length();
         if (!Number.isFinite(length) || length <= 1e-6) return null;
         const n = normal.clone().normalize();
+        const center = tmpVec2.copy(a).add(b).multiplyScalar(0.5);
+        if (cameraPos && cameraPos.isVector3) {
+            const toCam = tmpVec3.copy(cameraPos).sub(center);
+            if (toCam.dot(n) < 0) {
+                n.multiplyScalar(-1);
+            }
+        }
         const u = axis.clone().normalize();
         const side = tmpVec2.copy(n).cross(u);
         if (side.lengthSq() < 1e-10) return null;
@@ -763,6 +770,11 @@ export function createAnnotations3DController(options = {}) {
         const topLeft = a.clone().addScaledVector(side, -half);
         const bottomLeft = b.clone().addScaledVector(side, -half);
         const bottomRight = b.clone().addScaledVector(side, half);
+        const offset = n.clone().multiplyScalar(length * 0.2);
+        topRight.add(offset);
+        topLeft.add(offset);
+        bottomLeft.add(offset);
+        bottomRight.add(offset);
         return {
             corners: [topLeft, topRight, bottomRight, bottomLeft],
             normal: n,
@@ -964,19 +976,49 @@ export function createAnnotations3DController(options = {}) {
         return group;
     }
 
+    function createPinFillMesh(rect, colorValue) {
+        if (!rect || !rect.corners || !THREE) return null;
+        const corners = toLocalPoints(rect.corners);
+        if (corners.length < 4) return null;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array([
+            corners[0].x, corners[0].y, corners[0].z,
+            corners[1].x, corners[1].y, corners[1].z,
+            corners[2].x, corners[2].y, corners[2].z,
+            corners[3].x, corners[3].y, corners[3].z,
+        ]);
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setIndex([0, 1, 2, 0, 2, 3]);
+        geometry.computeVertexNormals();
+        const baseColor = new THREE.Color(String(colorValue || '#ffcc00'));
+        const material = new THREE.MeshBasicMaterial({
+            color: baseColor,
+            transparent: false,
+            opacity: 1,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.userData.annotationFill = true;
+        mesh.renderOrder = -1;
+        return mesh;
+    }
+
     function buildPinAnnotation(rect, style, settings) {
         if (!rect || !style) return null;
-        const pinSettings = {
-            color: settings?.color || style.color,
-            fill: 'none',
-            info: 'text',
-            text: settings?.text || '',
-            labelText: String(settings?.text || '').trim(),
-        };
-        const group = buildRectangleAnnotation(rect, style, pinSettings);
-        if (!group) return null;
-        group.userData = group.userData || {};
+        const group = new THREE.Group();
+        group.userData.annotationStroke = true;
         group.userData.annotationPin = true;
+        const fillColor = settings?.color || style.color;
+        const fill = createPinFillMesh(rect, fillColor);
+        if (fill) group.add(fill);
+        const label = createRectLabelSprite(String(settings?.text || '').trim(), rect, {
+            color: '#ffffff',
+        });
+        if (label) group.add(label);
         return group;
     }
 
@@ -1574,7 +1616,14 @@ export function createAnnotations3DController(options = {}) {
         releasePointerCapture(e);
         setControlsEnabled(true);
 
-        const rect = computePinRectFromMidpoints(pinDraft.a, pinDraft.b, pinDraft.normal);
+        const cameraPos = cameraSnapshot?.position
+            ? new THREE.Vector3(
+                cameraSnapshot.position[0],
+                cameraSnapshot.position[1],
+                cameraSnapshot.position[2]
+            )
+            : camera?.position || null;
+        const rect = computePinRectFromMidpoints(pinDraft.a, pinDraft.b, pinDraft.normal, cameraPos);
         if (!rect) {
             draft = null;
             clearDraft();
@@ -1693,7 +1742,7 @@ export function createAnnotations3DController(options = {}) {
         if (!draft) return;
         let stroke = null;
         if (draft.type === 'pin') {
-            const rect = computePinRectFromMidpoints(draft.a, draft.b, draft.normal);
+            const rect = computePinRectFromMidpoints(draft.a, draft.b, draft.normal, camera?.position);
             if (rect) {
                 stroke = buildRectEdgesGroup(rect.corners, draft.style, false);
             }
