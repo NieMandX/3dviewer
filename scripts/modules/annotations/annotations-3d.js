@@ -120,7 +120,7 @@ export function createAnnotations3DController(options = {}) {
     let hotkeysReady = false;
     const authorVisibility = new Map();
     const pinAuthorVisibility = new Map();
-    const pendingDisposals = new Set();
+    const pendingDisposals = new Map();
     let disposeScheduled = false;
     const raf =
         typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
@@ -1071,11 +1071,16 @@ export function createAnnotations3DController(options = {}) {
         });
     }
 
-    function flushDisposals() {
+    function flushDisposals(force = false) {
         if (!pendingDisposals.size) return;
-        const items = Array.from(pendingDisposals);
-        pendingDisposals.clear();
-        items.forEach((item) => disposeObjectNow(item));
+        const now = Date.now();
+        const minAgeMs = 700;
+        const items = Array.from(pendingDisposals.entries());
+        items.forEach(([item, queuedAt]) => {
+            if (!force && now - queuedAt < minAgeMs) return;
+            pendingDisposals.delete(item);
+            disposeObjectNow(item);
+        });
     }
 
     function waitFrames(count, cb) {
@@ -1103,20 +1108,20 @@ export function createAnnotations3DController(options = {}) {
             flushDisposals();
             if (pendingDisposals.size) scheduleDisposeFlush();
         };
-        waitFrames(2, () => {
+        waitFrames(4, () => {
             const queue = getWebGPUQueue();
             if (queue?.onSubmittedWorkDone) {
-                queue.onSubmittedWorkDone().then(finalize).catch(() => waitFrames(2, finalize));
+                queue.onSubmittedWorkDone().then(() => waitFrames(2, finalize)).catch(() => waitFrames(4, finalize));
                 return;
             }
-            waitFrames(2, finalize);
+            waitFrames(4, finalize);
         });
     }
 
     function disposeObject(obj) {
         if (!obj) return;
         if (shouldDeferDispose()) {
-            pendingDisposals.add(obj);
+            pendingDisposals.set(obj, Date.now());
             scheduleDisposeFlush();
             return;
         }
@@ -2306,6 +2311,7 @@ export function createAnnotations3DController(options = {}) {
         layers.forEach((layer) => {
             layer.strokes.forEach((stroke) => disposeObject(stroke));
         });
+        flushDisposals(true);
         strokesById.clear();
         annotationsRoot.removeFromParent();
     }
