@@ -771,7 +771,7 @@ export function createAnnotations3DController(options = {}) {
         const topLeft = a.clone().addScaledVector(side, -half);
         const bottomLeft = b.clone().addScaledVector(side, -half);
         const bottomRight = b.clone().addScaledVector(side, half);
-        const offset = n.clone().multiplyScalar(length * 0.2);
+        const offset = n.clone().multiplyScalar(length * 0.08);
         topRight.add(offset);
         topLeft.add(offset);
         bottomLeft.add(offset);
