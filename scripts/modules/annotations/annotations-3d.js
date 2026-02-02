@@ -82,6 +82,7 @@ export function createAnnotations3DController(options = {}) {
     const tmpUp = new THREE.Vector3();
     const tmpVec = new THREE.Vector3();
     const tmpVec2 = new THREE.Vector3();
+    const tmpVec3 = new THREE.Vector3();
     const tmpNormal = new THREE.Vector3();
 
     const annotationsRoot = new THREE.Group();
@@ -1616,6 +1617,7 @@ export function createAnnotations3DController(options = {}) {
         releasePointerCapture(e);
         setControlsEnabled(true);
 
+        const cameraSnapshot = pinDraft.camera || captureCameraSnapshot();
         const cameraPos = cameraSnapshot?.position
             ? new THREE.Vector3(
                 cameraSnapshot.position[0],
@@ -1633,7 +1635,6 @@ export function createAnnotations3DController(options = {}) {
         updateDraftGeometry();
         rectModalOpen = true;
         const baseColor = pinDraft.style?.color || color;
-        const cameraSnapshot = pinDraft.camera || captureCameraSnapshot();
 
         void (async () => {
             const settings = promptRectSettings
