@@ -997,14 +997,15 @@ export function createAnnotations3DController(options = {}) {
             transparent: false,
             opacity: 1,
             side: THREE.DoubleSide,
+            depthTest: true,
             depthWrite: false,
             polygonOffset: true,
-            polygonOffsetFactor: -1,
-            polygonOffsetUnits: -1,
+            polygonOffsetFactor: -4,
+            polygonOffsetUnits: -4,
         });
         const mesh = new THREE.Mesh(geometry, material);
         mesh.userData.annotationFill = true;
-        mesh.renderOrder = -1;
+        mesh.renderOrder = 5;
         return mesh;
     }
 
