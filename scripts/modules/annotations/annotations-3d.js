@@ -1294,14 +1294,24 @@ export function createAnnotations3DController(options = {}) {
         return found;
     }
 
-    function pickStroke(e) {
+    function isStrokeRemovable(stroke) {
+        const root = getStrokeRoot(stroke) || stroke;
+        if (!root) return false;
+        if (!canRemoveStroke) return true;
+        return !!canRemoveStroke(root);
+    }
+
+    function pickStroke(e, options = {}) {
+        const removableOnly = !!options.removableOnly;
         const rect = getViewRect();
         if (!rect || !updateNdcFromEvent(e, rect)) return null;
         raycaster.setFromCamera(ndc, camera);
         const hits = raycaster.intersectObjects(annotationsRoot.children, true);
         for (const hit of hits) {
             const stroke = getStrokeRoot(hit.object);
-            if (stroke) return stroke;
+            if (!stroke) continue;
+            if (removableOnly && !isStrokeRemovable(stroke)) continue;
+            return stroke;
         }
         return null;
     }
@@ -1314,7 +1324,7 @@ export function createAnnotations3DController(options = {}) {
 
         if (tool === 'eraser') {
             pointerId = e.pointerId;
-            const hit = pickStroke(e);
+            const hit = pickStroke(e, { removableOnly: true });
             if (hit && hit.uuid !== lastEraseId) {
                 if (removeStroke(hit)) {
                     lastEraseId = hit.uuid;
@@ -2263,7 +2273,7 @@ export function createAnnotations3DController(options = {}) {
                 cancelStroke(e);
                 return;
             }
-            const hit = pickStroke(e);
+            const hit = pickStroke(e, { removableOnly: true });
             if (hit && hit.uuid !== lastEraseId) {
                 if (removeStroke(hit)) {
                     lastEraseId = hit.uuid;
