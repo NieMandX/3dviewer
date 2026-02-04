@@ -383,15 +383,34 @@ export async function createCollabController(options = {}) {
         if (!channel) return null;
         const sendFn = typeof channel.send === 'function' ? channel.send.bind(channel) : null;
         const httpSendFn = typeof channel.httpSend === 'function' ? channel.httpSend.bind(channel) : null;
-        if (sendFn && canRealtimeSend(channel)) return sendFn;
-        return httpSendFn || sendFn;
+        if (sendFn && canRealtimeSend(channel)) {
+            return { mode: 'realtime', fn: sendFn };
+        }
+        if (httpSendFn) {
+            return { mode: 'http', fn: httpSendFn };
+        }
+        if (sendFn) {
+            return { mode: 'realtime', fn: sendFn };
+        }
+        return null;
     }
 
     async function sendBroadcast(event, payload) {
         const sender = getBroadcastSender(roomChannel);
         if (!sender) return false;
-        await sender({ type: 'broadcast', event, payload });
-        return true;
+        const safePayload = payload ?? {};
+        try {
+            if (sender.mode === 'http') {
+                await sender.fn(event, safePayload);
+            } else {
+                await sender.fn({ type: 'broadcast', event, payload: safePayload });
+            }
+            return true;
+        } catch (err) {
+            // Broadcast is an optimization; DB realtime still keeps peers in sync.
+            console.warn('Broadcast send failed', err);
+            return false;
+        }
     }
 
     async function setDisplayName(name) {
