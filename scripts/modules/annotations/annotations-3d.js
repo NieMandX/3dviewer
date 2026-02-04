@@ -1057,14 +1057,30 @@ export function createAnnotations3DController(options = {}) {
         return !!getWebGPUQueue()?.onSubmittedWorkDone;
     }
 
+    function getRenderFrame() {
+        const frame = Number(renderer?.info?.render?.frame);
+        return Number.isFinite(frame) ? frame : null;
+    }
+
     function disposeObjectNow(obj) {
         if (!obj) return;
+        const disposedGeometries = new Set();
+        const disposedMaterials = new Set();
         obj.traverse?.((child) => {
-            if (child?.geometry?.dispose) child.geometry.dispose();
+            const geometry = child?.geometry || null;
+            if (geometry?.dispose && !disposedGeometries.has(geometry)) {
+                disposedGeometries.add(geometry);
+                geometry.dispose();
+            }
             if (child?.material) {
                 if (Array.isArray(child.material)) {
-                    child.material.forEach((mat) => mat?.dispose?.());
-                } else if (child.material.dispose) {
+                    child.material.forEach((mat) => {
+                        if (!mat?.dispose || disposedMaterials.has(mat)) return;
+                        disposedMaterials.add(mat);
+                        mat.dispose();
+                    });
+                } else if (child.material.dispose && !disposedMaterials.has(child.material)) {
+                    disposedMaterials.add(child.material);
                     child.material.dispose();
                 }
             }
@@ -1073,11 +1089,23 @@ export function createAnnotations3DController(options = {}) {
 
     function flushDisposals(force = false) {
         if (!pendingDisposals.size) return;
+        if (!force && (pointerId != null || !!draft || rectModalOpen)) return;
         const now = Date.now();
-        const minAgeMs = 700;
+        const frameNow = getRenderFrame();
+        const minAgeMs = 1800;
+        const minDraftAgeMs = 3000;
+        const minFrameGap = 4;
+        const minDraftFrameGap = 10;
         const items = Array.from(pendingDisposals.entries());
-        items.forEach(([item, queuedAt]) => {
-            if (!force && now - queuedAt < minAgeMs) return;
+        items.forEach(([item, meta]) => {
+            const queuedAt = Number(meta?.queuedAt || 0);
+            const queuedFrame = Number.isFinite(meta?.queuedFrame) ? meta.queuedFrame : null;
+            const isDraft = meta?.reason === 'draft';
+            const ageMs = now - queuedAt;
+            const requiredAge = isDraft ? minDraftAgeMs : minAgeMs;
+            const requiredFrameGap = isDraft ? minDraftFrameGap : minFrameGap;
+            if (!force && ageMs < requiredAge) return;
+            if (!force && frameNow != null && queuedFrame != null && (frameNow - queuedFrame) < requiredFrameGap) return;
             pendingDisposals.delete(item);
             disposeObjectNow(item);
         });
@@ -1108,20 +1136,32 @@ export function createAnnotations3DController(options = {}) {
             flushDisposals();
             if (pendingDisposals.size) scheduleDisposeFlush();
         };
-        waitFrames(4, () => {
+        waitFrames(6, () => {
             const queue = getWebGPUQueue();
             if (queue?.onSubmittedWorkDone) {
-                queue.onSubmittedWorkDone().then(() => waitFrames(2, finalize)).catch(() => waitFrames(4, finalize));
+                queue
+                    .onSubmittedWorkDone()
+                    .then(() => waitFrames(2, () => {
+                        queue
+                            .onSubmittedWorkDone()
+                            .then(() => waitFrames(2, finalize))
+                            .catch(() => waitFrames(8, finalize));
+                    }))
+                    .catch(() => waitFrames(8, finalize));
                 return;
             }
-            waitFrames(4, finalize);
+            waitFrames(8, finalize);
         });
     }
 
-    function disposeObject(obj) {
+    function disposeObject(obj, reason = 'stroke') {
         if (!obj) return;
         if (shouldDeferDispose()) {
-            pendingDisposals.set(obj, Date.now());
+            pendingDisposals.set(obj, {
+                queuedAt: Date.now(),
+                queuedFrame: getRenderFrame(),
+                reason,
+            });
             scheduleDisposeFlush();
             return;
         }
@@ -1274,7 +1314,7 @@ export function createAnnotations3DController(options = {}) {
         if (undoIndex >= 0) undoStack.splice(undoIndex, 1);
         const annotationId = root.userData?.annotationId;
         if (annotationId) strokesById.delete(annotationId);
-        disposeObject(root);
+        disposeObject(root, 'stroke');
         if (!options.skipNotify && onStrokeRemoved) {
             onStrokeRemoved({ stroke: root, annotationId: annotationId || null });
         }
@@ -1776,7 +1816,7 @@ export function createAnnotations3DController(options = {}) {
 
     function clearDraft() {
         if (!draftGroup.children.length) return;
-        draftGroup.children.forEach((child) => disposeObject(child));
+        draftGroup.children.forEach((child) => disposeObject(child, 'draft'));
         draftGroup.clear();
         requestRender();
     }
