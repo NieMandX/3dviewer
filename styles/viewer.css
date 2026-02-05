@@ -65,12 +65,15 @@ body.app-loading {
     width: min(440px, calc(100vw - 48px));
     display: grid;
     gap: 10px;
+    justify-items: center;
+    text-align: center;
 }
 
 .boot-loader-title {
     font-size: 20px;
     font-weight: 700;
     letter-spacing: 0.03em;
+    text-transform: lowercase;
 }
 
 .boot-loader-text {
@@ -82,16 +85,17 @@ body.app-loading {
     position: relative;
     height: 9px;
     border-radius: 999px;
-    border: 1px solid rgba(17, 17, 17, 0.18);
-    background: rgba(17, 17, 17, 0.06);
+    border: 1px solid #111;
+    background: #fff;
     overflow: hidden;
+    width: 100%;
 }
 
 .boot-loader-bar {
     height: 100%;
     width: 0%;
     border-radius: inherit;
-    background: linear-gradient(90deg, #2a78ff 0%, #35b4ff 100%);
+    background: #111;
     transition: width 180ms ease;
 }
 
