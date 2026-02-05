@@ -4,6 +4,10 @@ export function collectViewerDom(document) {
     const statusEl = get('status');
 
     return {
+        bootLoaderEl: get('bootLoader'),
+        bootLoaderBarEl: get('bootLoaderBar'),
+        bootLoaderTextEl: get('bootLoaderText'),
+        bootLoaderPctEl: get('bootLoaderPct'),
         rootEl: get('viewer'),
         annotateCanvasEl: get('annotateCanvas'),
         annotateToolbarEl: get('annotateToolbar'),

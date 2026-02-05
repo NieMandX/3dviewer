@@ -38,6 +38,70 @@ body {
     background: transparent;
 }
 
+body.app-loading {
+    background: #fff;
+    overflow: hidden;
+}
+
+.boot-loader {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 220ms ease, visibility 220ms ease;
+}
+
+.boot-loader.is-leaving {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.boot-loader-card {
+    width: min(440px, calc(100vw - 48px));
+    display: grid;
+    gap: 10px;
+}
+
+.boot-loader-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+.boot-loader-text {
+    font-size: 13px;
+    color: #5f6470;
+}
+
+.boot-loader-track {
+    position: relative;
+    height: 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(17, 17, 17, 0.18);
+    background: rgba(17, 17, 17, 0.06);
+    overflow: hidden;
+}
+
+.boot-loader-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #2a78ff 0%, #35b4ff 100%);
+    transition: width 180ms ease;
+}
+
+.boot-loader-pct {
+    font-size: 12px;
+    color: #364055;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
 /* Enforce native `hidden` attribute behavior across browsers. */
 [hidden] { display: none !important; }
 

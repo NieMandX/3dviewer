@@ -7,12 +7,23 @@
     <link rel="icon" href="./favicon.ico" />
     <link rel="stylesheet" href="./styles/viewer.css">
 </head>
-<body class="side-hidden">
+<body class="side-hidden app-loading">
     <script>
         window.__LPMVIEW_RENDERER = 'webgpu';
         window.__SUPABASE_URL = window.__SUPABASE_URL || 'https://xlajjnmxvlkygixamyam.supabase.co';
         window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsYWpqbm14dmxreWdpeGFteWFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NjY2MzEsImV4cCI6MjA4MjA0MjYzMX0.02uAo7lQq8UNVB3yL45WudQ8WSR4opNlZ2frTZNRl8Q';
     </script>
+
+    <div id="bootLoader" class="boot-loader" aria-live="polite" aria-label="Загрузка приложения">
+        <div class="boot-loader-card">
+            <div class="boot-loader-title">AGR WEBViewer</div>
+            <div id="bootLoaderText" class="boot-loader-text">Загрузка приложения...</div>
+            <div class="boot-loader-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div id="bootLoaderBar" class="boot-loader-bar"></div>
+            </div>
+            <div id="bootLoaderPct" class="boot-loader-pct">0%</div>
+        </div>
+    </div>
 
     <!--
         WebGPU-вариант refactored viewer.

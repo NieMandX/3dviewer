@@ -104,6 +104,57 @@ class ViewerApp {
         // =====================
         const dom = collectViewerDom(document);
         app.dom = dom;
+        const bootLoaderEl = dom.bootLoaderEl;
+        const bootLoaderBarEl = dom.bootLoaderBarEl;
+        const bootLoaderTextEl = dom.bootLoaderTextEl;
+        const bootLoaderPctEl = dom.bootLoaderPctEl;
+        const bodyEl = document?.body || null;
+        let bootProgress = 0;
+        let bootLoaderHidden = false;
+
+        const pageLoadedPromise = new Promise((resolve) => {
+            if (typeof window === 'undefined' || document.readyState === 'complete') {
+                resolve();
+                return;
+            }
+            window.addEventListener('load', () => resolve(), { once: true });
+        });
+
+        function setBootProgress(nextValue, message) {
+            const value = Math.max(0, Math.min(100, Number(nextValue) || 0));
+            bootProgress = Math.max(bootProgress, value);
+            if (bootLoaderBarEl) {
+                bootLoaderBarEl.style.width = `${bootProgress}%`;
+            }
+            if (bootLoaderPctEl) {
+                bootLoaderPctEl.textContent = `${Math.round(bootProgress)}%`;
+            }
+            if (bootLoaderTextEl && message) {
+                bootLoaderTextEl.textContent = String(message);
+            }
+            if (bootLoaderEl) {
+                bootLoaderEl.querySelector('.boot-loader-track')?.setAttribute('aria-valuenow', String(Math.round(bootProgress)));
+            }
+        }
+
+        function hideBootLoader() {
+            if (bootLoaderHidden) return;
+            bootLoaderHidden = true;
+            setBootProgress(100, 'Готово');
+            if (!bootLoaderEl) {
+                bodyEl?.classList.remove('app-loading');
+                return;
+            }
+            bootLoaderEl.classList.add('is-leaving');
+            const timer = (typeof window !== 'undefined' ? window.setTimeout : setTimeout);
+            timer(() => {
+                bootLoaderEl.hidden = true;
+                bodyEl?.classList.remove('app-loading');
+            }, 230);
+        }
+
+        setBootProgress(8, 'Подготовка интерфейса...');
+
         const customSelects = createCustomSelectController({ root: document });
         app.customSelects = customSelects;
 
@@ -172,12 +223,14 @@ class ViewerApp {
             textEl: dom.rectAnnotTextEl,
             textRowEl: dom.rectAnnotTextRowEl,
         });
+        setBootProgress(18, 'Инициализация модулей...');
 
         const statusUI = createStatusUIController({
             statusEl: dom.statusEl,
             appbarStatusEl: dom.appbarStatusEl,
             emptyHintEl: dom.emptyHintEl,
         });
+        setBootProgress(24, 'Инициализация панелей...');
         const statusEl = dom.statusEl;
         const emptyHintEl = dom.emptyHintEl;
         const setStatusMessage = statusUI.setStatusMessage;
@@ -389,6 +442,7 @@ class ViewerApp {
 	        // =====================
 	        // THREE.js scene init
 	        // =====================
+        setBootProgress(34, 'Создание сцены...');
 	        const sceneCore = createSceneCore({
 	            THREE,
 	            OrbitControls,
@@ -422,6 +476,7 @@ class ViewerApp {
 		        const dirLight = sceneCore.dirLight;
 	        const markSceneStatsDirty = sceneCore.markSceneStatsDirty;
 	        const getSceneGeometryStats = sceneCore.getSceneGeometryStats;
+        setBootProgress(50, 'Сцена готова...');
 
         app.renderer = renderer;
         app.rendererInitPromise = rendererInitPromise;
@@ -565,6 +620,7 @@ class ViewerApp {
             },
         });
         app.annotations3d = annotations3d;
+        setBootProgress(66, 'Подготовка инструментов...');
 
         const collabStatusEl = dom.collabStatusEl;
         const collabNameEl = dom.collabNameEl;
@@ -3514,6 +3570,7 @@ class ViewerApp {
 	            setEmptyHintVisible,
 	            getLoadedModelCount: () => loadedModels.length,
 	        });
+        setBootProgress(76, 'Подключение загрузчиков...');
 
         const revealEmptyHintWhenReady = async () => {
             try {
@@ -3579,6 +3636,7 @@ class ViewerApp {
 	            applyShading,
 	            getCurrentShadingMode: shadingController.getCurrentMode,
 	        });
+        setBootProgress(84, 'Готовим интерфейс...');
 
         /**
          * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
@@ -3622,6 +3680,7 @@ class ViewerApp {
 	                backgroundController.syncToCamera();
 	            },
         });
+        setBootProgress(92, 'Запускаем рендер...');
 		        const pathTracerController = createPathTracerController({
 		            THREE,
 		            scene,
@@ -3656,6 +3715,39 @@ class ViewerApp {
 	        });
 	        app.pathTracer = pathTracerController;
         layout();
+        const nextFrame = () => new Promise((resolve) => {
+            const rafFn =
+                typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
+                    ? globalThis.requestAnimationFrame.bind(globalThis)
+                    : null;
+            if (!rafFn) {
+                setTimeout(resolve, 30);
+                return;
+            }
+            rafFn(() => resolve());
+        });
+
+        const finishBoot = async () => {
+            setBootProgress(96, 'Финальная подготовка...');
+            try {
+                await Promise.allSettled([rendererInitPromise, pageLoadedPromise]);
+            } catch (_) {
+                /* ignore */
+            }
+            requestRender();
+            await nextFrame();
+            await nextFrame();
+            hideBootLoader();
+        };
+
+        void finishBoot();
+
+        if (typeof window !== 'undefined') {
+            window.setTimeout(() => {
+                hideBootLoader();
+            }, 20000);
+        }
+
         // IBL не запускаем автоматически — управляется чекбоксом
     }
 }
