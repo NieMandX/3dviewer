@@ -1066,22 +1066,35 @@ export function createAnnotations3DController(options = {}) {
         if (!obj) return;
         const disposedGeometries = new Set();
         const disposedMaterials = new Set();
+        const disposedTextures = new Set();
+
+        const disposeMaterial = (material) => {
+            if (!material || disposedMaterials.has(material)) return;
+            disposedMaterials.add(material);
+            // Annotation materials can own canvased textures (labels/hatch).
+            Object.values(material).forEach((value) => {
+                if (!value?.isTexture || disposedTextures.has(value)) return;
+                disposedTextures.add(value);
+                value.dispose?.();
+            });
+            material.dispose?.();
+        };
+
         obj.traverse?.((child) => {
             const geometry = child?.geometry || null;
-            if (geometry?.dispose && !disposedGeometries.has(geometry)) {
+            const canDisposeGeometry =
+                geometry?.dispose &&
+                !disposedGeometries.has(geometry) &&
+                child?.isSprite !== true;
+            if (canDisposeGeometry) {
                 disposedGeometries.add(geometry);
                 geometry.dispose();
             }
             if (child?.material) {
                 if (Array.isArray(child.material)) {
-                    child.material.forEach((mat) => {
-                        if (!mat?.dispose || disposedMaterials.has(mat)) return;
-                        disposedMaterials.add(mat);
-                        mat.dispose();
-                    });
-                } else if (child.material.dispose && !disposedMaterials.has(child.material)) {
-                    disposedMaterials.add(child.material);
-                    child.material.dispose();
+                    child.material.forEach((mat) => disposeMaterial(mat));
+                } else {
+                    disposeMaterial(child.material);
                 }
             }
         });
