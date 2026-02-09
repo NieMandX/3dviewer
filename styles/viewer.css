@@ -1744,18 +1744,20 @@ body.bg-black .collab-chat-panel {
 
     .appbar {
         display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(6, auto);
         grid-template-rows: auto auto;
-        gap: 6px;
-        padding: 6px;
-        min-height: 72px;
+        column-gap: 4px;
+        row-gap: 4px;
+        padding: 4px 6px;
+        min-height: 64px;
         align-items: center;
+        justify-content: start;
     }
 
     .appbar .btn,
     .appbar .row {
-        width: 100%;
-        min-width: 0;
+        width: auto;
+        min-width: auto;
         margin: 0;
     }
 
@@ -1777,10 +1779,13 @@ body.bg-black .collab-chat-panel {
         grid-column: 6;
         grid-row: 1;
         height: 28px;
-        padding: 0 6px;
-        font-size: 10px;
+        padding: 0 8px;
+        font-size: 11px;
         white-space: nowrap;
         text-align: center;
+        max-width: 118px;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .appbar .appbar-shading {
@@ -1793,16 +1798,25 @@ body.bg-black .collab-chat-panel {
     }
 
     .appbar .appbar-shading #shadingMode {
-        width: 100%;
-        height: 28px;
+        width: 112px;
+        height: 26px;
         font-size: 12px;
-        padding: 4px 8px;
+        padding: 3px 6px;
     }
 
     .appbar #solidToggleBtn { grid-column: 3; grid-row: 2; }
     .appbar #collToggleBtn { grid-column: 4; grid-row: 2; }
     .appbar #npmToggleBtn { grid-column: 5; grid-row: 2; }
     .appbar #vpmToggleBtn { grid-column: 6; grid-row: 2; }
+
+    .appbar #solidToggleBtn,
+    .appbar #collToggleBtn,
+    .appbar #npmToggleBtn,
+    .appbar #vpmToggleBtn {
+        height: 26px;
+        padding: 0 6px;
+        font-size: 12px;
+    }
 
     .annotate-canvas {
         width: 100vw;
@@ -1839,6 +1853,10 @@ body.bg-black .collab-chat-panel {
     #annoLayerSelect,
     #annoLayerAddBtn {
         display: none;
+    }
+
+    .anno-toolbar .custom-select .anno-layer-select {
+        display: none !important;
     }
 
     .anno-tool[data-tool="eraser"] + .anno-divider,
