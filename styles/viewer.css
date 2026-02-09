@@ -1736,12 +1736,106 @@ body.bg-black .collab-chat-panel {
     background: rgba(0, 0, 0, 0.86);
 }
 
+@media (max-width: 980px) {
+    :root {
+        --sideW: min(92vw, 360px);
+        --footerH: 34px;
+    }
+
+    .appbar {
+        gap: 6px;
+        padding: 4px 8px;
+        min-height: 44px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .appbar .row,
+    .appbar .btn {
+        flex: 0 0 auto;
+    }
+
+    .appbar select {
+        max-width: 170px;
+    }
+
+    .side {
+        width: var(--sideW);
+        box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+    }
+
+    .list {
+        padding: 12px;
+    }
+
+    #out,
+    #gallery {
+        max-height: calc(100vh - var(--appbarH) - var(--camsBarH) - 220px);
+    }
+
+    .collab-drawer {
+        top: calc(var(--appbarH) + var(--camsBarH) + 8px);
+        bottom: auto;
+        width: min(420px, calc(100vw - 12px));
+    }
+
+    .pt-panel {
+        right: 8px;
+        top: calc(var(--appbarH) + var(--camsBarH) + 8px);
+        width: min(320px, calc(100vw - 16px));
+        min-width: 0;
+    }
+
+    .app-footer {
+        gap: 8px;
+        padding: 6px 8px;
+        min-height: 30px;
+    }
+
+    .app-footer .footer-left {
+        gap: 6px;
+    }
+
+    .collab-footer {
+        margin-left: 6px;
+        gap: 6px;
+    }
+}
+
 @media (max-width: 760px) {
     .collab-chat-panel {
-        height: min(320px, 45vh);
+        left: 6px;
+        right: 6px;
+        bottom: calc(var(--footerH) + 6px);
+        height: min(320px, 46vh);
+        padding: 6px;
     }
+
     .collab-chat-layout {
         grid-template-columns: 1fr;
+    }
+
+    .collab-chat-side {
+        min-height: 86px;
+        max-height: 38%;
+    }
+
+    .collab-drawer {
+        left: 6px;
+        right: 6px;
+        width: auto;
+        transform: none;
+    }
+
+    .auth-panel {
+        padding: 8px 10px 10px;
+    }
+
+    .app-footer .footer-btn {
+        height: 24px;
+        padding: 2px 6px;
     }
 }
 
