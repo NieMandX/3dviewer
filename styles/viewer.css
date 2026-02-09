@@ -1738,32 +1738,93 @@ body.bg-black .collab-chat-panel {
 
 @media (max-width: 980px) {
     :root {
-        --sideW: min(92vw, 360px);
+        --sideW: 0px;
         --footerH: 34px;
     }
 
     .appbar {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-rows: auto auto;
         gap: 6px;
+        padding: 6px;
+        min-height: 72px;
+        align-items: center;
+    }
+
+    .appbar .btn,
+    .appbar .row {
+        width: 100%;
+        min-width: 0;
+        margin: 0;
+    }
+
+    .appbar #fullscreenBtn,
+    .appbar #resetViewerBtn,
+    .appbar #exportBtn,
+    .appbar #collabPanelBtn,
+    .appbar #camsToggleBtn {
+        display: none !important;
+    }
+
+    .appbar #toggleSideBtn { grid-column: 1; grid-row: 1; }
+    .appbar #resetViewBtn { grid-column: 2; grid-row: 1; }
+    .appbar #focusPickBtn { grid-column: 3; grid-row: 1; }
+    .appbar #annoToggleBtn { grid-column: 4; grid-row: 1; }
+    .appbar #bgToggleBtn { grid-column: 5; grid-row: 1; }
+
+    .appbar #orderBtn {
+        grid-column: 6;
+        grid-row: 1;
+        height: 28px;
+        padding: 0 6px;
+        font-size: 10px;
+        white-space: nowrap;
+        text-align: center;
+    }
+
+    .appbar .appbar-shading {
+        grid-column: 1 / span 2;
+        grid-row: 2;
+    }
+
+    .appbar .appbar-shading label {
+        width: 100%;
+    }
+
+    .appbar .appbar-shading #shadingMode {
+        width: 100%;
+        height: 28px;
+        font-size: 12px;
         padding: 4px 8px;
-        min-height: 44px;
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        overflow-y: hidden;
-        -webkit-overflow-scrolling: touch;
     }
 
-    .appbar .row,
-    .appbar .btn {
-        flex: 0 0 auto;
-    }
+    .appbar #solidToggleBtn { grid-column: 3; grid-row: 2; }
+    .appbar #collToggleBtn { grid-column: 4; grid-row: 2; }
+    .appbar #npmToggleBtn { grid-column: 5; grid-row: 2; }
+    .appbar #vpmToggleBtn { grid-column: 6; grid-row: 2; }
 
-    .appbar select {
-        max-width: 170px;
+    .annotate-canvas {
+        width: 100vw;
     }
 
     .side {
-        width: var(--sideW);
-        box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+        left: 0;
+        right: 0;
+        width: 100vw;
+        max-width: 100vw;
+        transform: translateX(100%);
+        transition: transform 0.22s ease;
+        box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+        z-index: 6;
+    }
+
+    body:not(.side-hidden) .side {
+        transform: translateX(0);
+    }
+
+    body.side-hidden .side {
+        pointer-events: none;
     }
 
     .list {
@@ -1775,32 +1836,66 @@ body.bg-black .collab-chat-panel {
         max-height: calc(100vh - var(--appbarH) - var(--camsBarH) - 220px);
     }
 
-    .collab-drawer {
-        top: calc(var(--appbarH) + var(--camsBarH) + 8px);
-        bottom: auto;
-        width: min(420px, calc(100vw - 12px));
+    #annoLayerSelect,
+    #annoLayerAddBtn {
+        display: none;
     }
 
-    .pt-panel {
-        right: 8px;
-        top: calc(var(--appbarH) + var(--camsBarH) + 8px);
-        width: min(320px, calc(100vw - 16px));
-        min-width: 0;
+    .anno-tool[data-tool="eraser"] + .anno-divider,
+    #annoLayerAddBtn + .anno-divider {
+        display: none;
+    }
+
+    .collab-drawer {
+        top: calc(var(--appbarH) + var(--camsBarH));
+        left: 0;
+        right: 0;
+        bottom: var(--footerH);
+        width: auto;
+        transform: none;
+        padding: 8px;
+        box-sizing: border-box;
+    }
+
+    .auth-panel {
+        width: 100%;
+        max-width: 520px;
+        max-height: calc(100dvh - var(--appbarH) - var(--camsBarH) - var(--footerH) - 12px);
+        overflow: auto;
     }
 
     .app-footer {
-        gap: 8px;
         padding: 6px 8px;
         min-height: 30px;
+        gap: 8px;
     }
 
     .app-footer .footer-left {
         gap: 6px;
     }
 
+    .stats-overlay {
+        min-width: max-content;
+    }
+
     .collab-footer {
         margin-left: 6px;
         gap: 6px;
+    }
+
+    .collab-footer-label .collab-label-full {
+        display: none;
+    }
+
+    .collab-footer-label .collab-label-short {
+        display: inline;
+    }
+
+    .pt-panel {
+        right: 6px;
+        top: calc(var(--appbarH) + var(--camsBarH) + 6px);
+        width: min(320px, calc(100vw - 12px));
+        min-width: 0;
     }
 }
 
@@ -1818,15 +1913,8 @@ body.bg-black .collab-chat-panel {
     }
 
     .collab-chat-side {
-        min-height: 86px;
-        max-height: 38%;
-    }
-
-    .collab-drawer {
-        left: 6px;
-        right: 6px;
-        width: auto;
-        transform: none;
+        min-height: 82px;
+        max-height: 36%;
     }
 
     .auth-panel {
@@ -2299,6 +2387,10 @@ body.bg-black .custom-select-option.is-selected {
     overflow-y: hidden;
 }
 
+.app-footer .footer-left > * {
+    flex: 0 0 auto;
+}
+
 .app-footer .footer-btn {
     padding: 2px 8px;
     height: 22px;
@@ -2323,6 +2415,8 @@ body.bg-black .custom-select-option.is-selected {
     color: var(--muted);
     font-family: "SFMono-Regular", Consolas, Monaco, "Liberation Mono", monospace;
     white-space: nowrap;
+    min-width: max-content;
+    flex: 0 0 auto;
 }
 
 .collab-footer-guest,
@@ -2347,6 +2441,10 @@ body.bg-black .custom-select-option.is-selected {
 
 .collab-footer-label {
     color: var(--muted);
+}
+
+.collab-label-short {
+    display: none;
 }
 
 .collab-footer-value {

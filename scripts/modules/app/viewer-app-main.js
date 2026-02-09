@@ -797,7 +797,14 @@ class ViewerApp {
         let cameraSyncMuted = false;
         let cameraPersistTimer = null;
         let roomCameraCount = 0;
-        let chatPanelVisible = true;
+        const isMobileUi = () => {
+            if (typeof window === 'undefined') return false;
+            if (typeof window.matchMedia === 'function') {
+                return window.matchMedia('(max-width: 980px)').matches;
+            }
+            return Number(window.innerWidth || 0) <= 980;
+        };
+        let chatPanelVisible = !isMobileUi();
         const seenChatMessageIds = new Set();
         const collabContributors = new Map();
         let contributorsRenderQueued = false;
@@ -840,7 +847,7 @@ class ViewerApp {
             if (!enabled) {
                 setChatPanelVisible(false);
             } else {
-                setChatPanelVisible(true);
+                setChatPanelVisible(!isMobileUi());
             }
         }
 
@@ -1308,7 +1315,7 @@ class ViewerApp {
         function updateOwnerLabel() {
             if (!collabOwnerEl) return;
             if (!collabOwnerId) {
-                collabOwnerEl.textContent = 'свободно';
+                collabOwnerEl.textContent = isMobileUi() ? '-' : 'свободно';
                 return;
             }
             const name = getOwnerName();

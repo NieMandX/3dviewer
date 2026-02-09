@@ -799,8 +799,16 @@
             <button id="collabStatusBtn" class="btn footer-btn collab-status-btn is-offline" type="button" title="Совместная работа" aria-pressed="false">OFFLINE</button>
             <div id="collabFooter" class="collab-footer" hidden>
                 <div id="collabFooterGuest" class="collab-footer-guest" hidden>
-                    <span class="collab-footer-label">Проект: <strong id="collabFooterProjectName" class="collab-footer-value">—</strong></span>
-                    <span class="collab-footer-label">Комната: <strong id="collabFooterRoomName" class="collab-footer-value">—</strong></span>
+                    <span class="collab-footer-label collab-footer-label-project">
+                        <span class="collab-label-full">Проект:</span>
+                        <span class="collab-label-short" aria-hidden="true">П:</span>
+                        <strong id="collabFooterProjectName" class="collab-footer-value">—</strong>
+                    </span>
+                    <span class="collab-footer-label collab-footer-label-room">
+                        <span class="collab-label-full">Комната:</span>
+                        <span class="collab-label-short" aria-hidden="true">К:</span>
+                        <strong id="collabFooterRoomName" class="collab-footer-value">—</strong>
+                    </span>
                 </div>
                 <div id="collabFooterRegistered" class="collab-footer-registered" hidden>
                     <div class="collab-footer-row">
