@@ -2180,6 +2180,9 @@ class ViewerApp {
         collabPasswordConfirmEl?.addEventListener?.('keyup', authEnterHandler);
 
         setAuthMode(getInitialAuthMode());
+        if (canGuestEnter() && !collabAuthed) {
+            setCollabDrawerOpen(true);
+        }
 
         if (collabShowLoginBtn) {
             collabShowLoginBtn.addEventListener('click', () => {
