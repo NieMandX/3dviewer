@@ -1748,22 +1748,21 @@ body.bg-black .collab-chat-panel {
     }
 
     .appbar {
-        display: grid;
-        grid-template-columns: repeat(6, auto);
-        grid-template-rows: auto auto;
-        column-gap: 4px;
-        row-gap: 4px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
         padding: calc(4px + env(safe-area-inset-top, 0px)) calc(6px + env(safe-area-inset-right, 0px)) 4px calc(6px + env(safe-area-inset-left, 0px));
         min-height: 64px;
         align-items: center;
-        justify-content: start;
+        justify-content: flex-start;
     }
 
     .appbar .btn,
     .appbar .row {
         width: auto;
-        min-width: auto;
+        min-width: 0;
         margin: 0;
+        flex: 0 0 auto;
     }
 
     .appbar #fullscreenBtn,
@@ -1774,29 +1773,32 @@ body.bg-black .collab-chat-panel {
         display: none !important;
     }
 
-    .appbar #toggleSideBtn { grid-column: 1; grid-row: 1; }
-    .appbar #resetViewBtn { grid-column: 2; grid-row: 1; }
-    .appbar #focusPickBtn { grid-column: 3; grid-row: 1; }
-    .appbar #annoToggleBtn { grid-column: 4; grid-row: 1; }
-    .appbar #bgToggleBtn { grid-column: 5; grid-row: 1; justify-self: end; }
+    .appbar #toggleSideBtn { order: 1; }
+    .appbar #resetViewBtn { order: 2; }
+    .appbar #focusPickBtn { order: 3; }
+    .appbar #annoToggleBtn { order: 4; }
+    .appbar #bgToggleBtn {
+        order: 5;
+        margin-left: auto;
+    }
 
     .appbar #orderBtn {
-        grid-column: 6;
-        grid-row: 1;
+        order: 6;
         height: 28px;
         padding: 0 8px;
         font-size: 11px;
         white-space: nowrap;
         text-align: center;
-        max-width: 118px;
+        max-width: 124px;
         overflow: hidden;
         text-overflow: ellipsis;
-        justify-self: end;
+        flex: 0 1 124px;
     }
 
     .appbar .appbar-shading {
-        grid-column: 1 / span 2;
-        grid-row: 2;
+        order: 20;
+        flex: 1 1 auto;
+        min-width: 0;
     }
 
     .appbar .appbar-shading label {
@@ -1804,16 +1806,17 @@ body.bg-black .collab-chat-panel {
     }
 
     .appbar .appbar-shading #shadingMode {
-        width: 112px;
+        width: 100%;
+        min-width: 0;
         height: 26px;
         font-size: 12px;
         padding: 3px 6px;
     }
 
-    .appbar #solidToggleBtn { grid-column: 3; grid-row: 2; }
-    .appbar #collToggleBtn { grid-column: 4; grid-row: 2; }
-    .appbar #npmToggleBtn { grid-column: 5; grid-row: 2; }
-    .appbar #vpmToggleBtn { grid-column: 6; grid-row: 2; }
+    .appbar #solidToggleBtn { order: 21; }
+    .appbar #collToggleBtn { order: 22; }
+    .appbar #npmToggleBtn { order: 23; }
+    .appbar #vpmToggleBtn { order: 24; }
 
     .appbar #toggleSideBtn,
     .appbar #resetViewBtn,
@@ -1821,18 +1824,25 @@ body.bg-black .collab-chat-panel {
     .appbar #annoToggleBtn,
     .appbar #bgToggleBtn {
         width: 28px;
+        min-width: 28px;
+        height: 28px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .appbar #solidToggleBtn,
     .appbar #collToggleBtn,
     .appbar #npmToggleBtn,
     .appbar #vpmToggleBtn {
-        width: 56px;
-        min-width: 56px;
-        max-width: 56px;
+        width: 40px;
+        min-width: 40px;
+        max-width: 40px;
         height: 26px;
         padding: 0;
         font-size: 12px;
+        flex: 0 0 40px;
         justify-content: center;
     }
 
