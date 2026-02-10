@@ -30,13 +30,14 @@ export function createBackfaceOverlayController(options = {}) {
             radius
         );
         gradient.addColorStop(0.0, '#ffffff');
-        gradient.addColorStop(0.55, '#ececec');
-        gradient.addColorStop(1.0, '#cbcbcb');
+        gradient.addColorStop(0.42, '#f5f5f5');
+        gradient.addColorStop(0.82, '#e5e5e5');
+        gradient.addColorStop(1.0, '#c8c8c8');
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         const texture = new THREE.CanvasTexture(canvas);
-        texture.colorSpace = THREE.LinearSRGBColorSpace;
+        texture.colorSpace = THREE.SRGBColorSpace;
         texture.needsUpdate = true;
         backfaceMatcapTexture = texture;
         return backfaceMatcapTexture;
@@ -131,7 +132,7 @@ export function createBackfaceOverlayController(options = {}) {
         // FRONT: белый
         if (!mesh.userData._bfFront) {
             const front = makeViewAngleShadedBasic(
-                { ...baseParams, side: THREE.FrontSide, color: 0xf5f5f5 }
+                { ...baseParams, side: THREE.FrontSide, color: 0xfdfdfd }
             );
             mesh.userData._bfFront = front;
         }
