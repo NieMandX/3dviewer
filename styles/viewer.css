@@ -1278,6 +1278,20 @@ select.custom-select-native:disabled {
     z-index: 6;
 }
 
+body.room-entry-landing #emptyHint.status-overlay {
+    display: none !important;
+}
+
+body.room-entry-landing .collab-drawer.room-entry-overlay {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: calc(50% + 100px);
+    transform: translate(-50%, 50%);
+    width: min(360px, calc(100vw - 24px));
+    padding: 0;
+}
+
 .auth-panel {
     display: flex;
     flex-direction: column;

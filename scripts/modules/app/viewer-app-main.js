@@ -768,6 +768,7 @@ class ViewerApp {
             if (isOpen && !collabAuthed) {
                 setAuthMode(getInitialAuthMode());
             }
+            syncRoomEntryLandingState();
         }
 
         function getInitialAuthMode() {
@@ -783,6 +784,7 @@ class ViewerApp {
                 collabAuthPanelEl.dataset.mode = next;
             }
             clearAuthErrors();
+            syncRoomEntryLandingState();
         }
 
         function submitAuthFromEnter() {
@@ -822,6 +824,22 @@ class ViewerApp {
 
         function canGuestEnter() {
             return !!getProjectSlugFromUrl() && !!getRoomSlugFromUrl();
+        }
+
+        function isRoomEntryLandingActive() {
+            return canGuestEnter() && !collabAuthed;
+        }
+
+        function syncRoomEntryLandingState() {
+            const active = isRoomEntryLandingActive();
+            bodyEl?.classList?.toggle?.('room-entry-landing', active);
+            if (collabDrawerEl) {
+                const mode = collabAuthPanelEl?.dataset?.mode || collabAuthMode || getInitialAuthMode();
+                collabDrawerEl.classList.toggle('room-entry-overlay', active && mode === 'roomEntry');
+            }
+            if (active) {
+                setEmptyHintVisible(false);
+            }
         }
 
         function updateCollabFooter() {
@@ -1663,6 +1681,7 @@ class ViewerApp {
                 collabAuthed = false;
                 collabIsRegistered = false;
                 collabIsSuperuser = false;
+                syncRoomEntryLandingState();
                 setCollabControlsDisabled(false);
                 setCollabCreateEnabled(false);
                 setCollabSessionEnabled(false);
@@ -1727,6 +1746,7 @@ class ViewerApp {
 
             collabAuthed = true;
             collabIsRegistered = isRegisteredUser(collabUser);
+            syncRoomEntryLandingState();
             updateCollabFooter();
 
             const fetchProfileDisplayName = async (userId) => {
@@ -3667,10 +3687,10 @@ class ViewerApp {
 	        // =====================
 	        const fileInput = dom.fileInput;
 	        const openBtn = dom.openBtn;
-	        createFileFlowUIController({
-	            statusEl,
-	            fileInput,
-	            openBtn,
+        createFileFlowUIController({
+            statusEl,
+            fileInput,
+            openBtn,
 	            emptyHintEl,
 	            rootEl,
 	            dropEl,
@@ -3678,12 +3698,14 @@ class ViewerApp {
 	            sampleModels: SAMPLE_MODELS,
 	            handleFBXFile,
 	            handleZIPFile,
-	            finalizeBatchAfterAllFiles,
-	            hideSidePanel,
-	            setStatusMessage,
-	            setEmptyHintVisible,
-	            getLoadedModelCount: () => loadedModels.length,
-	        });
+            finalizeBatchAfterAllFiles,
+            hideSidePanel,
+            setStatusMessage,
+            setEmptyHintVisible: (visible) => {
+                setEmptyHintVisible(!!visible && !isRoomEntryLandingActive());
+            },
+            getLoadedModelCount: () => loadedModels.length,
+        });
         setBootProgress(76, 'Подключение загрузчиков...');
 
         const revealEmptyHintWhenReady = async () => {
@@ -3692,7 +3714,7 @@ class ViewerApp {
             } catch (_) {
                 /* ignore */
             }
-            setEmptyHintVisible(loadedModels.length === 0);
+            setEmptyHintVisible(loadedModels.length === 0 && !isRoomEntryLandingActive());
         };
         if (typeof window !== 'undefined') {
             if (document.readyState === 'complete') {
