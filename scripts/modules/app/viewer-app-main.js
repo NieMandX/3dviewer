@@ -120,6 +120,92 @@ class ViewerApp {
             window.addEventListener('load', () => resolve(), { once: true });
         });
 
+        const isCoarseMobileViewport = () => {
+            if (typeof window === 'undefined') return false;
+            const narrowViewport =
+                typeof window.matchMedia === 'function'
+                    ? window.matchMedia('(max-width: 980px)').matches
+                    : Number(window.innerWidth || 0) <= 980;
+            const coarsePointer =
+                typeof window.matchMedia === 'function'
+                    ? window.matchMedia('(hover: none) and (pointer: coarse)').matches
+                    : true;
+            return narrowViewport && coarsePointer;
+        };
+
+        function setupMobileImmersiveViewport() {
+            if (typeof window === 'undefined' || !document?.documentElement || !bodyEl) return;
+            if (!isCoarseMobileViewport()) return;
+
+            const rootEl = document.documentElement;
+            bodyEl.classList.add('mobile-immersive');
+
+            let rafToken = 0;
+            let collapseTimer = 0;
+            let fullscreenAttempted = false;
+
+            const syncViewportHeight = () => {
+                const visualViewport = window.visualViewport || null;
+                const viewportHeight = Math.max(1, Math.round(visualViewport?.height || window.innerHeight || 1));
+                rootEl.style.setProperty('--mobileViewportH', `${viewportHeight}px`);
+            };
+
+            const scheduleViewportSync = () => {
+                if (rafToken) {
+                    cancelAnimationFrame(rafToken);
+                }
+                rafToken = requestAnimationFrame(() => {
+                    rafToken = 0;
+                    syncViewportHeight();
+                });
+            };
+
+            const collapseBrowserChrome = () => {
+                if (collapseTimer) {
+                    clearTimeout(collapseTimer);
+                }
+                collapseTimer = window.setTimeout(() => {
+                    syncViewportHeight();
+                    try {
+                        window.scrollTo(0, 1);
+                    } catch (_) {}
+                }, 70);
+            };
+
+            const tryRequestFullscreen = () => {
+                if (fullscreenAttempted) return;
+                fullscreenAttempted = true;
+                const requestFullscreen = rootEl.requestFullscreen || rootEl.webkitRequestFullscreen;
+                if (typeof requestFullscreen !== 'function') return;
+                try {
+                    const maybePromise = requestFullscreen.call(rootEl);
+                    if (maybePromise && typeof maybePromise.catch === 'function') {
+                        maybePromise.catch(() => {});
+                    }
+                } catch (_) {}
+            };
+
+            syncViewportHeight();
+            collapseBrowserChrome();
+
+            window.addEventListener('resize', () => {
+                scheduleViewportSync();
+                collapseBrowserChrome();
+            }, { passive: true });
+            window.addEventListener('orientationchange', () => {
+                scheduleViewportSync();
+                collapseBrowserChrome();
+            }, { passive: true });
+            window.addEventListener('focus', collapseBrowserChrome, { passive: true });
+            window.addEventListener('pageshow', collapseBrowserChrome, { passive: true });
+            window.addEventListener('pointerup', collapseBrowserChrome, { passive: true });
+            window.addEventListener('pointerdown', tryRequestFullscreen, { once: true, passive: true });
+            window.visualViewport?.addEventListener('resize', scheduleViewportSync, { passive: true });
+            window.visualViewport?.addEventListener('scroll', scheduleViewportSync, { passive: true });
+        }
+
+        setupMobileImmersiveViewport();
+
         function setBootProgress(nextValue, message) {
             const value = Math.max(0, Math.min(100, Number(nextValue) || 0));
             bootProgress = Math.max(bootProgress, value);

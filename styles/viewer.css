@@ -24,6 +24,7 @@
     --camsBarH: 0px;
     --sideW: 460px;
     --footerH: 28px;
+    --mobileViewportH: 100vh;
 }
 
 html,
@@ -36,6 +37,10 @@ body {
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     color: var(--ink);
     background: transparent;
+}
+
+body.mobile-immersive {
+    min-height: calc(var(--mobileViewportH, 100vh) + 1px);
 }
 
 body.app-loading {
@@ -1739,7 +1744,7 @@ body.bg-black .collab-chat-panel {
 @media (max-width: 980px) {
     :root {
         --sideW: 0px;
-        --footerH: 34px;
+        --footerH: calc(34px + env(safe-area-inset-bottom, 0px));
     }
 
     .appbar {
@@ -1748,7 +1753,7 @@ body.bg-black .collab-chat-panel {
         grid-template-rows: auto auto;
         column-gap: 4px;
         row-gap: 4px;
-        padding: 4px 6px;
+        padding: calc(4px + env(safe-area-inset-top, 0px)) calc(6px + env(safe-area-inset-right, 0px)) 4px calc(6px + env(safe-area-inset-left, 0px));
         min-height: 64px;
         align-items: center;
         justify-content: start;
@@ -1896,8 +1901,8 @@ body.bg-black .collab-chat-panel {
     }
 
     .app-footer {
-        padding: 6px 8px;
-        min-height: 30px;
+        padding: 6px calc(8px + env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px));
+        min-height: var(--footerH);
         gap: 8px;
     }
 
