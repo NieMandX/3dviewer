@@ -4,8 +4,7 @@ export function createBackfaceOverlayController(options = {}) {
 
     /**
      * Унифицированный материал для режима Backface (white/red).
-     * Всегда используем MeshBasicMaterial, чтобы режим вёл себя одинаково
-     * и стабильно как в WebGL, так и в WebGPU.
+     * Используем Lambert, чтобы вернуть мягкие полутона без кастомных шейдеров.
      */
     function makeViewAngleShadedBasic(params = {}) {
         if (!THREE) return null;
@@ -32,9 +31,11 @@ export function createBackfaceOverlayController(options = {}) {
         const baseColor = (params.color && params.color.isColor)
             ? params.color.clone()
             : new THREE.Color(color);
+        const emissiveColor = baseColor.clone().multiplyScalar(0.06);
 
-        const material = new THREE.MeshBasicMaterial({
+        const material = new THREE.MeshLambertMaterial({
             color: baseColor,
+            emissive: emissiveColor,
             side,
             transparent,
             opacity,
@@ -55,6 +56,7 @@ export function createBackfaceOverlayController(options = {}) {
         material.morphNormals = !!morphNormals;
         material.morphColors = !!morphColors;
         material.vertexColors = !!vertexColors;
+        material.flatShading = false;
         if (alphaMap && alphaMap.isTexture) {
             alphaMap.colorSpace = THREE.LinearSRGBColorSpace;
         }
@@ -92,7 +94,7 @@ export function createBackfaceOverlayController(options = {}) {
         // FRONT: белый
         if (!mesh.userData._bfFront) {
             const front = makeViewAngleShadedBasic(
-                { ...baseParams, side: THREE.FrontSide, color: 0xffffff }
+                { ...baseParams, side: THREE.FrontSide, color: 0xf5f5f5 }
             );
             mesh.userData._bfFront = front;
         }
