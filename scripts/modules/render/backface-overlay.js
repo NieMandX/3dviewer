@@ -132,7 +132,7 @@ export function createBackfaceOverlayController(options = {}) {
         // FRONT: белый
         if (!mesh.userData._bfFront) {
             const front = makeViewAngleShadedBasic(
-                { ...baseParams, side: THREE.FrontSide, color: 0xfdfdfd }
+                { ...baseParams, side: THREE.FrontSide, color: 0xfefefe }
             );
             mesh.userData._bfFront = front;
         }
