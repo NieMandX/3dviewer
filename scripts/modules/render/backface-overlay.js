@@ -1,11 +1,47 @@
 export function createBackfaceOverlayController(options = {}) {
     const THREE = options.THREE || null;
     const world = options.world || null;
+    let backfaceMatcapTexture = null;
 
     /**
      * Унифицированный материал для режима Backface (white/red).
-     * Используем Lambert, чтобы вернуть мягкие полутона без кастомных шейдеров.
+     * Используем light-independent view-angle shading через Matcap:
+     * полутона зависят от угла поверхности к камере, а не от источников света.
      */
+    function getBackfaceMatcapTexture() {
+        if (!THREE) return null;
+        if (backfaceMatcapTexture) return backfaceMatcapTexture;
+        if (typeof document === 'undefined') return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+
+        const cx = canvas.width * 0.5;
+        const cy = canvas.height * 0.5;
+        const radius = canvas.width * 0.58;
+        const gradient = ctx.createRadialGradient(
+            cx - radius * 0.25,
+            cy - radius * 0.28,
+            radius * 0.10,
+            cx,
+            cy,
+            radius
+        );
+        gradient.addColorStop(0.0, '#ffffff');
+        gradient.addColorStop(0.55, '#ececec');
+        gradient.addColorStop(1.0, '#cbcbcb');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.LinearSRGBColorSpace;
+        texture.needsUpdate = true;
+        backfaceMatcapTexture = texture;
+        return backfaceMatcapTexture;
+    }
+
     function makeViewAngleShadedBasic(params = {}) {
         if (!THREE) return null;
         const {
@@ -31,11 +67,12 @@ export function createBackfaceOverlayController(options = {}) {
         const baseColor = (params.color && params.color.isColor)
             ? params.color.clone()
             : new THREE.Color(color);
-        const emissiveColor = baseColor.clone().multiplyScalar(0.06);
+        const matcapTexture = getBackfaceMatcapTexture();
 
-        const material = new THREE.MeshLambertMaterial({
+        const materialFactory = matcapTexture ? THREE.MeshMatcapMaterial : THREE.MeshBasicMaterial;
+        const material = new materialFactory({
             color: baseColor,
-            emissive: emissiveColor,
+            ...(matcapTexture ? { matcap: matcapTexture } : {}),
             side,
             transparent,
             opacity,
