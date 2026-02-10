@@ -2615,7 +2615,6 @@ class ViewerApp {
 	        app.dirLight = dirLight;
 	        app.grid = northGrid.grid;
 	        app.sun = { enabled: true, direction: sunDir.clone() };
-            app.backfaceDirectionalShadowSuppressed = false;
 	        app.layers = { parcels: null };
 
 
@@ -2847,22 +2846,6 @@ class ViewerApp {
             backfaceNodeSupport,
         });
         const setBackfaceMode = backfaceOverlay.setBackfaceMode;
-        const setDirectionalShadowSuppressed = (suppressed) => {
-            const next = !!suppressed;
-            if (app.backfaceDirectionalShadowSuppressed === next) return;
-            app.backfaceDirectionalShadowSuppressed = next;
-            if (dirLight) {
-                const sunEnabled = app?.sun?.enabled !== false;
-                dirLight.castShadow = sunEnabled && !next;
-                if (dirLight.shadow) {
-                    dirLight.shadow.needsUpdate = true;
-                }
-            }
-            if (renderer?.shadowMap) {
-                renderer.shadowMap.needsUpdate = true;
-            }
-            requestRender();
-        };
 
 
 
@@ -2888,7 +2871,6 @@ class ViewerApp {
             ensureBeautyWire,
             beautyWireAngleDeg: BEAUTY_WIRE_ANGLE_DEG,
             setBackfaceMode,
-            setDirectionalShadowSuppressed,
             applyEnvToMaterials,
             applyGlassControlsToScene,
             getEnvIntensity: () => parseFloat(iblIntEl.value),

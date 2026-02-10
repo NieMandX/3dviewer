@@ -21,10 +21,6 @@ export function createShadingController(options = {}) {
     const beautyWireAngleDeg = Number.isFinite(options.beautyWireAngleDeg) ? options.beautyWireAngleDeg : 45;
 
     const setBackfaceMode = typeof options.setBackfaceMode === 'function' ? options.setBackfaceMode : () => {};
-    const setDirectionalShadowSuppressed =
-        typeof options.setDirectionalShadowSuppressed === 'function'
-            ? options.setDirectionalShadowSuppressed
-            : () => {};
 
     const applyEnvToMaterials =
         typeof options.applyEnvToMaterials === 'function' ? options.applyEnvToMaterials : () => {};
@@ -149,14 +145,12 @@ export function createShadingController(options = {}) {
         if (mode === 'backface') {
             // если ранее был включён beautywire — выключаем его при входе в backface
             world?.traverse?.(o => { if (o.isMesh) clearBeautyWire(o); });
-            setDirectionalShadowSuppressed(true);
             setBackfaceMode(true);
             requestRender();
             scheduleOnce();
             return;
         } else {
             // выходим из backface при любом другом режиме
-            setDirectionalShadowSuppressed(false);
             setBackfaceMode(false);
         }
 

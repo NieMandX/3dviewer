@@ -13,10 +13,6 @@ export function createSunToggleController(options = {}) {
 
     const onEnable = typeof options.onEnable === 'function' ? options.onEnable : () => {};
     const onDisable = typeof options.onDisable === 'function' ? options.onDisable : () => {};
-    const isDirectionalShadowSuppressed =
-        typeof options.isDirectionalShadowSuppressed === 'function'
-            ? options.isDirectionalShadowSuppressed
-            : () => false;
 
     let enabled = typeof options.initialEnabled === 'boolean'
         ? options.initialEnabled
@@ -54,7 +50,7 @@ export function createSunToggleController(options = {}) {
 
         if (dirLight) {
             dirLight.visible = enabled;
-            dirLight.castShadow = enabled && !isDirectionalShadowSuppressed();
+            dirLight.castShadow = enabled;
         }
         if (renderer?.shadowMap) {
             renderer.shadowMap.enabled = enabled;
