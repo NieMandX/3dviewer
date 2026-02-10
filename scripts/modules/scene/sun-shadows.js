@@ -115,6 +115,7 @@ export function createSunShadowsController(options = {}) {
         dirLight,
         layout,
         requestRender,
+        isDirectionalShadowSuppressed: () => !!app?.backfaceDirectionalShadowSuppressed,
         onEnable: () => {
             updateSun();
             fitSunShadowToScene();
@@ -133,4 +134,3 @@ export function createSunShadowsController(options = {}) {
         computeWorldCenter,
     });
 }
-
