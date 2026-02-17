@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Реестр проверок ВПМ/НПМ</title>
+  <style>
+    :root {
+      --ink: #132033;
+      --muted: #4c607c;
+      --line: #d5deea;
+      --bg: #f6f8fb;
+
+      --live-bg: #ecf8ef;
+      --live-br: #2b8a4b;
+
+      --plan-bg: #fff6e8;
+      --plan-br: #c47e17;
+
+      --py-bg: #eaf4ff;
+      --py-br: #2e74c9;
+
+      --map-bg: #eef1f6;
+      --map-br: #5b6980;
+
+      --ok: #1a7f37;
+      --warn: #b26a00;
+      --fail: #b42318;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.35;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .page {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .head {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: 0.2px;
+    }
+
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .section {
+      margin: 0 0 14px;
+      border-radius: 14px;
+      border: 2px solid var(--line);
+      padding: 16px;
+      background: #fff;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .section h2 {
+      margin: 0 0 10px;
+      font-size: 21px;
+      line-height: 1.15;
+    }
+
+    .section h3 {
+      margin: 16px 0 8px;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .section p {
+      margin: 6px 0;
+      font-size: 13px;
+    }
+
+    .section-live { background: var(--live-bg); border-color: var(--live-br); }
+    .section-plan { background: var(--plan-bg); border-color: var(--plan-br); }
+    .section-python { background: var(--py-bg); border-color: var(--py-br); }
+    .section-map { background: var(--map-bg); border-color: var(--map-br); }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 6px 0 10px;
+    }
+
+    .chip {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, white); }
+    .warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, white); }
+    .fail { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 35%, white); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin-top: 6px;
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      padding: 8px 9px;
+      font-size: 12px;
+    }
+
+    th {
+      background: #f1f5fb;
+      font-weight: 700;
+      color: #263952;
+    }
+
+    .w-30 { width: 30%; }
+    .w-35 { width: 35%; }
+    .w-20 { width: 20%; }
+    .w-15 { width: 15%; }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tiny {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .footer {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    @page {
+      size: A4 portrait;
+      margin: 12mm;
+    }
+
+    @media print {
+      body { background: #fff; }
+      .page {
+        width: auto;
+        margin: 0;
+        padding: 0;
+      }
+      .section, .head {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="head">
+      <h1>Реестр автоматических проверок моделей (ВПМ/НПМ)</h1>
+      <p class="sub">Документ для печати. Источники: модуль CHK вьюера + Python checker SintezAGRChecker v1.4 (Blender).</p>
+      <p class="sub">Состояние: <strong>17.02.2026 20:52</strong>. Репозиторий: <code>app</code>. Ветка: <code>feature/extended-glass-controls</code>, commit: <code>d7b7d2f</code>.</p>
+    </header>
+
+    <section class="section section-live">
+      <h2>1) Уже реализовано во вьюере (кнопка CHK)</h2>
+      <div class="chips">
+        <span class="chip ok">PASS/WARN/FAIL отчёт</span>
+        <span class="chip ok">Автозапуск после импорта</span>
+        <span class="chip ok">Поддержка ВПМ и НПМ</span>
+      </div>
+      <p class="muted">Основные файлы: <code>scripts/modules/io/model-checks.js</code>, <code>scripts/modules/io/model-checks-core/*.js</code>, <code>scripts/modules/ui/model-checks-modal.js</code>.</p>
+
+      <h3>1.1 Базовые метрики сцены</h3>
+      <table>
+        <thead>
+          <tr>
+            <th class="w-35">Проверка</th>
+            <th class="w-35">Логика</th>
+            <th class="w-15">Порог WARN</th>
+            <th class="w-15">Порог FAIL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Треугольники сцены</td><td>Суммарный объём геометрии по всем моделям</td><td>2 000 000</td><td>5 000 000</td></tr>
+          <tr><td>Оценка draw calls</td><td>Сумма вызовов по мешам и материалам</td><td>2 000</td><td>4 000</td></tr>
+          <tr><td>Количество мешей</td><td>Суммарное число render-мешей</td><td>1 500</td><td>3 000</td></tr>
+          <tr><td>Уникальные материалы</td><td>Уникальные material UUID</td><td>300</td><td>700</td></tr>
+          <tr><td>Уникальные текстуры</td><td>Уникальные texture UUID</td><td>250</td><td>500</td></tr>
+          <tr><td>Макс. размер текстуры</td><td>Максимальная сторона изображения</td><td>4096 px</td><td>8192 px</td></tr>
+        </tbody>
+      </table>
+
+      <h3>1.2 Геометрия и техсостояние</h3>
+      <table>
+        <thead>
+          <tr>
+            <th class="w-35">Проверка</th>
+            <th class="w-35">Что считается ошибкой</th>
+            <th class="w-15">Статус</th>
+            <th class="w-15">Охват</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>UV-координаты</td><td>Есть текстуры, но у меша отсутствует UV</td><td>WARN</td><td>ВПМ + НПМ</td></tr>
+          <tr><td>Transform валидность</td><td>NaN/Inf в позиции/масштабе</td><td>FAIL</td><td>ВПМ + НПМ</td></tr>
+          <tr><td>Проблемные модели (сводно)</td><td>Суммирует риски модели: триcount, UV, transform, ориентация, крупный bbox</td><td>WARN/FAIL</td><td>ВПМ + НПМ</td></tr>
+          <tr><td>Треугольники по модели</td><td>Для внутреннего статуса модели</td><td>900 000</td><td>1 800 000</td></tr>
+        </tbody>
+      </table>
+
+      <h3>1.3 Наименования</h3>
+      <table>
+        <thead>
+          <tr><th class="w-35">Проверка</th><th class="w-35">Условие</th><th class="w-15">Статус</th><th class="w-15">Охват</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Недопустимые символы</td><td>Имя содержит символ вне <code>[a-zA-Z0-9_.]</code></td><td>WARN</td><td>FBX/ZIP/Object/Material/Texture</td></tr>
+          <tr><td>Длина имени</td><td>Длина более 254 символов</td><td>FAIL</td><td>FBX/ZIP/Object/Material/Texture</td></tr>
+        </tbody>
+      </table>
+
+      <h3>1.4 Структура FBX</h3>
+      <table>
+        <thead>
+          <tr><th class="w-35">Проверка</th><th class="w-35">Условие</th><th class="w-15">Статус</th><th class="w-15">Охват</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>UCX присутствуют</td><td>В обычном FBX не найдено ни одной коллизии</td><td>FAIL</td><td>ВПМ/НПМ (не light-FBX)</td></tr>
+          <tr><td>Остекление</td><td>Glass разбит более чем на 1 mesh</td><td>FAIL</td><td>ВПМ/НПМ (где есть стекло)</td></tr>
+          <tr><td>Иерархия mesh→mesh</td><td>Меши вложены друг в друга (кроме UCX)</td><td>FAIL</td><td>ВПМ + НПМ</td></tr>
+          <tr><td>Свет/камеры в обычном FBX</td><td>Найдены LIGHT/CAMERA в не-light файле</td><td>WARN</td><td>ВПМ + НПМ</td></tr>
+          <tr><td>Light FBX содержит геометрию</td><td>В light-файле есть mesh-геометрия</td><td>FAIL</td><td>Light-FBX</td></tr>
+          <tr><td>Light FBX без источников</td><td>В light-файле не найдено света</td><td>WARN</td><td>Light-FBX</td></tr>
+        </tbody>
+      </table>
+
+      <h3>1.5 Материалы (базовые ограничения)</h3>
+      <table>
+        <thead>
+          <tr><th class="w-35">Проверка</th><th class="w-35">Условие</th><th class="w-15">Статус</th><th class="w-15">Охват</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Материалы на UCX</td><td>Для UCX в исходном FBX найден материал</td><td>FAIL</td><td>ВПМ + НПМ</td></tr>
+          <tr><td>Материал на меше</td><td>У не-UCX меша нет материала</td><td>FAIL</td><td>ВПМ + НПМ</td></tr>
+          <tr><td>Лимит материалов</td><td>Материалов на меше больше 7</td><td>FAIL</td><td>ВПМ + НПМ</td></tr>
+          <tr><td>Main SlotNumber</td><td>При >1 material имена должны иметь суффиксы <code>_1.._N</code> без пропусков</td><td>FAIL</td><td>Main-меши</td></tr>
+          <tr><td>Текстуры в Glass</td><td>У материалов стекла есть текстурные карты</td><td>WARN</td><td>Glass-меши</td></tr>
+        </tbody>
+      </table>
+
+      <p class="tiny">Важно: проверка UCX идёт по импортному снапшоту материалов (до автоподмены материалов вьюером), чтобы избежать ложных срабатываний.</p>
+    </section>
+
+    <section class="section section-plan">
+      <h2>2) Планируем добавить во вьюер (следующие итерации)</h2>
+      <div class="chips">
+        <span class="chip warn">Приоритет P1: критичное для МКА</span>
+        <span class="chip warn">Приоритет P2: углубление контроля</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th class="w-30">Группа</th>
+            <th class="w-35">Что добавляем</th>
+            <th class="w-20">Применимость</th>
+            <th class="w-15">Приоритет</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Маски наименований</td><td>Regex-маски для zip/fbx/geojson, мешей, материалов, текстур, light-объектов</td><td>ВПМ + НПМ</td><td>P1</td></tr>
+          <tr><td>UDIM целостность</td><td>Проверка обязательного набора Diffuse/ERM/Normal, непрерывности UDIM и пропусков</td><td>ВПМ</td><td>P1</td></tr>
+          <tr><td>Качество UV</td><td>Выход островов за допустимые плитки, зеркальные/перевёрнутые UV, стекло строго в 1001</td><td>ВПМ + НПМ</td><td>P1</td></tr>
+          <tr><td>Texel density</td><td>Расчёт плотности пикселей с порогами для разных типов поверхностей</td><td>ВПМ + НПМ</td><td>P1</td></tr>
+          <tr><td>Коллизии UCX (deep)</td><td>Замкнутость, выпуклость, нумерация, пересечения, доля полигонов коллизий</td><td>ВПМ</td><td>P1</td></tr>
+          <tr><td>GeoJSON</td><td>Структура, типы и обязательность полей, кодировка UTF-8, синхронизация с материалами стекла</td><td>ВПМ</td><td>P1</td></tr>
+          <tr><td>PNG-контроль</td><td>Формат PNG, RGB-режим, запрет alpha для ERM/Normal, проверка заглушек</td><td>ВПМ + НПМ</td><td>P1</td></tr>
+          <tr><td>Освещение</td><td>Типы источников, иерархия Root, лимит количества, минимальные расстояния между светильниками</td><td>ВПМ Light</td><td>P2</td></tr>
+          <tr><td>Состав архива</td><td>Лимиты количества файлов, размер архивов, обязательные сущности и форматы</td><td>ВПМ + НПМ</td><td>P2</td></tr>
+          <tr><td>Pivot и bbox</td><td>Положение точки отсчёта относительно центра, строгие пределы по габаритам</td><td>ВПМ + НПМ</td><td>P2</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section section-python">
+      <h2>3) Отдельно: что проверяет Python/Blender checker (SintezAGRChecker v1.4)</h2>
+      <p class="muted">Источник: <code>/Users/mac/Downloads/SintezAGRChecker_v1.4.zip</code>, файл <code>scripts/check_highpoly_lowpoly.py</code>.</p>
+
+      <h3>3.1 Высокополигональные модели (ВПМ / SM)</h3>
+      <table>
+        <thead>
+          <tr><th class="w-30">Раздел</th><th class="w-70">Проверки</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Текстуры и UDIM</td><td>Упаковка текстур; обязательный набор Diffuse/ERM/Normal; целостность нумерации UDIM; допустимые разрешения и квадратность; согласованность разрешений в UDIM-плитке; неиспользуемые текстуры; выход UV за границы; texel density.</td></tr>
+          <tr><td>Геометрия</td><td>Трансформации (location/rotation/scale); лимит полигонов ОКС; лимит полигонов UCX; триангуляция (без n-gon); дубликаты вершин; изолированные вершины/рёбра/грани.</td></tr>
+          <tr><td>Состав FBX</td><td>Лишние объекты/анимации/камеры/коллекции; обязательность UCX; ограничение на количество мешей стекла; иерархические связи между мешами; отдельная логика для light-FBX.</td></tr>
+          <tr><td>Материалы</td><td>Наличие UV у обычных и glass-объектов; запрет UV у UCX; лимит материалов (общий/glass); отсутствие материала у UCX; наличие материала у основных мешей; ограничения для Main в зависимости от количества UDIM; SlotNumber <code>_1.._N</code>; проверка лишних ссылок в BSDF; запрет текстур в glass-материалах.</td></tr>
+          <tr><td>Коллизии UCX</td><td>Замкнутость, выпуклость, нумерация коллизий, пересечения коллизий между собой.</td></tr>
+          <tr><td>Освещение</td><td>Типы источников (POINT/SPOT), иерархия с Root, лимит количества (до 250), анализ минимальных расстояний между светильниками с учётом типа пары.</td></tr>
+          <tr><td>GeoJSON</td><td>Наличие/кодировка/структура; обязательные поля и типы; проверка FNO-кода по классификатору; валидность значений; кавычки/апостроф; единообразие общих полей между ОКС и Ground; наличие и структура блока <code>Glasses</code>; соответствие материалов стекла данным geojson.</td></tr>
+          <tr><td>PNG</td><td>Подтверждение формата PNG; RGB-режим; отсутствие alpha у ERM/Normal; правила для заглушек 256 (одноцветность, alpha); поиск одноцветных «не-заглушек».</td></tr>
+          <tr><td>Именование</td><td>Недопустимые символы/длина; строгие маски имён для zip/fbx/geojson, мешей (Main/Ground/UCX), материалов, текстур, источников света (Omni/Spot/Root).</td></tr>
+          <tr><td>Адрес</td><td>Проверка сокращений (171н), допустимых символов, формата, регистра, подчёркиваний, кадастрового номера, латиницы/транслитерации, соответствия адреса Ground и ОКС.</td></tr>
+          <tr><td>Pivot и служебные</td><td>Проверка смещения точки отсчёта; проверка color attributes в FBX; проверка состава архива (кол-во fbx/png/geojson и их наличие).</td></tr>
+        </tbody>
+      </table>
+      <p class="tiny">Примечание: проверка «зеркальные острова UV» в коде есть, но сейчас фактически отключена (возвращает пустой результат).</p>
+
+      <h3>3.2 Низкополигональные модели (НПМ)</h3>
+      <table>
+        <thead>
+          <tr><th class="w-30">Раздел</th><th class="w-70">Проверки</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Именование</td><td>Маски имен zip/fbx/мешей/материалов/текстур; согласование адреса с Ground; имя texture-node должно совпадать с именем файла.</td></tr>
+          <tr><td>Геометрия</td><td>Трансформации; лимиты полигонов (Ground и не-Ground раздельно); триангуляция; дубликаты/изолированные элементы.</td></tr>
+          <tr><td>UV и texel</td><td>Плотность пикселей для Ground-поверхности с учётом разрешения базовой карты.</td></tr>
+          <tr><td>FBX-состав</td><td>Количество fbx (лимит), наличие обязательного Ground, отсутствие лишних объектов/анимаций/камер/коллекций, запрет mesh-иерархий.</td></tr>
+          <tr><td>Материалы и текстуры</td><td>Лимиты материалов (благо, стекло, обычные); единый размер текстур в материале; лимит размеров для элементов благоустройства; запрет текстур в стекле; ограничения для Flora (обязательный diffuse, запрет metallic/roughness); контроль веса текстур.</td></tr>
+          <tr><td>Адрес</td><td>Тот же блок адресной валидации, что и для ВПМ (сокращения, формат, символы, кадастр, регистр и т.д.).</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.3 Общие проверки Python checker</h3>
+      <table>
+        <thead>
+          <tr><th class="w-30">Раздел</th><th class="w-70">Проверки</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Файлы и архивы</td><td>Формат файлов по папкам, размер архивов, недопустимые символы в именах, длина имени файла, контроль обязательных форматов.</td></tr>
+          <tr><td>Color Attributes</td><td>Наличие vertex color attributes в мешах FBX (включая отдельный контроль для UCX).</td></tr>
+          <tr><td>Подготовка импорта</td><td>Патчи совместимости импорта FBX-света для Blender 5.x и валидация состава архива до запуска основных проверок.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section section-map">
+      <h2>4) Матрица покрытия: вьюер vs Python</h2>
+      <table>
+        <thead>
+          <tr>
+            <th class="w-35">Группа</th>
+            <th class="w-20">Сейчас CHK</th>
+            <th class="w-20">В плане CHK</th>
+            <th class="w-25">Сейчас Python</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Сцена: tris/draw/meshes/materials/textures</td><td>Да</td><td>Тонкая калибровка</td><td>Частично (через поликаунт)</td></tr>
+          <tr><td>Именование: символы и длина</td><td>Да</td><td>Строгие маски</td><td>Да</td></tr>
+          <tr><td>Маски имён (zip/fbx/geojson/objects/materials/textures)</td><td>Нет</td><td>Да (P1)</td><td>Да</td></tr>
+          <tr><td>FBX структура (UCX/glass/hierarchy/camera/light)</td><td>Да (базово)</td><td>Углубление</td><td>Да (детально)</td></tr>
+          <tr><td>Материалы (лимиты/UCX/Main Slot)</td><td>Да (базово)</td><td>Расширение</td><td>Да (детально)</td></tr>
+          <tr><td>UDIM целостность и set-правила</td><td>Нет</td><td>Да (P1)</td><td>Да</td></tr>
+          <tr><td>UV качество и flipped islands</td><td>Частично (UV missing)</td><td>Да (P1)</td><td>Да/частично (flipped отключён)</td></tr>
+          <tr><td>Texel density</td><td>Нет</td><td>Да (P1)</td><td>Да</td></tr>
+          <tr><td>Коллизии UCX deep (convex/intersections/numbering)</td><td>Нет</td><td>Да (P1)</td><td>Да</td></tr>
+          <tr><td>GeoJSON (schema/types/fields/Glasses)</td><td>Нет</td><td>Да (P1)</td><td>Да</td></tr>
+          <tr><td>PNG (alpha/RGB/format/plug logic)</td><td>Нет</td><td>Да (P1)</td><td>Да</td></tr>
+          <tr><td>Освещение (тип/количество/дистанции)</td><td>Нет</td><td>Да (P2)</td><td>Да</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <p class="footer">Документ подготовлен для печати и согласования roadmap по автоматическим проверкам ВПМ/НПМ.</p>
+  </main>
+</body>
+</html>
