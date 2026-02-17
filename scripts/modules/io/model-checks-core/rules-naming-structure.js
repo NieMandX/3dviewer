@@ -203,12 +203,22 @@ function checkMaterialRules(loadedModels) {
             const mats = getNodeMaterials(node);
             const matCount = mats.length;
             const isCollision = !!node.userData?.isCollision;
+            const importState = node.userData?.importMaterialState || null;
+            const sourceMatCount = Number.isFinite(Number(importState?.materialCount))
+                ? Number(importState.materialCount)
+                : matCount;
+            const sourceHasMaterial = importState ? !!importState.hasMaterial : sourceMatCount > 0;
             const isGlass = /glass/i.test(meshName);
             const isMain = /main/i.test(meshName);
 
             if (isCollision) {
-                if (matCount > 0) {
-                    critical.push(`${modelName} / ${meshName}: у UCX назначены материалы (${matCount})`);
+                if (sourceHasMaterial) {
+                    const named = Array.isArray(importState?.materialNames) && importState.materialNames.length
+                        ? ` [${importState.materialNames.slice(0, 3).join(', ')}${importState.materialNames.length > 3 ? ', …' : ''}]`
+                        : '';
+                    critical.push(
+                        `${modelName} / ${meshName}: у UCX назначены материалы в исходном FBX (${sourceMatCount})${named}`
+                    );
                 }
                 return;
             }

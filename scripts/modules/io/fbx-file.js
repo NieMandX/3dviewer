@@ -53,6 +53,28 @@ export function createFBXFileHandler(options = {}) {
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
 
+    function captureImportedMaterialState(root) {
+        if (!root?.traverse) return 0;
+        let captured = 0;
+        root.traverse((node) => {
+            if (!node?.isMesh) return;
+            const source = Array.isArray(node.material) ? node.material : [node.material];
+            const mats = source.filter(Boolean);
+            const names = mats
+                .map((mat) => String(mat?.name || '').trim())
+                .filter(Boolean);
+            node.userData ||= {};
+            node.userData.importMaterialState = {
+                hasMaterial: mats.length > 0,
+                materialCount: mats.length,
+                materialNames: names,
+                capturedAt: 'fbx-parse',
+            };
+            captured += 1;
+        });
+        return captured;
+    }
+
     return async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, callOptions = null) {
         logSessionHeader(`FBX: ${file.name}`);
         hideSidePanel();
@@ -259,6 +281,8 @@ export function createFBXFileHandler(options = {}) {
 
             logBind(`VPM: смещение для ${file.name} из GeoJSON → Δx=${x} Δy=${y} Δz=${z}`, 'ok');
         }
+
+        captureImportedMaterialState(obj);
 
         world?.add?.(obj);
 
