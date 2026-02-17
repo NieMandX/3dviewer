@@ -63,8 +63,104 @@ export function createEnvironmentManager(options = {}) {
     let envRebuildTimer = null;
     let envRebuildPromise = null;
     let envRebuildQueued = false;
+    let envDisposeScheduled = false;
+    const pendingTextureDisposals = new Set();
 
     const envMaterials = new Set();
+
+    function getWebGPUDevice() {
+        if (!renderer) return null;
+        if (typeof renderer.getDevice === 'function') {
+            try {
+                return renderer.getDevice();
+            } catch (_) {
+                return null;
+            }
+        }
+        const backend = renderer.backend || renderer._backend || null;
+        if (backend?.device) return backend.device;
+        if (typeof backend?.getDevice === 'function') {
+            try {
+                return backend.getDevice();
+            } catch (_) {
+                return null;
+            }
+        }
+        return renderer._device || null;
+    }
+
+    function getWebGPUQueue() {
+        return getWebGPUDevice()?.queue || null;
+    }
+
+    function onNextFrame(callback) {
+        const raf =
+            typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
+                ? globalThis.requestAnimationFrame.bind(globalThis)
+                : null;
+        if (raf) {
+            raf(() => callback());
+            return;
+        }
+        setTimeout(callback, 16);
+    }
+
+    function flushPendingTextureDisposals() {
+        if (!pendingTextureDisposals.size) return;
+        const batch = Array.from(pendingTextureDisposals);
+        pendingTextureDisposals.clear();
+        batch.forEach((texture) => {
+            try {
+                texture?.dispose?.();
+            } catch (_) {}
+        });
+    }
+
+    function scheduleDeferredTextureDisposal() {
+        if (envDisposeScheduled) return;
+        envDisposeScheduled = true;
+
+        const finalize = () => {
+            envDisposeScheduled = false;
+            flushPendingTextureDisposals();
+            if (pendingTextureDisposals.size) {
+                scheduleDeferredTextureDisposal();
+            }
+        };
+
+        if (!useWebGPU) {
+            setTimeout(finalize, 0);
+            return;
+        }
+
+        const queue = getWebGPUQueue();
+        if (queue?.onSubmittedWorkDone) {
+            queue
+                .onSubmittedWorkDone()
+                .then(() => onNextFrame(() => {
+                    queue
+                        .onSubmittedWorkDone()
+                        .then(() => onNextFrame(finalize))
+                        .catch(() => setTimeout(finalize, 140));
+                }))
+                .catch(() => setTimeout(finalize, 140));
+            return;
+        }
+
+        setTimeout(finalize, 140);
+    }
+
+    function disposeTextureSafe(texture, { deferOnWebGPU = true } = {}) {
+        if (!texture || texture === hdrBaseTex) return;
+        if (deferOnWebGPU && useWebGPU) {
+            pendingTextureDisposals.add(texture);
+            scheduleDeferredTextureDisposal();
+            return;
+        }
+        try {
+            texture.dispose?.();
+        } catch (_) {}
+    }
 
     function flipHDRTextureVertically(srcTex) {
         const { data, width, height } = srcTex.image;
@@ -440,8 +536,8 @@ export function createEnvironmentManager(options = {}) {
 
         envDirty = false;
 
-        if (prevEnv && prevEnv !== base && prevEnv !== prevBg) prevEnv.dispose?.();
-        if (prevBg && prevBg !== base) prevBg.dispose?.();
+        if (prevEnv && prevEnv !== base && prevEnv !== prevBg) disposeTextureSafe(prevEnv);
+        if (prevBg && prevBg !== base) disposeTextureSafe(prevBg);
 
         applyBuiltEnvironment();
     }
@@ -509,7 +605,7 @@ export function createEnvironmentManager(options = {}) {
 
         envDirty = true;
         if (prevBase && prevBase !== hdrBaseTex && prevBase !== currentBg) {
-            prevBase.dispose?.();
+            disposeTextureSafe(prevBase);
         }
 
         if (enabled) {
