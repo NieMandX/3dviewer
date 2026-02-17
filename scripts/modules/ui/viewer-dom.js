@@ -76,6 +76,7 @@ export function collectViewerDom(document) {
 	        solidToggleBtn: get('solidToggleBtn'),
 	        vpmToggleBtn: get('vpmToggleBtn'),
 	        npmToggleBtn: get('npmToggleBtn'),
+	        chkToggleBtn: get('chkToggleBtn'),
 	        gridToggleBtn: get('gridToggleBtn'),
 	        statsOverlayEl: get('statsOverlay'),
 
@@ -237,11 +238,20 @@ export function collectViewerDom(document) {
         exportCancelBtn: get('exportCancel'),
         exportCloseBtn: get('exportClose'),
 
-        // Order modal
-        orderModalEl: get('orderModal'),
+	        // Order modal
+	        orderModalEl: get('orderModal'),
 
-        // Rect annotation modal
-        rectAnnotModalEl: get('rectAnnotModal'),
+	        // Model checks modal
+	        modelChecksModalEl: get('modelChecksModal'),
+	        modelChecksTitleEl: get('modelChecksTitle'),
+	        modelChecksSummaryEl: get('modelChecksSummary'),
+	        modelChecksChecksEl: get('modelChecksChecks'),
+	        modelChecksModelsEl: get('modelChecksModels'),
+	        modelChecksRerunBtn: get('modelChecksRerun'),
+	        modelChecksCloseBtn: get('modelChecksClose'),
+
+	        // Rect annotation modal
+	        rectAnnotModalEl: get('rectAnnotModal'),
         rectAnnotTitleEl: get('rectAnnotTitle'),
         rectAnnotCloseBtn: get('rectAnnotClose'),
         rectAnnotColorEl: get('rectAnnotColor'),
