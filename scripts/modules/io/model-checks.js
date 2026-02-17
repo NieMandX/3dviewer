@@ -1,6 +1,7 @@
 import { analyzeLoadedModels } from './model-checks-core/analyze-models.js';
 import { buildDefaultModelChecks } from './model-checks-core/check-rules.js';
 import { buildModelCheckLimits } from './model-checks-core/limits.js';
+import { runNamingStructureChecksRule } from './model-checks-core/rules-naming-structure.js';
 import { isValidCheck } from './model-checks-core/utils.js';
 
 function normalizeRuleList(extraRules) {
@@ -32,14 +33,17 @@ export function createModelChecksRunner(options = {}) {
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
     const limits = buildModelCheckLimits(options.limits);
     const extraRules = normalizeRuleList(options.extraRules);
+    const useBuiltinRules = options.useBuiltinRules !== false;
+    const builtinRules = useBuiltinRules ? [runNamingStructureChecksRule] : [];
 
     function run() {
         const analysis = analyzeLoadedModels({ THREE, loadedModels, limits });
         const checks = buildDefaultModelChecks({ analysis, limits });
 
-        if (extraRules.length) {
+        const allRules = [...builtinRules, ...extraRules];
+        if (allRules.length) {
             runExtraRules(
-                extraRules,
+                allRules,
                 Object.freeze({
                     THREE,
                     loadedModels,
