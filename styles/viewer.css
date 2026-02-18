@@ -1843,7 +1843,8 @@ body.bg-black .collab-chat-panel {
     .appbar #collToggleBtn { order: 22; }
     .appbar #vpmToggleBtn { order: 23; }
     .appbar #npmToggleBtn { order: 24; }
-    .appbar #chkToggleBtn { order: 25; }
+    .appbar #snapshotToggleBtn { order: 25; }
+    .appbar #chkToggleBtn { order: 26; }
 
     .appbar #toggleSideBtn,
     .appbar #resetViewBtn,
@@ -1863,6 +1864,7 @@ body.bg-black .collab-chat-panel {
     .appbar #collToggleBtn,
     .appbar #npmToggleBtn,
     .appbar #vpmToggleBtn,
+    .appbar #snapshotToggleBtn,
     .appbar #chkToggleBtn {
         width: 40px;
         min-width: 40px;
@@ -2319,6 +2321,125 @@ body.bg-black .collab-chat-panel {
     border-color: rgba(159, 32, 32, 0.35);
 }
 
+.sheet.sheet-snapshot {
+    width: min(980px, calc(100vw - 36px));
+    max-height: min(90vh, 980px);
+}
+
+.snapshot-body {
+    gap: 10px;
+    max-height: min(80vh, 820px);
+    overflow: auto;
+}
+
+.snapshot-summary {
+    display: grid;
+    gap: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+.snapshot-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.snapshot-badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--surfaceWeak);
+}
+
+.snapshot-sections {
+    display: grid;
+    gap: 8px;
+}
+
+.snapshot-section {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surfaceWeak);
+    padding: 8px 10px;
+    display: grid;
+    gap: 8px;
+}
+
+.snapshot-section-head {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.snapshot-section-index {
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid rgba(130, 91, 29, 0.28);
+    background: rgba(130, 91, 29, 0.12);
+    color: #6a4a1f;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.snapshot-section-meta {
+    display: grid;
+    gap: 2px;
+}
+
+.snapshot-section-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.snapshot-section-note {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.snapshot-field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.snapshot-field {
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 7px 8px;
+    background: var(--surfaceStrong);
+    display: grid;
+    gap: 3px;
+}
+
+.snapshot-field-name {
+    font-family: "SFMono-Regular", Consolas, Monaco, "Liberation Mono", monospace;
+    font-size: 11px;
+    line-height: 1.25;
+}
+
+.snapshot-field-description {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--muted);
+}
+
+.snapshot-empty {
+    font-size: 12px;
+}
+
 @media (max-width: 860px) {
     .checks-kv {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2332,6 +2453,10 @@ body.bg-black .collab-chat-panel {
     .checks-model-tris,
     .checks-model-meshes {
         text-align: left;
+    }
+
+    .snapshot-field-grid {
+        grid-template-columns: 1fr;
     }
 }
 

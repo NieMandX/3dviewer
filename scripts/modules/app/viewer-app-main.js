@@ -34,6 +34,7 @@ import { createTransitionModalController } from '../ui/transition-modal.js';
 import { createExportModalController } from '../ui/export-modal.js';
 import { createRectAnnotationModalController } from '../ui/rect-annotation-modal.js';
 import { createModelChecksModalController } from '../ui/model-checks-modal.js';
+import { createImportSnapshotModalController } from '../ui/import-snapshot-modal.js';
 import { createGridVisibilityController } from '../ui/grid-visibility.js';
 import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
@@ -337,6 +338,13 @@ class ViewerApp {
             rerunBtn: dom.modelChecksRerunBtn,
             closeBtn: dom.modelChecksCloseBtn,
         });
+        const importSnapshotModal = createImportSnapshotModalController({
+            modalEl: dom.snapshotModalEl,
+            titleEl: dom.snapshotTitleEl,
+            summaryEl: dom.snapshotSummaryEl,
+            sectionsEl: dom.snapshotSectionsEl,
+            closeBtn: dom.snapshotCloseBtn,
+        });
         setBootProgress(18, 'Инициализация модулей...');
 
         const statusUI = createStatusUIController({
@@ -452,6 +460,7 @@ class ViewerApp {
 	        const collToggleBtn = dom.collToggleBtn;
 	        const vpmToggleBtn = dom.vpmToggleBtn;
 	        const npmToggleBtn = dom.npmToggleBtn;
+	        const snapshotToggleBtn = dom.snapshotToggleBtn;
 	        const chkToggleBtn = dom.chkToggleBtn;
 	        const bgToggleBtn = dom.bgToggleBtn;
 	        const camsToggleBtn = dom.camsToggleBtn;
@@ -2683,6 +2692,9 @@ class ViewerApp {
 	                runModelChecks({ log: false });
 	            }
 	            modelChecksModal.open(lastModelChecksReport);
+	        });
+	        snapshotToggleBtn?.addEventListener?.('click', () => {
+	            importSnapshotModal.open();
 	        });
 
 
