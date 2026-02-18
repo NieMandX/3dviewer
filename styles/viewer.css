@@ -2361,6 +2361,98 @@ body.bg-black .collab-chat-panel {
     gap: 8px;
 }
 
+.snapshot-model-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surfaceWeak);
+    padding: 8px 10px;
+    display: grid;
+    gap: 8px;
+}
+
+.snapshot-model-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.snapshot-model-name {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.snapshot-model-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.snapshot-model-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.snapshot-model-sections {
+    display: grid;
+    gap: 6px;
+}
+
+.snapshot-data-section {
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surfaceStrong);
+    padding: 0;
+    overflow: hidden;
+}
+
+.snapshot-data-section > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    user-select: none;
+}
+
+.snapshot-data-section > summary::-webkit-details-marker {
+    display: none;
+}
+
+.snapshot-data-title {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.snapshot-data-size {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.snapshot-json {
+    margin: 0;
+    border-top: 1px solid var(--border);
+    padding: 8px 10px;
+    max-height: min(48vh, 460px);
+    overflow: auto;
+    background: var(--surfaceWeak);
+}
+
+.snapshot-json code {
+    font-family: "SFMono-Regular", Consolas, Monaco, "Liberation Mono", monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: pre;
+    display: block;
+}
+
 .snapshot-section {
     border: 1px solid var(--border);
     border-radius: 10px;
