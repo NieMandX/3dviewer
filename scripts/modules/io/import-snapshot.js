@@ -24,6 +24,7 @@ const TEXTURE_SLOTS = Object.freeze([
     'specularIntensityMap',
     'specularColorMap',
 ]);
+const MAX_UV_SAMPLES_PER_CHANNEL = 8000;
 
 function toNumber(value, digits = 6) {
     const num = Number(value);
@@ -97,16 +98,21 @@ function collectUvSummary(geometry) {
     const udimTilesSet = new Set();
     let uvOutCount = 0;
     let uvSampleCount = 0;
+    let maxStride = 1;
 
     uvKeys.forEach((key, index) => {
         const attr = attributes[key];
         if (!attr || !Number.isFinite(attr.count) || attr.itemSize < 2) return;
+        const stride = attr.count > MAX_UV_SAMPLES_PER_CHANNEL
+            ? Math.ceil(attr.count / MAX_UV_SAMPLES_PER_CHANNEL)
+            : 1;
+        if (stride > maxStride) maxStride = stride;
         let minU = Number.POSITIVE_INFINITY;
         let minV = Number.POSITIVE_INFINITY;
         let maxU = Number.NEGATIVE_INFINITY;
         let maxV = Number.NEGATIVE_INFINITY;
 
-        for (let i = 0; i < attr.count; i += 1) {
+        for (let i = 0; i < attr.count; i += stride) {
             const u = toNumber(attr.getX(i));
             const v = toNumber(attr.getY(i));
             if (!Number.isFinite(u) || !Number.isFinite(v)) continue;
@@ -140,16 +146,12 @@ function collectUvSummary(geometry) {
         uvBoundsRaw,
         udimTilesRaw: Array.from(udimTilesSet).sort(),
         uvOutOfRangePercent: uvSampleCount > 0 ? toNumber((uvOutCount / uvSampleCount) * 100, 4) : 0,
+        uvSamplingStride: maxStride,
     };
 }
 
 function computeBoundingBoxRaw(geometry) {
     if (!geometry) return null;
-    try {
-        if (!geometry.boundingBox && typeof geometry.computeBoundingBox === 'function') {
-            geometry.computeBoundingBox();
-        }
-    } catch (_) {}
     const box = geometry.boundingBox;
     if (!box || !box.min || !box.max) return null;
     const min = toVec3Like(box.min);
