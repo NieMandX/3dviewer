@@ -1,6 +1,7 @@
 export function createFBXFileHandler(options = {}) {
     const THREE = options.THREE;
     const fbxLoader = options.fbxLoader || null;
+    const DEFAULT_MATERIAL_NAME_RX = /^_*default(?:_?material)?\s*$/i;
 
     const logSessionHeader = typeof options.logSessionHeader === 'function' ? options.logSessionHeader : () => {};
     const logBind = typeof options.logBind === 'function' ? options.logBind : () => {};
@@ -53,6 +54,11 @@ export function createFBXFileHandler(options = {}) {
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
 
+    function isTechnicalDefaultMaterialName(name) {
+        const normalized = String(name || '').trim();
+        return !normalized || DEFAULT_MATERIAL_NAME_RX.test(normalized);
+    }
+
     function captureImportedMaterialState(root) {
         if (!root?.traverse) return 0;
         let captured = 0;
@@ -63,11 +69,15 @@ export function createFBXFileHandler(options = {}) {
             const names = mats
                 .map((mat) => String(mat?.name || '').trim())
                 .filter(Boolean);
+            const authoredNames = names.filter((name) => !isTechnicalDefaultMaterialName(name));
             node.userData ||= {};
             node.userData.importMaterialState = {
                 hasMaterial: mats.length > 0,
                 materialCount: mats.length,
                 materialNames: names,
+                hasAuthoredMaterial: authoredNames.length > 0,
+                authoredMaterialCount: authoredNames.length,
+                authoredMaterialNames: authoredNames,
                 capturedAt: 'fbx-parse',
             };
             captured += 1;
