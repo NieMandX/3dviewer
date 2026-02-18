@@ -1,9 +1,6 @@
-import { buildImportSnapshot } from './import-snapshot.js';
-
 export function createFBXFileHandler(options = {}) {
     const THREE = options.THREE;
     const fbxLoader = options.fbxLoader || null;
-    const DEFAULT_MATERIAL_NAME_RX = /^_*default(?:_?material)?\s*$/i;
 
     const logSessionHeader = typeof options.logSessionHeader === 'function' ? options.logSessionHeader : () => {};
     const logBind = typeof options.logBind === 'function' ? options.logBind : () => {};
@@ -55,56 +52,6 @@ export function createFBXFileHandler(options = {}) {
     const applyGlassControlsToScene = typeof options.applyGlassControlsToScene === 'function' ? options.applyGlassControlsToScene : () => {};
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
-    const onImportSnapshot = typeof options.onImportSnapshot === 'function' ? options.onImportSnapshot : null;
-
-    let importCounter = 0;
-
-    function hashArrayBuffer(ab) {
-        if (!(ab instanceof ArrayBuffer)) return null;
-        const bytes = new Uint8Array(ab);
-        if (!bytes.length) return 'fnv1a32-00000000-s1';
-        let hash = 0x811c9dc5;
-        const maxSamples = 200_000;
-        const stride = bytes.length > maxSamples ? Math.ceil(bytes.length / maxSamples) : 1;
-        for (let i = 0; i < bytes.length; i += stride) {
-            hash ^= bytes[i];
-            hash = Math.imul(hash, 0x01000193);
-        }
-        hash ^= bytes.length & 0xff;
-        hash = Math.imul(hash, 0x01000193);
-        return `fnv1a32-${(hash >>> 0).toString(16).padStart(8, '0')}-s${stride}`;
-    }
-
-    function isTechnicalDefaultMaterialName(name) {
-        const normalized = String(name || '').trim();
-        return !normalized || DEFAULT_MATERIAL_NAME_RX.test(normalized);
-    }
-
-    function captureImportedMaterialState(root) {
-        if (!root?.traverse) return 0;
-        let captured = 0;
-        root.traverse((node) => {
-            if (!node?.isMesh) return;
-            const source = Array.isArray(node.material) ? node.material : [node.material];
-            const mats = source.filter(Boolean);
-            const names = mats
-                .map((mat) => String(mat?.name || '').trim())
-                .filter(Boolean);
-            const authoredNames = names.filter((name) => !isTechnicalDefaultMaterialName(name));
-            node.userData ||= {};
-            node.userData.importMaterialState = {
-                hasMaterial: mats.length > 0,
-                materialCount: mats.length,
-                materialNames: names,
-                hasAuthoredMaterial: authoredNames.length > 0,
-                authoredMaterialCount: authoredNames.length,
-                authoredMaterialNames: authoredNames,
-                capturedAt: 'fbx-parse',
-            };
-            captured += 1;
-        });
-        return captured;
-    }
 
     return async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, callOptions = null) {
         logSessionHeader(`FBX: ${file.name}`);
@@ -117,8 +64,6 @@ export function createFBXFileHandler(options = {}) {
 
         const bufferOverride = callOptions?.buffer || null;
         let ab = bufferOverride || await file.arrayBuffer();
-        const sourceHash = hashArrayBuffer(ab);
-        const byteSize = Number(ab?.byteLength || file?.size || 0) || 0;
         let embedded = [];
 
         let orientationInfo = null;
@@ -277,42 +222,6 @@ export function createFBXFileHandler(options = {}) {
         obj.userData.orientationHandedness = orientationMeta.handedness;
         obj.userData.orientationUpAxis = orientationMeta.upAxis;
 
-        const importOrder = ++importCounter;
-        const snapshotId = `snap-${Date.now().toString(36)}-${importOrder.toString(36)}`;
-        const modelId = `model-${importOrder}`;
-        const importSnapshot = buildImportSnapshot({
-            obj,
-            fileName: file.name,
-            groupName,
-            zipKind,
-            zipMeta,
-            snapshotId,
-            modelId,
-            capturedAt: new Date().toISOString(),
-            importSessionId: groupName || 'direct-file',
-            importOrder,
-            byteSize,
-            hash: sourceHash,
-            parseDurationMs: parseDuration,
-            parsedViaWorker,
-            embeddedImagesCount: embedded.length,
-            orientationInfo,
-            orientationType,
-            orientationMeta,
-            isTechnicalDefaultMaterialName,
-        });
-        if (importSnapshot) {
-            if (onImportSnapshot) {
-                const callbackResult = onImportSnapshot(importSnapshot);
-                if (typeof callbackResult === 'string' && callbackResult) {
-                    importSnapshot.snapshotId = callbackResult;
-                } else if (callbackResult && typeof callbackResult === 'object' && callbackResult.snapshotId) {
-                    importSnapshot.snapshotId = callbackResult.snapshotId;
-                }
-            }
-            obj.userData.importSnapshotId = importSnapshot.snapshotId;
-        }
-
         let normalizedOrientationType = null;
         if (hasInheritedOrientationType) {
             normalizeObjectOrientation(obj, orientationType);
@@ -336,9 +245,6 @@ export function createFBXFileHandler(options = {}) {
                 }
             }
         }
-        if (importSnapshot?.orientationRaw?.viewerTransformPlan) {
-            importSnapshot.orientationRaw.viewerTransformPlan.normalizedOrientationApplied = normalizedOrientationType;
-        }
 
         // ★ NEW: если это ВПМ и есть geojson — сохраним мету и применим смещение
         if ((zipKind || '').toUpperCase() === 'SM' && zipMeta) {
@@ -353,8 +259,6 @@ export function createFBXFileHandler(options = {}) {
 
             logBind(`VPM: смещение для ${file.name} из GeoJSON → Δx=${x} Δy=${y} Δz=${z}`, 'ok');
         }
-
-        captureImportedMaterialState(obj);
 
         world?.add?.(obj);
 
@@ -404,7 +308,6 @@ export function createFBXFileHandler(options = {}) {
             orientation: orientationInfo || null,
             orientationType,
             normalizedOrientationType,
-            importSnapshotId: importSnapshot?.snapshotId || null,
         });
         obj.userData.zipGroup = groupName || null;
         obj.userData.zipKind = zipKind || null;
