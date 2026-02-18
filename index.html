@@ -86,9 +86,10 @@
             </label>
 	        </div>
             <button id="solidToggleBtn" class="btn" type="button" title="Оставить только стекло">GLS</button>
-		        <button id="collToggleBtn" class="btn" type="button" title="Показать/скрыть коллизии (UCX)">UCX</button>
+            <button id="collToggleBtn" class="btn" type="button" title="Показать/скрыть коллизии (UCX)">UCX</button>
             <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">ВПМ</button>
             <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">НПМ</button>
+            <button id="snapshotToggleBtn" class="btn" type="button" title="Поля слепка импорта (временное окно)">SNP</button>
             <button id="chkToggleBtn" class="btn" type="button" title="Автоматические проверки модели">CHK</button>
 		        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">CAMS</button>
                 <button id="collabPanelBtn" class="btn" type="button" title="Совместная работа" aria-label="Совместная работа" aria-pressed="false">
@@ -795,6 +796,19 @@
                 <div id="modelChecksSummary" class="checks-summary"></div>
                 <div id="modelChecksChecks" class="checks-list"></div>
                 <div id="modelChecksModels" class="checks-models"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="snapshotModal" class="modal" aria-hidden="true">
+        <div class="sheet sheet-snapshot">
+            <div class="head">
+                <div id="snapshotTitle" class="muted">Слепок импорта: поля до модификаций сцены</div>
+                <button id="snapshotClose" class="btn" type="button" title="Закрыть">×</button>
+            </div>
+            <div class="prompt-body snapshot-body">
+                <div id="snapshotSummary" class="snapshot-summary"></div>
+                <div id="snapshotSections" class="snapshot-sections"></div>
             </div>
         </div>
     </div>

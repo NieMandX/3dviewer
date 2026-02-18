@@ -76,6 +76,7 @@ export function collectViewerDom(document) {
 	        solidToggleBtn: get('solidToggleBtn'),
 	        vpmToggleBtn: get('vpmToggleBtn'),
 	        npmToggleBtn: get('npmToggleBtn'),
+	        snapshotToggleBtn: get('snapshotToggleBtn'),
 	        chkToggleBtn: get('chkToggleBtn'),
 	        gridToggleBtn: get('gridToggleBtn'),
 	        statsOverlayEl: get('statsOverlay'),
@@ -249,6 +250,13 @@ export function collectViewerDom(document) {
 	        modelChecksModelsEl: get('modelChecksModels'),
 	        modelChecksRerunBtn: get('modelChecksRerun'),
 	        modelChecksCloseBtn: get('modelChecksClose'),
+
+        // Import snapshot modal
+        snapshotModalEl: get('snapshotModal'),
+        snapshotTitleEl: get('snapshotTitle'),
+        snapshotSummaryEl: get('snapshotSummary'),
+        snapshotSectionsEl: get('snapshotSections'),
+        snapshotCloseBtn: get('snapshotClose'),
 
 	        // Rect annotation modal
 	        rectAnnotModalEl: get('rectAnnotModal'),
