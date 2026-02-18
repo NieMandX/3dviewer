@@ -1,3 +1,5 @@
+import { buildImportSnapshot } from './import-snapshot.js';
+
 export function createFBXFileHandler(options = {}) {
     const THREE = options.THREE;
     const fbxLoader = options.fbxLoader || null;
@@ -53,6 +55,25 @@ export function createFBXFileHandler(options = {}) {
     const applyGlassControlsToScene = typeof options.applyGlassControlsToScene === 'function' ? options.applyGlassControlsToScene : () => {};
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
+    const onImportSnapshot = typeof options.onImportSnapshot === 'function' ? options.onImportSnapshot : null;
+
+    let importCounter = 0;
+
+    function hashArrayBuffer(ab) {
+        if (!(ab instanceof ArrayBuffer)) return null;
+        const bytes = new Uint8Array(ab);
+        if (!bytes.length) return 'fnv1a32-00000000-s1';
+        let hash = 0x811c9dc5;
+        const maxSamples = 2_000_000;
+        const stride = bytes.length > maxSamples ? Math.ceil(bytes.length / maxSamples) : 1;
+        for (let i = 0; i < bytes.length; i += stride) {
+            hash ^= bytes[i];
+            hash = Math.imul(hash, 0x01000193);
+        }
+        hash ^= bytes.length & 0xff;
+        hash = Math.imul(hash, 0x01000193);
+        return `fnv1a32-${(hash >>> 0).toString(16).padStart(8, '0')}-s${stride}`;
+    }
 
     function isTechnicalDefaultMaterialName(name) {
         const normalized = String(name || '').trim();
@@ -96,6 +117,8 @@ export function createFBXFileHandler(options = {}) {
 
         const bufferOverride = callOptions?.buffer || null;
         let ab = bufferOverride || await file.arrayBuffer();
+        const sourceHash = hashArrayBuffer(ab);
+        const byteSize = Number(ab?.byteLength || file?.size || 0) || 0;
         let embedded = [];
 
         let orientationInfo = null;
@@ -254,6 +277,42 @@ export function createFBXFileHandler(options = {}) {
         obj.userData.orientationHandedness = orientationMeta.handedness;
         obj.userData.orientationUpAxis = orientationMeta.upAxis;
 
+        const importOrder = ++importCounter;
+        const snapshotId = `snap-${Date.now().toString(36)}-${importOrder.toString(36)}`;
+        const modelId = `model-${importOrder}`;
+        const importSnapshot = buildImportSnapshot({
+            obj,
+            fileName: file.name,
+            groupName,
+            zipKind,
+            zipMeta,
+            snapshotId,
+            modelId,
+            capturedAt: new Date().toISOString(),
+            importSessionId: groupName || 'direct-file',
+            importOrder,
+            byteSize,
+            hash: sourceHash,
+            parseDurationMs: parseDuration,
+            parsedViaWorker,
+            embeddedImagesCount: embedded.length,
+            orientationInfo,
+            orientationType,
+            orientationMeta,
+            isTechnicalDefaultMaterialName,
+        });
+        if (importSnapshot) {
+            if (onImportSnapshot) {
+                const callbackResult = onImportSnapshot(importSnapshot);
+                if (typeof callbackResult === 'string' && callbackResult) {
+                    importSnapshot.snapshotId = callbackResult;
+                } else if (callbackResult && typeof callbackResult === 'object' && callbackResult.snapshotId) {
+                    importSnapshot.snapshotId = callbackResult.snapshotId;
+                }
+            }
+            obj.userData.importSnapshotId = importSnapshot.snapshotId;
+        }
+
         let normalizedOrientationType = null;
         if (hasInheritedOrientationType) {
             normalizeObjectOrientation(obj, orientationType);
@@ -276,6 +335,9 @@ export function createFBXFileHandler(options = {}) {
                     normalizedOrientationType = orientationType;
                 }
             }
+        }
+        if (importSnapshot?.orientationRaw?.viewerTransformPlan) {
+            importSnapshot.orientationRaw.viewerTransformPlan.normalizedOrientationApplied = normalizedOrientationType;
         }
 
         // ★ NEW: если это ВПМ и есть geojson — сохраним мету и применим смещение
@@ -342,6 +404,7 @@ export function createFBXFileHandler(options = {}) {
             orientation: orientationInfo || null,
             orientationType,
             normalizedOrientationType,
+            importSnapshotId: importSnapshot?.snapshotId || null,
         });
         obj.userData.zipGroup = groupName || null;
         obj.userData.zipKind = zipKind || null;

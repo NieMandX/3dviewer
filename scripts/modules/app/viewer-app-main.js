@@ -2637,6 +2637,52 @@ class ViewerApp {
          */
         const allEmbedded  = app.allEmbedded  = [];
 
+        /**
+         * Слепки исходных данных импорта (до модификаций сцены).
+         * Ключ: snapshotId, хранится в памяти только в рамках текущей сессии.
+         */
+        const importSnapshots = app.importSnapshots = [];
+        const importSnapshotsById = app.importSnapshotsById = new Map();
+
+        function upsertImportSnapshot(snapshot) {
+            if (!snapshot || typeof snapshot !== 'object') return null;
+            const snapshotId = String(
+                snapshot.snapshotId || `snap-local-${importSnapshots.length + 1}`
+            );
+            const nextSnapshot = {
+                ...snapshot,
+                snapshotId,
+                capturedAt: snapshot.capturedAt || new Date().toISOString(),
+            };
+            const existingIndex = importSnapshots.findIndex((item) => item?.snapshotId === snapshotId);
+            if (existingIndex >= 0) {
+                importSnapshots[existingIndex] = nextSnapshot;
+            } else {
+                importSnapshots.push(nextSnapshot);
+            }
+            importSnapshotsById.set(snapshotId, nextSnapshot);
+            return nextSnapshot;
+        }
+
+        function getImportSnapshotsOrdered() {
+            if (!importSnapshots.length) return [];
+            const ordered = [];
+            const used = new Set();
+            loadedModels.forEach((model) => {
+                const snapshotId = model?.importSnapshotId || model?.obj?.userData?.importSnapshotId;
+                if (!snapshotId) return;
+                const snapshot = importSnapshotsById.get(snapshotId);
+                if (!snapshot) return;
+                ordered.push(snapshot);
+                used.add(snapshot.snapshotId);
+            });
+            importSnapshots.forEach((snapshot) => {
+                if (!snapshot?.snapshotId || used.has(snapshot.snapshotId)) return;
+                ordered.push(snapshot);
+            });
+            return ordered;
+        }
+
 	        /**
 	         * Стек для операций «отмены» при ручной привязке текстур.
 	         * Пока используется только для логирования, но оставляем для будущего undo.
@@ -2694,7 +2740,7 @@ class ViewerApp {
 	            modelChecksModal.open(lastModelChecksReport);
 	        });
 	        snapshotToggleBtn?.addEventListener?.('click', () => {
-	            importSnapshotModal.open();
+	            importSnapshotModal.open(getImportSnapshotsOrdered());
 	        });
 
 
@@ -3252,6 +3298,7 @@ class ViewerApp {
             applyGlassControlsToScene,
             setEmptyHintVisible,
             markSceneStatsDirty,
+            onImportSnapshot: upsertImportSnapshot,
             unpackZIPInWorker,
             makeGeoJsonMeta,
             ensureZipCollisionsHidden,
