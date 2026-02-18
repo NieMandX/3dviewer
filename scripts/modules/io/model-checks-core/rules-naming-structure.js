@@ -2,6 +2,7 @@ import { addCheck, collectMaterialTextures } from './utils.js';
 
 const INVALID_NAME_RX = /[^a-zA-Z0-9_.]/;
 const MAX_NAME_LENGTH = 254;
+const DEFAULT_MATERIAL_NAME_RX = /^_*default(?:_?material)?\s*$/i;
 
 function limitDetails(lines, maxCount = 12) {
     if (!Array.isArray(lines) || lines.length <= maxCount) return lines || [];
@@ -13,6 +14,11 @@ function getNodeMaterials(node) {
     if (!node?.isMesh) return [];
     const source = Array.isArray(node.material) ? node.material : [node.material];
     return source.filter(Boolean);
+}
+
+function isTechnicalDefaultMaterialName(name) {
+    const normalized = String(name || '').trim();
+    return !normalized || DEFAULT_MATERIAL_NAME_RX.test(normalized);
 }
 
 function checkNamingRules(loadedModels) {
@@ -212,17 +218,38 @@ function checkMaterialRules(loadedModels) {
             const sourceMatCount = Number.isFinite(Number(importState?.materialCount))
                 ? Number(importState.materialCount)
                 : matCount;
-            const sourceHasMaterial = importState ? !!importState.hasMaterial : sourceMatCount > 0;
+            const sourceMaterialNames = Array.isArray(importState?.materialNames)
+                ? importState.materialNames
+                    .map((name) => String(name || '').trim())
+                    .filter(Boolean)
+                : [];
+            const sourceAuthoredNames = Array.isArray(importState?.authoredMaterialNames)
+                ? importState.authoredMaterialNames
+                    .map((name) => String(name || '').trim())
+                    .filter(Boolean)
+                : sourceMaterialNames.filter((name) => !isTechnicalDefaultMaterialName(name));
+            const sourceAuthoredMatCount = Number.isFinite(Number(importState?.authoredMaterialCount))
+                ? Number(importState.authoredMaterialCount)
+                : sourceAuthoredNames.length;
+            const sourceHasMaterial = importState
+                ? (
+                    typeof importState.hasAuthoredMaterial === 'boolean'
+                        ? importState.hasAuthoredMaterial
+                        : sourceAuthoredMatCount > 0
+                )
+                : sourceMatCount > 0;
             const isGlass = /glass/i.test(meshName);
             const isMain = /main/i.test(meshName);
 
             if (isCollision) {
                 if (sourceHasMaterial) {
-                    const named = Array.isArray(importState?.materialNames) && importState.materialNames.length
-                        ? ` [${importState.materialNames.slice(0, 3).join(', ')}${importState.materialNames.length > 3 ? ', …' : ''}]`
+                    const namesForView = sourceAuthoredNames.length ? sourceAuthoredNames : sourceMaterialNames;
+                    const shownCount = sourceAuthoredMatCount > 0 ? sourceAuthoredMatCount : sourceMatCount;
+                    const named = namesForView.length
+                        ? ` [${namesForView.slice(0, 3).join(', ')}${namesForView.length > 3 ? ', …' : ''}]`
                         : '';
                     critical.push(
-                        `${modelName} / ${meshName}: у UCX назначены материалы в исходном FBX (${sourceMatCount})${named}`
+                        `${modelName} / ${meshName}: у UCX назначены материалы в исходном FBX (${shownCount})${named}`
                     );
                 }
                 return;
