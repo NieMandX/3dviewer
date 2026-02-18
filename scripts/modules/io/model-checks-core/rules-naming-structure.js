@@ -87,6 +87,8 @@ function analyzeModelStructure(model, index) {
     const modelName = model?.name || `model-${index + 1}`;
     const root = model?.obj || null;
     const isLightModel = /_Light\.fbx$/i.test(modelName);
+    const modelZipKind = String(model?.zipKind || '').trim().toUpperCase();
+    const isNpmModel = modelZipKind === 'NPM';
 
     const issuesFail = [];
     const issuesWarn = [];
@@ -134,8 +136,11 @@ function analyzeModelStructure(model, index) {
             issuesWarn.push(`${modelName}: не найдено источников света`);
         }
     } else {
-        if (ucxCount === 0) {
+        if (!isNpmModel && ucxCount === 0) {
             issuesFail.push(`${modelName}: не найдены коллизии UCX`);
+        }
+        if (isNpmModel && ucxCount > 0) {
+            issuesFail.push(`${modelName}: в НПМ обнаружены коллизии UCX (${ucxCount})`);
         }
         if (glassMeshCount > 1) {
             issuesFail.push(`${modelName}: остекление разбито на ${glassMeshCount} mesh (должен быть 1)`);
