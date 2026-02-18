@@ -64,7 +64,7 @@ export function createFBXFileHandler(options = {}) {
         const bytes = new Uint8Array(ab);
         if (!bytes.length) return 'fnv1a32-00000000-s1';
         let hash = 0x811c9dc5;
-        const maxSamples = 2_000_000;
+        const maxSamples = 200_000;
         const stride = bytes.length > maxSamples ? Math.ceil(bytes.length / maxSamples) : 1;
         for (let i = 0; i < bytes.length; i += stride) {
             hash ^= bytes[i];
