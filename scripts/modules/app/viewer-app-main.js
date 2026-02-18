@@ -33,8 +33,6 @@ import { createPasswordResetModalController } from '../ui/password-reset-modal.j
 import { createTransitionModalController } from '../ui/transition-modal.js';
 import { createExportModalController } from '../ui/export-modal.js';
 import { createRectAnnotationModalController } from '../ui/rect-annotation-modal.js';
-import { createModelChecksModalController } from '../ui/model-checks-modal.js';
-import { createImportSnapshotModalController } from '../ui/import-snapshot-modal.js';
 import { createGridVisibilityController } from '../ui/grid-visibility.js';
 import { createLayoutController } from '../ui/layout.js';
 import { createInspectorPanels } from '../ui/inspector-panels.js';
@@ -44,23 +42,6 @@ import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
-import {
-    buildResetRedirectUrl,
-    clearRecoveryUrl,
-    formatChatTime,
-    getProjectSlugFromUrl,
-    getRoomSlugFromUrl,
-    isExistingSignupError,
-    isRecoveryUrl,
-    isRegisteredUser,
-    isValidEmail,
-    makeSlug,
-    normalizeDisplayName,
-    normalizeEmailInput,
-    resolveDisplayName,
-    setRoomSlugInUrl,
-    slugifyName,
-} from '../collab/collab-helpers.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
 import { createAndStartRenderLoop } from '../render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from '../render/debug-textures.js';
@@ -73,7 +54,6 @@ import { createImportHandlers } from '../io/import-handlers.js';
 import { createFileFlowUIController } from '../io/file-flow-ui.js';
 import { SAMPLE_MODELS } from '../io/sample-models.js';
 import { createBatchFinalizer } from '../io/batch-finalizer.js';
-import { createModelChecksRunner } from '../io/model-checks.js';
 import { exportWorldAsGLTF } from '../io/gltf-export.js';
 import {
     detectSlotFromMatOrObj,
@@ -329,22 +309,6 @@ class ViewerApp {
             textEl: dom.rectAnnotTextEl,
             textRowEl: dom.rectAnnotTextRowEl,
         });
-        const modelChecksModal = createModelChecksModalController({
-            modalEl: dom.modelChecksModalEl,
-            titleEl: dom.modelChecksTitleEl,
-            summaryEl: dom.modelChecksSummaryEl,
-            checksEl: dom.modelChecksChecksEl,
-            modelsEl: dom.modelChecksModelsEl,
-            rerunBtn: dom.modelChecksRerunBtn,
-            closeBtn: dom.modelChecksCloseBtn,
-        });
-        const importSnapshotModal = createImportSnapshotModalController({
-            modalEl: dom.snapshotModalEl,
-            titleEl: dom.snapshotTitleEl,
-            summaryEl: dom.snapshotSummaryEl,
-            sectionsEl: dom.snapshotSectionsEl,
-            closeBtn: dom.snapshotCloseBtn,
-        });
         setBootProgress(18, 'Инициализация модулей...');
 
         const statusUI = createStatusUIController({
@@ -460,8 +424,6 @@ class ViewerApp {
 	        const collToggleBtn = dom.collToggleBtn;
 	        const vpmToggleBtn = dom.vpmToggleBtn;
 	        const npmToggleBtn = dom.npmToggleBtn;
-	        const snapshotToggleBtn = dom.snapshotToggleBtn;
-	        const chkToggleBtn = dom.chkToggleBtn;
 	        const bgToggleBtn = dom.bgToggleBtn;
 	        const camsToggleBtn = dom.camsToggleBtn;
 	        const gridToggleBtn = dom.gridToggleBtn;
@@ -938,7 +900,6 @@ class ViewerApp {
         let roomTransitionsChannel = null;
         let cameraSyncMuted = false;
         let cameraPersistTimer = null;
-        let collabCanvasActivityListeners = null;
         let roomCameraCount = 0;
         const isMobileUi = () => {
             if (typeof window === 'undefined') return false;
@@ -992,25 +953,6 @@ class ViewerApp {
             } else {
                 setChatPanelVisible(!isMobileUi());
             }
-        }
-
-        function detachCollabCanvasActivityListeners() {
-            if (!collabCanvasActivityListeners || !dom.annotateCanvasEl) return;
-            dom.annotateCanvasEl.removeEventListener('pointerdown', collabCanvasActivityListeners.down);
-            dom.annotateCanvasEl.removeEventListener('pointerup', collabCanvasActivityListeners.up);
-            dom.annotateCanvasEl.removeEventListener('pointercancel', collabCanvasActivityListeners.cancel);
-            collabCanvasActivityListeners = null;
-        }
-
-        function attachCollabCanvasActivityListeners() {
-            if (!dom.annotateCanvasEl || collabCanvasActivityListeners) return;
-            const down = () => cameraSync?.markLocalActivity(true);
-            const up = () => cameraSync?.markLocalActivity(false);
-            const cancel = () => cameraSync?.markLocalActivity(false);
-            dom.annotateCanvasEl.addEventListener('pointerdown', down);
-            dom.annotateCanvasEl.addEventListener('pointerup', up);
-            dom.annotateCanvasEl.addEventListener('pointercancel', cancel);
-            collabCanvasActivityListeners = { down, up, cancel };
         }
 
         function recordContributor(id, name) {
@@ -1153,6 +1095,69 @@ class ViewerApp {
             });
         }
 
+        function getRoomSlugFromUrl() {
+            try {
+                const url = new URL(window.location.href);
+                return url.searchParams.get('room') || '';
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function getProjectSlugFromUrl() {
+            try {
+                const url = new URL(window.location.href);
+                return url.searchParams.get('project') || '';
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function setRoomSlugInUrl(projectSlug, roomSlug) {
+            try {
+                const url = new URL(window.location.href);
+                if (projectSlug) {
+                    url.searchParams.set('project', projectSlug);
+                } else {
+                    url.searchParams.delete('project');
+                }
+                if (roomSlug) {
+                    url.searchParams.set('room', roomSlug);
+                } else {
+                    url.searchParams.delete('room');
+                }
+                window.history.replaceState({}, '', url.toString());
+                return url.toString();
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function formatChatTime(value) {
+            if (!value) return '';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '';
+            return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function makeSlug(length = 8) {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let out = '';
+            for (let i = 0; i < length; i += 1) {
+                out += chars[Math.floor(Math.random() * chars.length)];
+            }
+            return out;
+        }
+
+        function slugifyName(value) {
+            const cleaned = String(value || '')
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+            return cleaned || '';
+        }
+
         function setCollabControlsDisabled(disabled) {
             const targets = [
                 collabProjectSelectEl,
@@ -1210,11 +1215,6 @@ class ViewerApp {
 
         async function teardownCollabSession() {
             stopPresenceRefresh();
-            if (cameraPersistTimer) {
-                clearTimeout(cameraPersistTimer);
-                cameraPersistTimer = null;
-            }
-            detachCollabCanvasActivityListeners();
             cameraSync?.dispose?.();
             cameraSync = null;
             cameraSyncMuted = false;
@@ -1450,6 +1450,54 @@ class ViewerApp {
             collabReserveBtn.title = isOwner ? 'Снять резерв' : 'Резерв вращения';
         }
 
+        function resolveDisplayName(value) {
+            const trimmed = String(value || '').trim();
+            if (trimmed) return trimmed;
+            if (typeof localStorage !== 'undefined') {
+                const stored = String(localStorage.getItem('lpmview.displayName') || '').trim();
+                if (stored) return stored;
+            }
+            return 'Guest';
+        }
+
+        function normalizeDisplayName(value) {
+            const trimmed = String(value || '').trim();
+            return trimmed || 'Guest';
+        }
+
+        function normalizeEmailInput(value) {
+            let email = String(value || '').trim();
+            const angleMatch = email.match(/<([^>]+)>/);
+            if (angleMatch) {
+                email = angleMatch[1];
+            }
+            return email.replace(/\s+/g, '');
+        }
+
+        function isValidEmail(value) {
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+        }
+
+        function isExistingSignupError(err) {
+            const code = String(err?.code || '').toLowerCase();
+            if (code === 'user_already_exists' || code === 'email_address_already_in_use') {
+                return true;
+            }
+            const message = String(err?.message || '').toLowerCase();
+            return (
+                message.includes('already registered') ||
+                message.includes('already been registered') ||
+                message.includes('user already') ||
+                message.includes('user exists') ||
+                message.includes('email already') ||
+                message.includes('user_already_exists')
+            );
+        }
+
+        function isRegisteredUser(user) {
+            return !!(user && user.email);
+        }
+
         async function refreshSuperuserFlag() {
             if (!collabSupabase) {
                 collabIsSuperuser = false;
@@ -1470,6 +1518,39 @@ class ViewerApp {
             if (canDeleteProject || canDeleteRoom) {
                 setCollabStatus('ready');
             }
+        }
+
+        function buildResetRedirectUrl() {
+            try {
+                const url = new URL(window.location.href);
+                const removeKeys = ['type', 'token', 'code', 'access_token', 'refresh_token'];
+                removeKeys.forEach((key) => url.searchParams.delete(key));
+                url.hash = '';
+                return url.toString();
+            } catch (_) {
+                return window.location.origin + window.location.pathname;
+            }
+        }
+
+        function isRecoveryUrl() {
+            try {
+                const url = new URL(window.location.href);
+                if (url.searchParams.get('type') === 'recovery') return true;
+                const hashParams = new URLSearchParams(String(url.hash || '').replace(/^#/, ''));
+                return hashParams.get('type') === 'recovery';
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function clearRecoveryUrl() {
+            try {
+                const url = new URL(window.location.href);
+                const removeKeys = ['type', 'token', 'code', 'access_token', 'refresh_token'];
+                removeKeys.forEach((key) => url.searchParams.delete(key));
+                url.hash = '';
+                window.history.replaceState({}, '', url.toString());
+            } catch (_) {}
         }
 
         async function ensureSupabaseClient(mode = 'default') {
@@ -1967,7 +2048,6 @@ class ViewerApp {
                 });
                 updateCollabFooter();
 
-                detachCollabCanvasActivityListeners();
                 cameraSync = createCameraSyncController({
                     camera,
                     controls,
@@ -1991,7 +2071,11 @@ class ViewerApp {
                 subscribeRoomCameraChanges();
                 await syncPendingLocalModels({ onlyIfRoomEmpty: true });
 
-                attachCollabCanvasActivityListeners();
+                if (dom.annotateCanvasEl) {
+                    dom.annotateCanvasEl.addEventListener('pointerdown', () => cameraSync?.markLocalActivity(true));
+                    dom.annotateCanvasEl.addEventListener('pointerup', () => cameraSync?.markLocalActivity(false));
+                    dom.annotateCanvasEl.addEventListener('pointercancel', () => cameraSync?.markLocalActivity(false));
+                }
 
                 setCollabStatus('on');
                 renderParticipants(collabParticipants);
@@ -2638,114 +2722,14 @@ class ViewerApp {
         const allEmbedded  = app.allEmbedded  = [];
 
         /**
-         * Слепки исходных данных импорта (до модификаций сцены).
-         * Ключ: snapshotId, хранится в памяти только в рамках текущей сессии.
+         * Стек для операций «отмены» при ручной привязке текстур.
+         * Пока используется только для логирования, но оставляем для будущего undo.
          */
-        const importSnapshots = app.importSnapshots = [];
-        const importSnapshotsById = app.importSnapshotsById = new Map();
-
-        function upsertImportSnapshot(snapshot) {
-            if (!snapshot || typeof snapshot !== 'object') return null;
-            const snapshotId = String(
-                snapshot.snapshotId || `snap-local-${importSnapshots.length + 1}`
-            );
-            const nextSnapshot = {
-                ...snapshot,
-                snapshotId,
-                capturedAt: snapshot.capturedAt || new Date().toISOString(),
-            };
-            const existingIndex = importSnapshots.findIndex((item) => item?.snapshotId === snapshotId);
-            if (existingIndex >= 0) {
-                importSnapshots[existingIndex] = nextSnapshot;
-            } else {
-                importSnapshots.push(nextSnapshot);
-            }
-            importSnapshotsById.set(snapshotId, nextSnapshot);
-            return nextSnapshot;
-        }
-
-        function getImportSnapshotsOrdered() {
-            if (!importSnapshots.length) return [];
-            const ordered = [];
-            const used = new Set();
-            loadedModels.forEach((model) => {
-                const snapshotId = model?.importSnapshotId || model?.obj?.userData?.importSnapshotId;
-                if (!snapshotId) return;
-                const snapshot = importSnapshotsById.get(snapshotId);
-                if (!snapshot) return;
-                ordered.push(snapshot);
-                used.add(snapshot.snapshotId);
-            });
-            importSnapshots.forEach((snapshot) => {
-                if (!snapshot?.snapshotId || used.has(snapshot.snapshotId)) return;
-                ordered.push(snapshot);
-            });
-            return ordered;
-        }
-
-	        /**
-	         * Стек для операций «отмены» при ручной привязке текстур.
-	         * Пока используется только для логирования, но оставляем для будущего undo.
-	         */
-		        const undoStack    = app.undoStack    = [];
-	        const modelChecksRunner = createModelChecksRunner({
-	            THREE,
-	            loadedModels,
-	        });
-	        let lastModelChecksReport = null;
-
-	        function setModelChecksReport(report, { log = false } = {}) {
-	            lastModelChecksReport = report || null;
-	            modelChecksModal.renderReport(lastModelChecksReport);
-	            if (chkToggleBtn) {
-	                const summary = lastModelChecksReport?.summary || null;
-	                const hasFail = (summary?.errors || 0) > 0;
-	                const hasWarn = (summary?.warnings || 0) > 0;
-	                chkToggleBtn.classList.toggle('is-fail', hasFail);
-	                chkToggleBtn.classList.toggle('is-warn', !hasFail && hasWarn);
-	                chkToggleBtn.classList.toggle('active', hasFail || hasWarn);
-	                chkToggleBtn.setAttribute('aria-pressed', hasFail || hasWarn ? 'true' : 'false');
-	                const modelCount = summary?.models ?? 0;
-	                const titleParts = [`Проверки моделей: ${modelCount}`];
-	                if (hasFail) titleParts.push(`FAIL: ${summary.errors}`);
-	                if (hasWarn) titleParts.push(`WARN: ${summary.warnings}`);
-	                chkToggleBtn.title = titleParts.join(' · ');
-	            }
-	            if (!log || !lastModelChecksReport?.summary) return;
-	            const summary = lastModelChecksReport.summary;
-	            const status =
-	                summary.errors > 0
-	                    ? 'warn'
-	                    : summary.warnings > 0
-	                        ? 'info'
-	                        : 'ok';
-	            logBind(
-	                `CHK: models=${summary.models}, tris=${summary.triangles.toLocaleString('ru-RU')}, warn=${summary.warnings}, fail=${summary.errors}`,
-	                status
-	            );
-	        }
-
-	        function runModelChecks({ log = false } = {}) {
-	            const report = modelChecksRunner.run();
-	            setModelChecksReport(report, { log });
-	            return report;
-	        }
-
-	        modelChecksModal.setRerunHandler(() => runModelChecks({ log: true }));
-	        setModelChecksReport(null);
-	        chkToggleBtn?.addEventListener?.('click', () => {
-	            if (!lastModelChecksReport) {
-	                runModelChecks({ log: false });
-	            }
-	            modelChecksModal.open(lastModelChecksReport);
-	        });
-	        snapshotToggleBtn?.addEventListener?.('click', () => {
-	            importSnapshotModal.open(getImportSnapshotsOrdered());
-	        });
+	        const undoStack    = app.undoStack    = [];
 
 
 
-		        // =====================
+	        // =====================
 	        // REBASE
 	        // =====================      
 
@@ -3298,7 +3282,6 @@ class ViewerApp {
             applyGlassControlsToScene,
             setEmptyHintVisible,
             markSceneStatsDirty,
-            onImportSnapshot: upsertImportSnapshot,
             unpackZIPInWorker,
             makeGeoJsonMeta,
             ensureZipCollisionsHidden,
@@ -3571,7 +3554,6 @@ class ViewerApp {
             if (!collabController || cameraSyncMuted) return;
             if (cameraPersistTimer) clearTimeout(cameraPersistTimer);
             cameraPersistTimer = setTimeout(async () => {
-                cameraPersistTimer = null;
                 if (!collabController || cameraSyncMuted) return;
                 cameraSyncMuted = true;
                 try {
@@ -3780,11 +3762,6 @@ class ViewerApp {
         async function finalizeBatchAfterAllFiles() {
             const result = await batchFinalizer.finalizeBatchAfterAllFiles();
             await syncPendingLocalModels();
-            if (loadedModels.length > 0) {
-                runModelChecks({ log: false });
-            } else {
-                setModelChecksReport(null);
-            }
             return result;
         }
 
@@ -3800,7 +3777,6 @@ class ViewerApp {
             computeWorldCenter,
             setStatsVisible,
             requestRender,
-            runModelChecks,
         });
 
         // =====================

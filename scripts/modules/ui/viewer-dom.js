@@ -76,8 +76,6 @@ export function collectViewerDom(document) {
 	        solidToggleBtn: get('solidToggleBtn'),
 	        vpmToggleBtn: get('vpmToggleBtn'),
 	        npmToggleBtn: get('npmToggleBtn'),
-	        snapshotToggleBtn: get('snapshotToggleBtn'),
-	        chkToggleBtn: get('chkToggleBtn'),
 	        gridToggleBtn: get('gridToggleBtn'),
 	        statsOverlayEl: get('statsOverlay'),
 
@@ -239,27 +237,11 @@ export function collectViewerDom(document) {
         exportCancelBtn: get('exportCancel'),
         exportCloseBtn: get('exportClose'),
 
-	        // Order modal
-	        orderModalEl: get('orderModal'),
+        // Order modal
+        orderModalEl: get('orderModal'),
 
-	        // Model checks modal
-	        modelChecksModalEl: get('modelChecksModal'),
-	        modelChecksTitleEl: get('modelChecksTitle'),
-	        modelChecksSummaryEl: get('modelChecksSummary'),
-	        modelChecksChecksEl: get('modelChecksChecks'),
-	        modelChecksModelsEl: get('modelChecksModels'),
-	        modelChecksRerunBtn: get('modelChecksRerun'),
-	        modelChecksCloseBtn: get('modelChecksClose'),
-
-        // Import snapshot modal
-        snapshotModalEl: get('snapshotModal'),
-        snapshotTitleEl: get('snapshotTitle'),
-        snapshotSummaryEl: get('snapshotSummary'),
-        snapshotSectionsEl: get('snapshotSections'),
-        snapshotCloseBtn: get('snapshotClose'),
-
-	        // Rect annotation modal
-	        rectAnnotModalEl: get('rectAnnotModal'),
+        // Rect annotation modal
+        rectAnnotModalEl: get('rectAnnotModal'),
         rectAnnotTitleEl: get('rectAnnotTitle'),
         rectAnnotCloseBtn: get('rectAnnotClose'),
         rectAnnotColorEl: get('rectAnnotColor'),

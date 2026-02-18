@@ -74,8 +74,6 @@ export function createImportHandlers(options = {}) {
         typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const markSceneStatsDirty =
         typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
-    const onImportSnapshot =
-        typeof options.onImportSnapshot === 'function' ? options.onImportSnapshot : null;
 
     const unpackZIPInWorker = typeof options.unpackZIPInWorker === 'function' ? options.unpackZIPInWorker : null;
     const makeGeoJsonMeta = typeof options.makeGeoJsonMeta === 'function' ? options.makeGeoJsonMeta : null;
@@ -126,7 +124,6 @@ export function createImportHandlers(options = {}) {
         applyGlassControlsToScene,
         setEmptyHintVisible,
         markSceneStatsDirty,
-        onImportSnapshot,
     });
 
     const handleZIPFileImpl = createZIPFileHandler({
@@ -177,3 +174,4 @@ export function createImportHandlers(options = {}) {
         handleZIPFile,
     };
 }
+
