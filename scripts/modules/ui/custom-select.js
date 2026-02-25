@@ -36,8 +36,20 @@ export function createCustomSelectController(options = {}) {
         }
     }
 
-    function onScroll() {
-        if (activeSelect) closeActive();
+    function isScrollInsideActiveSelect(event) {
+        if (!activeSelect || !event) return false;
+        const target = event.target;
+        if (!target) return false;
+        if (target === activeSelect.wrapper || target === activeSelect.list) return true;
+        if (activeSelect.wrapper?.contains?.(target)) return true;
+        if (activeSelect.list?.contains?.(target)) return true;
+        return false;
+    }
+
+    function onScroll(event) {
+        if (!activeSelect) return;
+        if (isScrollInsideActiveSelect(event)) return;
+        closeActive();
     }
 
     if (root.addEventListener) {

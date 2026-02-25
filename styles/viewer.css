@@ -1184,6 +1184,7 @@ select.custom-select-native:disabled {
     backdrop-filter: blur(var(--glassBlur));
     z-index: 80;
     overflow: auto;
+    overscroll-behavior: contain;
 }
 
 .custom-select-list.is-open { display: flex; }
