@@ -1,158 +1,133 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { X } from 'lucide-react';
+import React from 'react';
+import { motion } from 'motion/react';
+import { ArrowUpRight } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 
-interface ModelCard {
-  id: number;
-  url: string;
-  title: string;
-  description: string;
-}
+const processImage = new URL(
+  '../assets/vis_img/APEX-Residential_Tolbuhino-Moscow/APEX-Residential_Tolbuhino-Moscow_title.webp',
+  import.meta.url
+).href;
 
-const modelCards: ModelCard[] = [
+const detailImage = new URL(
+  '../assets/vis_img/APEX-Residential_complex-Moscow/1.jpg',
+  import.meta.url
+).href;
+
+const services = [
   {
-    id: 1,
-    url: 'https://images.unsplash.com/photo-1633355303026-28d096d08c42?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHwzZCUyMGFyY2hpdGVjdHVyZSUyMG1vZGVsfGVufDF8fHx8MTc2Mjk1NjY2OHww&ixlib=rb-4.1.0&q=80&w=1080',
-    title: 'Высокополигональные модели',
-    description: 'Детализированные модели для презентаций и визуализаций'
+    code: '01',
+    title: 'АГР High / Low Poly Models',
+    description:
+      'Подготавливаем модели в полном соответствии с требованиями МКА: структура, материалы, масштаб, проверка ошибок и экспорт.',
   },
   {
-    id: 2,
-    url: 'https://images.unsplash.com/photo-1562957982-b1f25317aebd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxidWlsZGluZyUyMHdpcmVmcmFtZXxlbnwxfHx8fDE3NjI5NTY2Njh8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    title: 'Низкополигональные модели',
-    description: 'Оптимизированные модели для интерактивных приложений'
+    code: '02',
+    title: 'Visualization & Animation',
+    description:
+      'Создаем визуализации и анимацию параллельно модели. Это устраняет расхождения между презентацией и технической подачей.',
   },
   {
-    id: 3,
-    url: 'https://images.unsplash.com/photo-1749464251742-107093fc5650?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhcmNoaXRlY3R1cmFsJTIwdmlzdWFsaXphdGlvbnxlbnwxfHx8fDE3NjI5MTI4ODh8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    title: 'AGR модели МКА',
-    description: 'Соответствие требованиям Москомархитектуры'
+    code: '03',
+    title: 'Technical QA Pipeline',
+    description:
+      'Проводим проверку перед отправкой: геометрия, UV/текстуры, naming и финальная валидация через внутренние пайплайн-инструменты.',
   },
 ];
 
 export function ModelsSection() {
-  const [selectedImage, setSelectedImage] = useState<ModelCard | null>(null);
-
   return (
-    <section id="models" className="py-24 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
-      <div className="container mx-auto px-6 max-w-7xl">
-        {/* <motion.h2
-          className="mb-16 text-center font-bold"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-        >
-          3D Модели АГР
-        </motion.h2> */}
+    <section id="models" className="border-t border-zinc-200/80 py-24 dark:border-zinc-800/80">
+      <div className="container mx-auto max-w-7xl px-6">
+        <div className="mb-12 grid gap-4 md:grid-cols-[160px_1fr] md:items-end">
+          <p className="ui-font text-[10px] tracking-[0.24em] text-zinc-500 dark:text-zinc-400">02 / Services</p>
 
-        <div className="mx-auto mb-16 space-y-6 max-w-6xl">
-          <motion.p
-            className="text-zinc-700 dark:text-zinc-300 leading-relaxed"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-          >
-            Мы занимаемся комплексной подготовкой материалов для подачи в Москомархитектуру (МКА). Процесс создания рендеров ведётся параллельно с разработкой высоко- и низкополигональных моделей, что позволяет исключить расхождения между изображениями в альбоме и 3D моделями.
-          </motion.p>
-
-          <motion.p
-            className="text-zinc-700 dark:text-zinc-300 leading-relaxed"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-          >
-            Мы являемся авторами{' '}
-            <a
-              href="https://agr.vision/"
-              className="text-zinc-900 font-semibold underline-offset-4 hover:underline dark:text-white"
-              target="_blank"
-              rel="noreferrer"
-            >
-              AGR WebViewer
-            </a>{' '}
-            — простого, удобного и бесплатного инструмента для визуального анализа ошибок и погрешностей в АГР моделях. Достаточно открыть сайт{' '}
-            <a
-              href="https://agr.vision/"
-              className="text-zinc-900 font-semibold underline-offset-4 hover:underline dark:text-white"
-              target="_blank"
-              rel="noreferrer"
-            >
-              agr.vision
-            </a>{' '}
-            и перетащить ZIP-архив с моделью прямо в окно браузера — система автоматически соберёт и отобразит модель максимально приближенно к тому, как её видят специалисты МКА и МГТ. Вьюер постоянно дорабатывается и улучшается, в нем становятся доступны новые функции.
-          </motion.p>
+          <div className="space-y-4">
+            <h2 className="display-font max-w-4xl text-4xl leading-[0.95] text-zinc-900 sm:text-5xl dark:text-zinc-100">
+              Единый pipeline для визуализации и АГР-моделей
+            </h2>
+            <p className="max-w-3xl text-zinc-600 dark:text-zinc-300">
+              Мы работаем на стыке архитектуры, 3D-продакшна и инженерной проверки. Такой подход сокращает правки,
+              ускоряет согласование и делает итоговые материалы предсказуемыми.
+            </p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {modelCards.map((card, index) => (
+        <div className="grid gap-8 lg:grid-cols-[1.02fr_0.98fr] lg:items-start">
+          <motion.div
+            className="relative overflow-hidden rounded-[2rem] border border-zinc-200/80 bg-zinc-100 shadow-[0_24px_65px_rgba(15,23,42,0.14)] dark:border-zinc-700/80 dark:bg-zinc-900 dark:shadow-[0_24px_65px_rgba(0,0,0,0.5)]"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-10% 0px' }}
+            transition={{ duration: 0.6 }}
+          >
+            <ImageWithFallback
+              src={processImage}
+              alt="Pipeline визуализации и АГР"
+              className="h-[480px] w-full object-cover sm:h-[560px]"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-zinc-900/65 via-zinc-900/15 to-transparent" />
+
+            <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
+              <p className="ui-font text-[10px] tracking-[0.22em] text-zinc-200">Pipeline View</p>
+              <p className="display-font mt-2 text-3xl leading-none text-zinc-50">Submission-ready deliverables</p>
+            </div>
+
+            <div className="absolute right-5 top-5 hidden w-[190px] overflow-hidden rounded-2xl border border-white/30 bg-black/15 backdrop-blur-md sm:block">
+              <ImageWithFallback src={detailImage} alt="Model detail" className="h-28 w-full object-cover" loading="lazy" />
+              <div className="p-3 text-zinc-100">
+                <p className="ui-font text-[9px] tracking-[0.2em]">QC Snapshot</p>
+                <p className="mt-2 text-xs">Geometry, materials and scale verification.</p>
+              </div>
+            </div>
+          </motion.div>
+
+          <div className="space-y-4">
+            {services.map((service, index) => (
+              <motion.article
+                key={service.code}
+                className="rounded-[1.4rem] border border-zinc-200/80 bg-white/75 p-6 backdrop-blur-sm dark:border-zinc-700/80 dark:bg-zinc-900/65"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-10% 0px' }}
+                transition={{ duration: 0.45, delay: index * 0.08 }}
+              >
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <span className="ui-font rounded-full bg-zinc-900 px-3 py-1 text-[10px] tracking-[0.18em] text-zinc-100 dark:bg-zinc-100 dark:text-zinc-900">
+                    {service.code}
+                  </span>
+                  <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+                </div>
+                <h3 className="display-font text-3xl leading-none text-zinc-900 dark:text-zinc-100">{service.title}</h3>
+                <p className="mt-3 leading-relaxed text-zinc-600 dark:text-zinc-300">{service.description}</p>
+              </motion.article>
+            ))}
+
             <motion.div
-              key={card.id}
-              className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 overflow-hidden cursor-pointer group"
+              className="rounded-[1.4rem] border border-zinc-300/80 bg-zinc-900 p-6 text-zinc-100 dark:border-zinc-600 dark:bg-zinc-100 dark:text-zinc-900"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ duration: 0.4, delay: index * 0.05 }}
-              whileHover={{ y: -4 }}
-              onClick={() => setSelectedImage(card)}
+              transition={{ duration: 0.45, delay: 0.2 }}
             >
-              <div className="aspect-video bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
-                <ImageWithFallback
-                  src={card.url}
-                  alt={card.title}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-              </div>
-              <div className="p-6">
-                <h3 className="mb-2">{card.title}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{card.description}</p>
-              </div>
+              <p className="ui-font text-[10px] tracking-[0.2em] text-zinc-300 dark:text-zinc-500">Tooling</p>
+              <p className="mt-3 text-lg leading-relaxed">
+                Мы являемся авторами AGR WebViewer - инструмента для быстрой визуальной проверки и диагностики ошибок в
+                АГР-моделях.
+              </p>
+              <a
+                href="https://agr.vision/"
+                className="mt-4 inline-flex items-center gap-2 text-sm underline-offset-4 transition hover:underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Открыть agr.vision
+                <ArrowUpRight className="h-4 w-4" />
+              </a>
             </motion.div>
-          ))}
+          </div>
         </div>
       </div>
-
-      {/* Lightbox Modal */}
-      <AnimatePresence>
-        {selectedImage && (
-          <motion.div
-            className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-6"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setSelectedImage(null)}
-          >
-            <button
-              className="absolute top-6 right-6 p-2 text-white hover:bg-white/10 rounded-full transition-colors"
-              onClick={() => setSelectedImage(null)}
-            >
-              <X className="w-6 h-6" />
-            </button>
-            
-            <motion.div
-              className="max-w-6xl w-full"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ImageWithFallback
-                src={selectedImage.url}
-                alt={selectedImage.title}
-                className="w-full h-auto"
-              />
-              <div className="text-white text-center mt-6">
-                <h3 className="mb-2">{selectedImage.title}</h3>
-                <p className="text-zinc-400">{selectedImage.description}</p>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </section>
   );
 }

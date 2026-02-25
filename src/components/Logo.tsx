@@ -3,16 +3,11 @@ import Vector from '../imports/Vector';
 
 export function Logo() {
   return (
-    <a href="#" className="flex items-center gap-3 group">
-      {/* Logo Icon */}
-      <div className="h-8 w-16 text-zinc-900 dark:text-zinc-100 transition-colors [--fill-0:currentColor]">
+    <a href="#" className="group inline-flex items-center gap-3">
+      <div className="h-7 w-14 text-zinc-900 transition-colors [--fill-0:currentColor] dark:text-zinc-100">
         <Vector />
       </div>
-      
-      {/* Logo Text */}
-      <span className="text-lg tracking-[0.35em] transition-colors">
-        VISION
-      </span>
+      <p className="ui-font text-[11px] tracking-[0.24em] text-zinc-900 dark:text-zinc-100">IMA Vision</p>
     </a>
   );
 }
