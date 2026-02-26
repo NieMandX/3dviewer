@@ -872,6 +872,7 @@ class ViewerApp {
         let collabAutoResumeTimer = null;
         let collabAutoResumeInFlight = false;
         let collabAutoResumeAttempt = 0;
+        let collabAnnotatePointerHooksBound = false;
         const isMobileUi = () => {
             if (typeof window === 'undefined') return false;
             if (typeof window.matchMedia === 'function') {
@@ -2128,10 +2129,11 @@ class ViewerApp {
                 subscribeRoomCameraChanges();
                 await syncPendingLocalModels({ onlyIfRoomEmpty: true });
 
-                if (dom.annotateCanvasEl) {
+                if (dom.annotateCanvasEl && !collabAnnotatePointerHooksBound) {
                     dom.annotateCanvasEl.addEventListener('pointerdown', () => cameraSync?.markLocalActivity(true));
                     dom.annotateCanvasEl.addEventListener('pointerup', () => cameraSync?.markLocalActivity(false));
                     dom.annotateCanvasEl.addEventListener('pointercancel', () => cameraSync?.markLocalActivity(false));
+                    collabAnnotatePointerHooksBound = true;
                 }
 
                 collabAutoResumeEnabled = true;
