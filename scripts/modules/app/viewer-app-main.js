@@ -3254,6 +3254,9 @@ class ViewerApp {
         const pendingLocalModelKeys = new Set();
         let isRemoteModelLoad = false;
         let activeRoomModelId = '';
+        const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 50 * 1024 * 1024;
+        const RESUMABLE_UPLOAD_CHUNK_BYTES = 6 * 1024 * 1024;
+        let tusClientPromise = null;
 
         function getModelFileKey(file) {
             if (!file) return '';
@@ -3285,6 +3288,71 @@ class ViewerApp {
             return 'zip';
         }
 
+        async function ensureTusClient() {
+            const existing = globalThis?.tus;
+            if (existing?.Upload) return existing;
+            if (tusClientPromise) return tusClientPromise;
+            tusClientPromise = new Promise((resolve, reject) => {
+                if (typeof document === 'undefined') {
+                    reject(new Error('TUS loader is unavailable outside browser.'));
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/tus-js-client@3.1.3/dist/tus.min.js';
+                script.async = true;
+                script.onload = () => {
+                    const tus = globalThis?.tus;
+                    if (tus?.Upload) {
+                        resolve(tus);
+                    } else {
+                        reject(new Error('tus-js-client loaded without Upload API.'));
+                    }
+                };
+                script.onerror = () => reject(new Error('Failed to load tus-js-client from CDN.'));
+                document.head.appendChild(script);
+            });
+            return tusClientPromise;
+        }
+
+        async function uploadModelToProjectResumable({ supabase, file, path }) {
+            const sessionResult = await supabase.auth.getSession();
+            const accessToken = sessionResult?.data?.session?.access_token || '';
+            if (!accessToken) {
+                throw new Error('No active Supabase session for resumable upload.');
+            }
+            const tus = await ensureTusClient();
+            await new Promise((resolve, reject) => {
+                const upload = new tus.Upload(file, {
+                    endpoint: `${supabaseUrl}/storage/v1/upload/resumable`,
+                    retryDelays: [0, 3000, 5000, 10000, 20000],
+                    chunkSize: RESUMABLE_UPLOAD_CHUNK_BYTES,
+                    uploadDataDuringCreation: true,
+                    removeFingerprintOnSuccess: true,
+                    headers: {
+                        authorization: `Bearer ${accessToken}`,
+                        apikey: supabaseAnonKey,
+                        'x-upsert': 'true',
+                    },
+                    metadata: {
+                        bucketName: 'models',
+                        objectName: path,
+                        contentType: file.type || 'application/octet-stream',
+                        cacheControl: '3600',
+                    },
+                    onError: (error) => reject(error),
+                    onSuccess: () => resolve(true),
+                });
+                upload.findPreviousUploads()
+                    .then((previousUploads) => {
+                        if (Array.isArray(previousUploads) && previousUploads.length) {
+                            upload.resumeFromPreviousUpload(previousUploads[0]);
+                        }
+                        upload.start();
+                    })
+                    .catch(() => upload.start());
+            });
+        }
+
         async function uploadModelToProject(file) {
             if (!collabController || !file) return null;
             const supabase = collabController.supabase;
@@ -3292,11 +3360,16 @@ class ViewerApp {
             const safeName = String(file.name || 'model.zip').replace(/\s+/g, '_');
             const projectId = collabController.project?.id || 'project';
             const path = `projects/${projectId}/${Date.now()}-${safeName}`;
-            const { error: uploadError } = await bucket.upload(path, file, {
-                upsert: true,
-                contentType: file.type || 'application/octet-stream',
-            });
-            if (uploadError) throw uploadError;
+            const useResumable = Number(file.size || 0) > RESUMABLE_UPLOAD_THRESHOLD_BYTES;
+            if (useResumable) {
+                await uploadModelToProjectResumable({ supabase, file, path });
+            } else {
+                const { error: uploadError } = await bucket.upload(path, file, {
+                    upsert: true,
+                    contentType: file.type || 'application/octet-stream',
+                });
+                if (uploadError) throw uploadError;
+            }
             const { data } = bucket.getPublicUrl(path);
             return data?.publicUrl || '';
         }
