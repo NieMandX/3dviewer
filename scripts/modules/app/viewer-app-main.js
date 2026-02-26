@@ -867,6 +867,11 @@ class ViewerApp {
         let cameraSyncMuted = false;
         let cameraPersistTimer = null;
         let roomCameraCount = 0;
+        let collabConnectionOnline = false;
+        let collabAutoResumeEnabled = false;
+        let collabAutoResumeTimer = null;
+        let collabAutoResumeInFlight = false;
+        let collabAutoResumeAttempt = 0;
         const isMobileUi = () => {
             if (typeof window === 'undefined') return false;
             if (typeof window.matchMedia === 'function') {
@@ -882,7 +887,7 @@ class ViewerApp {
         function setCollabStatus(text) {
             if (!collabStatusEl) return;
             const label = String(text || '').trim();
-            collabStatusEl.textContent = label || (collabController ? 'on' : 'off');
+            collabStatusEl.textContent = label || (collabController ? (collabConnectionOnline ? 'on' : 'offline') : 'off');
         }
 
         function updateCollabStatusButton() {
@@ -891,12 +896,69 @@ class ViewerApp {
                 collabStatusBtn.hidden = true;
                 return;
             }
-            const isOnline = !!collabController;
+            const isOnline = !!collabController && collabConnectionOnline;
             collabStatusBtn.hidden = false;
             collabStatusBtn.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
             collabStatusBtn.classList.toggle('is-online', isOnline);
             collabStatusBtn.classList.toggle('is-offline', !isOnline);
             collabStatusBtn.setAttribute('aria-pressed', isOnline ? 'true' : 'false');
+        }
+
+        function clearCollabAutoResumeTimer() {
+            if (!collabAutoResumeTimer) return;
+            clearTimeout(collabAutoResumeTimer);
+            collabAutoResumeTimer = null;
+        }
+
+        function setCollabConnectionState(connected, reason = '') {
+            void reason;
+            collabConnectionOnline = !!connected;
+            updateCollabStatusButton();
+        }
+
+        async function resumeCollabSession(trigger = '') {
+            if (collabAutoResumeInFlight || !collabAutoResumeEnabled) return;
+            if (!collabController || !collabProject || !collabRoom || !collabUser || !collabSupabase) return;
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+            collabAutoResumeInFlight = true;
+            collabAutoResumeAttempt += 1;
+            setCollabStatus('reconnecting');
+            try {
+                const displayName = String(collabController.getDisplayName?.() || collabNameEl?.value || '').trim() || 'Guest';
+                await teardownCollabSession({ preserveAutoResume: true });
+                await connectToRoom(displayName, { isAutoReconnect: true, throwOnError: true });
+                collabAutoResumeAttempt = 0;
+            } catch (err) {
+                console.error('Collab auto-resume failed', err);
+                setCollabConnectionState(false, `resume-failed:${String(trigger || '')}`);
+                scheduleCollabAutoResume('retry');
+            } finally {
+                collabAutoResumeInFlight = false;
+            }
+        }
+
+        function scheduleCollabAutoResume(trigger = '') {
+            if (!collabAutoResumeEnabled || !collabController) return;
+            if (!collabProject || !collabRoom || !collabUser || !collabSupabase) return;
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+            if (collabAutoResumeInFlight) return;
+            clearCollabAutoResumeTimer();
+            const delay = Math.min(15000, 1000 * (2 ** Math.min(collabAutoResumeAttempt, 4)));
+            collabAutoResumeTimer = setTimeout(() => {
+                collabAutoResumeTimer = null;
+                void resumeCollabSession(trigger);
+            }, delay);
+        }
+
+        function handleBrowserOffline() {
+            if (!collabController) return;
+            setCollabConnectionState(false, 'browser-offline');
+            setCollabStatus('offline');
+        }
+
+        function handleBrowserOnline() {
+            if (!collabController) return;
+            scheduleCollabAutoResume('browser-online');
         }
 
         function setChatPanelVisible(next) {
@@ -1179,11 +1241,18 @@ class ViewerApp {
             }
         }
 
-        async function teardownCollabSession() {
+        async function teardownCollabSession(options = {}) {
+            const preserveAutoResume = !!options?.preserveAutoResume;
             stopPresenceRefresh();
             cameraSync?.dispose?.();
             cameraSync = null;
             cameraSyncMuted = false;
+            clearCollabAutoResumeTimer();
+            if (!preserveAutoResume) {
+                collabAutoResumeEnabled = false;
+                collabAutoResumeAttempt = 0;
+                collabAutoResumeInFlight = false;
+            }
 
             const supabase = collabController?.supabase || collabSupabase;
             const extraChannels = [roomModelsChannel, roomCamerasChannel, roomTransitionsChannel];
@@ -1210,6 +1279,7 @@ class ViewerApp {
             updateReserveButton();
             setCollabSessionEnabled(false);
             setCollabToolsEnabled(false);
+            setCollabConnectionState(false, preserveAutoResume ? 'reconnect' : 'session-closed');
             setCollabStatus('off');
             updateCollabStatusButton();
             setChatPanelAvailability(false);
@@ -1961,8 +2031,10 @@ class ViewerApp {
             return created;
         }
 
-        async function connectToRoom(name) {
+        async function connectToRoom(name, options = {}) {
             if (!collabSupabase || !collabUser || !collabProject || !collabRoom) return;
+            const isAutoReconnect = !!options?.isAutoReconnect;
+            const throwOnError = !!options?.throwOnError;
             collabJoinBtn.disabled = true;
             setCollabStatus('connecting');
             try {
@@ -1976,7 +2048,26 @@ class ViewerApp {
                     projectSlug: collabProject.slug,
                     roomSlug: collabRoom.slug,
                     displayName: name,
-                    onStatus: setCollabStatus,
+                    onStatus: (text) => {
+                        const label = String(text || '').trim();
+                        if (!label) {
+                            setCollabStatus(collabConnectionOnline ? 'on' : 'offline');
+                            return;
+                        }
+                        setCollabStatus(label);
+                    },
+                    onConnectionState: ({ connected, reason }) => {
+                        setCollabConnectionState(connected, reason);
+                        if (connected) {
+                            collabAutoResumeAttempt = 0;
+                            clearCollabAutoResumeTimer();
+                            if (collabController) setCollabStatus('on');
+                            return;
+                        }
+                        if (!collabController) return;
+                        setCollabStatus('offline');
+                        scheduleCollabAutoResume(reason || 'channel-disconnected');
+                    },
                     onProjectReady: (project) => {
                         collabProject = project;
                         updateCollabFooter();
@@ -2043,6 +2134,10 @@ class ViewerApp {
                     dom.annotateCanvasEl.addEventListener('pointercancel', () => cameraSync?.markLocalActivity(false));
                 }
 
+                collabAutoResumeEnabled = true;
+                collabAutoResumeAttempt = 0;
+                collabAutoResumeInFlight = false;
+                setCollabConnectionState(true, isAutoReconnect ? 'reconnected' : 'connected');
                 setCollabStatus('on');
                 renderParticipants(collabParticipants);
                 updateReserveButton();
@@ -2061,7 +2156,12 @@ class ViewerApp {
                 }
             } catch (err) {
                 console.error('Collab init failed', err);
+                setCollabConnectionState(false, 'connect-error');
+                if (!isAutoReconnect) {
+                    collabAutoResumeEnabled = false;
+                }
                 setCollabStatus('error');
+                if (throwOnError) throw err;
             } finally {
                 collabJoinBtn.disabled = false;
             }
@@ -2506,6 +2606,10 @@ class ViewerApp {
         setCollabToolsEnabled(false);
         updateCollabStatusButton();
         setChatPanelAvailability(false);
+        if (typeof window !== 'undefined') {
+            window.addEventListener('offline', handleBrowserOffline, { passive: true });
+            window.addEventListener('online', handleBrowserOnline, { passive: true });
+        }
         updateAdminControls();
         void maybeHandlePasswordRecovery();
         void clearPersistedEmailSession();

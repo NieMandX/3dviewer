@@ -151,10 +151,26 @@ export async function createCollabController(options = {}) {
         onCameraState,
         onCameraOwner,
         onRoomUpdate,
+        onConnectionState,
     } = options;
 
     const status = typeof onStatus === 'function' ? onStatus : () => {};
+    const connectionStateCallback = typeof onConnectionState === 'function' ? onConnectionState : null;
     status('Connecting…');
+
+    let lastConnectionState = null;
+    let lastConnectionReason = '';
+    function emitConnectionState(connected, reason = '') {
+        if (!connectionStateCallback) return;
+        const nextConnected = !!connected;
+        const nextReason = String(reason || '');
+        if (lastConnectionState === nextConnected && lastConnectionReason === nextReason) return;
+        lastConnectionState = nextConnected;
+        lastConnectionReason = nextReason;
+        try {
+            connectionStateCallback({ connected: nextConnected, reason: nextReason });
+        } catch (_) {}
+    }
 
     const supabase = injectedSupabase || await createSupabaseClient({
         url: supabaseUrl,
@@ -268,13 +284,20 @@ export async function createCollabController(options = {}) {
 
     await new Promise((resolve, reject) => {
         roomChannel.subscribe((statusValue, err) => {
+            const nextStatus = String(statusValue || '');
             if (err) {
+                emitConnectionState(false, 'SUBSCRIBE_ERROR');
                 reject(err);
                 return;
             }
-            if (statusValue === 'SUBSCRIBED') {
+            if (nextStatus === 'SUBSCRIBED') {
+                emitConnectionState(true, nextStatus);
                 roomChannel.track(presenceMeta);
                 resolve();
+                return;
+            }
+            if (nextStatus === 'CLOSED' || nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') {
+                emitConnectionState(false, nextStatus);
             }
         });
     });
@@ -609,6 +632,7 @@ export async function createCollabController(options = {}) {
     }
 
     async function dispose() {
+        emitConnectionState(false, 'DISPOSED');
         if (onlineWaitHandler && typeof window !== 'undefined') {
             window.removeEventListener('online', onlineWaitHandler);
             onlineWaitHandler = null;
