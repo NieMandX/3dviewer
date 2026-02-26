@@ -3252,6 +3252,7 @@ class ViewerApp {
         const rawHandleZIPFile = importHandlers.handleZIPFile;
         const pendingLocalModelFiles = [];
         const pendingLocalModelKeys = new Set();
+        const nonRetryableModelSyncKeys = new Set();
         let isRemoteModelLoad = false;
         let activeRoomModelId = '';
         const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 50 * 1024 * 1024;
@@ -3286,6 +3287,16 @@ class ViewerApp {
             if (/\.fbx$/i.test(name)) return 'fbx';
             if (/\.zip$/i.test(name)) return 'zip';
             return 'zip';
+        }
+
+        function isModelSyncFileTooLargeError(error) {
+            const status = Number(error?.status || error?.statusCode || 0);
+            if (status === 413) return true;
+            const message = String(error?.message || error || '').toLowerCase();
+            if (!message) return false;
+            return message.includes('413')
+                || message.includes('maximum size exceeded')
+                || message.includes('content too large');
         }
 
         async function ensureTusClient() {
@@ -3376,6 +3387,7 @@ class ViewerApp {
 
         async function syncModelToRoom(file) {
             if (!collabController || !file || isRemoteModelLoad) return false;
+            let shouldKeepStatusMessage = false;
             try {
                 setStatusMessage('Синхронизация модели…');
                 const url = await uploadModelToProject(file);
@@ -3417,10 +3429,20 @@ class ViewerApp {
                 roomModelCount += 1;
                 return true;
             } catch (err) {
+                if (isModelSyncFileTooLargeError(err)) {
+                    const key = getModelFileKey(file);
+                    if (key) nonRetryableModelSyncKeys.add(key);
+                    const sizeMb = Math.max(1, Math.round((Number(file.size || 0) / (1024 * 1024)) * 10) / 10);
+                    setStatusMessage(
+                        `Синхронизация отклонена: файл ${sizeMb} МБ превышает лимит Storage. `
+                        + 'В Supabase: Storage -> Settings -> Global file size limit.'
+                    );
+                    shouldKeepStatusMessage = true;
+                }
                 console.error('Model sync failed', err);
                 return false;
             } finally {
-                setStatusMessage('');
+                if (!shouldKeepStatusMessage) setStatusMessage('');
             }
         }
 
@@ -3438,7 +3460,10 @@ class ViewerApp {
                 if (synced) {
                     syncedAny = true;
                 } else {
-                    failed.push(file);
+                    const key = getModelFileKey(file);
+                    if (!key || !nonRetryableModelSyncKeys.has(key)) {
+                        failed.push(file);
+                    }
                 }
             }
             if (failed.length) {
