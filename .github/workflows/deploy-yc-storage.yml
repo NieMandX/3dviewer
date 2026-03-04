@@ -1,0 +1,68 @@
+name: Deploy Viewer To Yandex Object Storage
+
+on:
+  push:
+    branches:
+      - gh-pages
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-yc-storage
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Sync Static Viewer
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.YC_S3_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ru-central1
+      YC_S3_BUCKET: ${{ secrets.YC_S3_BUCKET }}
+      YC_S3_PREFIX: ${{ secrets.YC_S3_PREFIX }}
+      YC_S3_ENDPOINT: https://storage.yandexcloud.net
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Secrets
+        run: |
+          set -euo pipefail
+          test -n "${AWS_ACCESS_KEY_ID}"
+          test -n "${AWS_SECRET_ACCESS_KEY}"
+          test -n "${YC_S3_BUCKET}"
+          test -n "${YC_S3_PREFIX}"
+
+      - name: Show Tool Versions
+        run: |
+          set -euo pipefail
+          aws --version
+
+      - name: Sync Files To Yandex S3
+        run: |
+          set -euo pipefail
+          TARGET_URI="s3://${YC_S3_BUCKET}/${YC_S3_PREFIX%/}/"
+          aws s3 sync . "${TARGET_URI}" \
+            --endpoint-url "${YC_S3_ENDPOINT}" \
+            --delete \
+            --no-progress \
+            --exclude "*" \
+            --include "index.html" \
+            --include "favicon.ico" \
+            --include "scripts/*" \
+            --include "styles/*" \
+            --include "hdr/*" \
+            --include "textures/*" \
+            --include "exr/*" \
+            --exclude ".DS_Store" \
+            --exclude "*/.DS_Store"
+
+      - name: List Bucket Summary
+        run: |
+          set -euo pipefail
+          TARGET_URI="s3://${YC_S3_BUCKET}/${YC_S3_PREFIX%/}/"
+          aws s3 ls "${TARGET_URI}" \
+            --endpoint-url "${YC_S3_ENDPOINT}" \
+            --recursive \
+            --human-readable \
+            --summarize
