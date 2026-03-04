@@ -18,8 +18,8 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.YC_S3_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ru-central1
-      YC_S3_BUCKET: ${{ secrets.YC_S3_BUCKET }}
-      YC_S3_PREFIX: ${{ secrets.YC_S3_PREFIX }}
+      YC_S3_BUCKET: agr.vision
+      YC_S3_PREFIX: ""
       YC_S3_ENDPOINT: https://storage.yandexcloud.net
     steps:
       - name: Checkout
@@ -30,7 +30,6 @@ jobs:
           set -euo pipefail
           test -n "${AWS_ACCESS_KEY_ID}"
           test -n "${AWS_SECRET_ACCESS_KEY}"
-          test -n "${YC_S3_BUCKET}"
 
       - name: Show Tool Versions
         run: |

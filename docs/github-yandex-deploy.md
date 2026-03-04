@@ -22,8 +22,8 @@ Create secrets:
 
 1. `YC_S3_ACCESS_KEY_ID`
 2. `YC_S3_SECRET_ACCESS_KEY`
-3. `YC_S3_BUCKET` (example: `maragojeep`)
-4. `YC_S3_PREFIX` (example: `viewer-prod`)
+3. `YC_S3_BUCKET` (optional; currently fixed in workflow as `agr.vision`)
+4. `YC_S3_PREFIX` (optional; currently fixed as empty for bucket root)
 
 Important:
 
@@ -107,7 +107,7 @@ Recommended setup:
 
 1. Create a dedicated static bucket named `agr.vision`.
 2. Keep model storage in another bucket (for example `maragojeep`).
-3. Set GitHub secret:
+3. Workflow in this repository already deploys to:
    - `YC_S3_BUCKET=agr.vision`
    - `YC_S3_PREFIX` empty
 4. Enable static website hosting for the bucket:
