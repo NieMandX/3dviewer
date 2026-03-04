@@ -29,6 +29,7 @@ export function createRenderLoopController(options = {}) {
     let fpsEstimate = 0;
     let lastFrameTime = 0;
     let lastRenderStats = null;
+    const hasAnimationLoop = typeof renderer?.setAnimationLoop === 'function';
 
     function requestRender() {
         needsRender = true;
@@ -44,7 +45,7 @@ export function createRenderLoopController(options = {}) {
 
     function animate() {
         if (!running) return;
-        if (raf) raf(animate);
+        if (!hasAnimationLoop && raf) raf(animate);
 
         const now = timeNow();
         if (!lastFrameTime) lastFrameTime = now;
@@ -94,11 +95,18 @@ export function createRenderLoopController(options = {}) {
     function start() {
         if (running) return;
         running = true;
+        if (hasAnimationLoop) {
+            renderer.setAnimationLoop(animate);
+            return;
+        }
         animate();
     }
 
     function stop() {
         running = false;
+        if (hasAnimationLoop) {
+            renderer.setAnimationLoop(null);
+        }
     }
 
     return {
@@ -109,4 +117,3 @@ export function createRenderLoopController(options = {}) {
         getLastRenderStats,
     };
 }
-

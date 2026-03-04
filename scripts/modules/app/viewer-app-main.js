@@ -54,6 +54,7 @@ import { createFileFlowUIController } from '../io/file-flow-ui.js';
 import { SAMPLE_MODELS } from '../io/sample-models.js';
 import { createBatchFinalizer } from '../io/batch-finalizer.js';
 import { exportWorldAsGLTF } from '../io/gltf-export.js';
+import { createVRController } from '../vr/vr-controller.js';
 import {
     detectSlotFromMatOrObj,
     findGeomSuffix,
@@ -384,6 +385,7 @@ class ViewerApp {
 		        const exportBtn = dom.exportBtn;
 		        const orderBtn = dom.orderBtn;
 		        const fullscreenBtn = dom.fullscreenBtn;
+        const vrToggleBtn = dom.vrToggleBtn;
 
         const orderModalEl = dom.orderModalEl;
         let prevEmptyHintVisible = null;
@@ -2798,6 +2800,20 @@ class ViewerApp {
          */
 	        const undoStack    = app.undoStack    = [];
 
+        const vrController = createVRController({
+            THREE,
+            renderer,
+            camera,
+            controls,
+            flightControls,
+            loadedModels,
+            vrToggleBtn,
+            requestRender,
+            setStatusMessage,
+            document,
+            window,
+        });
+
 
 
 	        // =====================
@@ -3956,10 +3972,14 @@ class ViewerApp {
 	            getRendererReady,
 	            updateStatsOverlay,
 	            onFrame: () => {
-	                const flightChanged = flightControls.update();
+                const vrChanged = vrController.update();
+	                const flightChanged = vrController.isPresenting() ? false : flightControls.update();
 	                if (flightChanged) {
 	                    cameraPresets?.updateLastCreatedFromCurrentView?.();
 	                }
+                if (vrChanged) {
+                    cameraPresets?.updateLastCreatedFromCurrentView?.();
+                }
 	                backgroundController.syncToCamera();
 	            },
         });

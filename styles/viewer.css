@@ -1752,6 +1752,30 @@ body.room-entry-landing .collab-drawer.room-entry-overlay {
     border-color: rgba(26, 163, 74, 0.35);
 }
 
+.vr-btn {
+    font-family: "SFMono-Regular", Consolas, Monaco, "Liberation Mono", monospace;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    background: transparent;
+    border: 1px solid var(--border);
+}
+
+.vr-btn.is-active {
+    color: #0b57d0;
+    border-color: rgba(11, 87, 208, 0.45);
+    background: rgba(11, 87, 208, 0.08);
+}
+
+.vr-btn.is-supported:not(.is-active) {
+    color: #7a4a00;
+    border-color: rgba(122, 74, 0, 0.36);
+}
+
+.vr-btn.is-unsupported {
+    opacity: 0.55;
+    border-style: dashed;
+}
+
 body.bg-black .collab-chat-panel {
     background: rgba(0, 0, 0, 0.86);
 }

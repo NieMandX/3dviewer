@@ -13,7 +13,12 @@
 </head>
 <body class="side-hidden app-loading">
     <script>
-        window.__LPMVIEW_RENDERER = 'webgpu';
+        (function () {
+            const ua = String((typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '');
+            const isQuest = /(OculusBrowser|Meta Quest|Quest)/i.test(ua);
+            window.__LPMVIEW_QUEST_DEVICE = isQuest;
+            window.__LPMVIEW_RENDERER = isQuest ? 'webgl' : 'webgpu';
+        })();
         window.__SUPABASE_URL = window.__SUPABASE_URL || 'https://xlajjnmxvlkygixamyam.supabase.co';
         window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsYWpqbm14dmxreWdpeGFteWFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NjY2MzEsImV4cCI6MjA4MjA0MjYzMX0.02uAo7lQq8UNVB3yL45WudQ8WSR4opNlZ2frTZNRl8Q';
     </script>
@@ -746,6 +751,7 @@
         <div class="footer-left">
             <button id="statsBtn" class="btn footer-btn" type="button" title="Показать статистику сцены">Stats</button>
             <div id="statsOverlay" class="stats-overlay" hidden></div>
+            <button id="vrToggleBtn" class="btn footer-btn vr-btn" type="button" title="Войти в VR" aria-pressed="false">VR</button>
             <button id="collabStatusBtn" class="btn footer-btn collab-status-btn is-offline" type="button" title="Совместная работа" aria-pressed="false">OFFLINE</button>
             <div id="collabFooter" class="collab-footer" hidden>
                 <div id="collabFooterGuest" class="collab-footer-guest" hidden>
