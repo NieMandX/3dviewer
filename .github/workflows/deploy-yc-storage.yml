@@ -31,7 +31,6 @@ jobs:
           test -n "${AWS_ACCESS_KEY_ID}"
           test -n "${AWS_SECRET_ACCESS_KEY}"
           test -n "${YC_S3_BUCKET}"
-          test -n "${YC_S3_PREFIX}"
 
       - name: Show Tool Versions
         run: |
@@ -41,7 +40,10 @@ jobs:
       - name: Sync Files To Yandex S3
         run: |
           set -euo pipefail
-          TARGET_URI="s3://${YC_S3_BUCKET}/${YC_S3_PREFIX%/}/"
+          TARGET_URI="s3://${YC_S3_BUCKET}/"
+          if [ -n "${YC_S3_PREFIX:-}" ]; then
+            TARGET_URI="s3://${YC_S3_BUCKET}/${YC_S3_PREFIX%/}/"
+          fi
           aws s3 sync . "${TARGET_URI}" \
             --endpoint-url "${YC_S3_ENDPOINT}" \
             --delete \
@@ -60,7 +62,10 @@ jobs:
       - name: List Bucket Summary
         run: |
           set -euo pipefail
-          TARGET_URI="s3://${YC_S3_BUCKET}/${YC_S3_PREFIX%/}/"
+          TARGET_URI="s3://${YC_S3_BUCKET}/"
+          if [ -n "${YC_S3_PREFIX:-}" ]; then
+            TARGET_URI="s3://${YC_S3_BUCKET}/${YC_S3_PREFIX%/}/"
+          fi
           aws s3 ls "${TARGET_URI}" \
             --endpoint-url "${YC_S3_ENDPOINT}" \
             --recursive \

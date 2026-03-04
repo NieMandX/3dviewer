@@ -29,6 +29,7 @@ Important:
 
 - Do not deploy to bucket root if the same bucket stores models.
 - Keep viewer in a dedicated prefix (`viewer-prod/`) or a separate bucket.
+- `YC_S3_PREFIX` is optional. If empty, deploy goes to bucket root.
 
 ## 2) Branch Strategy
 
@@ -73,6 +74,10 @@ Deploy target is:
 
 `--delete` affects only this prefix.
 
+If `YC_S3_PREFIX` is empty, deploy target becomes:
+
+- `s3://<YC_S3_BUCKET>/`
+
 ## 5) Verify Deploy
 
 Check GitHub Actions run is green, then list objects:
@@ -95,3 +100,17 @@ git push origin gh-pages
 ```
 
 Action will redeploy previous working version.
+
+## 7) Custom Domain (agr.vision)
+
+Recommended setup:
+
+1. Create a dedicated static bucket named `agr.vision`.
+2. Keep model storage in another bucket (for example `maragojeep`).
+3. Set GitHub secret:
+   - `YC_S3_BUCKET=agr.vision`
+   - `YC_S3_PREFIX` empty
+4. Enable static website hosting for the bucket:
+   - index document: `index.html`
+5. Configure HTTPS certificate for the bucket domain in Yandex Cloud.
+6. In DNS, point `agr.vision` to the website endpoint (`ANAME/ALIAS` for apex domain).
