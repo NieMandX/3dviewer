@@ -1,4 +1,4 @@
-const YC_BUCKET_BASE_URL = 'https://storage.yandexcloud.net/maragojeep';
+const YC_BUCKET_BASE_URL = 'https://storage.yandexcloud.net/agr.vision/samples';
 
 export const SAMPLE_MODELS = [
     { label: 'Примеры моделей', files: [] },
