@@ -12,6 +12,7 @@ export function createFileFlowController(options = {}) {
     const finalizeBatchAfterAllFiles =
         typeof options.finalizeBatchAfterAllFiles === 'function' ? options.finalizeBatchAfterAllFiles : async () => {};
     const loadSampleModel = typeof options.loadSampleModel === 'function' ? options.loadSampleModel : async () => {};
+    const onSampleChosen = typeof options.onSampleChosen === 'function' ? options.onSampleChosen : () => {};
 
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const getLoadedModelCount = typeof options.getLoadedModelCount === 'function' ? options.getLoadedModelCount : () => 0;
@@ -62,6 +63,7 @@ export function createFileFlowController(options = {}) {
             const idx = sampleSelect.selectedIndex;
             const sample = sampleModels[idx];
             if (!sample || !sample.files || !sample.files.length) return;
+            onSampleChosen(sample);
             await loadSampleModel(sample);
         });
     }

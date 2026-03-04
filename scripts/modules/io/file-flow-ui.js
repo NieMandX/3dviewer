@@ -15,6 +15,7 @@ export function createFileFlowUIController(options = {}) {
     const finalizeBatchAfterAllFiles =
         typeof options.finalizeBatchAfterAllFiles === 'function' ? options.finalizeBatchAfterAllFiles : async () => {};
     const getLoadedModelCount = typeof options.getLoadedModelCount === 'function' ? options.getLoadedModelCount : () => 0;
+    const onSampleChosen = typeof options.onSampleChosen === 'function' ? options.onSampleChosen : () => {};
 
     const sampleLoader = createSampleLoader({
         statusEl,
@@ -39,6 +40,7 @@ export function createFileFlowUIController(options = {}) {
         handleZIPFile,
         finalizeBatchAfterAllFiles,
         loadSampleModel: sampleLoader.loadSampleModel,
+        onSampleChosen,
         setEmptyHintVisible,
         getLoadedModelCount,
     });
@@ -48,4 +50,3 @@ export function createFileFlowUIController(options = {}) {
         populateSampleSelect: fileFlow.populateSampleSelect,
     };
 }
-

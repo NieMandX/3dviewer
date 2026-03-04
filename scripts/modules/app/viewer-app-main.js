@@ -3859,6 +3859,7 @@ class ViewerApp {
 	            dropEl,
 	            sampleSelect,
 	            sampleModels: SAMPLE_MODELS,
+            onSampleChosen: () => setOrderModalVisible(false),
 	            handleFBXFile,
 	            handleZIPFile,
             finalizeBatchAfterAllFiles,
