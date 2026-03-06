@@ -3,13 +3,16 @@ const QUEST_UA_RX = /(OculusBrowser|Meta Quest|Quest)/i;
 const MOVE_DEADZONE = 0.16;
 const TURN_DEADZONE = 0.22;
 const MOVE_SPEED_MPS = 2.8;
+const VERTICAL_SPEED_MPS = 2.4;
 const TURN_SPEED_RAD = Math.PI * 0.9;
+const BOOST_MULTIPLIER = 2.8;
 const PLAYER_RADIUS_M = 0.24;
 const FLOOR_CAST_UP_M = 2.0;
 const FLOOR_CAST_DISTANCE_M = 10.0;
 const FLOOR_MIN_NORMAL_Y = 0.35;
 const FLOOR_MAX_STEP_UP_M = 0.3;
 const FLOOR_MAX_STEP_DOWN_M = 0.5;
+const FLOOR_REATTACH_THRESHOLD_M = 0.12;
 const DEFAULT_LOOK_DISTANCE_M = 5.0;
 
 function clampSigned(value, deadzone) {
@@ -47,6 +50,15 @@ function getBestAxesPair(axesLike) {
     }
 
     return best;
+}
+
+function readButtonValue(button) {
+    if (!button) return 0;
+    const value = Number(button.value);
+    if (Number.isFinite(value)) {
+        return Math.max(0, Math.min(1, value));
+    }
+    return button.pressed ? 1 : 0;
 }
 
 export function createVRController(options = {}) {
@@ -100,6 +112,7 @@ export function createVRController(options = {}) {
         desktopCameraParent: null,
         pendingCalibration: false,
         desiredHeadYaw: 0,
+        floorSnapSuppressed: false,
     };
 
     const raycaster = new THREE.Raycaster();
@@ -352,6 +365,8 @@ export function createVRController(options = {}) {
         let moveX = 0;
         let moveY = 0;
         let turnX = 0;
+        let verticalY = 0;
+        let boost = 0;
         let moveAssigned = false;
 
         const sources = session?.inputSources ? Array.from(session.inputSources) : [];
@@ -369,16 +384,14 @@ export function createVRController(options = {}) {
             if (source.handedness === 'left') {
                 moveX = axX;
                 moveY = axY;
+                boost = Math.max(boost, readButtonValue(gamepad.buttons?.[0]));
                 moveAssigned = true;
                 continue;
             }
 
             if (source.handedness === 'right') {
                 turnX = axX;
-                if (!moveAssigned) {
-                    moveX = axX;
-                    moveY = axY;
-                }
+                verticalY = -axY;
                 continue;
             }
 
@@ -393,6 +406,8 @@ export function createVRController(options = {}) {
             moveX: clampSigned(moveX, MOVE_DEADZONE),
             moveY: clampSigned(moveY, MOVE_DEADZONE),
             turnX: clampSigned(turnX, TURN_DEADZONE),
+            verticalY: clampSigned(verticalY, MOVE_DEADZONE),
+            boost: Math.max(0, Math.min(1, boost)),
         };
     }
 
@@ -459,6 +474,21 @@ export function createVRController(options = {}) {
         return true;
     }
 
+    function findGroundLevelAtRig() {
+        const rig = state.xrRig;
+        if (!rig || !state.colliderMeshes.length) return null;
+
+        rayStart.copy(rig.position);
+        rayStart.y += FLOOR_CAST_UP_M;
+        const floorHit = findClosestHit(
+            rayStart,
+            downAxis,
+            FLOOR_CAST_DISTANCE_M,
+            (candidate) => getWorldNormal(candidate).y >= FLOOR_MIN_NORMAL_Y
+        );
+        return floorHit?.point ? Number(floorHit.point.y) : null;
+    }
+
     function findMovementBlocker(start, end) {
         rayDir.subVectors(end, start);
         const distance = rayDir.length();
@@ -505,19 +535,16 @@ export function createVRController(options = {}) {
     function applyGroundSnap() {
         const rig = state.xrRig;
         if (!rig || !state.colliderMeshes.length) return false;
-
-        rayStart.copy(rig.position);
-        rayStart.y += FLOOR_CAST_UP_M;
-        const floorHit = findClosestHit(
-            rayStart,
-            downAxis,
-            FLOOR_CAST_DISTANCE_M,
-            (candidate) => getWorldNormal(candidate).y >= FLOOR_MIN_NORMAL_Y
-        );
-        if (!floorHit?.point) return false;
-
-        const desiredRigY = Number(floorHit.point.y);
+        const desiredRigY = findGroundLevelAtRig();
         if (!Number.isFinite(desiredRigY)) return false;
+
+        if (state.floorSnapSuppressed) {
+            const heightAboveFloor = rig.position.y - desiredRigY;
+            if (heightAboveFloor > FLOOR_REATTACH_THRESHOLD_M) {
+                return false;
+            }
+            state.floorSnapSuppressed = false;
+        }
 
         const deltaYRaw = desiredRigY - rig.position.y;
         if (Math.abs(deltaYRaw) <= 1e-4) return false;
@@ -527,6 +554,32 @@ export function createVRController(options = {}) {
         if (Math.abs(deltaY) <= 1e-4) return false;
 
         rig.position.y += deltaY;
+        rig.updateMatrixWorld(true);
+        return true;
+    }
+
+    function applyVerticalMovement(verticalInput, dt, speedScale = 1) {
+        const rig = state.xrRig;
+        if (!rig) return false;
+
+        const input = clampSigned(verticalInput, MOVE_DEADZONE);
+        if (!input || !dt) return false;
+
+        const deltaY = input * VERTICAL_SPEED_MPS * Math.max(0, speedScale) * dt;
+        if (!Number.isFinite(deltaY) || Math.abs(deltaY) <= 1e-5) return false;
+
+        let nextY = rig.position.y + deltaY;
+        const floorY = findGroundLevelAtRig();
+
+        if (Number.isFinite(floorY) && nextY <= floorY + 1e-4) {
+            nextY = floorY;
+            state.floorSnapSuppressed = false;
+        } else {
+            state.floorSnapSuppressed = true;
+        }
+
+        if (Math.abs(nextY - rig.position.y) <= 1e-5) return false;
+        rig.position.y = nextY;
         rig.updateMatrixWorld(true);
         return true;
     }
@@ -551,6 +604,7 @@ export function createVRController(options = {}) {
         state.sessionActive = false;
         state.lastUpdateTime = 0;
         state.pendingCalibration = false;
+        state.floorSnapSuppressed = false;
         clearAutoStartListeners();
 
         restoreDesktopCameraParent();
@@ -606,6 +660,7 @@ export function createVRController(options = {}) {
         state.sessionActive = true;
         state.lastUpdateTime = 0;
         state.pendingCalibration = true;
+        state.floorSnapSuppressed = false;
         state.prevControlsEnabled = controls ? controls.enabled !== false : true;
         state.prevFlightEnabled = flightControls?.isEnabled ? !!flightControls.isEnabled() : true;
 
@@ -666,6 +721,7 @@ export function createVRController(options = {}) {
 
         if (dt > 0) {
             const axes = readInputAxes(session);
+            const speedScale = 1 + (Math.max(0, Math.min(1, axes.boost || 0)) * (BOOST_MULTIPLIER - 1));
 
             if (axes.turnX) {
                 changed = applySmoothTurn(axes.turnX, dt) || changed;
@@ -676,14 +732,18 @@ export function createVRController(options = {}) {
                 if (forward.lengthSq() > 1e-8) {
                     right.crossVectors(forward, upAxis).normalize();
                     moveDelta.set(0, 0, 0);
-                    moveDelta.addScaledVector(forward, -axes.moveY * MOVE_SPEED_MPS * dt);
-                    moveDelta.addScaledVector(right, axes.moveX * MOVE_SPEED_MPS * dt);
+                    moveDelta.addScaledVector(forward, -axes.moveY * MOVE_SPEED_MPS * speedScale * dt);
+                    moveDelta.addScaledVector(right, axes.moveX * MOVE_SPEED_MPS * speedScale * dt);
                     moveDelta.y = 0;
                     changed = applyMovement(moveDelta) || changed;
                 }
             }
 
-            changed = applyGroundSnap() || changed;
+            if (axes.verticalY) {
+                changed = applyVerticalMovement(axes.verticalY, dt, speedScale) || changed;
+            } else {
+                changed = applyGroundSnap() || changed;
+            }
         }
 
         if (changed) requestRender();
