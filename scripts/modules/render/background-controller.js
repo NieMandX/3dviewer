@@ -18,6 +18,7 @@ export function createBackgroundController(options = {}) {
 
     let bgMesh = null;
     let bgMode = options.initialMode === 'black' ? 'black' : 'white';
+    const worldCameraPos = THREE ? new THREE.Vector3() : null;
 
     function resolveAlpha() {
         const parsed = Number.parseFloat(getAlpha());
@@ -50,7 +51,12 @@ export function createBackgroundController(options = {}) {
         bgMesh.frustumCulled = false;
         bgMesh.renderOrder = -1000;
         scene.add(bgMesh);
-        bgMesh.position.copy(camera.position);
+        if (worldCameraPos && typeof camera.getWorldPosition === 'function') {
+            camera.getWorldPosition(worldCameraPos);
+            bgMesh.position.copy(worldCameraPos);
+        } else {
+            bgMesh.position.copy(camera.position);
+        }
         return bgMesh;
     }
 
@@ -121,6 +127,11 @@ export function createBackgroundController(options = {}) {
 
     function syncToCamera() {
         if (!bgMesh || !camera) return;
+        if (worldCameraPos && typeof camera.getWorldPosition === 'function') {
+            camera.getWorldPosition(worldCameraPos);
+            bgMesh.position.copy(worldCameraPos);
+            return;
+        }
         bgMesh.position.copy(camera.position);
     }
 

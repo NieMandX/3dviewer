@@ -28,6 +28,27 @@ function nowMs() {
     return Date.now();
 }
 
+function getBestAxesPair(axesLike) {
+    if (!axesLike || typeof axesLike.length !== 'number' || axesLike.length < 2) {
+        return null;
+    }
+
+    let best = null;
+    let bestMagnitude = -1;
+
+    for (let i = 0; i + 1 < axesLike.length; i += 2) {
+        const x = Number(axesLike[i]) || 0;
+        const y = Number(axesLike[i + 1]) || 0;
+        const magnitude = (x * x) + (y * y);
+        if (magnitude > bestMagnitude) {
+            bestMagnitude = magnitude;
+            best = { x, y, magnitude };
+        }
+    }
+
+    return best;
+}
+
 export function createVRController(options = {}) {
     const THREE = options.THREE || null;
     const scene = options.scene || null;
@@ -339,8 +360,11 @@ export function createVRController(options = {}) {
             const axes = gamepad?.axes;
             if (!gamepad || !axes || typeof axes.length !== 'number' || axes.length < 2) continue;
 
-            const axX = Number(axes[0]) || 0;
-            const axY = Number(axes[1]) || 0;
+            const pair = getBestAxesPair(axes);
+            if (!pair) continue;
+
+            const axX = pair.x;
+            const axY = pair.y;
 
             if (source.handedness === 'left') {
                 moveX = axX;
@@ -482,7 +506,7 @@ export function createVRController(options = {}) {
         const rig = state.xrRig;
         if (!rig || !state.colliderMeshes.length) return false;
 
-        camera.getWorldPosition(rayStart);
+        rayStart.copy(rig.position);
         rayStart.y += FLOOR_CAST_UP_M;
         const floorHit = findClosestHit(
             rayStart,

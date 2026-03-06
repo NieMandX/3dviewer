@@ -62,7 +62,9 @@ export function createRenderLoopController(options = {}) {
             return;
         }
 
-        if (!needsRender) {
+        const xrPresenting = !!renderer?.xr?.isPresenting;
+
+        if (!needsRender && !xrPresenting) {
             updateStatsOverlay();
             return;
         }
