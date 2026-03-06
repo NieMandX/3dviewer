@@ -5,12 +5,12 @@ const TURN_DEADZONE = 0.22;
 const MOVE_SPEED_MPS = 2.8;
 const TURN_SPEED_RAD = Math.PI * 0.9;
 const PLAYER_RADIUS_M = 0.24;
-const EYE_HEIGHT_M = 1.62;
 const FLOOR_CAST_UP_M = 2.0;
 const FLOOR_CAST_DISTANCE_M = 10.0;
 const FLOOR_MIN_NORMAL_Y = 0.35;
 const FLOOR_MAX_STEP_UP_M = 0.3;
 const FLOOR_MAX_STEP_DOWN_M = 0.5;
+const DEFAULT_LOOK_DISTANCE_M = 5.0;
 
 function clampSigned(value, deadzone) {
     const v = Number(value) || 0;
@@ -30,6 +30,7 @@ function nowMs() {
 
 export function createVRController(options = {}) {
     const THREE = options.THREE || null;
+    const scene = options.scene || null;
     const renderer = options.renderer || null;
     const camera = options.camera || null;
     const controls = options.controls || null;
@@ -43,7 +44,7 @@ export function createVRController(options = {}) {
     const win = options.window || (typeof window !== 'undefined' ? window : null);
     const doc = options.document || (typeof document !== 'undefined' ? document : null);
 
-    if (!THREE || !renderer || !camera) {
+    if (!THREE || !scene || !renderer || !camera) {
         return Object.freeze({
             update: () => false,
             enterVR: async () => false,
@@ -74,6 +75,10 @@ export function createVRController(options = {}) {
         collidersSignature: '',
         colliderMeshes: [],
         lastUpdateTime: 0,
+        xrRig: null,
+        desktopCameraParent: null,
+        pendingCalibration: false,
+        desiredHeadYaw: 0,
     };
 
     const raycaster = new THREE.Raycaster();
@@ -85,13 +90,18 @@ export function createVRController(options = {}) {
     const forward = new THREE.Vector3();
     const right = new THREE.Vector3();
     const moveDelta = new THREE.Vector3();
-    const currentPos = new THREE.Vector3();
-    const candidatePos = new THREE.Vector3();
+    const currentHeadWorldPos = new THREE.Vector3();
+    const candidateHeadWorldPos = new THREE.Vector3();
     const rayStart = new THREE.Vector3();
     const rayDir = new THREE.Vector3();
     const slideDelta = new THREE.Vector3();
     const worldNormal = new THREE.Vector3();
     const lookDir = new THREE.Vector3();
+    const desiredHeadWorldPos = new THREE.Vector3();
+    const localHeadOffset = new THREE.Vector3();
+    const worldHeadOffset = new THREE.Vector3();
+    const cameraWorldPos = new THREE.Vector3();
+    const rigQuat = new THREE.Quaternion();
 
     function detectQuestDevice() {
         if (typeof globalThis !== 'undefined' && typeof globalThis.__LPMVIEW_QUEST_DEVICE === 'boolean') {
@@ -168,7 +178,6 @@ export function createVRController(options = {}) {
             try {
                 await enterVR({ source: 'quest-auto' });
             } catch (_) {
-                // На ряде прошивок браузер всё равно требует явный клик по кнопке.
                 setStatusMessage('VR: нажмите кнопку VR для входа.');
             }
         };
@@ -205,6 +214,119 @@ export function createVRController(options = {}) {
         return state.supportPromise;
     }
 
+    function ensureXrRig() {
+        if (state.xrRig) return state.xrRig;
+        state.xrRig = new THREE.Group();
+        state.xrRig.name = 'XRUserRig';
+        scene.add(state.xrRig);
+        return state.xrRig;
+    }
+
+    function syncXrCameraPose() {
+        if (typeof renderer?.xr?.updateCamera !== 'function') return;
+        try {
+            renderer.xr.updateCamera(camera);
+        } catch (_) {}
+    }
+
+    function setFlatForwardFromCamera(target) {
+        target.set(0, 0, -1);
+        camera.getWorldDirection(target);
+        target.y = 0;
+        if (target.lengthSq() <= 1e-8) {
+            target.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            target.y = 0;
+        }
+        if (target.lengthSq() <= 1e-8) {
+            target.set(0, 0, -1);
+        } else {
+            target.normalize();
+        }
+        return target;
+    }
+
+    function yawFromDirection(direction) {
+        const x = Number(direction?.x) || 0;
+        const z = Number(direction?.z) || 0;
+        if ((x * x + z * z) <= 1e-10) return 0;
+        return Math.atan2(x, -z);
+    }
+
+    function captureDesktopCameraPose() {
+        camera.updateWorldMatrix(true, false);
+        camera.getWorldPosition(desiredHeadWorldPos);
+        setFlatForwardFromCamera(forward);
+        state.desiredHeadYaw = yawFromDirection(forward);
+    }
+
+    function alignRigToHeadPose(targetYaw, targetHeadWorldPos) {
+        const rig = ensureXrRig();
+
+        rig.rotation.set(0, targetYaw, 0);
+        rigQuat.setFromAxisAngle(upAxis, targetYaw);
+
+        localHeadOffset.copy(camera.position);
+        worldHeadOffset.copy(localHeadOffset).applyQuaternion(rigQuat);
+
+        rig.position.copy(targetHeadWorldPos).sub(worldHeadOffset);
+        rig.updateMatrixWorld(true);
+    }
+
+    function calibrateRigFromCurrentView() {
+        ensureXrRig();
+        syncXrCameraPose();
+
+        if (!Number.isFinite(camera.position.x) || !Number.isFinite(camera.position.y) || !Number.isFinite(camera.position.z)) {
+            return false;
+        }
+
+        const currentHeadYaw = yawFromDirection(setFlatForwardFromCamera(forward));
+        const targetRigYaw = state.desiredHeadYaw - currentHeadYaw;
+
+        alignRigToHeadPose(targetRigYaw, desiredHeadWorldPos);
+        state.pendingCalibration = false;
+        return true;
+    }
+
+    function syncDesktopControlsFromCamera() {
+        if (!controls?.target) return;
+
+        camera.updateWorldMatrix(true, false);
+        camera.getWorldPosition(cameraWorldPos);
+        camera.getWorldDirection(lookDir);
+        if (lookDir.lengthSq() <= 1e-10) {
+            lookDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        }
+        if (lookDir.lengthSq() <= 1e-10) {
+            lookDir.set(0, 0, -1);
+        } else {
+            lookDir.normalize();
+        }
+
+        const currentDistance = cameraWorldPos.distanceTo(controls.target);
+        const distance = Number.isFinite(currentDistance) && currentDistance > 0.05
+            ? currentDistance
+            : DEFAULT_LOOK_DISTANCE_M;
+
+        controls.target.copy(cameraWorldPos).addScaledVector(lookDir, distance);
+        controls.update?.();
+    }
+
+    function restoreDesktopCameraParent() {
+        const parent = state.desktopCameraParent || scene;
+
+        if (parent?.attach) {
+            parent.attach(camera);
+        } else {
+            scene.attach(camera);
+        }
+
+        camera.updateMatrixWorld(true);
+
+        state.desktopCameraParent = null;
+        syncDesktopControlsFromCamera();
+    }
+
     function readInputAxes(session) {
         let moveX = 0;
         let moveY = 0;
@@ -214,10 +336,11 @@ export function createVRController(options = {}) {
         const sources = session?.inputSources ? Array.from(session.inputSources) : [];
         for (const source of sources) {
             const gamepad = source?.gamepad;
-            if (!gamepad || !Array.isArray(gamepad.axes) || gamepad.axes.length < 2) continue;
+            const axes = gamepad?.axes;
+            if (!gamepad || !axes || typeof axes.length !== 'number' || axes.length < 2) continue;
 
-            const axX = Number(gamepad.axes[0]) || 0;
-            const axY = Number(gamepad.axes[1]) || 0;
+            const axX = Number(axes[0]) || 0;
+            const axY = Number(axes[1]) || 0;
 
             if (source.handedness === 'left') {
                 moveX = axX;
@@ -304,12 +427,11 @@ export function createVRController(options = {}) {
         });
     }
 
-    function translateCamera(delta) {
-        if (!delta || delta.lengthSq() <= 1e-12) return false;
-        camera.position.add(delta);
-        if (controls?.target) {
-            controls.target.add(delta);
-        }
+    function translateRig(delta) {
+        const rig = state.xrRig;
+        if (!rig || !delta || delta.lengthSq() <= 1e-12) return false;
+        rig.position.add(delta);
+        rig.updateMatrixWorld(true);
         return true;
     }
 
@@ -336,12 +458,12 @@ export function createVRController(options = {}) {
 
     function applyMovement(moveStep) {
         if (!moveStep || moveStep.lengthSq() <= 1e-12) return false;
-        currentPos.copy(camera.position);
-        candidatePos.copy(currentPos).add(moveStep);
+        camera.getWorldPosition(currentHeadWorldPos);
+        candidateHeadWorldPos.copy(currentHeadWorldPos).add(moveStep);
 
-        const blocker = findMovementBlocker(currentPos, candidatePos);
+        const blocker = findMovementBlocker(currentHeadWorldPos, candidateHeadWorldPos);
         if (!blocker) {
-            return translateCamera(moveStep);
+            return translateRig(moveStep);
         }
 
         const n = getWorldNormal(blocker);
@@ -349,17 +471,18 @@ export function createVRController(options = {}) {
         slideDelta.y = 0;
         if (slideDelta.lengthSq() <= 1e-10) return false;
 
-        candidatePos.copy(currentPos).add(slideDelta);
-        const slideBlocker = findMovementBlocker(currentPos, candidatePos);
+        candidateHeadWorldPos.copy(currentHeadWorldPos).add(slideDelta);
+        const slideBlocker = findMovementBlocker(currentHeadWorldPos, candidateHeadWorldPos);
         if (slideBlocker) return false;
 
-        return translateCamera(slideDelta);
+        return translateRig(slideDelta);
     }
 
     function applyGroundSnap() {
-        if (!state.colliderMeshes.length) return false;
+        const rig = state.xrRig;
+        if (!rig || !state.colliderMeshes.length) return false;
 
-        rayStart.copy(camera.position);
+        camera.getWorldPosition(rayStart);
         rayStart.y += FLOOR_CAST_UP_M;
         const floorHit = findClosestHit(
             rayStart,
@@ -369,36 +492,33 @@ export function createVRController(options = {}) {
         );
         if (!floorHit?.point) return false;
 
-        const desiredEyeY = Number(floorHit.point.y) + EYE_HEIGHT_M;
-        if (!Number.isFinite(desiredEyeY)) return false;
+        const desiredRigY = Number(floorHit.point.y);
+        if (!Number.isFinite(desiredRigY)) return false;
 
-        const deltaYRaw = desiredEyeY - camera.position.y;
+        const deltaYRaw = desiredRigY - rig.position.y;
         if (Math.abs(deltaYRaw) <= 1e-4) return false;
 
         const maxDelta = deltaYRaw > 0 ? FLOOR_MAX_STEP_UP_M : FLOOR_MAX_STEP_DOWN_M;
         const deltaY = Math.sign(deltaYRaw) * Math.min(Math.abs(deltaYRaw), maxDelta);
         if (Math.abs(deltaY) <= 1e-4) return false;
 
-        camera.position.y += deltaY;
-        if (controls?.target) controls.target.y += deltaY;
+        rig.position.y += deltaY;
+        rig.updateMatrixWorld(true);
         return true;
     }
 
     function applySmoothTurn(turnInput, dt) {
+        const rig = state.xrRig;
+        if (!rig) return false;
+
         const turn = clampSigned(turnInput, TURN_DEADZONE);
         if (!turn) return false;
         const angle = -turn * TURN_SPEED_RAD * dt;
         if (!Number.isFinite(angle) || Math.abs(angle) <= 1e-5) return false;
 
-        camera.rotateOnWorldAxis(upAxis, angle);
-        if (controls?.target) {
-            lookDir.subVectors(controls.target, camera.position);
-            if (lookDir.lengthSq() <= 1e-10) {
-                lookDir.set(0, 0, -1);
-            }
-            lookDir.applyAxisAngle(upAxis, angle);
-            controls.target.copy(camera.position).add(lookDir);
-        }
+        camera.getWorldPosition(currentHeadWorldPos);
+        const nextYaw = rig.rotation.y + angle;
+        alignRigToHeadPose(nextYaw, currentHeadWorldPos);
         return true;
     }
 
@@ -406,7 +526,10 @@ export function createVRController(options = {}) {
         state.currentSession = null;
         state.sessionActive = false;
         state.lastUpdateTime = 0;
+        state.pendingCalibration = false;
         clearAutoStartListeners();
+
+        restoreDesktopCameraParent();
 
         if (controls) controls.enabled = state.prevControlsEnabled;
         if (flightControls?.setEnabled) flightControls.setEnabled(state.prevFlightEnabled);
@@ -423,19 +546,42 @@ export function createVRController(options = {}) {
         const supported = await ensureSupportKnown();
         if (!supported) return false;
 
-        const session = await xr.requestSession('immersive-vr', {
-            optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
-        });
+        captureDesktopCameraPose();
 
-        if (renderer.xr?.setReferenceSpaceType) {
-            renderer.xr.setReferenceSpaceType('local-floor');
+        const rig = ensureXrRig();
+        state.desktopCameraParent = camera.parent || scene;
+        rig.position.set(0, 0, 0);
+        rig.quaternion.identity();
+        rig.scale.set(1, 1, 1);
+        rig.updateMatrixWorld(true);
+        rig.attach(camera);
+        camera.updateMatrixWorld(true);
+
+        let session = null;
+        try {
+            session = await xr.requestSession('immersive-vr', {
+                optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
+            });
+
+            if (renderer.xr?.setReferenceSpaceType) {
+                renderer.xr.setReferenceSpaceType('local-floor');
+            }
+
+            await renderer.xr.setSession(session);
+        } catch (error) {
+            if (session) {
+                try {
+                    await session.end();
+                } catch (_) {}
+            }
+            restoreDesktopCameraParent();
+            throw error;
         }
-
-        await renderer.xr.setSession(session);
 
         state.currentSession = session;
         state.sessionActive = true;
         state.lastUpdateTime = 0;
+        state.pendingCalibration = true;
         state.prevControlsEnabled = controls ? controls.enabled !== false : true;
         state.prevFlightEnabled = flightControls?.isEnabled ? !!flightControls.isEnabled() : true;
 
@@ -471,7 +617,9 @@ export function createVRController(options = {}) {
             void exitVR();
             return;
         }
-        void enterVR({ source: 'button' });
+        void enterVR({ source: 'button' }).catch(() => {
+            setStatusMessage('VR: не удалось запустить сессию.');
+        });
     }
 
     function update() {
@@ -479,41 +627,41 @@ export function createVRController(options = {}) {
         const session = state.currentSession || renderer?.xr?.getSession?.();
         if (!session) return false;
 
+        syncXrCameraPose();
+        rebuildCollidersIfNeeded();
+
+        let changed = false;
+        if (state.pendingCalibration) {
+            changed = calibrateRigFromCurrentView() || changed;
+        }
+
         const now = nowMs();
         const dtRaw = state.lastUpdateTime ? (now - state.lastUpdateTime) / 1000 : 0;
         state.lastUpdateTime = now;
         const dt = Math.max(0, Math.min(0.1, dtRaw));
-        if (!dt) return false;
 
-        rebuildCollidersIfNeeded();
+        if (dt > 0) {
+            const axes = readInputAxes(session);
 
-        const xrCamera = renderer?.xr?.getCamera?.(camera) || camera;
-        const axes = readInputAxes(session);
-        let changed = false;
+            if (axes.turnX) {
+                changed = applySmoothTurn(axes.turnX, dt) || changed;
+            }
 
-        if (axes.turnX) {
-            changed = applySmoothTurn(axes.turnX, dt) || changed;
+            if (axes.moveX || axes.moveY) {
+                setFlatForwardFromCamera(forward);
+                if (forward.lengthSq() > 1e-8) {
+                    right.crossVectors(forward, upAxis).normalize();
+                    moveDelta.set(0, 0, 0);
+                    moveDelta.addScaledVector(forward, -axes.moveY * MOVE_SPEED_MPS * dt);
+                    moveDelta.addScaledVector(right, axes.moveX * MOVE_SPEED_MPS * dt);
+                    moveDelta.y = 0;
+                    changed = applyMovement(moveDelta) || changed;
+                }
+            }
+
+            changed = applyGroundSnap() || changed;
         }
 
-        if (axes.moveX || axes.moveY) {
-            xrCamera.getWorldDirection(forward);
-            forward.y = 0;
-            if (forward.lengthSq() <= 1e-8) {
-                forward.set(0, 0, -1).applyQuaternion(camera.quaternion);
-                forward.y = 0;
-            }
-            if (forward.lengthSq() > 1e-8) {
-                forward.normalize();
-                right.crossVectors(forward, upAxis).normalize();
-                moveDelta.set(0, 0, 0);
-                moveDelta.addScaledVector(forward, -axes.moveY * MOVE_SPEED_MPS * dt);
-                moveDelta.addScaledVector(right, axes.moveX * MOVE_SPEED_MPS * dt);
-                moveDelta.y = 0;
-                changed = applyMovement(moveDelta) || changed;
-            }
-        }
-
-        changed = applyGroundSnap() || changed;
         if (changed) requestRender();
         return changed;
     }

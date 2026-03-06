@@ -2802,6 +2802,7 @@ class ViewerApp {
 
         const vrController = createVRController({
             THREE,
+            scene,
             renderer,
             camera,
             controls,
