@@ -1,3 +1,5 @@
+import { createVRMenu3D } from './vr-menu-3d.js';
+
 const QUEST_UA_RX = /(OculusBrowser|Meta Quest|Quest)/i;
 
 const MOVE_DEADZONE = 0.16;
@@ -113,6 +115,7 @@ export function createVRController(options = {}) {
         pendingCalibration: false,
         desiredHeadYaw: 0,
         floorSnapSuppressed: false,
+        menuTogglePrev: false,
     };
 
     const raycaster = new THREE.Raycaster();
@@ -151,6 +154,92 @@ export function createVRController(options = {}) {
         if (!doc?.body?.classList) return;
         doc.body.classList.toggle('vr-ui-active', !!next);
     }
+
+    function clickButtonById(id) {
+        const btn = doc?.getElementById?.(id) || null;
+        if (!btn || btn.disabled) return false;
+        btn.click?.();
+        requestRender();
+        return true;
+    }
+
+    function buttonActiveById(id) {
+        const btn = doc?.getElementById?.(id) || null;
+        return !!btn?.classList?.contains?.('active');
+    }
+
+    function getMenuActionState(actionId) {
+        switch (String(actionId || '')) {
+        case 'toggle_ucx': {
+            const active = buttonActiveById('collToggleBtn');
+            return { active, label: `UCX ${active ? 'ON' : 'OFF'}` };
+        }
+        case 'toggle_vpm': {
+            const active = buttonActiveById('vpmToggleBtn');
+            return { active, label: `VPM ${active ? 'ON' : 'OFF'}` };
+        }
+        case 'toggle_npm': {
+            const active = buttonActiveById('npmToggleBtn');
+            return { active, label: `NPM ${active ? 'ON' : 'OFF'}` };
+        }
+        case 'toggle_bg': {
+            const dark = !!doc?.body?.classList?.contains?.('bg-black');
+            return { active: dark, label: `BG ${dark ? 'DARK' : 'LIGHT'}` };
+        }
+        default:
+            return null;
+        }
+    }
+
+    let vrMenu = null;
+
+    function handleMenuAction(actionId) {
+        switch (String(actionId || '')) {
+        case 'exit_vr':
+            void exitVR();
+            return true;
+        case 'reset_view':
+            return clickButtonById('resetViewBtn');
+        case 'toggle_ucx':
+            return clickButtonById('collToggleBtn');
+        case 'toggle_vpm':
+            return clickButtonById('vpmToggleBtn');
+        case 'toggle_npm':
+            return clickButtonById('npmToggleBtn');
+        case 'toggle_bg':
+            return clickButtonById('bgToggleBtn');
+        case 'recenter_menu':
+            return !!vrMenu?.recenter?.();
+        default:
+            return false;
+        }
+    }
+
+    function readMenuTogglePressed(session) {
+        const sources = session?.inputSources ? Array.from(session.inputSources) : [];
+        for (const source of sources) {
+            if (source?.handedness !== 'left') continue;
+            const gamepad = source?.gamepad;
+            if (!gamepad?.buttons?.length) continue;
+            const xBtn = readButtonValue(gamepad.buttons[4]);
+            const yBtn = readButtonValue(gamepad.buttons[5]);
+            const stickBtn = readButtonValue(gamepad.buttons[3]);
+            if (xBtn >= 0.62 || yBtn >= 0.62 || stickBtn >= 0.82) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    vrMenu = createVRMenu3D({
+        THREE,
+        scene,
+        renderer,
+        camera,
+        requestRender,
+        onAction: handleMenuAction,
+        getActionState: getMenuActionState,
+    });
 
     function updateButtonUi() {
         if (!vrToggleBtn) return;
@@ -610,8 +699,10 @@ export function createVRController(options = {}) {
         state.lastUpdateTime = 0;
         state.pendingCalibration = false;
         state.floorSnapSuppressed = false;
+        state.menuTogglePrev = false;
         clearAutoStartListeners();
         setVrUiActive(false);
+        vrMenu?.hide?.();
 
         restoreDesktopCameraParent();
 
@@ -675,6 +766,7 @@ export function createVRController(options = {}) {
         state.lastUpdateTime = 0;
         state.pendingCalibration = true;
         state.floorSnapSuppressed = false;
+        state.menuTogglePrev = false;
         state.prevControlsEnabled = controls ? controls.enabled !== false : true;
         state.prevFlightEnabled = flightControls?.isEnabled ? !!flightControls.isEnabled() : true;
 
@@ -683,6 +775,7 @@ export function createVRController(options = {}) {
 
         rebuildCollidersIfNeeded();
         session.addEventListener('end', handleSessionEnded, { once: true });
+        vrMenu?.show?.({ doRecenter: true });
         updateButtonUi();
         requestRender();
 
@@ -691,9 +784,9 @@ export function createVRController(options = {}) {
         } else {
             const overlayType = String(session?.domOverlayState?.type || '');
             if (overlayType) {
-                setStatusMessage(`VR: сессия запущена. UI overlay: ${overlayType}.`);
+                setStatusMessage(`VR: сессия запущена. UI overlay: ${overlayType}. Меню: X/Y.`);
             } else {
-                setStatusMessage('VR: сессия запущена.');
+                setStatusMessage('VR: сессия запущена. Меню: X/Y.');
             }
         }
         return true;
@@ -738,7 +831,20 @@ export function createVRController(options = {}) {
         state.lastUpdateTime = now;
         const dt = Math.max(0, Math.min(0.1, dtRaw));
 
-        if (dt > 0) {
+        const menuTogglePressed = readMenuTogglePressed(session);
+        if (menuTogglePressed && !state.menuTogglePrev) {
+            vrMenu?.toggle?.();
+            if (vrMenu?.isVisible?.()) {
+                vrMenu?.recenter?.();
+            }
+            changed = true;
+        }
+        state.menuTogglePrev = menuTogglePressed;
+
+        changed = vrMenu?.update?.({ session, dt }) || changed;
+        const menuVisible = !!vrMenu?.isVisible?.();
+
+        if (dt > 0 && !menuVisible) {
             const axes = readInputAxes(session);
             const speedScale = 1 + (Math.max(0, Math.min(1, axes.boost || 0)) * (BOOST_MULTIPLIER - 1));
 
@@ -772,6 +878,7 @@ export function createVRController(options = {}) {
     function dispose() {
         clearAutoStartListeners();
         setVrUiActive(false);
+        vrMenu?.dispose?.();
         if (vrToggleBtn?.removeEventListener) {
             vrToggleBtn.removeEventListener('click', toggleVR);
         }
