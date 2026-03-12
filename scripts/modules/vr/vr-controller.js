@@ -31,10 +31,10 @@ const VR_MENU_ITEMS = Object.freeze([
     { id: 'toggle_collab', label: 'COLLAB', toggle: true },
     { id: 'toggle_anno', label: 'ANNO', toggle: true },
     { id: 'toggle_bg', label: 'BG', toggle: true },
-    { id: 'order_model', label: 'ORDER', toggle: false },
     { id: 'exit_vr', label: 'EXIT', toggle: false },
     { id: 'recenter_menu', label: 'CENTER', toggle: false },
 ]);
+const VR_MENU_ORDER_ITEM = Object.freeze({ id: 'order_model', label: 'ЗАКАЗАТЬ МОДЕЛЬ', toggle: false });
 
 function clampSigned(value, deadzone) {
     const v = Number(value) || 0;
@@ -298,11 +298,16 @@ export function createVRController(options = {}) {
         camera,
         getAttachmentRoot: () => state.xrRig || scene,
         items: VR_MENU_ITEMS,
+        footerItem: VR_MENU_ORDER_ITEM,
         columns: 5,
         buttonWidth: 0.18,
         buttonHeight: 0.06,
         buttonGap: 0.018,
-        labelFontPx: 26,
+        labelFontPx: 52,
+        footerButtonWidth: 1.08,
+        footerButtonHeight: 0.08,
+        footerButtonGap: 0.05,
+        footerLabelFontPx: 44,
         requestRender,
         onAction: handleMenuAction,
         getActionState: getMenuActionState,

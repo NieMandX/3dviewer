@@ -16,6 +16,7 @@ const MAX_RAY_DISTANCE = 5.0;
 const ACTION_COOLDOWN_MS = 220;
 const TRIGGER_THRESHOLD = 0.62;
 const LABEL_FONT_PX = 26;
+const FOOTER_BTN_GAP = 0.04;
 
 function nowMs() {
     if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -128,10 +129,15 @@ export function createVRMenu3D(options = {}) {
     const onAction = typeof options.onAction === 'function' ? options.onAction : () => false;
     const getActionState = typeof options.getActionState === 'function' ? options.getActionState : () => null;
     const items = Array.isArray(options.items) && options.items.length ? options.items : DEFAULT_ITEMS;
+    const footerItem = options.footerItem && typeof options.footerItem === 'object' ? options.footerItem : null;
     const buttonWidth = Number.isFinite(options.buttonWidth) ? Math.max(0.08, options.buttonWidth) : BTN_W;
     const buttonHeight = Number.isFinite(options.buttonHeight) ? Math.max(0.04, options.buttonHeight) : BTN_H;
     const buttonGap = Number.isFinite(options.buttonGap) ? Math.max(0.008, options.buttonGap) : BTN_GAP;
     const labelFontPx = Number.isFinite(options.labelFontPx) ? Math.max(12, options.labelFontPx) : LABEL_FONT_PX;
+    const footerButtonWidth = Number.isFinite(options.footerButtonWidth) ? Math.max(buttonWidth, options.footerButtonWidth) : 0;
+    const footerButtonHeight = Number.isFinite(options.footerButtonHeight) ? Math.max(0.04, options.footerButtonHeight) : buttonHeight;
+    const footerButtonGap = Number.isFinite(options.footerButtonGap) ? Math.max(0.008, options.footerButtonGap) : FOOTER_BTN_GAP;
+    const footerLabelFontPx = Number.isFinite(options.footerLabelFontPx) ? Math.max(12, options.footerLabelFontPx) : labelFontPx;
     const columnCount = Number.isFinite(options.columns)
         ? Math.max(1, Math.round(options.columns))
         : (items.length > 12 ? 5 : 3);
@@ -233,16 +239,13 @@ export function createVRMenu3D(options = {}) {
         return true;
     }
 
-    function createButton(def, index) {
-        const row = Math.floor(index / colCount);
-        const col = index % colCount;
-
-        const xOffset = -((colCount - 1) * (buttonWidth + buttonGap)) * 0.5;
-        const yOffset = ((rowCount - 1) * (buttonHeight + buttonGap)) * 0.5;
-
-        const x = xOffset + (col * (buttonWidth + buttonGap));
-        const y = yOffset - (row * (buttonHeight + buttonGap));
-
+    function createButton(def, {
+        x = 0,
+        y = 0,
+        width = buttonWidth,
+        height = buttonHeight,
+        fontPx = labelFontPx,
+    } = {}) {
         const material = new THREE.MeshBasicMaterial({
             color: 0xffffff,
             transparent: true,
@@ -252,7 +255,7 @@ export function createVRMenu3D(options = {}) {
             side: THREE.DoubleSide,
             toneMapped: false,
         });
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(buttonWidth, buttonHeight), material);
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
         mesh.position.set(x, y, 0);
         mesh.renderOrder = 9001;
         root.add(mesh);
@@ -268,7 +271,7 @@ export function createVRMenu3D(options = {}) {
             texture: null,
             canvas: null,
             context: null,
-            fontPx: labelFontPx,
+            fontPx,
         };
 
         setButtonVisual(button, { hovered: false, active: false });
@@ -277,7 +280,29 @@ export function createVRMenu3D(options = {}) {
         state.items.push(button);
     }
 
-    items.forEach((def, index) => createButton(def, index));
+    items.forEach((def, index) => {
+        const row = Math.floor(index / colCount);
+        const col = index % colCount;
+
+        const xOffset = -((colCount - 1) * (buttonWidth + buttonGap)) * 0.5;
+        const yOffset = ((rowCount - 1) * (buttonHeight + buttonGap)) * 0.5;
+
+        const x = xOffset + (col * (buttonWidth + buttonGap));
+        const y = yOffset - (row * (buttonHeight + buttonGap));
+        createButton(def, { x, y, width: buttonWidth, height: buttonHeight, fontPx: labelFontPx });
+    });
+
+    if (footerItem) {
+        const footerWidth = footerButtonWidth > 0 ? footerButtonWidth : menuWidth;
+        const footerY = -((menuHeight * 0.5) + footerButtonGap + (footerButtonHeight * 0.5));
+        createButton(footerItem, {
+            x: 0,
+            y: footerY,
+            width: footerWidth,
+            height: footerButtonHeight,
+            fontPx: footerLabelFontPx,
+        });
+    }
 
     function ensureControllers() {
         if (!renderer?.xr?.getController) return;
