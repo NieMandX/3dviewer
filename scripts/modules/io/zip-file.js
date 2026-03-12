@@ -55,16 +55,22 @@ export function createZIPFileHandler(options = {}) {
                 }
             },
             onFBX: async (msg) => {
-                const blob = msg.blob;
-                if (!blob) return;
+                const buffer = msg.buffer || null;
+                const blob = msg.blob || null;
+                if (!buffer && !blob) return;
                 if (!handleFBXFile) return;
                 const fileName = msg.fileName || basename(msg.name) || '';
                 const isLightFBX = /_Light\.fbx$/i.test(fileName);
                 const beforeCount = loadedModels.length;
-                const callOptions = isLightFBX && lastNormalizeOrientationType != null
+                const baseCallOptions = isLightFBX && lastNormalizeOrientationType != null
                     ? { inheritOrientationType: lastNormalizeOrientationType }
                     : null;
-                const fbxFile = new File([blob], fileName, { type: blob.type || 'model/fbx' });
+                const callOptions = buffer
+                    ? { ...(baseCallOptions || {}), buffer }
+                    : baseCallOptions;
+                const fbxFile = blob
+                    ? new File([blob], fileName, { type: blob.type || 'model/fbx' })
+                    : { name: fileName };
                 await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta, callOptions);
                 const newModel = loadedModels[beforeCount];
                 if (newModel && !isLightFBX) {
