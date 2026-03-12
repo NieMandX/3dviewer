@@ -236,6 +236,7 @@ export function createVRController(options = {}) {
         scene,
         renderer,
         camera,
+        getAttachmentRoot: () => state.xrRig || scene,
         requestRender,
         onAction: handleMenuAction,
         getActionState: getMenuActionState,

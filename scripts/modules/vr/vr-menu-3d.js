@@ -113,6 +113,9 @@ export function createVRMenu3D(options = {}) {
     const scene = options.scene || null;
     const renderer = options.renderer || null;
     const camera = options.camera || null;
+    const getAttachmentRoot = typeof options.getAttachmentRoot === 'function'
+        ? options.getAttachmentRoot
+        : () => scene;
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const onAction = typeof options.onAction === 'function' ? options.onAction : () => false;
     const getActionState = typeof options.getActionState === 'function' ? options.getActionState : () => null;
@@ -267,13 +270,14 @@ export function createVRMenu3D(options = {}) {
             const controller = renderer.xr.getController(i);
             if (!controller) continue;
             const grip = renderer.xr.getControllerGrip ? renderer.xr.getControllerGrip(i) : null;
+            const attachRoot = getAttachmentRoot?.() || scene;
             if (!controller.parent) {
-                scene.add(controller);
-                controller.userData.__vrMenuAttachedToScene = true;
+                attachRoot.add(controller);
+                controller.userData.__vrMenuAttachedRoot = attachRoot;
             }
             if (grip && !grip.parent) {
-                scene.add(grip);
-                grip.userData.__vrMenuAttachedToScene = true;
+                attachRoot.add(grip);
+                grip.userData.__vrMenuAttachedRoot = attachRoot;
             }
             const line = createLine(THREE);
             scene.add(line);
@@ -510,13 +514,15 @@ export function createVRMenu3D(options = {}) {
                 data.line.geometry?.dispose?.();
                 data.line.material?.dispose?.();
             }
-            if (data?.controller?.userData?.__vrMenuAttachedToScene && data.controller.parent === scene) {
-                scene.remove(data.controller);
-                delete data.controller.userData.__vrMenuAttachedToScene;
+            const controllerRoot = data?.controller?.userData?.__vrMenuAttachedRoot || null;
+            if (controllerRoot && data.controller.parent === controllerRoot) {
+                controllerRoot.remove(data.controller);
+                delete data.controller.userData.__vrMenuAttachedRoot;
             }
-            if (data?.grip?.userData?.__vrMenuAttachedToScene && data.grip.parent === scene) {
-                scene.remove(data.grip);
-                delete data.grip.userData.__vrMenuAttachedToScene;
+            const gripRoot = data?.grip?.userData?.__vrMenuAttachedRoot || null;
+            if (gripRoot && data.grip.parent === gripRoot) {
+                gripRoot.remove(data.grip);
+                delete data.grip.userData.__vrMenuAttachedRoot;
             }
             if (data?.controller && data?.onConnected) {
                 data.controller.removeEventListener('connected', data.onConnected);
