@@ -17,6 +17,9 @@ const ACTION_COOLDOWN_MS = 220;
 const TRIGGER_THRESHOLD = 0.62;
 const LABEL_FONT_PX = 26;
 const FOOTER_BTN_GAP = 0.04;
+const PANEL_PADDING_X = 0.06;
+const PANEL_PADDING_Y = 0.06;
+const PANEL_SECTION_GAP = 0.04;
 
 function nowMs() {
     if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -32,6 +35,26 @@ function readButtonValue(button) {
         return Math.max(0, Math.min(1, value));
     }
     return button.pressed ? 1 : 0;
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+    if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(x, y, width, height, radius);
+        return;
+    }
+
+    const r = Math.max(0, Math.min(radius, Math.min(width, height) * 0.5));
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
 }
 
 function createLabelTexture({
@@ -60,21 +83,70 @@ function createLabelTexture({
     ctx.fillStyle = bg;
     ctx.strokeStyle = border;
     ctx.lineWidth = 5;
-    if (typeof ctx.roundRect === 'function') {
-        ctx.beginPath();
-        ctx.roundRect(8, 8, cv.width - 16, cv.height - 16, 24);
-        ctx.fill();
-        ctx.stroke();
-    } else {
-        ctx.fillRect(8, 8, cv.width - 16, cv.height - 16);
-        ctx.strokeRect(8, 8, cv.width - 16, cv.height - 16);
-    }
+    drawRoundedRect(ctx, 8, 8, cv.width - 16, cv.height - 16, 24);
+    ctx.fill();
+    ctx.stroke();
 
     ctx.fillStyle = fg;
     ctx.font = `700 ${Math.max(12, Math.round(Number(fontPx) || LABEL_FONT_PX))}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(label || '').toUpperCase(), cv.width * 0.5, cv.height * 0.52);
+
+    return { canvas: cv, context: ctx, texture: null };
+}
+
+function createInfoTexture({
+    title = '',
+    lines = [],
+    width = 1024,
+    height = 512,
+    titleFontPx = 44,
+    fontPx = 26,
+    canvas = null,
+    context = null,
+    background = 'rgba(11,14,20,0.22)',
+    border = 'rgba(255,255,255,0.18)',
+    color = '#f5f7fb',
+} = {}) {
+    const cv = canvas || document.createElement('canvas');
+    cv.width = width;
+    cv.height = height;
+    const ctx = context || cv.getContext('2d');
+    if (!ctx) return { canvas: cv, context: null, texture: null };
+
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = background;
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 4;
+    drawRoundedRect(ctx, 8, 8, cv.width - 16, cv.height - 16, 28);
+    ctx.fill();
+    if (border) ctx.stroke();
+
+    const textLines = Array.isArray(lines) ? lines.filter(Boolean).map((line) => String(line)) : [];
+    const topPad = 36;
+    const sidePad = 36;
+    let cursorY = topPad;
+
+    if (title) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `700 ${Math.max(16, Math.round(Number(titleFontPx) || 44))}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(String(title), cv.width * 0.5, cursorY);
+        cursorY += Math.max(42, titleFontPx * 1.2);
+    }
+
+    ctx.fillStyle = color;
+    ctx.font = `600 ${Math.max(12, Math.round(Number(fontPx) || 26))}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    const lineHeight = Math.max(18, fontPx * 1.35);
+    for (const line of textLines) {
+        ctx.fillText(line, cv.width * 0.5, cursorY, cv.width - (sidePad * 2));
+        cursorY += lineHeight;
+    }
 
     return { canvas: cv, context: ctx, texture: null };
 }
@@ -117,6 +189,16 @@ function updateLineWorldPoints(line, start, end) {
     return true;
 }
 
+function computeGridMetrics({ itemCount, columns, buttonWidth, buttonHeight, buttonGap }) {
+    const colCount = Math.max(1, Math.round(columns) || 1);
+    const rowCount = Math.max(1, Math.ceil(Math.max(0, itemCount) / colCount));
+    const width = (colCount * buttonWidth) + ((colCount - 1) * buttonGap);
+    const height = itemCount > 0
+        ? ((rowCount * buttonHeight) + ((rowCount - 1) * buttonGap))
+        : 0;
+    return { colCount, rowCount, width, height };
+}
+
 export function createVRMenu3D(options = {}) {
     const THREE = options.THREE || null;
     const scene = options.scene || null;
@@ -130,6 +212,7 @@ export function createVRMenu3D(options = {}) {
     const getActionState = typeof options.getActionState === 'function' ? options.getActionState : () => null;
     const items = Array.isArray(options.items) && options.items.length ? options.items : DEFAULT_ITEMS;
     const footerItem = options.footerItem && typeof options.footerItem === 'object' ? options.footerItem : null;
+    const modalView = options.modalView && typeof options.modalView === 'object' ? options.modalView : null;
     const buttonWidth = Number.isFinite(options.buttonWidth) ? Math.max(0.08, options.buttonWidth) : BTN_W;
     const buttonHeight = Number.isFinite(options.buttonHeight) ? Math.max(0.04, options.buttonHeight) : BTN_H;
     const buttonGap = Number.isFinite(options.buttonGap) ? Math.max(0.008, options.buttonGap) : BTN_GAP;
@@ -150,9 +233,15 @@ export function createVRMenu3D(options = {}) {
             update: () => false,
             recenter: () => false,
             isVisible: () => false,
+            openOrderPanel: () => false,
+            closeOrderPanel: () => false,
+            isOrderPanelVisible: () => false,
             dispose: () => {},
         });
     }
+
+    const MAIN_VIEW_ID = 'main';
+    const ORDER_VIEW_ID = String(modalView?.id || 'order');
 
     const raycaster = new THREE.Raycaster();
     const rayOrigin = new THREE.Vector3();
@@ -173,35 +262,24 @@ export function createVRMenu3D(options = {}) {
     const state = {
         visible: false,
         disposed: false,
+        activeViewId: MAIN_VIEW_ID,
         lastActionAt: 0,
         lastStateRefreshAt: 0,
         items: [],
         byMesh: new Map(),
         byId: new Map(),
+        views: new Map(),
         hoveredByController: [null, null],
         triggerPrev: [false, false],
         controllers: [],
     };
 
-    const colCount = columnCount;
-    const rowCount = Math.ceil(items.length / colCount);
-    const menuWidth = (colCount * buttonWidth) + ((colCount - 1) * buttonGap) + 0.12;
-    const menuHeight = (rowCount * buttonHeight) + ((rowCount - 1) * buttonGap) + 0.12;
-
-    const panelGeometry = new THREE.PlaneGeometry(menuWidth, menuHeight);
-    const panelMaterial = new THREE.MeshBasicMaterial({
-        color: 0x0f121a,
-        transparent: true,
-        opacity: 0.56,
-        depthTest: false,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-    });
-    const panel = new THREE.Mesh(panelGeometry, panelMaterial);
-    panel.renderOrder = 9000;
-    panel.position.set(0, 0, -0.01);
-    root.add(panel);
+    function registerButton(button) {
+        state.byMesh.set(button.mesh.uuid, button);
+        state.byId.set(button.id, button);
+        state.items.push(button);
+        button.view.buttons.push(button);
+    }
 
     function setButtonVisual(button, { hovered = false, active = false } = {}) {
         const prevLabel = button.labelText;
@@ -239,7 +317,7 @@ export function createVRMenu3D(options = {}) {
         return true;
     }
 
-    function createButton(def, {
+    function createButton(def, view, {
         x = 0,
         y = 0,
         width = buttonWidth,
@@ -258,7 +336,7 @@ export function createVRMenu3D(options = {}) {
         const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
         mesh.position.set(x, y, 0);
         mesh.renderOrder = 9001;
-        root.add(mesh);
+        view.group.add(mesh);
 
         const button = {
             id: def.id,
@@ -272,36 +350,257 @@ export function createVRMenu3D(options = {}) {
             canvas: null,
             context: null,
             fontPx,
+            view,
         };
 
         setButtonVisual(button, { hovered: false, active: false });
-        state.byMesh.set(mesh.uuid, button);
-        state.byId.set(button.id, button);
-        state.items.push(button);
+        registerButton(button);
+        return button;
     }
 
-    items.forEach((def, index) => {
-        const row = Math.floor(index / colCount);
-        const col = index % colCount;
+    function createStaticTextPlane(view, {
+        title = '',
+        lines = [],
+        y = 0,
+        width = 0.8,
+        height = 0.2,
+        titleFontPx = 44,
+        fontPx = 26,
+    } = {}) {
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 1,
+            depthTest: false,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            toneMapped: false,
+        });
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+        mesh.position.set(0, y, 0);
+        mesh.renderOrder = 9001;
+        view.group.add(mesh);
 
-        const xOffset = -((colCount - 1) * (buttonWidth + buttonGap)) * 0.5;
-        const yOffset = ((rowCount - 1) * (buttonHeight + buttonGap)) * 0.5;
+        const rendered = createInfoTexture({ title, lines, titleFontPx, fontPx });
+        const texture = new THREE.CanvasTexture(rendered.canvas);
+        texture.needsUpdate = true;
+        texture.anisotropy = 2;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        material.map = texture;
+        material.needsUpdate = true;
 
-        const x = xOffset + (col * (buttonWidth + buttonGap));
-        const y = yOffset - (row * (buttonHeight + buttonGap));
-        createButton(def, { x, y, width: buttonWidth, height: buttonHeight, fontPx: labelFontPx });
+        view.staticPlanes.push({ mesh, material, texture });
+        return mesh;
+    }
+
+    function createView({
+        id,
+        items: viewItems,
+        columns,
+        buttonWidth: viewButtonWidth,
+        buttonHeight: viewButtonHeight,
+        buttonGap: viewButtonGap,
+        labelFontPx: viewLabelFontPx,
+        footerItem: viewFooterItem = null,
+        footerButtonWidth: viewFooterWidth = 0,
+        footerButtonHeight: viewFooterHeight = viewButtonHeight,
+        footerButtonGap: viewFooterGap = FOOTER_BTN_GAP,
+        footerLabelFontPx: viewFooterFontPx = viewLabelFontPx,
+        title = '',
+        infoLines = [],
+        titleFontPx = 44,
+        infoFontPx = 26,
+        minPanelWidth = 0,
+    }) {
+        const group = new THREE.Group();
+        group.name = `VRMenuView_${id}`;
+        group.visible = false;
+        root.add(group);
+
+        const metrics = computeGridMetrics({
+            itemCount: viewItems.length,
+            columns,
+            buttonWidth: viewButtonWidth,
+            buttonHeight: viewButtonHeight,
+            buttonGap: viewButtonGap,
+        });
+
+        const titleHeight = title ? 0.1 : 0;
+        const infoHeight = infoLines.length ? Math.max(0.18, (infoLines.length * 0.038) + 0.1) : 0;
+        const footerHeight = viewFooterItem ? viewFooterHeight : 0;
+        const sectionGap = PANEL_SECTION_GAP;
+        const blockWidth = Math.max(metrics.width, viewFooterItem ? (viewFooterWidth || metrics.width) : 0);
+        const panelWidth = Math.max(minPanelWidth || 0, blockWidth + (PANEL_PADDING_X * 2));
+
+        let panelHeight = PANEL_PADDING_Y * 2;
+        if (titleHeight) panelHeight += titleHeight;
+        if (infoHeight) panelHeight += infoHeight;
+        if (metrics.height > 0) panelHeight += metrics.height;
+        if (footerHeight) panelHeight += footerHeight;
+
+        const blocks = [titleHeight, infoHeight, metrics.height, footerHeight].filter((value) => value > 0).length;
+        if (blocks > 1) {
+            panelHeight += sectionGap * (blocks - 1);
+        }
+
+        const panelGeometry = new THREE.PlaneGeometry(panelWidth, panelHeight);
+        const panelMaterial = new THREE.MeshBasicMaterial({
+            color: 0x0f121a,
+            transparent: true,
+            opacity: 0.68,
+            depthTest: false,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            toneMapped: false,
+        });
+        const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+        panel.renderOrder = 9000;
+        panel.position.set(0, 0, -0.01);
+        group.add(panel);
+
+        const view = {
+            id,
+            group,
+            panel,
+            panelGeometry,
+            panelMaterial,
+            buttons: [],
+            staticPlanes: [],
+        };
+
+        let cursorTop = (panelHeight * 0.5) - PANEL_PADDING_Y;
+
+        if (titleHeight) {
+            createStaticTextPlane(view, {
+                title,
+                lines: [],
+                y: cursorTop - (titleHeight * 0.5),
+                width: panelWidth - (PANEL_PADDING_X * 1.2),
+                height: titleHeight,
+                titleFontPx,
+                fontPx: Math.max(18, titleFontPx * 0.6),
+            });
+            cursorTop -= titleHeight + sectionGap;
+        }
+
+        if (infoHeight) {
+            createStaticTextPlane(view, {
+                title: '',
+                lines: infoLines,
+                y: cursorTop - (infoHeight * 0.5),
+                width: panelWidth - (PANEL_PADDING_X * 1.2),
+                height: infoHeight,
+                titleFontPx,
+                fontPx: infoFontPx,
+            });
+            cursorTop -= infoHeight + sectionGap;
+        }
+
+        if (metrics.height > 0) {
+            const xOffset = -((metrics.colCount - 1) * (viewButtonWidth + viewButtonGap)) * 0.5;
+            const yOffset = ((metrics.rowCount - 1) * (viewButtonHeight + viewButtonGap)) * 0.5;
+            const gridCenterY = cursorTop - (metrics.height * 0.5) + (viewButtonHeight * 0.5);
+
+            viewItems.forEach((def, index) => {
+                const row = Math.floor(index / metrics.colCount);
+                const col = index % metrics.colCount;
+                const x = xOffset + (col * (viewButtonWidth + viewButtonGap));
+                const y = gridCenterY + yOffset - (row * (viewButtonHeight + viewButtonGap));
+                createButton(def, view, {
+                    x,
+                    y,
+                    width: viewButtonWidth,
+                    height: viewButtonHeight,
+                    fontPx: viewLabelFontPx,
+                });
+            });
+            cursorTop -= metrics.height + sectionGap;
+        }
+
+        if (viewFooterItem) {
+            const footerWidth = viewFooterWidth > 0 ? viewFooterWidth : blockWidth;
+            const footerY = cursorTop - (viewFooterHeight * 0.5);
+            createButton(viewFooterItem, view, {
+                x: 0,
+                y: footerY,
+                width: footerWidth,
+                height: viewFooterHeight,
+                fontPx: viewFooterFontPx,
+            });
+        }
+
+        state.views.set(id, view);
+        return view;
+    }
+
+    createView({
+        id: MAIN_VIEW_ID,
+        items,
+        columns: columnCount,
+        buttonWidth,
+        buttonHeight,
+        buttonGap,
+        labelFontPx,
+        footerItem,
+        footerButtonWidth,
+        footerButtonHeight,
+        footerButtonGap,
+        footerLabelFontPx,
+        minPanelWidth: 0.86,
     });
 
-    if (footerItem) {
-        const footerWidth = footerButtonWidth > 0 ? footerButtonWidth : menuWidth;
-        const footerY = -((menuHeight * 0.5) + footerButtonGap + (footerButtonHeight * 0.5));
-        createButton(footerItem, {
-            x: 0,
-            y: footerY,
-            width: footerWidth,
-            height: footerButtonHeight,
-            fontPx: footerLabelFontPx,
+    if (modalView?.items?.length) {
+        createView({
+            id: ORDER_VIEW_ID,
+            items: modalView.items,
+            columns: Number.isFinite(modalView.columns) ? modalView.columns : 2,
+            buttonWidth: Number.isFinite(modalView.buttonWidth) ? modalView.buttonWidth : 0.24,
+            buttonHeight: Number.isFinite(modalView.buttonHeight) ? modalView.buttonHeight : 0.068,
+            buttonGap: Number.isFinite(modalView.buttonGap) ? modalView.buttonGap : 0.02,
+            labelFontPx: Number.isFinite(modalView.labelFontPx) ? modalView.labelFontPx : 34,
+            footerItem: modalView.footerItem || null,
+            footerButtonWidth: Number.isFinite(modalView.footerButtonWidth) ? modalView.footerButtonWidth : 0.72,
+            footerButtonHeight: Number.isFinite(modalView.footerButtonHeight) ? modalView.footerButtonHeight : 0.072,
+            footerButtonGap: Number.isFinite(modalView.footerButtonGap) ? modalView.footerButtonGap : 0.03,
+            footerLabelFontPx: Number.isFinite(modalView.footerLabelFontPx) ? modalView.footerLabelFontPx : 34,
+            title: String(modalView.title || ''),
+            infoLines: Array.isArray(modalView.lines) ? modalView.lines : [],
+            titleFontPx: Number.isFinite(modalView.titleFontPx) ? modalView.titleFontPx : 48,
+            infoFontPx: Number.isFinite(modalView.infoFontPx) ? modalView.infoFontPx : 24,
+            minPanelWidth: Number.isFinite(modalView.minPanelWidth) ? modalView.minPanelWidth : 0.94,
         });
+    }
+
+    function getView(id) {
+        return state.views.get(id) || null;
+    }
+
+    function getActiveView() {
+        return getView(state.activeViewId) || getView(MAIN_VIEW_ID);
+    }
+
+    function setActiveView(nextId, { force = false } = {}) {
+        const resolvedId = state.views.has(nextId) ? nextId : MAIN_VIEW_ID;
+        if (!force && state.activeViewId === resolvedId) return false;
+        state.activeViewId = resolvedId;
+        state.hoveredByController[0] = null;
+        state.hoveredByController[1] = null;
+
+        for (const [viewId, view] of state.views.entries()) {
+            view.group.visible = state.visible && viewId === resolvedId;
+        }
+
+        let changed = false;
+        for (const button of state.items) {
+            changed = setButtonVisual(button, {
+                hovered: false,
+                active: button.active,
+            }) || changed;
+        }
+        changed = refreshActionStates(true) || changed;
+        if (state.visible) requestRender();
+        return changed;
     }
 
     function ensureControllers() {
@@ -376,6 +675,7 @@ export function createVRMenu3D(options = {}) {
         if (state.disposed || state.visible) return false;
         state.visible = true;
         root.visible = true;
+        setActiveView(MAIN_VIEW_ID, { force: true });
         if (doRecenter) recenter();
         setLinesVisible(true);
         refreshActionStates(true);
@@ -392,6 +692,7 @@ export function createVRMenu3D(options = {}) {
         state.triggerPrev[0] = false;
         state.triggerPrev[1] = false;
         setLinesVisible(false);
+        setActiveView(MAIN_VIEW_ID, { force: true });
         for (const button of state.items) {
             setButtonVisual(button, { hovered: false, active: button.active });
         }
@@ -428,12 +729,18 @@ export function createVRMenu3D(options = {}) {
     }
 
     function updateHoverVisuals() {
+        const activeView = getActiveView();
         let changed = false;
         for (const button of state.items) {
-            const isHovered =
+            const isActiveViewButton = button.view === activeView;
+            const isHovered = isActiveViewButton && (
                 state.hoveredByController[0] === button ||
-                state.hoveredByController[1] === button;
-            changed = setButtonVisual(button, { hovered: isHovered, active: button.active }) || changed;
+                state.hoveredByController[1] === button
+            );
+            changed = setButtonVisual(button, {
+                hovered: isHovered,
+                active: button.active,
+            }) || changed;
         }
         return changed;
     }
@@ -447,7 +754,8 @@ export function createVRMenu3D(options = {}) {
 
     function computeControllerHit(controllerData) {
         const controller = controllerData?.controller || null;
-        if (!controller) return null;
+        const activeView = getActiveView();
+        if (!controller || !activeView) return null;
 
         controller.updateWorldMatrix(true, false);
         rayOrigin.setFromMatrixPosition(controller.matrixWorld);
@@ -458,7 +766,7 @@ export function createVRMenu3D(options = {}) {
         raycaster.far = MAX_RAY_DISTANCE;
         raycaster.set(rayOrigin, rayDir);
         hitTest.length = 0;
-        raycaster.intersectObjects(state.items.map((it) => it.mesh), false, hitTest);
+        raycaster.intersectObjects(activeView.buttons.map((it) => it.mesh), false, hitTest);
         rayEnd.copy(rayOrigin).addScaledVector(rayDir, MAX_RAY_DISTANCE);
         return {
             hit: hitTest.length ? (hitTest[0] || null) : null,
@@ -540,6 +848,19 @@ export function createVRMenu3D(options = {}) {
         return changed;
     }
 
+    function openOrderPanel() {
+        if (!modalView?.items?.length) return false;
+        return !!setActiveView(ORDER_VIEW_ID);
+    }
+
+    function closeOrderPanel() {
+        return !!setActiveView(MAIN_VIEW_ID);
+    }
+
+    function isOrderPanelVisible() {
+        return state.visible && state.activeViewId === ORDER_VIEW_ID;
+    }
+
     function isVisible() {
         return !!state.visible;
     }
@@ -585,8 +906,19 @@ export function createVRMenu3D(options = {}) {
         state.byId.clear();
         state.byMesh.clear();
 
-        panelGeometry.dispose?.();
-        panelMaterial.dispose?.();
+        for (const view of state.views.values()) {
+            for (const staticPlane of view.staticPlanes) {
+                staticPlane.texture?.dispose?.();
+                staticPlane.material?.dispose?.();
+                staticPlane.mesh?.geometry?.dispose?.();
+                staticPlane.mesh?.parent?.remove?.(staticPlane.mesh);
+            }
+            view.panelGeometry?.dispose?.();
+            view.panelMaterial?.dispose?.();
+            view.group?.parent?.remove?.(view.group);
+        }
+        state.views.clear();
+
         if (root.parent) root.parent.remove(root);
     }
 
@@ -597,6 +929,9 @@ export function createVRMenu3D(options = {}) {
         update,
         recenter,
         isVisible,
+        openOrderPanel,
+        closeOrderPanel,
+        isOrderPanelVisible,
         dispose,
     });
 }

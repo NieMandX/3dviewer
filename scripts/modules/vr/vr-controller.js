@@ -35,6 +35,38 @@ const VR_MENU_ITEMS = Object.freeze([
     { id: 'recenter_menu', label: 'CENTER', toggle: false },
 ]);
 const VR_MENU_ORDER_ITEM = Object.freeze({ id: 'order_model', label: 'ЗАКАЗАТЬ МОДЕЛЬ', toggle: false });
+const VR_ORDER_MODAL_VIEW = Object.freeze({
+    id: 'order_modal',
+    title: 'IMA Vision',
+    lines: [
+        '@imavision_bot',
+        'ima.vision@yandex.com',
+        'Ярослав: +79688962034',
+        'Алексей: +79265881095',
+        'Примеры моделей',
+    ],
+    items: [
+        { id: 'order_telegram', label: 'TELEGRAM', toggle: false },
+        { id: 'order_email', label: 'EMAIL', toggle: false },
+        { id: 'sample_sh35_lpm', label: 'SH35_LPM', toggle: false },
+        { id: 'sample_sh34_lpm', label: 'SH34_LPM', toggle: false },
+        { id: 'sample_sh35_hpm', label: 'SH35_HPM', toggle: false },
+        { id: 'sample_sh34_hpm', label: 'SH34_HPM', toggle: false },
+    ],
+    columns: 2,
+    buttonWidth: 0.29,
+    buttonHeight: 0.075,
+    buttonGap: 0.022,
+    labelFontPx: 36,
+    titleFontPx: 46,
+    infoFontPx: 24,
+    footerItem: { id: 'order_back', label: 'НАЗАД', toggle: false },
+    footerButtonWidth: 0.68,
+    footerButtonHeight: 0.078,
+    footerButtonGap: 0.04,
+    footerLabelFontPx: 34,
+    minPanelWidth: 0.96,
+});
 
 function clampSigned(value, deadzone) {
     const v = Number(value) || 0;
@@ -91,6 +123,8 @@ export function createVRController(options = {}) {
     const flightControls = options.flightControls || null;
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
     const vrToggleBtn = options.vrToggleBtn || null;
+    const sampleModels = Array.isArray(options.sampleModels) ? options.sampleModels : [];
+    const loadSampleModel = typeof options.loadSampleModel === 'function' ? options.loadSampleModel : async () => {};
 
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const setStatusMessage = typeof options.setStatusMessage === 'function' ? options.setStatusMessage : () => {};
@@ -233,6 +267,46 @@ export function createVRController(options = {}) {
 
     let vrMenu = null;
 
+    function openExternalUrl(url) {
+        const nextUrl = String(url || '').trim();
+        if (!nextUrl || !win) return false;
+        try {
+            if (typeof win.open === 'function') {
+                const popup = win.open(nextUrl, '_blank', 'noopener');
+                if (popup) return true;
+            }
+        } catch (_) {}
+        try {
+            if (win.location) {
+                win.location.href = nextUrl;
+                return true;
+            }
+        } catch (_) {}
+        return false;
+    }
+
+    function findSampleByLabel(label) {
+        const wanted = String(label || '').trim().toUpperCase();
+        if (!wanted) return null;
+        return sampleModels.find((sample) => String(sample?.label || '').trim().toUpperCase() === wanted) || null;
+    }
+
+    function loadVrSampleByLabel(label) {
+        const sample = findSampleByLabel(label);
+        if (!sample?.files?.length) {
+            setStatusMessage(`VR: пример ${label} не найден.`);
+            return false;
+        }
+
+        vrMenu?.closeOrderPanel?.();
+        vrMenu?.hide?.();
+        void loadSampleModel(sample).catch((error) => {
+            console.error(error);
+            setStatusMessage(`Ошибка загрузки примера: ${error?.message || error}`);
+        });
+        return true;
+    }
+
     function handleMenuAction(actionId) {
         switch (String(actionId || '')) {
         case 'exit_vr':
@@ -267,7 +341,21 @@ export function createVRController(options = {}) {
         case 'toggle_bg':
             return clickButtonById('bgToggleBtn');
         case 'order_model':
-            return clickButtonById('orderBtn');
+            return !!vrMenu?.openOrderPanel?.();
+        case 'order_back':
+            return !!vrMenu?.closeOrderPanel?.();
+        case 'order_telegram':
+            return openExternalUrl('https://t.me/imavision_bot');
+        case 'order_email':
+            return openExternalUrl('mailto:ima.vision@yandex.com');
+        case 'sample_sh35_lpm':
+            return loadVrSampleByLabel('SH35_LPM');
+        case 'sample_sh34_lpm':
+            return loadVrSampleByLabel('SH34_LPM');
+        case 'sample_sh35_hpm':
+            return loadVrSampleByLabel('SH35_HPM');
+        case 'sample_sh34_hpm':
+            return loadVrSampleByLabel('SH34_HPM');
         case 'recenter_menu':
             return !!vrMenu?.recenter?.();
         default:
@@ -308,6 +396,7 @@ export function createVRController(options = {}) {
         footerButtonHeight: 0.08,
         footerButtonGap: 0.05,
         footerLabelFontPx: 44,
+        modalView: VR_ORDER_MODAL_VIEW,
         requestRender,
         onAction: handleMenuAction,
         getActionState: getMenuActionState,

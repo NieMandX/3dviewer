@@ -2800,20 +2800,15 @@ class ViewerApp {
          */
 	        const undoStack    = app.undoStack    = [];
 
-        const vrController = createVRController({
-            THREE,
-            scene,
-            renderer,
-            camera,
-            controls,
-            flightControls,
-            loadedModels,
-            vrToggleBtn,
-            requestRender,
-            setStatusMessage,
-            document,
-            window,
-        });
+        let vrController = {
+            update: () => false,
+            enterVR: async () => false,
+            exitVR: async () => false,
+            isQuestDevice: () => false,
+            isSupported: () => false,
+            isPresenting: () => false,
+            dispose: () => {},
+        };
 
 
 
@@ -3851,7 +3846,7 @@ class ViewerApp {
 	        // =====================
 	        const fileInput = dom.fileInput;
 	        const openBtn = dom.openBtn;
-        createFileFlowUIController({
+        const fileFlowUI = createFileFlowUIController({
             statusEl,
             fileInput,
             openBtn,
@@ -3870,6 +3865,22 @@ class ViewerApp {
                 setEmptyHintVisible(!!visible && !isRoomEntryLandingActive());
             },
             getLoadedModelCount: () => loadedModels.length,
+        });
+        vrController = createVRController({
+            THREE,
+            scene,
+            renderer,
+            camera,
+            controls,
+            flightControls,
+            loadedModels,
+            vrToggleBtn,
+            requestRender,
+            setStatusMessage,
+            document,
+            window,
+            sampleModels: SAMPLE_MODELS,
+            loadSampleModel: fileFlowUI.loadSampleModel,
         });
         setBootProgress(76, 'Подключение загрузчиков...');
 
