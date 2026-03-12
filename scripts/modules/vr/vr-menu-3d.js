@@ -74,7 +74,7 @@ function createLine(THREE) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute(
         'position',
-        new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3)
+        new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)
     );
     const material = new THREE.LineBasicMaterial({
         color: 0x80b5ff,
@@ -89,8 +89,23 @@ function createLine(THREE) {
     line.visible = false;
     line.frustumCulled = false;
     line.renderOrder = 9999;
-    line.scale.z = MAX_RAY_DISTANCE;
     return line;
+}
+
+function updateLineWorldPoints(line, start, end) {
+    const positionAttr = line?.geometry?.getAttribute?.('position') || null;
+    const array = positionAttr?.array || null;
+    if (!array || array.length < 6) return false;
+
+    array[0] = start.x;
+    array[1] = start.y;
+    array[2] = start.z;
+    array[3] = end.x;
+    array[4] = end.y;
+    array[5] = end.z;
+    positionAttr.needsUpdate = true;
+    line.geometry.computeBoundingSphere?.();
+    return true;
 }
 
 export function createVRMenu3D(options = {}) {
@@ -118,9 +133,12 @@ export function createVRMenu3D(options = {}) {
     const raycaster = new THREE.Raycaster();
     const rayOrigin = new THREE.Vector3();
     const rayDir = new THREE.Vector3();
+    const rayEnd = new THREE.Vector3();
     const camPos = new THREE.Vector3();
     const camDir = new THREE.Vector3();
     const lookTarget = new THREE.Vector3();
+    const visualRayStart = new THREE.Vector3();
+    const visualRayEnd = new THREE.Vector3();
     const hitTest = [];
 
     const root = new THREE.Group();
@@ -248,12 +266,17 @@ export function createVRMenu3D(options = {}) {
         for (let i = 0; i < 2; i += 1) {
             const controller = renderer.xr.getController(i);
             if (!controller) continue;
+            const grip = renderer.xr.getControllerGrip ? renderer.xr.getControllerGrip(i) : null;
             if (!controller.parent) {
                 scene.add(controller);
                 controller.userData.__vrMenuAttachedToScene = true;
             }
+            if (grip && !grip.parent) {
+                scene.add(grip);
+                grip.userData.__vrMenuAttachedToScene = true;
+            }
             const line = createLine(THREE);
-            controller.add(line);
+            scene.add(line);
 
             const onConnected = (event) => {
                 controller.userData.inputSource = event?.data || null;
@@ -267,6 +290,7 @@ export function createVRMenu3D(options = {}) {
 
             state.controllers.push({
                 controller,
+                grip,
                 line,
                 onConnected,
                 onDisconnected,
@@ -389,8 +413,43 @@ export function createVRMenu3D(options = {}) {
         raycaster.set(rayOrigin, rayDir);
         hitTest.length = 0;
         raycaster.intersectObjects(state.items.map((it) => it.mesh), false, hitTest);
-        if (!hitTest.length) return null;
-        return hitTest[0] || null;
+        rayEnd.copy(rayOrigin).addScaledVector(rayDir, MAX_RAY_DISTANCE);
+        return {
+            hit: hitTest.length ? (hitTest[0] || null) : null,
+            farPoint: rayEnd,
+        };
+    }
+
+    function updateVisualRay(controllerData, hitData) {
+        const line = controllerData?.line || null;
+        if (!line) return false;
+        if (!controllerData?.controller?.userData?.inputSource) {
+            line.visible = false;
+            return false;
+        }
+
+        const grip = controllerData?.grip || null;
+        const controller = controllerData?.controller || null;
+        const originNode = grip || controller;
+        if (!originNode) {
+            line.visible = false;
+            return false;
+        }
+
+        originNode.updateWorldMatrix(true, false);
+        visualRayStart.setFromMatrixPosition(originNode.matrixWorld);
+
+        if (hitData?.hit?.point) {
+            visualRayEnd.copy(hitData.hit.point);
+        } else if (hitData?.farPoint) {
+            visualRayEnd.copy(hitData.farPoint);
+        } else {
+            line.visible = false;
+            return false;
+        }
+
+        line.visible = true;
+        return updateLineWorldPoints(line, visualRayStart, visualRayEnd);
     }
 
     function invokeAction(button) {
@@ -416,14 +475,12 @@ export function createVRMenu3D(options = {}) {
 
         for (let i = 0; i < state.controllers.length; i += 1) {
             const ctrlData = state.controllers[i];
-            const hit = computeControllerHit(ctrlData);
+            const hitData = computeControllerHit(ctrlData);
+            const hit = hitData?.hit || null;
             const hoveredButton = hit ? (state.byMesh.get(hit.object.uuid) || null) : null;
             state.hoveredByController[i] = hoveredButton;
 
-            if (ctrlData?.line) {
-                ctrlData.line.visible = true;
-                ctrlData.line.scale.z = hit?.distance ? Math.max(0.06, hit.distance) : MAX_RAY_DISTANCE;
-            }
+            changed = updateVisualRay(ctrlData, hitData) || changed;
 
             const pressed = getControllerTriggerPressed(ctrlData);
             if (pressed && !state.triggerPrev[i] && hoveredButton) {
@@ -448,14 +505,18 @@ export function createVRMenu3D(options = {}) {
         hide();
 
         for (const data of state.controllers) {
-            if (data?.controller && data?.line) {
-                data.controller.remove(data.line);
+            if (data?.line) {
+                data.line.parent?.remove?.(data.line);
                 data.line.geometry?.dispose?.();
                 data.line.material?.dispose?.();
             }
             if (data?.controller?.userData?.__vrMenuAttachedToScene && data.controller.parent === scene) {
                 scene.remove(data.controller);
                 delete data.controller.userData.__vrMenuAttachedToScene;
+            }
+            if (data?.grip?.userData?.__vrMenuAttachedToScene && data.grip.parent === scene) {
+                scene.remove(data.grip);
+                delete data.grip.userData.__vrMenuAttachedToScene;
             }
             if (data?.controller && data?.onConnected) {
                 data.controller.removeEventListener('connected', data.onConnected);
