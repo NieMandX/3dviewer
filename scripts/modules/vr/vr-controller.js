@@ -147,6 +147,11 @@ export function createVRController(options = {}) {
 
     state.isQuest = detectQuestDevice();
 
+    function setVrUiActive(next) {
+        if (!doc?.body?.classList) return;
+        doc.body.classList.toggle('vr-ui-active', !!next);
+    }
+
     function updateButtonUi() {
         if (!vrToggleBtn) return;
         vrToggleBtn.classList.toggle('is-active', !!state.sessionActive);
@@ -606,6 +611,7 @@ export function createVRController(options = {}) {
         state.pendingCalibration = false;
         state.floorSnapSuppressed = false;
         clearAutoStartListeners();
+        setVrUiActive(false);
 
         restoreDesktopCameraParent();
 
@@ -637,21 +643,29 @@ export function createVRController(options = {}) {
 
         let session = null;
         try {
-            session = await xr.requestSession('immersive-vr', {
+            const sessionInit = {
                 optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
-            });
+            };
+            if (doc?.body) {
+                sessionInit.optionalFeatures.push('dom-overlay');
+                sessionInit.domOverlay = { root: doc.body };
+            }
+
+            session = await xr.requestSession('immersive-vr', sessionInit);
 
             if (renderer.xr?.setReferenceSpaceType) {
                 renderer.xr.setReferenceSpaceType('local-floor');
             }
 
             await renderer.xr.setSession(session);
+            setVrUiActive(true);
         } catch (error) {
             if (session) {
                 try {
                     await session.end();
                 } catch (_) {}
             }
+            setVrUiActive(false);
             restoreDesktopCameraParent();
             throw error;
         }
@@ -675,7 +689,12 @@ export function createVRController(options = {}) {
         if (source === 'quest-auto') {
             setStatusMessage('VR: сессия запущена автоматически (Quest).');
         } else {
-            setStatusMessage('VR: сессия запущена.');
+            const overlayType = String(session?.domOverlayState?.type || '');
+            if (overlayType) {
+                setStatusMessage(`VR: сессия запущена. UI overlay: ${overlayType}.`);
+            } else {
+                setStatusMessage('VR: сессия запущена.');
+            }
         }
         return true;
     }
@@ -752,6 +771,7 @@ export function createVRController(options = {}) {
 
     function dispose() {
         clearAutoStartListeners();
+        setVrUiActive(false);
         if (vrToggleBtn?.removeEventListener) {
             vrToggleBtn.removeEventListener('click', toggleVR);
         }

@@ -2509,6 +2509,130 @@ body.bg-black .app-footer .btn.active {
     border-color: var(--borderStrong);
 }
 
+/* VR DOM overlay layout */
+body.vr-ui-active {
+    --sideW: 0px;
+    --appbarH: 66px;
+    --footerH: 52px;
+}
+
+body.vr-ui-active #viewer {
+    right: 0;
+}
+
+body.vr-ui-active .side,
+body.vr-ui-active #shadowDbg {
+    display: none !important;
+}
+
+body.vr-ui-active .appbar {
+    inset: auto;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translateX(-50%);
+    width: min(98vw, 1240px);
+    min-height: 56px;
+    max-height: 42vh;
+    gap: 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surfaceStrong);
+    z-index: 40;
+}
+
+body.vr-ui-active .appbar .btn,
+body.vr-ui-active .appbar select {
+    height: 38px;
+    min-height: 38px;
+    font-size: 15px;
+}
+
+body.vr-ui-active .appbar #toggleSideBtn,
+body.vr-ui-active .appbar #fullscreenBtn,
+body.vr-ui-active .appbar #resetViewBtn,
+body.vr-ui-active .appbar #focusPickBtn,
+body.vr-ui-active .appbar #exportBtn,
+body.vr-ui-active .appbar #collabPanelBtn,
+body.vr-ui-active .appbar #annoToggleBtn,
+body.vr-ui-active .appbar #bgToggleBtn {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+}
+
+body.vr-ui-active .appbar #solidToggleBtn,
+body.vr-ui-active .appbar #collToggleBtn,
+body.vr-ui-active .appbar #npmToggleBtn,
+body.vr-ui-active .appbar #vpmToggleBtn {
+    width: 56px;
+    min-width: 56px;
+    max-width: 56px;
+    font-size: 14px;
+}
+
+body.vr-ui-active .cams-bar {
+    top: calc(74px + env(safe-area-inset-top, 0px));
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(96vw, 1200px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surfaceStrong);
+    z-index: 39;
+}
+
+body.vr-ui-active .anno-toolbar {
+    top: calc(126px + env(safe-area-inset-top, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: min(96vw, 1120px);
+    z-index: 41;
+    padding: 8px 10px;
+}
+
+body.vr-ui-active .anno-toolbar .anno-btn,
+body.vr-ui-active .anno-toolbar .anno-tool {
+    width: 34px;
+    height: 34px;
+}
+
+body.vr-ui-active .app-footer {
+    left: 50%;
+    right: auto;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    width: min(96vw, 1100px);
+    min-height: 48px;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surfaceStrong);
+    z-index: 40;
+}
+
+body.vr-ui-active .app-footer .footer-left {
+    gap: 8px;
+}
+
+body.vr-ui-active .app-footer .footer-btn {
+    height: 34px;
+    padding: 6px 10px;
+    font-size: 14px;
+}
+
+body.vr-ui-active .collab-footer .collab-input,
+body.vr-ui-active .collab-footer .btn {
+    font-size: 13px;
+}
+
 body.bg-black .thumb { background: #000; border-color: rgba(255,255,255,0.25); }
 body.bg-black .thumb .ph { background: rgba(255,255,255,0.08); color: #ccc; }
 body.bg-black .thumb.broken { border-color: rgba(255,0,0,0.35); background: rgba(255,0,0,0.1); }
