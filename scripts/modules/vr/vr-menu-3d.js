@@ -87,6 +87,7 @@ function createLine(THREE) {
     const line = new THREE.Line(geometry, material);
     line.name = 'VRMenuRay';
     line.visible = false;
+    line.frustumCulled = false;
     line.renderOrder = 9999;
     line.scale.z = MAX_RAY_DISTANCE;
     return line;
@@ -247,6 +248,10 @@ export function createVRMenu3D(options = {}) {
         for (let i = 0; i < 2; i += 1) {
             const controller = renderer.xr.getController(i);
             if (!controller) continue;
+            if (!controller.parent) {
+                scene.add(controller);
+                controller.userData.__vrMenuAttachedToScene = true;
+            }
             const line = createLine(THREE);
             controller.add(line);
 
@@ -292,7 +297,6 @@ export function createVRMenu3D(options = {}) {
         lookTarget.copy(camPos);
         lookTarget.y = root.position.y;
         root.lookAt(lookTarget);
-        root.rotateY(Math.PI);
         root.updateMatrixWorld(true);
         requestRender();
         return true;
@@ -448,6 +452,10 @@ export function createVRMenu3D(options = {}) {
                 data.controller.remove(data.line);
                 data.line.geometry?.dispose?.();
                 data.line.material?.dispose?.();
+            }
+            if (data?.controller?.userData?.__vrMenuAttachedToScene && data.controller.parent === scene) {
+                scene.remove(data.controller);
+                delete data.controller.userData.__vrMenuAttachedToScene;
             }
             if (data?.controller && data?.onConnected) {
                 data.controller.removeEventListener('connected', data.onConnected);
