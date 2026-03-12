@@ -95,7 +95,8 @@ self.onmessage = async (event) => {
                 total: orderedFBXEntries.length,
                 name: entry.name,
             });
-            const buffer = await entry.async('arraybuffer');
+            const blob = await entry.async('blob');
+            const typed = blob.slice(0, blob.size, 'model/fbx');
             seq++;
             const waitAck = waitForAck(id, seq);
             self.postMessage(
@@ -107,9 +108,8 @@ self.onmessage = async (event) => {
                     total: orderedFBXEntries.length,
                     name: entry.name,
                     fileName: basename(entry.name),
-                    buffer,
+                    blob: typed,
                 },
-                [buffer],
             );
             await waitAck;
         }
