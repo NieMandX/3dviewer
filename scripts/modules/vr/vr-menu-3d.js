@@ -247,13 +247,22 @@ export function createVRMenu3D(options = {}) {
 
         for (let i = 0; i < 2; i += 1) {
             const controller = renderer.xr.getController(i);
+            const grip = typeof renderer?.xr?.getControllerGrip === 'function'
+                ? renderer.xr.getControllerGrip(i)
+                : null;
             if (!controller) continue;
             if (!controller.parent) {
                 scene.add(controller);
                 controller.userData.__vrMenuAttachedToScene = true;
             }
+            if (grip && !grip.parent) {
+                scene.add(grip);
+                grip.userData.__vrMenuAttachedToScene = true;
+            }
+
+            const rayNode = grip || controller;
             const line = createLine(THREE);
-            controller.add(line);
+            rayNode.add(line);
 
             const onConnected = (event) => {
                 controller.userData.inputSource = event?.data || null;
@@ -267,6 +276,8 @@ export function createVRMenu3D(options = {}) {
 
             state.controllers.push({
                 controller,
+                grip,
+                rayNode,
                 line,
                 onConnected,
                 onDisconnected,
@@ -376,13 +387,13 @@ export function createVRMenu3D(options = {}) {
     }
 
     function computeControllerHit(controllerData) {
-        const controller = controllerData?.controller || null;
-        if (!controller) return null;
+        const rayObject = controllerData?.rayNode || controllerData?.controller || null;
+        if (!rayObject) return null;
 
-        controller.updateWorldMatrix(true, false);
-        rayOrigin.setFromMatrixPosition(controller.matrixWorld);
+        rayObject.updateWorldMatrix(true, false);
+        rayOrigin.setFromMatrixPosition(rayObject.matrixWorld);
         rayDir.set(0, 0, -1);
-        rayDir.transformDirection(controller.matrixWorld);
+        rayDir.transformDirection(rayObject.matrixWorld);
 
         raycaster.near = 0;
         raycaster.far = MAX_RAY_DISTANCE;
@@ -448,14 +459,18 @@ export function createVRMenu3D(options = {}) {
         hide();
 
         for (const data of state.controllers) {
-            if (data?.controller && data?.line) {
-                data.controller.remove(data.line);
+            if (data?.rayNode && data?.line) {
+                data.rayNode.remove(data.line);
                 data.line.geometry?.dispose?.();
                 data.line.material?.dispose?.();
             }
             if (data?.controller?.userData?.__vrMenuAttachedToScene && data.controller.parent === scene) {
                 scene.remove(data.controller);
                 delete data.controller.userData.__vrMenuAttachedToScene;
+            }
+            if (data?.grip?.userData?.__vrMenuAttachedToScene && data.grip.parent === scene) {
+                scene.remove(data.grip);
+                delete data.grip.userData.__vrMenuAttachedToScene;
             }
             if (data?.controller && data?.onConnected) {
                 data.controller.removeEventListener('connected', data.onConnected);
