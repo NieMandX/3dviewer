@@ -16,6 +16,25 @@ const FLOOR_MAX_STEP_UP_M = 0.3;
 const FLOOR_MAX_STEP_DOWN_M = 0.5;
 const FLOOR_REATTACH_THRESHOLD_M = 0.12;
 const DEFAULT_LOOK_DISTANCE_M = 5.0;
+const VR_MENU_ITEMS = Object.freeze([
+    { id: 'toggle_side', label: 'SIDE', toggle: true },
+    { id: 'toggle_fullscreen', label: 'FULL', toggle: true },
+    { id: 'reset_viewer', label: 'RESET', toggle: false },
+    { id: 'reset_view', label: 'FIT', toggle: false },
+    { id: 'focus_pick', label: 'PICK', toggle: true },
+    { id: 'export_scene', label: 'EXPORT', toggle: false },
+    { id: 'toggle_glass', label: 'GLS', toggle: true },
+    { id: 'toggle_ucx', label: 'UCX', toggle: true },
+    { id: 'toggle_vpm', label: 'VPM', toggle: true },
+    { id: 'toggle_npm', label: 'NPM', toggle: true },
+    { id: 'toggle_cams', label: 'CAMS', toggle: true },
+    { id: 'toggle_collab', label: 'COLLAB', toggle: true },
+    { id: 'toggle_anno', label: 'ANNO', toggle: true },
+    { id: 'toggle_bg', label: 'BG', toggle: true },
+    { id: 'order_model', label: 'ORDER', toggle: false },
+    { id: 'exit_vr', label: 'EXIT', toggle: false },
+    { id: 'recenter_menu', label: 'CENTER', toggle: false },
+]);
 
 function clampSigned(value, deadzone) {
     const v = Number(value) || 0;
@@ -165,27 +184,48 @@ export function createVRController(options = {}) {
 
     function buttonActiveById(id) {
         const btn = doc?.getElementById?.(id) || null;
-        return !!btn?.classList?.contains?.('active');
+        if (!btn) return false;
+        const ariaPressed = btn.getAttribute?.('aria-pressed');
+        if (ariaPressed === 'true') return true;
+        if (ariaPressed === 'false') return false;
+        return !!btn.classList?.contains?.('active');
+    }
+
+    function bodyClassActive(name) {
+        return !!doc?.body?.classList?.contains?.(name);
+    }
+
+    function isFullscreenActive() {
+        return !!(doc?.fullscreenElement || doc?.webkitFullscreenElement);
     }
 
     function getMenuActionState(actionId) {
         switch (String(actionId || '')) {
+        case 'toggle_side':
+            return { active: !bodyClassActive('side-hidden') };
+        case 'toggle_fullscreen':
+            return { active: isFullscreenActive() };
+        case 'focus_pick':
+            return { active: buttonActiveById('focusPickBtn') };
+        case 'toggle_glass':
+            return { active: buttonActiveById('solidToggleBtn') };
         case 'toggle_ucx': {
-            const active = buttonActiveById('collToggleBtn');
-            return { active, label: `UCX ${active ? 'ON' : 'OFF'}` };
+            return { active: buttonActiveById('collToggleBtn') };
         }
         case 'toggle_vpm': {
-            const active = buttonActiveById('vpmToggleBtn');
-            return { active, label: `VPM ${active ? 'ON' : 'OFF'}` };
+            return { active: buttonActiveById('vpmToggleBtn') };
         }
         case 'toggle_npm': {
-            const active = buttonActiveById('npmToggleBtn');
-            return { active, label: `NPM ${active ? 'ON' : 'OFF'}` };
+            return { active: buttonActiveById('npmToggleBtn') };
         }
-        case 'toggle_bg': {
-            const dark = !!doc?.body?.classList?.contains?.('bg-black');
-            return { active: dark, label: `BG ${dark ? 'DARK' : 'LIGHT'}` };
-        }
+        case 'toggle_cams':
+            return { active: buttonActiveById('camsToggleBtn') };
+        case 'toggle_collab':
+            return { active: buttonActiveById('collabPanelBtn') };
+        case 'toggle_anno':
+            return { active: buttonActiveById('annoToggleBtn') };
+        case 'toggle_bg':
+            return { active: buttonActiveById('bgToggleBtn') };
         default:
             return null;
         }
@@ -198,16 +238,36 @@ export function createVRController(options = {}) {
         case 'exit_vr':
             void exitVR();
             return true;
+        case 'toggle_side':
+            return clickButtonById('toggleSideBtn');
+        case 'toggle_fullscreen':
+            return clickButtonById('fullscreenBtn');
+        case 'reset_viewer':
+            return clickButtonById('resetViewerBtn');
         case 'reset_view':
             return clickButtonById('resetViewBtn');
+        case 'focus_pick':
+            return clickButtonById('focusPickBtn');
+        case 'export_scene':
+            return clickButtonById('exportBtn');
+        case 'toggle_glass':
+            return clickButtonById('solidToggleBtn');
         case 'toggle_ucx':
             return clickButtonById('collToggleBtn');
         case 'toggle_vpm':
             return clickButtonById('vpmToggleBtn');
         case 'toggle_npm':
             return clickButtonById('npmToggleBtn');
+        case 'toggle_cams':
+            return clickButtonById('camsToggleBtn');
+        case 'toggle_collab':
+            return clickButtonById('collabPanelBtn');
+        case 'toggle_anno':
+            return clickButtonById('annoToggleBtn');
         case 'toggle_bg':
             return clickButtonById('bgToggleBtn');
+        case 'order_model':
+            return clickButtonById('orderBtn');
         case 'recenter_menu':
             return !!vrMenu?.recenter?.();
         default:
@@ -237,6 +297,12 @@ export function createVRController(options = {}) {
         renderer,
         camera,
         getAttachmentRoot: () => state.xrRig || scene,
+        items: VR_MENU_ITEMS,
+        columns: 5,
+        buttonWidth: 0.18,
+        buttonHeight: 0.06,
+        buttonGap: 0.018,
+        labelFontPx: 26,
         requestRender,
         onAction: handleMenuAction,
         getActionState: getMenuActionState,

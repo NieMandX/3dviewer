@@ -1,20 +1,21 @@
 const DEFAULT_ITEMS = Object.freeze([
-    { id: 'exit_vr', label: 'EXIT VR', toggle: false },
-    { id: 'reset_view', label: 'RESET VIEW', toggle: false },
+    { id: 'exit_vr', label: 'EXIT', toggle: false },
+    { id: 'reset_view', label: 'FIT', toggle: false },
     { id: 'toggle_ucx', label: 'UCX', toggle: true },
     { id: 'toggle_vpm', label: 'VPM', toggle: true },
     { id: 'toggle_npm', label: 'NPM', toggle: true },
     { id: 'toggle_bg', label: 'BG', toggle: true },
-    { id: 'recenter_menu', label: 'RECENTER', toggle: false },
+    { id: 'recenter_menu', label: 'CENTER', toggle: false },
 ]);
 
-const BTN_W = 0.36;
-const BTN_H = 0.12;
-const BTN_GAP = 0.035;
+const BTN_W = 0.18;
+const BTN_H = 0.06;
+const BTN_GAP = 0.018;
 const MENU_DISTANCE = 1.45;
 const MAX_RAY_DISTANCE = 5.0;
 const ACTION_COOLDOWN_MS = 220;
 const TRIGGER_THRESHOLD = 0.62;
+const LABEL_FONT_PX = 26;
 
 function nowMs() {
     if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -32,7 +33,14 @@ function readButtonValue(button) {
     return button.pressed ? 1 : 0;
 }
 
-function createLabelTexture({ label, active = false, hovered = false, canvas = null, context = null } = {}) {
+function createLabelTexture({
+    label,
+    active = false,
+    hovered = false,
+    canvas = null,
+    context = null,
+    fontPx = LABEL_FONT_PX,
+} = {}) {
     const cv = canvas || document.createElement('canvas');
     cv.width = 512;
     cv.height = 192;
@@ -62,7 +70,7 @@ function createLabelTexture({ label, active = false, hovered = false, canvas = n
     }
 
     ctx.fillStyle = fg;
-    ctx.font = '700 52px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+    ctx.font = `700 ${Math.max(12, Math.round(Number(fontPx) || LABEL_FONT_PX))}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(label || '').toUpperCase(), cv.width * 0.5, cv.height * 0.52);
@@ -120,6 +128,13 @@ export function createVRMenu3D(options = {}) {
     const onAction = typeof options.onAction === 'function' ? options.onAction : () => false;
     const getActionState = typeof options.getActionState === 'function' ? options.getActionState : () => null;
     const items = Array.isArray(options.items) && options.items.length ? options.items : DEFAULT_ITEMS;
+    const buttonWidth = Number.isFinite(options.buttonWidth) ? Math.max(0.08, options.buttonWidth) : BTN_W;
+    const buttonHeight = Number.isFinite(options.buttonHeight) ? Math.max(0.04, options.buttonHeight) : BTN_H;
+    const buttonGap = Number.isFinite(options.buttonGap) ? Math.max(0.008, options.buttonGap) : BTN_GAP;
+    const labelFontPx = Number.isFinite(options.labelFontPx) ? Math.max(12, options.labelFontPx) : LABEL_FONT_PX;
+    const columnCount = Number.isFinite(options.columns)
+        ? Math.max(1, Math.round(options.columns))
+        : (items.length > 12 ? 5 : 3);
 
     if (!THREE || !scene || !renderer || !camera) {
         return Object.freeze({
@@ -162,10 +177,10 @@ export function createVRMenu3D(options = {}) {
         controllers: [],
     };
 
-    const colCount = 3;
+    const colCount = columnCount;
     const rowCount = Math.ceil(items.length / colCount);
-    const menuWidth = (colCount * BTN_W) + ((colCount - 1) * BTN_GAP) + 0.12;
-    const menuHeight = (rowCount * BTN_H) + ((rowCount - 1) * BTN_GAP) + 0.12;
+    const menuWidth = (colCount * buttonWidth) + ((colCount - 1) * buttonGap) + 0.12;
+    const menuHeight = (rowCount * buttonHeight) + ((rowCount - 1) * buttonGap) + 0.12;
 
     const panelGeometry = new THREE.PlaneGeometry(menuWidth, menuHeight);
     const panelMaterial = new THREE.MeshBasicMaterial({
@@ -200,6 +215,7 @@ export function createVRMenu3D(options = {}) {
             hovered: button.hovered,
             canvas: button.canvas,
             context: button.context,
+            fontPx: button.fontPx,
         });
         button.canvas = rendered.canvas;
         button.context = rendered.context;
@@ -221,11 +237,11 @@ export function createVRMenu3D(options = {}) {
         const row = Math.floor(index / colCount);
         const col = index % colCount;
 
-        const xOffset = -((colCount - 1) * (BTN_W + BTN_GAP)) * 0.5;
-        const yOffset = ((rowCount - 1) * (BTN_H + BTN_GAP)) * 0.5;
+        const xOffset = -((colCount - 1) * (buttonWidth + buttonGap)) * 0.5;
+        const yOffset = ((rowCount - 1) * (buttonHeight + buttonGap)) * 0.5;
 
-        const x = xOffset + (col * (BTN_W + BTN_GAP));
-        const y = yOffset - (row * (BTN_H + BTN_GAP));
+        const x = xOffset + (col * (buttonWidth + buttonGap));
+        const y = yOffset - (row * (buttonHeight + buttonGap));
 
         const material = new THREE.MeshBasicMaterial({
             color: 0xffffff,
@@ -236,7 +252,7 @@ export function createVRMenu3D(options = {}) {
             side: THREE.DoubleSide,
             toneMapped: false,
         });
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(BTN_W, BTN_H), material);
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(buttonWidth, buttonHeight), material);
         mesh.position.set(x, y, 0);
         mesh.renderOrder = 9001;
         root.add(mesh);
@@ -252,6 +268,7 @@ export function createVRMenu3D(options = {}) {
             texture: null,
             canvas: null,
             context: null,
+            fontPx: labelFontPx,
         };
 
         setButtonVisual(button, { hovered: false, active: false });
