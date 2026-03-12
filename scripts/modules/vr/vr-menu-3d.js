@@ -247,21 +247,13 @@ export function createVRMenu3D(options = {}) {
 
         for (let i = 0; i < 2; i += 1) {
             const controller = renderer.xr.getController(i);
-            const grip = typeof renderer?.xr?.getControllerGrip === 'function'
-                ? renderer.xr.getControllerGrip(i)
-                : null;
             if (!controller) continue;
             if (!controller.parent) {
                 scene.add(controller);
                 controller.userData.__vrMenuAttachedToScene = true;
             }
-            if (grip && !grip.parent) {
-                scene.add(grip);
-                grip.userData.__vrMenuAttachedToScene = true;
-            }
-            const rayNode = grip || controller;
             const line = createLine(THREE);
-            rayNode.add(line);
+            controller.add(line);
 
             const onConnected = (event) => {
                 controller.userData.inputSource = event?.data || null;
@@ -275,8 +267,6 @@ export function createVRMenu3D(options = {}) {
 
             state.controllers.push({
                 controller,
-                grip,
-                rayNode,
                 line,
                 onConnected,
                 onDisconnected,
@@ -288,19 +278,6 @@ export function createVRMenu3D(options = {}) {
         for (const data of state.controllers) {
             if (data?.line) data.line.visible = !!next;
         }
-    }
-
-    function getActiveControllerData() {
-        let fallback = null;
-        for (const data of state.controllers) {
-            const inputSource = data?.controller?.userData?.inputSource || null;
-            if (!inputSource) continue;
-            if (!fallback) fallback = data;
-            if (inputSource.handedness === 'right') {
-                return data;
-            }
-        }
-        return fallback || state.controllers[0] || null;
     }
 
     function recenter() {
@@ -330,7 +307,7 @@ export function createVRMenu3D(options = {}) {
         state.visible = true;
         root.visible = true;
         if (doRecenter) recenter();
-        setLinesVisible(false);
+        setLinesVisible(true);
         refreshActionStates(true);
         requestRender();
         return true;
@@ -399,13 +376,13 @@ export function createVRMenu3D(options = {}) {
     }
 
     function computeControllerHit(controllerData) {
-        const rayNode = controllerData?.rayNode || controllerData?.controller || null;
-        if (!rayNode) return null;
+        const controller = controllerData?.controller || null;
+        if (!controller) return null;
 
-        rayNode.updateWorldMatrix(true, false);
-        rayOrigin.setFromMatrixPosition(rayNode.matrixWorld);
+        controller.updateWorldMatrix(true, false);
+        rayOrigin.setFromMatrixPosition(controller.matrixWorld);
         rayDir.set(0, 0, -1);
-        rayDir.transformDirection(rayNode.matrixWorld);
+        rayDir.transformDirection(controller.matrixWorld);
 
         raycaster.near = 0;
         raycaster.far = MAX_RAY_DISTANCE;
@@ -437,27 +414,14 @@ export function createVRMenu3D(options = {}) {
         let changed = false;
         changed = refreshActionStates(false) || changed;
 
-        const activeController = getActiveControllerData();
-
         for (let i = 0; i < state.controllers.length; i += 1) {
             const ctrlData = state.controllers[i];
-            const isActive = ctrlData === activeController;
-
-            if (ctrlData?.line) {
-                ctrlData.line.visible = !!isActive;
-            }
-
-            if (!isActive) {
-                state.hoveredByController[i] = null;
-                state.triggerPrev[i] = false;
-                continue;
-            }
-
             const hit = computeControllerHit(ctrlData);
             const hoveredButton = hit ? (state.byMesh.get(hit.object.uuid) || null) : null;
             state.hoveredByController[i] = hoveredButton;
 
             if (ctrlData?.line) {
+                ctrlData.line.visible = true;
                 ctrlData.line.scale.z = hit?.distance ? Math.max(0.06, hit.distance) : MAX_RAY_DISTANCE;
             }
 
@@ -484,18 +448,14 @@ export function createVRMenu3D(options = {}) {
         hide();
 
         for (const data of state.controllers) {
-            if (data?.rayNode && data?.line) {
-                data.rayNode.remove(data.line);
+            if (data?.controller && data?.line) {
+                data.controller.remove(data.line);
                 data.line.geometry?.dispose?.();
                 data.line.material?.dispose?.();
             }
             if (data?.controller?.userData?.__vrMenuAttachedToScene && data.controller.parent === scene) {
                 scene.remove(data.controller);
                 delete data.controller.userData.__vrMenuAttachedToScene;
-            }
-            if (data?.grip?.userData?.__vrMenuAttachedToScene && data.grip.parent === scene) {
-                scene.remove(data.grip);
-                delete data.grip.userData.__vrMenuAttachedToScene;
             }
             if (data?.controller && data?.onConnected) {
                 data.controller.removeEventListener('connected', data.onConnected);
