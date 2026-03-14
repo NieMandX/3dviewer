@@ -10,17 +10,20 @@
     <title>АГР WEBViewer</title>
     <link rel="icon" href="./favicon.ico" />
     <link rel="stylesheet" href="./styles/viewer.css">
+    <script>window.__LPMVIEW_RUNTIME = window.__LPMVIEW_RUNTIME || {};</script>
+    <script src="./config/runtime.js"></script>
 </head>
 <body class="side-hidden app-loading">
     <script>
         (function () {
             const ua = String((typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '');
             const isQuest = /(OculusBrowser|Meta Quest|Quest)/i.test(ua);
+            const runtime = window.__LPMVIEW_RUNTIME || {};
             window.__LPMVIEW_QUEST_DEVICE = isQuest;
             window.__LPMVIEW_RENDERER = isQuest ? 'webgl' : 'webgpu';
+            window.__SUPABASE_URL = window.__SUPABASE_URL || runtime.supabaseUrl || 'https://xlajjnmxvlkygixamyam.supabase.co';
+            window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || runtime.supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsYWpqbm14dmxreWdpeGFteWFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NjY2MzEsImV4cCI6MjA4MjA0MjYzMX0.02uAo7lQq8UNVB3yL45WudQ8WSR4opNlZ2frTZNRl8Q';
         })();
-        window.__SUPABASE_URL = window.__SUPABASE_URL || 'https://xlajjnmxvlkygixamyam.supabase.co';
-        window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsYWpqbm14dmxreWdpeGFteWFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NjY2MzEsImV4cCI6MjA4MjA0MjYzMX0.02uAo7lQq8UNVB3yL45WudQ8WSR4opNlZ2frTZNRl8Q';
     </script>
 
     <div id="bootLoader" class="boot-loader" aria-live="polite" aria-label="Загрузка приложения">

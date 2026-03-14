@@ -50,6 +50,7 @@ jobs:
             --exclude "*" \
             --include "index.html" \
             --include "favicon.ico" \
+            --include "config/*" \
             --include "scripts/*" \
             --include "styles/*" \
             --include "hdr/*" \

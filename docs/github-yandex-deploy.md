@@ -113,4 +113,7 @@ Recommended setup:
 4. Enable static website hosting for the bucket:
    - index document: `index.html`
 5. Configure HTTPS certificate for the bucket domain in Yandex Cloud.
-6. In DNS, point `agr.vision` to the website endpoint (`ANAME/ALIAS` for apex domain).
+6. Runtime backend config now lives in `config/runtime.js`.
+   - Edit `supabaseUrl` and `supabaseAnonKey` there when switching backend.
+   - After push to `gh-pages`, GitHub Action deploys the updated runtime config to Yandex Object Storage together with the static viewer.
+7. In DNS, point `agr.vision` to the website endpoint (`ANAME/ALIAS` for apex domain).
