@@ -1804,7 +1804,6 @@ body.bg-black .collab-chat-panel {
         flex: 0 0 auto;
     }
 
-    .appbar #fullscreenBtn,
     .appbar #resetViewerBtn,
     .appbar #exportBtn,
     .appbar #collabPanelBtn,
@@ -1813,16 +1812,17 @@ body.bg-black .collab-chat-panel {
     }
 
     .appbar #toggleSideBtn { order: 1; }
-    .appbar #resetViewBtn { order: 2; }
-    .appbar #focusPickBtn { order: 3; }
-    .appbar #annoToggleBtn { order: 4; }
+    .appbar #fullscreenBtn { order: 2; }
+    .appbar #resetViewBtn { order: 3; }
+    .appbar #focusPickBtn { order: 4; }
+    .appbar #annoToggleBtn { order: 5; }
     .appbar #bgToggleBtn {
-        order: 5;
+        order: 6;
         margin-left: auto;
     }
 
     .appbar #orderBtn {
-        order: 6;
+        order: 7;
         height: 28px;
         padding: 0 8px;
         font-size: 11px;
