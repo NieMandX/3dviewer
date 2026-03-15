@@ -12,6 +12,7 @@ import { createImportedLightsController } from '../scene/imported-lights.js';
 import { createMosParcelsController } from '../scene/mos-parcels.js';
 import { createWorldOffsetController } from '../scene/world-offset.js';
 import { createSceneCore } from '../scene/scene-core.js';
+import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 import { createSunShadowsController } from '../scene/sun-shadows.js';
 import { createStatsOverlayController } from '../ui/stats-overlay.js';
 import { createBindLogController } from '../ui/bind-log.js';
@@ -2807,6 +2808,8 @@ class ViewerApp {
          * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson?, scope? }
          */
         const loadedModels = app.loadedModels = [];
+        const sceneIndex = createLoadedModelSceneIndex({ loadedModels });
+        app.sceneIndex = sceneIndex;
 
         /**
          * Список всех изображений, извлечённых из FBX или ZIP (включая embedded).
@@ -3154,6 +3157,7 @@ class ViewerApp {
 				        } = createVisibilityAndCollisions({
 				            world,
 				            loadedModels,
+                            sceneIndex,
 				            outEl,
 			            requestRender,
 		            markSceneStatsDirty,
@@ -3352,6 +3356,7 @@ class ViewerApp {
 			            dom,
 			            world,
 			            loadedModels,
+                        sceneIndex,
 			            outEl,
 			            matSelect,
 			            requestRender,

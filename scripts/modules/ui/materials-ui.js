@@ -27,6 +27,7 @@ export function createMaterialsUI(options = {}) {
     materialsPanel = createMaterialsPanelController({
         world: options.world || null,
         loadedModels: Array.isArray(options.loadedModels) ? options.loadedModels : [],
+        sceneIndex: options.sceneIndex || null,
         outEl: options.outEl || null,
         matSelect: options.matSelect || null,
         requestRender,
@@ -41,4 +42,3 @@ export function createMaterialsUI(options = {}) {
 
     return { materialsPanel };
 }
-

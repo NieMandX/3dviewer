@@ -1,10 +1,12 @@
 import { createCollisionVisibilityHelpers } from '../fbx/collisions.js';
 import { findGeomSuffix, isGlassByName, isGlassGeomSuffix } from '../material/naming.js';
+import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 import { createVisibilityController } from './visibility.js';
 
 export function createVisibilityAndCollisions(options = {}) {
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
     const world = options.world || null;
+    const sceneIndex = options.sceneIndex || createLoadedModelSceneIndex({ loadedModels });
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
     const syncCollisionButtons = typeof options.syncCollisionButtons === 'function' ? options.syncCollisionButtons : () => {};
@@ -13,6 +15,7 @@ export function createVisibilityAndCollisions(options = {}) {
         world: options.world || null,
         loadedModels,
         outEl: options.outEl || null,
+        sceneIndex,
         requestRender,
         markSceneStatsDirty,
     });
@@ -29,12 +32,10 @@ export function createVisibilityAndCollisions(options = {}) {
         let hasAny = false;
         let anyVisible = false;
         loadedModels.forEach((model) => {
-            if (!model?.obj) return;
-            model.obj.traverse((o) => {
-                if (!o?.userData?.isCollision) return;
-                hasAny = true;
-                if (o.visible !== false) anyVisible = true;
-            });
+            const collisions = sceneIndex.getModelCollisions(model);
+            if (!collisions.length) return;
+            hasAny = true;
+            if (collisions.some((o) => o.visible !== false)) anyVisible = true;
         });
         return { hasAny, anyVisible };
     }
@@ -45,11 +46,8 @@ export function createVisibilityAndCollisions(options = {}) {
         let changed = false;
 
         loadedModels.forEach((model) => {
-            if (!model?.obj) return;
-            model.obj.traverse((o) => {
-                if (!o?.userData?.isCollision) return;
+            sceneIndex.getModelCollisions(model).forEach((o) => {
                 hasAny = true;
-
                 const mats = Array.isArray(o.material) ? o.material : [o.material];
                 mats.forEach((m) => {
                     if (!m) return;
@@ -124,15 +122,17 @@ export function createVisibilityAndCollisions(options = {}) {
         let anyVisible = false;
         if (!world) return { hasAny, anyVisible, suppressed: nonGlassSuppressed };
 
-        world.traverse((o) => {
+        loadedModels.forEach((model) => {
             if (anyVisible) return;
-            if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
-            if (isGlassRenderable(o)) return;
-            hasAny = true;
+            sceneIndex.getModelRenderables(model).forEach((o) => {
+                if (anyVisible) return;
+                if (isGlassRenderable(o)) return;
+                hasAny = true;
 
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
-            const anyMatVisible = mats.some((m) => (m ? m.visible !== false : false));
-            if (o.visible !== false && anyMatVisible) anyVisible = true;
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
+                const anyMatVisible = mats.some((m) => (m ? m.visible !== false : false));
+                if (o.visible !== false && anyMatVisible) anyVisible = true;
+            });
         });
 
         return { hasAny, anyVisible, suppressed: nonGlassSuppressed };
@@ -146,29 +146,30 @@ export function createVisibilityAndCollisions(options = {}) {
         if (!world) return { ...getNonGlassState(), changed: false };
 
         let changed = false;
-        world.traverse((o) => {
-            if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
-            if (isGlassRenderable(o)) return;
+        loadedModels.forEach((model) => {
+            sceneIndex.getModelRenderables(model).forEach((o) => {
+                if (isGlassRenderable(o)) return;
 
-            if (captureNew && !savedNonGlassObjectVisibility.has(o)) {
-                savedNonGlassObjectVisibility.set(o, o.visible !== false);
-            }
-            if (o.visible !== false) {
-                o.visible = false;
-                changed = true;
-            }
-
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
-            mats.forEach((m) => {
-                if (!m) return;
-                if (captureNew && !savedNonGlassMaterialVisibility.has(m)) {
-                    savedNonGlassMaterialVisibility.set(m, m.visible !== false);
+                if (captureNew && !savedNonGlassObjectVisibility.has(o)) {
+                    savedNonGlassObjectVisibility.set(o, o.visible !== false);
                 }
-                if (m.visible !== false) {
-                    m.visible = false;
+                if (o.visible !== false) {
+                    o.visible = false;
                     changed = true;
                 }
-                if ('needsUpdate' in m) m.needsUpdate = true;
+
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
+                mats.forEach((m) => {
+                    if (!m) return;
+                    if (captureNew && !savedNonGlassMaterialVisibility.has(m)) {
+                        savedNonGlassMaterialVisibility.set(m, m.visible !== false);
+                    }
+                    if (m.visible !== false) {
+                        m.visible = false;
+                        changed = true;
+                    }
+                    if ('needsUpdate' in m) m.needsUpdate = true;
+                });
             });
         });
 
@@ -251,15 +252,9 @@ export function createVisibilityAndCollisions(options = {}) {
             if (!isVPMModel(model)) return;
             hasAny = true;
             if (!model?.obj || model.obj.visible === false) return;
-            let hasRenderable = false;
-            model.obj.traverse((o) => {
-                if (anyVisible) return;
-                if (o === model.obj) return;
-                if (o?.userData?.isCollision) return;
-                if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
-                hasRenderable = true;
-                if (o.visible !== false) anyVisible = true;
-            });
+            const renderables = sceneIndex.getModelRenderables(model, { excludeRoot: true });
+            const hasRenderable = renderables.length > 0;
+            if (renderables.some((o) => o.visible !== false)) anyVisible = true;
             if (!hasRenderable) {
                 // если в модели нет геометрии/линий/поинтов — считаем как "не видимую"
                 // (но сам факт наличия модели учитываем через hasAny)
@@ -276,11 +271,7 @@ export function createVisibilityAndCollisions(options = {}) {
             if (!isVPMModel(model)) return;
             const root = model?.obj;
             if (!root) return;
-            root.traverse((o) => {
-                if (o === root) return;
-                if (o?.userData?.isCollision) return;
-                if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
-
+            sceneIndex.getModelRenderables(model, { excludeRoot: true }).forEach((o) => {
                 const mats = Array.isArray(o.material) ? o.material : [o.material];
                 mats.forEach((m) => {
                     if (!m) return;
@@ -322,15 +313,9 @@ export function createVisibilityAndCollisions(options = {}) {
             if (!isNPMModel(model)) return;
             hasAny = true;
             if (!model?.obj || model.obj.visible === false) return;
-            let hasRenderable = false;
-            model.obj.traverse((o) => {
-                if (anyVisible) return;
-                if (o === model.obj) return;
-                if (o?.userData?.isCollision) return;
-                if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
-                hasRenderable = true;
-                if (o.visible !== false) anyVisible = true;
-            });
+            const renderables = sceneIndex.getModelRenderables(model, { excludeRoot: true });
+            const hasRenderable = renderables.length > 0;
+            if (renderables.some((o) => o.visible !== false)) anyVisible = true;
             if (!hasRenderable) {
                 // нет renderables → считаем как "не видимую"
             }
@@ -346,11 +331,7 @@ export function createVisibilityAndCollisions(options = {}) {
             if (!isNPMModel(model)) return;
             const root = model?.obj;
             if (!root) return;
-            root.traverse((o) => {
-                if (o === root) return;
-                if (o?.userData?.isCollision) return;
-                if (!(o?.isMesh || o?.isLine || o?.isPoints)) return;
-
+            sceneIndex.getModelRenderables(model, { excludeRoot: true }).forEach((o) => {
                 const mats = Array.isArray(o.material) ? o.material : [o.material];
                 mats.forEach((m) => {
                     if (!m) return;

@@ -1,6 +1,9 @@
+import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
+
 export function createVisibilityController(options = {}) {
     const world = options.world || null;
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
+    const sceneIndex = options.sceneIndex || createLoadedModelSceneIndex({ loadedModels });
     const outEl = options.outEl || null;
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
@@ -137,13 +140,8 @@ export function createVisibilityController(options = {}) {
             items.forEach(m => {
                 if (!m?.obj) return;
                 const perId = `colgrp|${m.obj.uuid}`;
-                const list = [];
-                m.obj.traverse(o => {
-                    if (o.isMesh && o.userData?.isCollision) {
-                        allColl.push(o);
-                        list.push(o);
-                    }
-                });
+                const list = sceneIndex.getModelCollisions(m);
+                allColl.push(...list);
                 if (list.length) perFileIds.set(perId, list);
             });
 
@@ -163,11 +161,10 @@ export function createVisibilityController(options = {}) {
         // Группа коллизий внутри конкретного FBX
         if (id.startsWith('colgrp|')) {
             const fileUuid = id.slice(7);
-            let root = null;
-            world.traverse(o => { if (!root && o.uuid === fileUuid) root = o; });
+            const hostModel = sceneIndex.findModelByRootUuid(fileUuid);
+            const root = hostModel?.obj || world?.getObjectByProperty?.('uuid', fileUuid) || null;
             if (!root) return;
-            const coll = [];
-            root.traverse(o => { if (o.isMesh && o.userData?.isCollision) coll.push(o); });
+            const coll = hostModel ? sceneIndex.getModelCollisions(hostModel) : [];
             const anyVisible = coll.some(o => o.visible !== false);
             const newVis = !anyVisible;
             coll.forEach(o => {
@@ -176,36 +173,24 @@ export function createVisibilityController(options = {}) {
             });
             updateEyeButtonsForTarget(id, newVis);
 
-            const hostModel = loadedModels.find(m => m.obj?.uuid === fileUuid);
             if (hostModel?.group) {
                 const groupName = hostModel.group;
-                let groupHasAny = false;
-                let groupHasVisible = false;
-                loadedModels.forEach(m => {
-                    if (m.group !== groupName || !m.obj) return;
-                    m.obj.traverse(o => {
-                        if (!o.isMesh || !o.userData?.isCollision) return;
-                        groupHasAny = true;
-                        if (o.visible !== false) groupHasVisible = true;
-                    });
-                });
+                const groupCollisions = loadedModels
+                    .filter((m) => m.group === groupName && m.obj)
+                    .flatMap((m) => sceneIndex.getModelCollisions(m));
+                const groupHasAny = groupCollisions.length > 0;
+                const groupHasVisible = groupCollisions.some((o) => o.visible !== false);
                 if (groupHasAny) updateEyeButtonsForTarget(`zipcoll|${groupName}`, groupHasVisible);
             }
             return;
         }
 
         // Обычный объект: ищем по userData._panelId
-        let target = null;
-        world.traverse(o => { if ((o.userData?._panelId) === id) target = o; });
+        const target = sceneIndex.findPanelTarget(id);
         if (!target) return;
 
         if (target.userData?._panelKind === 'file-root') {
-            const renderables = [];
-            target.traverse(o => {
-                if (o === target) return;
-                if (o.userData?.isCollision) return;
-                if (o.isMesh || o.isLine || o.isPoints) renderables.push(o);
-            });
+            const renderables = sceneIndex.getModelRenderables(target, { excludeRoot: true });
             if (!renderables.length) {
                 setEyeIcon(el, true);
                 return;
@@ -236,4 +221,3 @@ export function createVisibilityController(options = {}) {
         toggleVisibilityById,
     });
 }
-

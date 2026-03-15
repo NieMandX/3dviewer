@@ -1,4 +1,5 @@
 import { clamp01 } from '../utils/math.js';
+import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 
 const PANEL_TEX_KEYS = [
     'map',
@@ -15,6 +16,7 @@ const PANEL_TEX_KEYS = [
 export function createMaterialsPanelController(options = {}) {
     const world = options.world || null;
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
+    const sceneIndex = options.sceneIndex || createLoadedModelSceneIndex({ loadedModels });
 
     const outEl = options.outEl || null;
     const matSelect = options.matSelect || null;
@@ -212,8 +214,7 @@ export function createMaterialsPanelController(options = {}) {
                 model.zipKind === 'SM' ? '<span class="pill">ВПМ</span>' : '';
 
         const hasGeo = !!(model.geojson || model.obj.userData?.geojson);
-        const collisions = [];
-        model.obj.traverse(o => { if (o.isMesh && o.userData?.isCollision) collisions.push(o); });
+        const collisions = sceneIndex.getModelCollisions(model);
 
         // заголовок файла FBX
         const fileControls = `${hasGeo ? `<button type="button" class="doc" data-uuid="${model.obj.uuid}" title="Показать GeoJSON">📄</button>` : ''}<button type="button" class="eye" data-target="${modelId}" title="Показать/скрыть файл">👁</button>`;
@@ -284,11 +285,10 @@ export function createMaterialsPanelController(options = {}) {
         }
 
         // ---- ОСТАЛЬНЫЕ МЕШИ (ИСКЛЮЧАЕМ КОЛЛИЗИИ) ----
-        model.obj.traverse((obj) => {
+        sceneIndex.getModelRenderables(model).forEach((obj) => {
             if (!obj.isMesh) return;
             const mats = getPanelMaterials(obj);
             if (!mats.length) return;
-            if (obj.userData?.isCollision) return; // 👈 не мешаем коллизиям
 
             mats.forEach((m, idx) => {
                 const humanIdx = idx + 1;
@@ -325,6 +325,8 @@ export function createMaterialsPanelController(options = {}) {
                     `);
             });
         });
+
+        sceneIndex.invalidateModel(model);
 
         chunksArr.push(`</details><div class="collapsible-controls">${fileControls}</div></div>`);
     }
@@ -435,11 +437,7 @@ export function createMaterialsPanelController(options = {}) {
     }
 
     function modelHasCollisions(model) {
-        let found = false;
-        model.obj?.traverse(o => {
-            if (!found && o.isMesh && o.userData?.isCollision) found = true;
-        });
-        return found;
+        return sceneIndex.getModelCollisions(model).length > 0;
     }
 
     function ensureGroupCollisionButton(entry, groupName) {
@@ -574,14 +572,9 @@ export function createMaterialsPanelController(options = {}) {
         loadedModels.forEach(model => {
             const root = model.obj;
             if (!root) return;
-            let hasAny = false;
-            let anyVisible = false;
-            root.traverse(o => {
-                if (o.userData?.isCollision) {
-                    hasAny = true;
-                    if (o.visible !== false) anyVisible = true;
-                }
-            });
+            const collisions = sceneIndex.getModelCollisions(model);
+            const hasAny = collisions.length > 0;
+            const anyVisible = collisions.some((o) => o.visible !== false);
             if (hasAny) updateEyeButtonsForTarget(`colgrp|${root.uuid}`, anyVisible);
         });
 
@@ -593,18 +586,9 @@ export function createMaterialsPanelController(options = {}) {
         });
 
         grouped.forEach((models, groupName) => {
-            let hasAny = false;
-            let anyVisible = false;
-            models.forEach(model => {
-                const root = model.obj;
-                if (!root) return;
-                root.traverse(o => {
-                    if (o.userData?.isCollision) {
-                        hasAny = true;
-                        if (o.visible !== false) anyVisible = true;
-                    }
-                });
-            });
+            const collisions = models.flatMap((model) => sceneIndex.getModelCollisions(model));
+            const hasAny = collisions.length > 0;
+            const anyVisible = collisions.some((o) => o.visible !== false);
             if (hasAny) updateEyeButtonsForTarget(`zipcoll|${groupName}`, anyVisible);
         });
     }
@@ -614,15 +598,16 @@ export function createMaterialsPanelController(options = {}) {
      */
     function collectMaterialsFromWorld() {
         const out = [];
-        world?.traverse?.(o => {
-            if (!o.isMesh) return;
-            if (o.userData?.isCollision) return; // 👈 не показываем UCX в выпадающем списке
-            const mats = getPanelMaterials(o);
-            if (!mats.length) return;
-            mats.forEach((m, i) => {
-                const humanIdx = i + 1;
-                const label = `${o.name || o.type} · ${m.type}${m.name ? ` (${m.name})` : ''}${mats.length > 1 ? ` [${humanIdx}]` : ''}`;
-                out.push({ obj: o, index: i, label, path: `${o.uuid}:${i}` });
+        loadedModels.forEach((model) => {
+            sceneIndex.getModelRenderables(model).forEach((obj) => {
+                if (!obj.isMesh) return;
+                const mats = getPanelMaterials(obj);
+                if (!mats.length) return;
+                mats.forEach((m, i) => {
+                    const humanIdx = i + 1;
+                    const label = `${obj.name || obj.type} · ${m.type}${m.name ? ` (${m.name})` : ''}${mats.length > 1 ? ` [${humanIdx}]` : ''}`;
+                    out.push({ obj, index: i, label, path: `${obj.uuid}:${i}` });
+                });
             });
         });
         return out;
@@ -660,4 +645,3 @@ export function createMaterialsPanelController(options = {}) {
         markSceneChanged,
     });
 }
-

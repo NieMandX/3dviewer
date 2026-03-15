@@ -5,6 +5,7 @@ export function createInspectorPanels(options = {}) {
     const materialsUi = createMaterialsUI({
         world: options.world,
         loadedModels: options.loadedModels,
+        sceneIndex: options.sceneIndex,
         outEl: options.outEl,
         matSelect: options.matSelect,
         requestRender: options.requestRender,
@@ -52,4 +53,3 @@ export function createInspectorPanels(options = {}) {
         syncCollisionButtons,
     });
 }
-
