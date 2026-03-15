@@ -18,6 +18,7 @@ drop table if exists public.user_roles cascade;
 drop function if exists public.release_camera(uuid);
 drop function if exists public.claim_camera(uuid);
 drop function if exists public.join_project_by_slug(text);
+drop function if exists public.join_project_by_slug(text, text);
 drop function if exists public.add_project_owner_member();
 drop function if exists public.set_updated_at();
 drop function if exists public.is_registered_user();
@@ -276,7 +277,7 @@ create index if not exists rooms_project_idx
 create index if not exists room_models_room_idx
     on public.room_models (room_id, sort_order);
 
-create or replace function public.join_project_by_slug(project_slug text)
+create or replace function public.join_project_by_slug(project_slug text, room_slug text)
 returns public.projects
 language plpgsql
 security definer
@@ -288,9 +289,22 @@ begin
     if auth.uid() is null then
         raise exception 'not authenticated';
     end if;
-    select * into proj from public.projects where slug = project_slug limit 1;
+    if coalesce(trim(room_slug), '') = '' then
+        raise exception 'room slug required';
+    end if;
+    select p.*
+    into proj
+    from public.projects p
+    where p.slug = project_slug
+      and exists (
+          select 1
+          from public.rooms r
+          where r.project_id = p.id
+            and r.slug = room_slug
+      )
+    limit 1;
     if proj.id is null then
-        raise exception 'project not found';
+        raise exception 'project room link not found';
     end if;
     insert into public.project_members (project_id, user_id, role)
     values (proj.id, auth.uid(), 'member')
@@ -344,10 +358,10 @@ begin
 end;
 $$;
 
-revoke all on function public.join_project_by_slug(text) from public;
+revoke all on function public.join_project_by_slug(text, text) from public;
 revoke all on function public.claim_camera(uuid) from public;
 revoke all on function public.release_camera(uuid) from public;
-grant execute on function public.join_project_by_slug(text) to authenticated;
+grant execute on function public.join_project_by_slug(text, text) to authenticated;
 grant execute on function public.claim_camera(uuid) to authenticated;
 grant execute on function public.release_camera(uuid) to authenticated;
 grant execute on function public.is_registered_user() to authenticated;

@@ -1189,6 +1189,21 @@ class ViewerApp {
             return cleaned || '';
         }
 
+        function isMissingJoinProjectRpcSignature(error) {
+            const code = String(error?.code || '').trim();
+            const message = `${error?.message || ''} ${error?.details || ''}`.trim();
+            return (
+                code === 'PGRST202'
+                || (
+                    message.includes('join_project_by_slug')
+                    && (
+                        message.includes('Could not find the function')
+                        || message.includes('No function matches')
+                    )
+                )
+            );
+        }
+
         function setCollabControlsDisabled(disabled) {
             const targets = [
                 collabProjectSelectEl,
@@ -1246,6 +1261,7 @@ class ViewerApp {
 
         async function teardownCollabSession(options = {}) {
             const preserveAutoResume = !!options?.preserveAutoResume;
+            const previousRoomId = String(collabController?.room?.id || collabRoom?.id || '');
             stopPresenceRefresh();
             cameraSync?.dispose?.();
             cameraSync = null;
@@ -1295,6 +1311,7 @@ class ViewerApp {
             collabContributors.clear();
             if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
 
+            cleanupRoomScopedAssets(previousRoomId);
             roomModelCount = 0;
             roomCameraCount = 0;
             activeRoomModelId = '';
@@ -1922,7 +1939,8 @@ class ViewerApp {
             if (!requireRegistered()) return;
             let trimmed = String(nameOverride || '').trim();
             if (!trimmed) return;
-            const baseSlug = slugifyName(trimmed) || makeSlug(6);
+            const nameSlug = slugifyName(trimmed);
+            const baseSlug = nameSlug ? `${nameSlug}-${makeSlug(10)}` : makeSlug(12);
             let nextSlug = baseSlug;
             let created = null;
             for (let i = 0; i < 3; i += 1) {
@@ -1939,7 +1957,7 @@ class ViewerApp {
                     created = data;
                     break;
                 }
-                nextSlug = `${baseSlug}-${makeSlug(4)}`;
+                nextSlug = nameSlug ? `${nameSlug}-${makeSlug(12)}` : makeSlug(12);
             }
             if (!created) return;
             if (!created.owner_id) created.owner_id = collabUser.id;
@@ -2023,19 +2041,7 @@ class ViewerApp {
                 .limit(1)
                 .maybeSingle();
             if (findError) throw findError;
-            if (existing) return existing;
-            if (!collabIsRegistered) return null;
-            const { data: created, error } = await collabSupabase
-                .from('rooms')
-                .insert({
-                    project_id: projectId,
-                    slug,
-                    owner_id: collabUser?.id,
-                })
-                .select('id, slug, project_id, owner_id, created_at')
-                .single();
-            if (error) throw error;
-            return created;
+            return existing || null;
         }
 
         async function connectToRoom(name, options = {}) {
@@ -2269,24 +2275,34 @@ class ViewerApp {
 
                 const projectSlug = getProjectSlugFromUrl();
                 const roomSlug = getRoomSlugFromUrl();
-                if (projectSlug) {
-                    const joinedProject = await collabSupabase.rpc('join_project_by_slug', { project_slug: projectSlug });
+                if (projectSlug && roomSlug) {
+                    let joinedProject = await collabSupabase.rpc('join_project_by_slug', {
+                        project_slug: projectSlug,
+                        room_slug: roomSlug,
+                    });
+                    if (joinedProject.error && isMissingJoinProjectRpcSignature(joinedProject.error)) {
+                        joinedProject = await collabSupabase.rpc('join_project_by_slug', {
+                            project_slug: projectSlug,
+                        });
+                    }
                     if (joinedProject.error) throw joinedProject.error;
                     collabProject = joinedProject.data;
                     await loadProjects();
                     await loadRooms(collabProject.id);
-                    if (roomSlug) {
-                        const room = await ensureRoomBySlug(collabProject.id, roomSlug);
-                        if (!room) {
-                            setCollabStatus('room missing');
-                            return;
-                        }
-                        collabRoom = room;
-                        await loadRooms(collabProject.id);
-                        updateAdminControls();
-                        await connectToRoom(displayName || 'Guest');
+                    const room = await ensureRoomBySlug(collabProject.id, roomSlug);
+                    if (!room) {
+                        setCollabStatus('room missing');
+                        setAuthError('Комната по ссылке не найдена.');
                         return;
                     }
+                    collabRoom = room;
+                    await loadRooms(collabProject.id);
+                    updateAdminControls();
+                    await connectToRoom(displayName || 'Guest');
+                    return;
+                }
+                if (projectSlug && !roomSlug) {
+                    setAuthError('Для входа по ссылке нужна полная ссылка комнаты.');
                 }
 
                 await loadProjects();
@@ -2788,15 +2804,164 @@ class ViewerApp {
         /**
          * Все загруженные модели (FBX) в рамках текущей сессии.
          * Храним объект сцены, имя файла и дополнительную мета-информацию.
-         * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson? }
+         * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson?, scope? }
          */
         const loadedModels = app.loadedModels = [];
 
         /**
          * Список всех изображений, извлечённых из FBX или ZIP (включая embedded).
          * Используется для автопривязки материалов и галереи текстур.
+         * Элементы могут быть привязаны к scope комнаты, чтобы чистить их при room switch.
          */
         const allEmbedded  = app.allEmbedded  = [];
+
+        function cloneImportScope(scope) {
+            if (!scope || typeof scope !== 'object') return null;
+            return { ...scope };
+        }
+
+        function scopeMatchesRoom(scope, roomId) {
+            if (!scope || typeof scope !== 'object') return false;
+            if (scope.kind !== 'room') return false;
+            if (!roomId) return true;
+            return String(scope.roomId || '') === String(roomId);
+        }
+
+        function scopeMatchesRoomModel(scope, roomId, modelId) {
+            if (!scopeMatchesRoom(scope, roomId)) return false;
+            if (!modelId) return true;
+            return String(scope.modelId || '') === String(modelId);
+        }
+
+        function assignImportScopeToRange({ modelStart = 0, embeddedStart = 0, scope = null } = {}) {
+            const nextScope = cloneImportScope(scope);
+            if (!nextScope) return;
+
+            for (let i = Math.max(0, modelStart); i < loadedModels.length; i += 1) {
+                const record = loadedModels[i];
+                if (!record || record.scope) continue;
+                record.scope = cloneImportScope(nextScope);
+                if (record.obj?.userData) {
+                    record.obj.userData.importScope = cloneImportScope(nextScope);
+                }
+            }
+
+            for (let i = Math.max(0, embeddedStart); i < allEmbedded.length; i += 1) {
+                const entry = allEmbedded[i];
+                if (!entry || entry.scope) continue;
+                entry.scope = cloneImportScope(nextScope);
+            }
+        }
+
+        async function runImportWithScope(scope, loadFn) {
+            const modelStart = loadedModels.length;
+            const embeddedStart = allEmbedded.length;
+            try {
+                return await loadFn();
+            } finally {
+                assignImportScopeToRange({ modelStart, embeddedStart, scope });
+            }
+        }
+
+        function revokeEmbeddedEntryUrl(entry) {
+            const url = String(entry?.url || '').trim();
+            if (!url || !url.startsWith('blob:')) return;
+            try {
+                URL.revokeObjectURL(url);
+            } catch (_) {}
+        }
+
+        function disposeImportedObjectTree(root) {
+            if (!root) return;
+            const disposedGeometries = new Set();
+            const disposedMaterials = new Set();
+            const disposedTextures = new Set();
+            const sharedTextures = new Set();
+            if (scene?.environment?.isTexture) sharedTextures.add(scene.environment);
+            if (scene?.background?.isTexture) sharedTextures.add(scene.background);
+
+            const disposeMaterial = (material) => {
+                if (!material || disposedMaterials.has(material)) return;
+                disposedMaterials.add(material);
+                Object.values(material).forEach((value) => {
+                    if (!value?.isTexture || sharedTextures.has(value) || disposedTextures.has(value)) return;
+                    disposedTextures.add(value);
+                    value.dispose?.();
+                });
+                material.dispose?.();
+            };
+
+            root.traverse?.((child) => {
+                const geometry = child?.geometry || null;
+                if (geometry?.dispose && !disposedGeometries.has(geometry) && child?.isSprite !== true) {
+                    disposedGeometries.add(geometry);
+                    geometry.dispose();
+                }
+                if (!child?.material) return;
+                if (Array.isArray(child.material)) {
+                    child.material.forEach((material) => disposeMaterial(material));
+                } else {
+                    disposeMaterial(child.material);
+                }
+            });
+        }
+
+        function cleanupRoomModelScopedAssets({ roomId = '', modelId = '' } = {}) {
+            const targetRoomId = roomId ? String(roomId) : '';
+            const targetModelId = modelId ? String(modelId) : '';
+            const roomModelRecords = loadedModels.filter((record) => (
+                scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId)
+            ));
+            const roomTextureEntries = allEmbedded.filter((entry) => (
+                scopeMatchesRoomModel(entry?.scope, targetRoomId, targetModelId)
+            ));
+            if (!roomModelRecords.length && !roomTextureEntries.length) {
+                if (targetModelId) {
+                    loadedRoomModelIds.delete(targetModelId);
+                    if (activeRoomModelId === targetModelId) activeRoomModelId = '';
+                }
+                return false;
+            }
+
+            roomModelRecords.forEach((record) => {
+                const obj = record?.obj || null;
+                if (obj?.parent?.remove) {
+                    try {
+                        obj.parent.remove(obj);
+                    } catch (_) {}
+                }
+                disposeImportedObjectTree(obj);
+            });
+
+            if (roomModelRecords.length) {
+                const keptModels = loadedModels.filter((record) => !scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId));
+                loadedModels.splice(0, loadedModels.length, ...keptModels);
+                lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
+            }
+
+            if (roomTextureEntries.length) {
+                roomTextureEntries.forEach((entry) => revokeEmbeddedEntryUrl(entry));
+                const keptEntries = allEmbedded.filter((entry) => !scopeMatchesRoomModel(entry?.scope, targetRoomId, targetModelId));
+                allEmbedded.splice(0, allEmbedded.length, ...keptEntries);
+                galleryNeedsRefresh = false;
+                renderGallery(allEmbedded);
+            }
+
+            if (targetModelId) {
+                loadedRoomModelIds.delete(targetModelId);
+                if (activeRoomModelId === targetModelId) activeRoomModelId = '';
+            }
+
+            markSceneStatsDirty();
+            schedulePanelRefresh();
+            setEmptyHintVisible(loadedModels.length === 0 && !isRoomEntryLandingActive());
+            requestRender();
+            return true;
+        }
+
+        function cleanupRoomScopedAssets(roomId) {
+            return cleanupRoomModelScopedAssets({ roomId });
+        }
 
         /**
          * Стек для операций «отмены» при ручной привязке текстур.
@@ -3395,12 +3560,12 @@ class ViewerApp {
         }
 
         async function handleFBXFile(file) {
-            await rawHandleFBXFile(file);
+            await runImportWithScope({ kind: 'local' }, () => rawHandleFBXFile(file));
             queueLocalModelFile(file);
         }
 
         async function handleZIPFile(file) {
-            await rawHandleZIPFile(file);
+            await runImportWithScope({ kind: 'local' }, () => rawHandleZIPFile(file));
             queueLocalModelFile(file);
         }
 
@@ -3727,10 +3892,15 @@ class ViewerApp {
                 isRemoteModelLoad = true;
                 pendingLocalModelFiles.length = 0;
                 pendingLocalModelKeys.clear();
+                const roomImportScope = {
+                    kind: 'room',
+                    roomId: collabController?.room?.id || '',
+                    modelId: model.id,
+                };
                 if (kind === 'fbx') {
-                    await rawHandleFBXFile(file);
+                    await runImportWithScope(roomImportScope, () => rawHandleFBXFile(file));
                 } else {
-                    await rawHandleZIPFile(file);
+                    await runImportWithScope(roomImportScope, () => rawHandleZIPFile(file));
                 }
                 await finalizeBatchAfterAllFiles();
                 loadedRoomModelIds.add(model.id);
@@ -3764,8 +3934,21 @@ class ViewerApp {
                     roomModelsChannel = collabController.supabase.channel(`room:${collabController.room.id}:models`);
                     roomModelsChannel.on(
                         'postgres_changes',
-                        { event: 'INSERT', schema: 'public', table: 'room_models', filter: `room_id=eq.${collabController.room.id}` },
+                        { event: '*', schema: 'public', table: 'room_models', filter: `room_id=eq.${collabController.room.id}` },
                         async (payload) => {
+                            const eventType = String(payload?.eventType || '').toUpperCase();
+                            if (eventType === 'DELETE') {
+                                const deletedRow = payload.old;
+                                if (!deletedRow?.model_id) return;
+                                roomModelCount = Math.max(0, roomModelCount - 1);
+                                cleanupRoomModelScopedAssets({
+                                    roomId: collabController?.room?.id || '',
+                                    modelId: deletedRow.model_id,
+                                });
+                                return;
+                            }
+                            if (eventType !== 'INSERT') return;
+
                             const row = payload.new;
                             if (!row?.model_id) return;
                             roomModelCount += 1;

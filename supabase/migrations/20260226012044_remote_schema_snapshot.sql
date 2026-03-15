@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS "public"."projects" (
 ALTER TABLE "public"."projects" OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."join_project_by_slug"("project_slug" "text") RETURNS "public"."projects"
+CREATE OR REPLACE FUNCTION "public"."join_project_by_slug"("project_slug" "text", "room_slug" "text") RETURNS "public"."projects"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
@@ -195,9 +195,22 @@ begin
     if auth.uid() is null then
         raise exception 'not authenticated';
     end if;
-    select * into proj from public.projects where slug = project_slug limit 1;
+    if coalesce(trim(room_slug), '') = '' then
+        raise exception 'room slug required';
+    end if;
+    select p.*
+    into proj
+    from public.projects p
+    where p.slug = project_slug
+      and exists (
+          select 1
+          from public.rooms r
+          where r.project_id = p.id
+            and r.slug = room_slug
+      )
+    limit 1;
     if proj.id is null then
-        raise exception 'project not found';
+        raise exception 'project room link not found';
     end if;
     insert into public.project_members (project_id, user_id, role)
     values (proj.id, auth.uid(), 'member')
@@ -207,7 +220,7 @@ end;
 $$;
 
 
-ALTER FUNCTION "public"."join_project_by_slug"("project_slug" "text") OWNER TO "postgres";
+ALTER FUNCTION "public"."join_project_by_slug"("project_slug" "text", "room_slug" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."release_camera"("room_id" "uuid") RETURNS "void"
@@ -1075,10 +1088,9 @@ GRANT ALL ON TABLE "public"."projects" TO "service_role";
 
 
 
-REVOKE ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text") FROM PUBLIC;
-GRANT ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text") TO "service_role";
+REVOKE ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text", "room_slug" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text", "room_slug" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text", "room_slug" "text") TO "service_role";
 
 
 
@@ -1249,5 +1261,4 @@ using ((bucket_id = 'models'::text));
   for insert
   to authenticated
 with check ((bucket_id = 'models'::text));
-
 
