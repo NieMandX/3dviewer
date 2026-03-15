@@ -129,9 +129,14 @@ begin
         return old;
     end if;
 
-    delete from storage.objects
-    where bucket_id = bucket
-      and name = object_name;
+    begin
+        delete from storage.objects
+        where bucket_id = bucket
+          and name = object_name;
+    exception
+        when insufficient_privilege then
+            null;
+    end;
 
     return old;
 end;
@@ -1402,3 +1407,14 @@ using ((bucket_id = 'models'::text));
   for insert
   to authenticated
 with check ((bucket_id = 'models'::text));
+
+
+
+  create policy "models_delete"
+  on "storage"."objects"
+  as permissive
+  for delete
+  to authenticated
+using (((bucket_id = 'models'::text) AND ("public"."is_superuser"() OR (COALESCE((owner_id)::text, ''::text) = (auth.uid())::text) OR ((COALESCE(array_length(storage.foldername(name), 1), 0) >= 2) AND ((storage.foldername(name))[1] = 'projects'::text) AND (EXISTS ( SELECT 1
+   FROM public.project_members pm
+  WHERE ((pm.user_id = auth.uid()) AND ((pm.project_id)::text = (storage.foldername(name))[2]))))))));

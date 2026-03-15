@@ -1402,6 +1402,7 @@ class ViewerApp {
             });
             if (!confirmed) return;
             try {
+                await cleanupProjectStorageObjects(projectId);
                 const { error } = await collabSupabase.from('projects').delete().eq('id', projectId);
                 if (error) throw error;
                 if (collabController?.project?.id === projectId) {
@@ -3899,14 +3900,41 @@ class ViewerApp {
         async function cleanupUploadedModelObject(path) {
             if (!collabController || !path) return;
             try {
-                const bucket = collabController.supabase.storage.from('models');
-                const { error } = await bucket.remove([path]);
-                if (error) {
-                    console.error('Model storage cleanup failed', error);
-                }
+                await removeModelStorageObjects([path], collabController.supabase);
             } catch (err) {
                 console.error('Model storage cleanup failed', err);
             }
+        }
+
+        async function removeModelStorageObjects(paths, supabaseClient = collabSupabase) {
+            if (!supabaseClient) return;
+            const uniquePaths = Array.from(new Set(
+                (Array.isArray(paths) ? paths : [])
+                    .map((path) => String(path || '').trim().replace(/^\/+/, ''))
+                    .filter(Boolean)
+            ));
+            if (!uniquePaths.length) return;
+            const bucket = supabaseClient.storage.from('models');
+            const chunkSize = 100;
+            for (let index = 0; index < uniquePaths.length; index += chunkSize) {
+                const chunk = uniquePaths.slice(index, index + chunkSize);
+                const { error } = await bucket.remove(chunk);
+                if (error) throw error;
+            }
+        }
+
+        async function cleanupProjectStorageObjects(projectId) {
+            if (!collabSupabase || !projectId) return;
+            const { data: models, error } = await collabSupabase
+                .from('project_models')
+                .select('url, meta')
+                .eq('project_id', projectId);
+            if (error) throw error;
+            const paths = (Array.isArray(models) ? models : [])
+                .map((model) => getProjectModelStoragePath(model))
+                .filter(Boolean);
+            if (!paths.length) return;
+            await removeModelStorageObjects(paths, collabSupabase);
         }
 
         async function cleanupSyncedModelArtifacts({ modelRowId = '', uploadedPath = '' } = {}) {

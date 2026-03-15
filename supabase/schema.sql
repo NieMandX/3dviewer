@@ -85,9 +85,14 @@ begin
         return old;
     end if;
 
-    delete from storage.objects
-    where bucket_id = bucket
-      and name = object_name;
+    begin
+        delete from storage.objects
+        where bucket_id = bucket
+          and name = object_name;
+    exception
+        when insufficient_privilege then
+            null;
+    end;
 
     return old;
 end;
@@ -956,13 +961,39 @@ on conflict do nothing;
 -- alter publication supabase_realtime add table public.annotations;
 -- alter publication supabase_realtime add table public.messages;
 
--- Storage (optional): private bucket for model files.
--- insert into storage.buckets (id, name, public)
--- values ('models', 'models', false)
--- on conflict (id) do nothing;
--- create policy "models_upload" on storage.objects
--- for insert to authenticated
--- with check (bucket_id = 'models');
--- create policy "models_read" on storage.objects
--- for select to authenticated
--- using (bucket_id = 'models');
+-- Storage: private bucket for model files.
+insert into storage.buckets (id, name, public)
+values ('models', 'models', false)
+on conflict (id) do update
+set public = excluded.public;
+
+drop policy if exists "models_upload" on storage.objects;
+create policy "models_upload" on storage.objects
+for insert to authenticated
+with check (bucket_id = 'models');
+
+drop policy if exists "models_read" on storage.objects;
+create policy "models_read" on storage.objects
+for select to authenticated
+using (bucket_id = 'models');
+
+drop policy if exists "models_delete" on storage.objects;
+create policy "models_delete" on storage.objects
+for delete to authenticated
+using (
+    bucket_id = 'models'
+    and (
+        public.is_superuser()
+        or coalesce(owner_id::text, '') = auth.uid()::text
+        or (
+            coalesce(array_length(storage.foldername(name), 1), 0) >= 2
+            and (storage.foldername(name))[1] = 'projects'
+            and exists (
+                select 1
+                from public.project_members pm
+                where pm.user_id = auth.uid()
+                  and pm.project_id::text = (storage.foldername(name))[2]
+            )
+        )
+    )
+);
