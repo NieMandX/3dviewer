@@ -223,6 +223,94 @@ $$;
 ALTER FUNCTION "public"."join_project_by_slug"("project_slug" "text", "room_slug" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."ensure_room_invite"("room_id" "uuid") RETURNS TABLE("token" "text")
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+    room_row public.rooms;
+    invite_row public.room_invites;
+begin
+    if auth.uid() is null then
+        raise exception 'not authenticated';
+    end if;
+
+    select r.*
+    into room_row
+    from public.rooms r
+    where r.id = room_id
+      and exists (
+          select 1
+          from public.project_members pm
+          where pm.project_id = r.project_id
+            and pm.user_id = auth.uid()
+      )
+    limit 1;
+
+    if room_row.id is null then
+        raise exception 'room not found';
+    end if;
+
+    select ri.*
+    into invite_row
+    from public.room_invites ri
+    where ri.room_id = room_row.id
+    limit 1;
+
+    if invite_row.room_id is null then
+        insert into public.room_invites (room_id, project_id, token, created_by)
+        values (room_row.id, room_row.project_id, encode(gen_random_bytes(24), 'hex'), auth.uid())
+        returning * into invite_row;
+    end if;
+
+    return query
+    select invite_row.token;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."ensure_room_invite"("room_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."join_room_by_invite"("invite_token" "text") RETURNS "public"."rooms"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+    room_row public.rooms;
+begin
+    if auth.uid() is null then
+        raise exception 'not authenticated';
+    end if;
+    if coalesce(trim(invite_token), '') = '' then
+        raise exception 'invite token required';
+    end if;
+
+    select r.*
+    into room_row
+    from public.room_invites ri
+    join public.rooms r
+      on r.id = ri.room_id
+     and r.project_id = ri.project_id
+    where ri.token = trim(invite_token)
+    limit 1;
+
+    if room_row.id is null then
+        raise exception 'room invite not found';
+    end if;
+
+    insert into public.project_members (project_id, user_id, role)
+    values (room_row.project_id, auth.uid(), 'member')
+    on conflict do nothing;
+
+    return room_row;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."join_room_by_invite"("invite_token" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."release_camera"("room_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -389,6 +477,19 @@ CREATE TABLE IF NOT EXISTS "public"."rooms" (
 ALTER TABLE "public"."rooms" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."room_invites" (
+    "room_id" "uuid" NOT NULL,
+    "project_id" "uuid" NOT NULL,
+    "token" "text" NOT NULL,
+    "created_by" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."room_invites" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."user_roles" (
     "user_id" "uuid" NOT NULL,
     "role" "text" NOT NULL,
@@ -468,6 +569,14 @@ ALTER TABLE ONLY "public"."rooms"
     ADD CONSTRAINT "rooms_project_id_slug_key" UNIQUE ("project_id", "slug");
 
 
+ALTER TABLE ONLY "public"."room_invites"
+    ADD CONSTRAINT "room_invites_pkey" PRIMARY KEY ("room_id");
+
+
+ALTER TABLE ONLY "public"."room_invites"
+    ADD CONSTRAINT "room_invites_token_key" UNIQUE ("token");
+
+
 
 ALTER TABLE ONLY "public"."user_roles"
     ADD CONSTRAINT "user_roles_pkey" PRIMARY KEY ("user_id", "role");
@@ -487,6 +596,9 @@ CREATE INDEX "project_models_project_idx" ON "public"."project_models" USING "bt
 
 
 CREATE INDEX "room_models_room_idx" ON "public"."room_models" USING "btree" ("room_id", "sort_order");
+
+
+CREATE INDEX "room_invites_project_idx" ON "public"."room_invites" USING "btree" ("project_id", "created_at");
 
 
 
@@ -511,6 +623,9 @@ CREATE OR REPLACE TRIGGER "projects_updated_at" BEFORE UPDATE ON "public"."proje
 
 
 CREATE OR REPLACE TRIGGER "room_cameras_updated_at" BEFORE UPDATE ON "public"."room_cameras" FOR EACH ROW EXECUTE FUNCTION "public"."set_updated_at"();
+
+
+CREATE OR REPLACE TRIGGER "room_invites_updated_at" BEFORE UPDATE ON "public"."room_invites" FOR EACH ROW EXECUTE FUNCTION "public"."set_updated_at"();
 
 
 
@@ -575,6 +690,14 @@ ALTER TABLE ONLY "public"."room_models"
 
 ALTER TABLE ONLY "public"."room_models"
     ADD CONSTRAINT "room_models_room_id_project_id_fkey" FOREIGN KEY ("room_id", "project_id") REFERENCES "public"."rooms"("id", "project_id") ON DELETE CASCADE;
+
+
+ALTER TABLE ONLY "public"."room_invites"
+    ADD CONSTRAINT "room_invites_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+ALTER TABLE ONLY "public"."room_invites"
+    ADD CONSTRAINT "room_invites_room_id_project_id_fkey" FOREIGN KEY ("room_id", "project_id") REFERENCES "public"."rooms"("id", "project_id") ON DELETE CASCADE;
 
 
 
@@ -788,6 +911,9 @@ CREATE POLICY "room_cameras_update" ON "public"."room_cameras" FOR UPDATE TO "au
      JOIN "public"."project_members" "pm" ON (("pm"."project_id" = "r"."project_id")))
   WHERE (("r"."id" = "room_cameras"."room_id") AND ("pm"."user_id" = "auth"."uid"())))));
 
+
+
+ALTER TABLE "public"."room_invites" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."room_models" ENABLE ROW LEVEL SECURITY;
@@ -1093,6 +1219,16 @@ GRANT ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text", "ro
 GRANT ALL ON FUNCTION "public"."join_project_by_slug"("project_slug" "text", "room_slug" "text") TO "service_role";
 
 
+REVOKE ALL ON FUNCTION "public"."ensure_room_invite"("room_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."ensure_room_invite"("room_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."ensure_room_invite"("room_id" "uuid") TO "service_role";
+
+
+REVOKE ALL ON FUNCTION "public"."join_room_by_invite"("invite_token" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."join_room_by_invite"("invite_token" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."join_room_by_invite"("invite_token" "text") TO "service_role";
+
+
 
 REVOKE ALL ON FUNCTION "public"."release_camera"("room_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."release_camera"("room_id" "uuid") TO "anon";
@@ -1155,6 +1291,11 @@ GRANT ALL ON TABLE "public"."project_models" TO "service_role";
 GRANT ALL ON TABLE "public"."room_cameras" TO "anon";
 GRANT ALL ON TABLE "public"."room_cameras" TO "authenticated";
 GRANT ALL ON TABLE "public"."room_cameras" TO "service_role";
+
+
+GRANT ALL ON TABLE "public"."room_invites" TO "anon";
+GRANT ALL ON TABLE "public"."room_invites" TO "authenticated";
+GRANT ALL ON TABLE "public"."room_invites" TO "service_role";
 
 
 
@@ -1261,4 +1402,3 @@ using ((bucket_id = 'models'::text));
   for insert
   to authenticated
 with check ((bucket_id = 'models'::text));
-

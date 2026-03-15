@@ -741,9 +741,7 @@ class ViewerApp {
         }
 
         function getInitialAuthMode() {
-            const hasProject = !!getProjectSlugFromUrl();
-            const hasRoom = !!getRoomSlugFromUrl();
-            return hasProject && hasRoom ? 'roomEntry' : 'initial';
+            return hasRoomEntryLinkInUrl() ? 'roomEntry' : 'initial';
         }
 
         function setAuthMode(mode) {
@@ -792,7 +790,7 @@ class ViewerApp {
         }
 
         function canGuestEnter() {
-            return !!getProjectSlugFromUrl() && !!getRoomSlugFromUrl();
+            return hasRoomEntryLinkInUrl();
         }
 
         function isRoomEntryLandingActive() {
@@ -854,6 +852,8 @@ class ViewerApp {
         let collabIsSuperuser = false;
         let collabProject = null;
         let collabRoom = null;
+        let collabRoomInviteToken = '';
+        let collabRoomInviteRoomId = '';
         let collabProjects = [];
         let collabRooms = [];
         let collabOwnerId = null;
@@ -1145,7 +1145,20 @@ class ViewerApp {
             }
         }
 
-        function setRoomSlugInUrl(projectSlug, roomSlug) {
+        function getInviteTokenFromUrl() {
+            try {
+                const url = new URL(window.location.href);
+                return String(url.searchParams.get('invite') || '').trim();
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function hasRoomEntryLinkInUrl() {
+            return !!getInviteTokenFromUrl() || (!!getProjectSlugFromUrl() && !!getRoomSlugFromUrl());
+        }
+
+        function buildRoomLinkUrl(projectSlug, roomSlug, inviteToken = '') {
             try {
                 const url = new URL(window.location.href);
                 if (projectSlug) {
@@ -1158,8 +1171,24 @@ class ViewerApp {
                 } else {
                     url.searchParams.delete('room');
                 }
-                window.history.replaceState({}, '', url.toString());
+                if (inviteToken) {
+                    url.searchParams.set('invite', inviteToken);
+                } else {
+                    url.searchParams.delete('invite');
+                }
                 return url.toString();
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function setRoomSlugInUrl(projectSlug, roomSlug, inviteToken = '', options = {}) {
+            try {
+                const nextUrl = buildRoomLinkUrl(projectSlug, roomSlug, inviteToken);
+                if (nextUrl && options?.replaceHistory !== false) {
+                    window.history.replaceState({}, '', nextUrl);
+                }
+                return nextUrl;
             } catch (_) {
                 return '';
             }
@@ -1190,19 +1219,47 @@ class ViewerApp {
             return cleaned || '';
         }
 
-        function isMissingJoinProjectRpcSignature(error) {
+        function isMissingRpcSignature(error, functionName) {
             const code = String(error?.code || '').trim();
             const message = `${error?.message || ''} ${error?.details || ''}`.trim();
             return (
                 code === 'PGRST202'
                 || (
-                    message.includes('join_project_by_slug')
+                    message.includes(functionName)
                     && (
                         message.includes('Could not find the function')
                         || message.includes('No function matches')
                     )
                 )
             );
+        }
+
+        function isMissingJoinProjectRpcSignature(error) {
+            return isMissingRpcSignature(error, 'join_project_by_slug');
+        }
+
+        function isMissingJoinRoomInviteRpcSignature(error) {
+            return isMissingRpcSignature(error, 'join_room_by_invite');
+        }
+
+        function isMissingEnsureRoomInviteRpcSignature(error) {
+            return isMissingRpcSignature(error, 'ensure_room_invite');
+        }
+
+        function clearRoomInviteTokenState() {
+            collabRoomInviteToken = '';
+            collabRoomInviteRoomId = '';
+        }
+
+        function setRoomInviteTokenState(token, roomId) {
+            collabRoomInviteToken = String(token || '').trim();
+            collabRoomInviteRoomId = String(roomId || '').trim();
+        }
+
+        function getRoomInviteTokenState(roomId) {
+            const safeRoomId = String(roomId || '').trim();
+            if (!safeRoomId || collabRoomInviteRoomId !== safeRoomId) return '';
+            return String(collabRoomInviteToken || '').trim();
         }
 
         function setCollabControlsDisabled(disabled) {
@@ -1353,6 +1410,7 @@ class ViewerApp {
                 if (collabProject?.id === projectId) {
                     collabProject = null;
                     collabRoom = null;
+                    clearRoomInviteTokenState();
                     setRoomSlugInUrl('', '');
                 }
                 await loadProjects();
@@ -1385,6 +1443,7 @@ class ViewerApp {
                 }
                 if (collabRoom?.id === roomId) {
                     collabRoom = null;
+                    clearRoomInviteTokenState();
                     setRoomSlugInUrl(collabProject?.slug || '', '');
                 }
                 if (collabProject) {
@@ -1963,6 +2022,8 @@ class ViewerApp {
             if (!created) return;
             if (!created.owner_id) created.owner_id = collabUser.id;
             collabProject = created;
+            collabRoom = null;
+            clearRoomInviteTokenState();
             await loadProjects();
             await loadRooms(created.id);
             updateAdminControls();
@@ -1996,6 +2057,7 @@ class ViewerApp {
             if (!created) return;
             if (!created.owner_id) created.owner_id = collabUser.id;
             collabRoom = created;
+            clearRoomInviteTokenState();
             await loadRooms(collabProject.id);
             if (collabAuthed && !collabController) {
                 await connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
@@ -2045,6 +2107,74 @@ class ViewerApp {
             return existing || null;
         }
 
+        async function fetchProjectById(projectId) {
+            if (!collabSupabase || !projectId) return null;
+            const { data, error } = await collabSupabase
+                .from('projects')
+                .select('id, name, slug, owner_id, created_at')
+                .eq('id', projectId)
+                .limit(1)
+                .maybeSingle();
+            if (error) throw error;
+            return data || null;
+        }
+
+        async function fetchRoomById(roomId) {
+            if (!collabSupabase || !roomId) return null;
+            const { data, error } = await collabSupabase
+                .from('rooms')
+                .select('id, slug, project_id, owner_id, created_at')
+                .eq('id', roomId)
+                .limit(1)
+                .maybeSingle();
+            if (error) throw error;
+            return data || null;
+        }
+
+        async function ensureRoomInviteToken(roomId) {
+            const safeRoomId = String(roomId || '').trim();
+            if (!collabSupabase || !safeRoomId) return '';
+            const cachedToken = getRoomInviteTokenState(safeRoomId);
+            if (cachedToken) return cachedToken;
+
+            const result = await collabSupabase.rpc('ensure_room_invite', {
+                room_id: safeRoomId,
+            });
+            if (result.error) {
+                if (isMissingEnsureRoomInviteRpcSignature(result.error)) return '';
+                throw result.error;
+            }
+            const payload = Array.isArray(result.data) ? result.data[0] : result.data;
+            const token = String(payload?.token || payload?.invite_token || '').trim();
+            if (token) {
+                setRoomInviteTokenState(token, safeRoomId);
+            }
+            return token;
+        }
+
+        async function refreshRoomShareLink(options = {}) {
+            const updateHistory = !!options?.updateHistory;
+            if (!collabProject || !collabRoom) {
+                if (collabRoomLinkEl) collabRoomLinkEl.value = '';
+                return '';
+            }
+
+            let inviteToken = getRoomInviteTokenState(collabRoom.id);
+            if (!inviteToken && collabAuthed && collabSupabase) {
+                try {
+                    inviteToken = await ensureRoomInviteToken(collabRoom.id);
+                } catch (err) {
+                    console.error('Room invite fetch failed', err);
+                }
+            }
+
+            const shareUrl = updateHistory
+                ? setRoomSlugInUrl(collabProject.slug, collabRoom.slug, inviteToken)
+                : buildRoomLinkUrl(collabProject.slug, collabRoom.slug, inviteToken);
+            if (collabRoomLinkEl) collabRoomLinkEl.value = shareUrl;
+            return shareUrl;
+        }
+
         async function connectToRoom(name, options = {}) {
             if (!collabSupabase || !collabUser || !collabProject || !collabRoom) return;
             const isAutoReconnect = !!options?.isAutoReconnect;
@@ -2089,8 +2219,7 @@ class ViewerApp {
                     onRoomReady: ({ project, room }) => {
                         collabProject = project || collabProject;
                         collabRoom = room || collabRoom;
-                        const shareUrl = setRoomSlugInUrl(collabProject?.slug, collabRoom?.slug);
-                        if (collabRoomLinkEl) collabRoomLinkEl.value = shareUrl;
+                        void refreshRoomShareLink({ updateHistory: true });
                         updateCollabFooter();
                     },
                     onParticipants: (list) => {
@@ -2274,9 +2403,48 @@ class ViewerApp {
                 setCollabCreateEnabled(collabIsRegistered);
                 updateCollabFooter();
 
+                const inviteToken = getInviteTokenFromUrl();
                 const projectSlug = getProjectSlugFromUrl();
                 const roomSlug = getRoomSlugFromUrl();
+                if (inviteToken) {
+                    let joinedRoom = await collabSupabase.rpc('join_room_by_invite', {
+                        invite_token: inviteToken,
+                    });
+                    if (joinedRoom.error && isMissingJoinRoomInviteRpcSignature(joinedRoom.error)) {
+                        if (!projectSlug || !roomSlug) {
+                            throw new Error('Invite links are not enabled on the server yet.');
+                        }
+                    } else if (joinedRoom.error) {
+                        throw joinedRoom.error;
+                    }
+                    if (!joinedRoom.error) {
+                        const roomFromInvite = Array.isArray(joinedRoom.data) ? joinedRoom.data[0] : joinedRoom.data;
+                        if (!roomFromInvite?.id) {
+                            setCollabStatus('room missing');
+                            setAuthError('Комната по ссылке не найдена.');
+                            return;
+                        }
+                        collabRoom = roomFromInvite;
+                        setRoomInviteTokenState(inviteToken, roomFromInvite.id);
+                        collabProject = await fetchProjectById(roomFromInvite.project_id);
+                        if (!collabProject) {
+                            setCollabStatus('project missing');
+                            setAuthError('Проект по ссылке не найден.');
+                            return;
+                        }
+                        await loadProjects();
+                        await loadRooms(collabProject.id);
+                        const roomRecord = await fetchRoomById(roomFromInvite.id);
+                        if (roomRecord) {
+                            collabRoom = roomRecord;
+                        }
+                        updateAdminControls();
+                        await connectToRoom(displayName || 'Guest');
+                        return;
+                    }
+                }
                 if (projectSlug && roomSlug) {
+                    clearRoomInviteTokenState();
                     let joinedProject = await collabSupabase.rpc('join_project_by_slug', {
                         project_slug: projectSlug,
                         room_slug: roomSlug,
@@ -2302,7 +2470,7 @@ class ViewerApp {
                     await connectToRoom(displayName || 'Guest');
                     return;
                 }
-                if (projectSlug && !roomSlug) {
+                if (!inviteToken && projectSlug && !roomSlug) {
                     setAuthError('Для входа по ссылке нужна полная ссылка комнаты.');
                 }
 
@@ -2446,6 +2614,7 @@ class ViewerApp {
                 const exitAsRegistered = !!collabIsRegistered;
                 const exitProjectSlug = getProjectSlugFromUrl();
                 const exitRoomSlug = getRoomSlugFromUrl();
+                const exitInviteToken = getInviteTokenFromUrl();
                 const confirmed = await confirmModal.open({
                     title: 'Выйти из совместной работы',
                     message: 'Вы точно хотите выйти из режима совместной работы?',
@@ -2459,8 +2628,8 @@ class ViewerApp {
                     if (typeof window !== 'undefined') {
                         window.location.reload();
                     }
-                } else if (exitProjectSlug && exitRoomSlug) {
-                    setRoomSlugInUrl(exitProjectSlug, exitRoomSlug);
+                } else if (exitInviteToken || (exitProjectSlug && exitRoomSlug)) {
+                    setRoomSlugInUrl(exitProjectSlug, exitRoomSlug, exitInviteToken);
                     if (typeof window !== 'undefined') {
                         window.location.reload();
                     }
@@ -2501,6 +2670,7 @@ class ViewerApp {
                 }
                 collabProject = collabProjects.find((p) => p.id === id) || null;
                 collabRoom = null;
+                clearRoomInviteTokenState();
                 renderRoomOptions([], '');
                 if (!collabProject && collabRoomLinkEl) {
                     collabRoomLinkEl.value = '';
@@ -2529,6 +2699,10 @@ class ViewerApp {
                     await teardownCollabSession();
                 }
                 collabRoom = collabRooms.find((r) => r.id === id) || null;
+                clearRoomInviteTokenState();
+                if (!collabRoom && collabRoomLinkEl) {
+                    collabRoomLinkEl.value = '';
+                }
                 if (collabRoom && collabAuthed && !collabController) {
                     void connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
                 }
