@@ -1250,6 +1250,10 @@ class ViewerApp {
             cameraSync?.dispose?.();
             cameraSync = null;
             cameraSyncMuted = false;
+            if (cameraPersistTimer) {
+                clearTimeout(cameraPersistTimer);
+                cameraPersistTimer = null;
+            }
             clearCollabAutoResumeTimer();
             if (!preserveAutoResume) {
                 collabAutoResumeEnabled = false;
@@ -3373,7 +3377,7 @@ class ViewerApp {
         const nonRetryableModelSyncKeys = new Set();
         let isRemoteModelLoad = false;
         let activeRoomModelId = '';
-        const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 50 * 1024 * 1024;
+        const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 16 * 1024 * 1024;
         const RESUMABLE_UPLOAD_CHUNK_BYTES = 6 * 1024 * 1024;
         let tusClientPromise = null;
 
@@ -3415,6 +3419,46 @@ class ViewerApp {
             return message.includes('413')
                 || message.includes('maximum size exceeded')
                 || message.includes('content too large');
+        }
+
+        function buildProjectModelRecordUrl(path) {
+            const cleanPath = String(path || '').trim().replace(/^\/+/, '');
+            return cleanPath ? `storage://models/${cleanPath}` : '';
+        }
+
+        function decodeProjectModelStoragePath(value) {
+            const raw = String(value || '').trim().replace(/^\/+/, '');
+            if (!raw) return '';
+            try {
+                return decodeURIComponent(raw);
+            } catch (_) {
+                return raw;
+            }
+        }
+
+        function getProjectModelStoragePath(model) {
+            const metaPath = decodeProjectModelStoragePath(
+                model?.meta?.storagePath || model?.meta?.storage_path || ''
+            );
+            if (metaPath) return metaPath;
+
+            const rawUrl = String(model?.url || '').trim();
+            if (!rawUrl) return '';
+
+            if (rawUrl.startsWith('storage://')) {
+                const bucketPrefix = 'storage://models/';
+                if (!rawUrl.startsWith(bucketPrefix)) return '';
+                return decodeProjectModelStoragePath(rawUrl.slice(bucketPrefix.length));
+            }
+
+            const storageMarker = '/storage/v1/object/';
+            const markerIndex = rawUrl.indexOf(storageMarker);
+            if (markerIndex === -1) return '';
+
+            let rawPath = rawUrl.slice(markerIndex + storageMarker.length).split('?')[0] || '';
+            rawPath = rawPath.replace(/^(public|sign|authenticated)\//, '');
+            if (!rawPath.startsWith('models/')) return '';
+            return decodeProjectModelStoragePath(rawPath.slice('models/'.length));
         }
 
         async function ensureTusClient() {
@@ -3499,22 +3543,64 @@ class ViewerApp {
                 });
                 if (uploadError) throw uploadError;
             }
-            const { data } = bucket.getPublicUrl(path);
-            return data?.publicUrl || '';
+            return {
+                path,
+                url: buildProjectModelRecordUrl(path),
+            };
+        }
+
+        async function cleanupUploadedModelObject(path) {
+            if (!collabController || !path) return;
+            try {
+                const bucket = collabController.supabase.storage.from('models');
+                const { error } = await bucket.remove([path]);
+                if (error) {
+                    console.error('Model storage cleanup failed', error);
+                }
+            } catch (err) {
+                console.error('Model storage cleanup failed', err);
+            }
+        }
+
+        async function cleanupSyncedModelArtifacts({ modelRowId = '', uploadedPath = '' } = {}) {
+            if (collabController && modelRowId) {
+                try {
+                    const { error } = await collabController.supabase
+                        .from('project_models')
+                        .delete()
+                        .eq('id', modelRowId);
+                    if (!error) return;
+                    console.error('Project model cleanup failed', error);
+                    return;
+                } catch (err) {
+                    console.error('Project model cleanup failed', err);
+                    return;
+                }
+            }
+            if (uploadedPath) {
+                await cleanupUploadedModelObject(uploadedPath);
+            }
         }
 
         async function syncModelToRoom(file) {
             if (!collabController || !file || isRemoteModelLoad) return false;
             let shouldKeepStatusMessage = false;
+            let uploadedPath = '';
+            let createdModelRowId = '';
             try {
                 setStatusMessage('Синхронизация модели…');
-                const url = await uploadModelToProject(file);
-                if (!url) return false;
+                const uploadResult = await uploadModelToProject(file);
+                const url = uploadResult?.url || '';
+                uploadedPath = uploadResult?.path || '';
+                if (!url) {
+                    throw new Error('Uploaded model URL is empty.');
+                }
                 const meta = {
                     size: file.size || 0,
                     type: file.type || '',
                     kind: getModelKindFromName(file.name),
                     lastModified: file.lastModified || null,
+                    storagePath: uploadedPath,
                 };
                 const { data: modelRow, error: modelError } = await collabController.supabase
                     .from('project_models')
@@ -3527,20 +3613,33 @@ class ViewerApp {
                     .select('*')
                     .single();
                 if (modelError) throw modelError;
+                createdModelRowId = modelRow.id;
 
-                await collabController.supabase
+                const { data: roomModelRow, error: roomModelError } = await collabController.supabase
                     .from('room_models')
                     .insert({
                         room_id: collabController.room.id,
                         project_id: collabController.project.id,
                         model_id: modelRow.id,
                         sort_order: roomModelCount,
-                    });
+                    })
+                    .select('model_id')
+                    .single();
+                if (roomModelError) throw roomModelError;
+                if (!roomModelRow?.model_id) {
+                    throw new Error('Room model link was not persisted.');
+                }
 
-                await collabController.supabase
+                const { data: updatedRoomRow, error: activeModelError } = await collabController.supabase
                     .from('rooms')
                     .update({ active_model_id: modelRow.id })
-                    .eq('id', collabController.room.id);
+                    .eq('id', collabController.room.id)
+                    .select('id, active_model_id')
+                    .single();
+                if (activeModelError) throw activeModelError;
+                if (updatedRoomRow?.active_model_id !== modelRow.id) {
+                    throw new Error('Room active model was not updated.');
+                }
 
                 activeRoomModelId = modelRow.id;
                 loadedRoomModelIds.add(modelRow.id);
@@ -3558,6 +3657,10 @@ class ViewerApp {
                     shouldKeepStatusMessage = true;
                 }
                 console.error('Model sync failed', err);
+                await cleanupSyncedModelArtifacts({
+                    modelRowId: createdModelRowId,
+                    uploadedPath,
+                });
                 return false;
             } finally {
                 if (!shouldKeepStatusMessage) setStatusMessage('');
@@ -3596,16 +3699,30 @@ class ViewerApp {
         }
 
         async function loadProjectModel(model) {
-            if (!model || !model.url || isRemoteModelLoad) return;
+            if (!model || isRemoteModelLoad) return;
             if (loadedRoomModelIds.has(model.id)) return;
-            const url = model.url;
-            const name = model.name || url.split('/').pop() || 'model.zip';
+            const storagePath = getProjectModelStoragePath(model);
+            const modelRef = storagePath || model.url || '';
+            if (!modelRef) return;
+            const name = model.name || basename(modelRef) || 'model.zip';
             const kind = model.meta?.kind || getModelKindFromName(name);
             try {
                 setStatusMessage('Загрузка модели из комнаты…');
-                const response = await fetch(url, { cache: 'no-cache' });
-                if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-                const blob = await response.blob();
+                let blob = null;
+                if (storagePath && collabController?.supabase) {
+                    const { data, error } = await collabController.supabase.storage
+                        .from('models')
+                        .download(storagePath);
+                    if (error) throw error;
+                    blob = data || null;
+                } else if (model.url && !String(model.url).startsWith('storage://')) {
+                    const response = await fetch(model.url, { cache: 'no-cache' });
+                    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+                    blob = await response.blob();
+                }
+                if (!blob) {
+                    throw new Error('Model download returned empty payload.');
+                }
                 const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
                 isRemoteModelLoad = true;
                 pendingLocalModelFiles.length = 0;
@@ -3727,62 +3844,252 @@ class ViewerApp {
             }
         }
 
+        function normalizeRoomCameraVec3(value, fallback = [0, 0, 0]) {
+            const base = Array.isArray(value) ? value : fallback;
+            return [
+                Number.isFinite(Number(base[0])) ? Number(base[0]) : fallback[0],
+                Number.isFinite(Number(base[1])) ? Number(base[1]) : fallback[1],
+                Number.isFinite(Number(base[2])) ? Number(base[2]) : fallback[2],
+            ];
+        }
+
+        function normalizeRoomCameraNumber(value, fallback = 0) {
+            const next = Number(value);
+            return Number.isFinite(next) ? next : fallback;
+        }
+
+        function normalizeRoomCameraNullableNumber(value) {
+            const next = Number(value);
+            return Number.isFinite(next) ? next : null;
+        }
+
+        function makeRoomCameraRow(roomId, preset) {
+            const id = String(preset?.id || '').trim();
+            if (!roomId || !id) return null;
+            return {
+                id,
+                room_id: roomId,
+                name: String(preset?.name || 'Camera').trim() || 'Camera',
+                position: normalizeRoomCameraVec3(preset?.position, [0, 0, 0]),
+                target: normalizeRoomCameraVec3(preset?.target, [0, 0, 0]),
+                up: normalizeRoomCameraVec3(preset?.up, [0, 1, 0]),
+                fov: normalizeRoomCameraNullableNumber(preset?.fov),
+                zoom: normalizeRoomCameraNullableNumber(preset?.zoom),
+                near: normalizeRoomCameraNullableNumber(preset?.near),
+                far: normalizeRoomCameraNullableNumber(preset?.far),
+                shift_x: normalizeRoomCameraNumber(preset?.shiftX, 0),
+                shift_y: normalizeRoomCameraNumber(preset?.shiftY, 0),
+            };
+        }
+
+        function roomCameraComparable(row) {
+            return JSON.stringify({
+                name: String(row?.name || 'Camera').trim() || 'Camera',
+                position: normalizeRoomCameraVec3(row?.position, [0, 0, 0]),
+                target: normalizeRoomCameraVec3(row?.target, [0, 0, 0]),
+                up: normalizeRoomCameraVec3(row?.up, [0, 1, 0]),
+                fov: normalizeRoomCameraNullableNumber(row?.fov),
+                zoom: normalizeRoomCameraNullableNumber(row?.zoom),
+                near: normalizeRoomCameraNullableNumber(row?.near),
+                far: normalizeRoomCameraNullableNumber(row?.far),
+                shift_x: normalizeRoomCameraNumber(row?.shift_x ?? row?.shiftX, 0),
+                shift_y: normalizeRoomCameraNumber(row?.shift_y ?? row?.shiftY, 0),
+            });
+        }
+
+        function roomTransitionKey(fromId, toId) {
+            return `${String(fromId || '')}->${String(toId || '')}`;
+        }
+
+        function normalizeRoomTransitionType(value) {
+            const next = String(value || '').trim().toLowerCase();
+            if (next === 'linear') return 'linear';
+            if (next === 'soft-in' || next === 'ease-in') return 'soft-in';
+            if (next === 'soft-out' || next === 'ease-out') return 'soft-out';
+            if (next === 'ease-in-out' || next === 'soft') return 'ease-in-out';
+            return 'ease-in-out';
+        }
+
+        function normalizeRoomTransitionTrajectory(value) {
+            const next = String(value || '').trim().toLowerCase();
+            if (next === 'spline' || next === 'curve' || next === 'curved') return 'spline';
+            if (next === 'linear' || next === 'line') return 'linear';
+            return 'linear';
+        }
+
+        function makeRoomTransitionRow(roomId, transition, validCameraIds) {
+            const fromId = String(transition?.fromId || transition?.from_camera_id || '').trim();
+            const toId = String(transition?.toId || transition?.to_camera_id || '').trim();
+            if (!roomId || !fromId || !toId) return null;
+            if (validCameraIds && (!validCameraIds.has(fromId) || !validCameraIds.has(toId))) return null;
+            return {
+                room_id: roomId,
+                from_camera_id: fromId,
+                to_camera_id: toId,
+                seconds: Math.max(0, normalizeRoomCameraNumber(transition?.seconds, 0)),
+                type: normalizeRoomTransitionType(transition?.type),
+                trajectory: normalizeRoomTransitionTrajectory(transition?.trajectory),
+            };
+        }
+
+        function roomTransitionComparable(row) {
+            return JSON.stringify({
+                from_camera_id: String(row?.from_camera_id || row?.fromId || '').trim(),
+                to_camera_id: String(row?.to_camera_id || row?.toId || '').trim(),
+                seconds: Math.max(0, normalizeRoomCameraNumber(row?.seconds, 0)),
+                type: normalizeRoomTransitionType(row?.type),
+                trajectory: normalizeRoomTransitionTrajectory(row?.trajectory),
+            });
+        }
+
+        async function persistRoomCameraState(state) {
+            if (!collabController) return;
+            const roomId = collabController.room?.id;
+            const supabase = collabController.supabase;
+            if (!roomId || !supabase) return;
+
+            const presets = Array.isArray(state?.presets) ? state.presets : [];
+            const transitions = Array.isArray(state?.transitions) ? state.transitions : [];
+
+            const desiredCameraRows = presets
+                .map((preset) => makeRoomCameraRow(roomId, preset))
+                .filter(Boolean);
+            const desiredCameraIds = new Set(desiredCameraRows.map((row) => row.id));
+
+            const { data: existingCameraRows, error: existingCameraError } = await supabase
+                .from('room_cameras')
+                .select('*')
+                .eq('room_id', roomId);
+            if (existingCameraError) throw existingCameraError;
+
+            const existingCameraById = new Map(
+                (Array.isArray(existingCameraRows) ? existingCameraRows : [])
+                    .filter((row) => row?.id)
+                    .map((row) => [row.id, row])
+            );
+
+            const cameraRowsToSave = desiredCameraRows.filter((row) => {
+                const existing = existingCameraById.get(row.id);
+                return !existing || roomCameraComparable(existing) !== roomCameraComparable(row);
+            });
+
+            if (cameraRowsToSave.length) {
+                const { error: saveCameraError } = await supabase
+                    .from('room_cameras')
+                    .upsert(cameraRowsToSave, { onConflict: 'id' });
+                if (saveCameraError) throw saveCameraError;
+            }
+
+            const desiredTransitionRows = transitions
+                .map((transition) => makeRoomTransitionRow(roomId, transition, desiredCameraIds))
+                .filter(Boolean);
+            const desiredTransitionByKey = new Map(
+                desiredTransitionRows.map((row) => [roomTransitionKey(row.from_camera_id, row.to_camera_id), row])
+            );
+
+            const { data: existingTransitionRows, error: existingTransitionError } = await supabase
+                .from('room_transitions')
+                .select('*')
+                .eq('room_id', roomId);
+            if (existingTransitionError) throw existingTransitionError;
+
+            const existingTransitionsByKey = new Map();
+            (Array.isArray(existingTransitionRows) ? existingTransitionRows : []).forEach((row) => {
+                const key = roomTransitionKey(row?.from_camera_id, row?.to_camera_id);
+                if (!existingTransitionsByKey.has(key)) {
+                    existingTransitionsByKey.set(key, []);
+                }
+                existingTransitionsByKey.get(key).push(row);
+            });
+
+            const transitionIdsToDelete = [];
+            const transitionRowsToUpdate = [];
+            const handledTransitionKeys = new Set();
+
+            // Keep at most one row per logical transition and update only the changed row.
+            existingTransitionsByKey.forEach((rows, key) => {
+                const desired = desiredTransitionByKey.get(key);
+                if (!desired) {
+                    rows.forEach((row) => {
+                        if (row?.id) transitionIdsToDelete.push(row.id);
+                    });
+                    return;
+                }
+
+                handledTransitionKeys.add(key);
+                const desiredComparable = roomTransitionComparable(desired);
+                const matchingRow = rows.find((row) => roomTransitionComparable(row) === desiredComparable) || null;
+                const keeper = matchingRow || rows[0] || null;
+
+                if (!keeper) return;
+                if (!matchingRow && keeper.id) {
+                    transitionRowsToUpdate.push({ id: keeper.id, ...desired });
+                }
+
+                rows.forEach((row) => {
+                    if (!row?.id || row.id === keeper.id) return;
+                    transitionIdsToDelete.push(row.id);
+                });
+            });
+
+            const transitionRowsToInsert = [];
+            desiredTransitionByKey.forEach((row, key) => {
+                if (!handledTransitionKeys.has(key)) {
+                    transitionRowsToInsert.push(row);
+                }
+            });
+
+            for (const row of transitionRowsToUpdate) {
+                const { id, ...payload } = row;
+                const { error: updateTransitionError } = await supabase
+                    .from('room_transitions')
+                    .update(payload)
+                    .eq('id', id);
+                if (updateTransitionError) throw updateTransitionError;
+            }
+
+            if (transitionRowsToInsert.length) {
+                const { error: insertTransitionError } = await supabase
+                    .from('room_transitions')
+                    .insert(transitionRowsToInsert);
+                if (insertTransitionError) throw insertTransitionError;
+            }
+
+            if (transitionIdsToDelete.length) {
+                const { error: deleteTransitionError } = await supabase
+                    .from('room_transitions')
+                    .delete()
+                    .in('id', transitionIdsToDelete);
+                if (deleteTransitionError) throw deleteTransitionError;
+            }
+
+            const cameraIdsToDelete = (Array.isArray(existingCameraRows) ? existingCameraRows : [])
+                .filter((row) => row?.id && !desiredCameraIds.has(row.id))
+                .map((row) => row.id);
+
+            if (cameraIdsToDelete.length) {
+                const { error: deleteCameraError } = await supabase
+                    .from('room_cameras')
+                    .delete()
+                    .in('id', cameraIdsToDelete);
+                if (deleteCameraError) throw deleteCameraError;
+            }
+
+            roomCameraCount = desiredCameraRows.length;
+        }
+
         function scheduleCameraPersist(state) {
             if (!collabController || cameraSyncMuted) return;
             if (cameraPersistTimer) clearTimeout(cameraPersistTimer);
             cameraPersistTimer = setTimeout(async () => {
+                cameraPersistTimer = null;
                 if (!collabController || cameraSyncMuted) return;
                 cameraSyncMuted = true;
                 try {
-                    const roomId = collabController.room.id;
-                    const presets = Array.isArray(state?.presets) ? state.presets : [];
-                    const transitions = Array.isArray(state?.transitions) ? state.transitions : [];
-
-                    await collabController.supabase
-                        .from('room_transitions')
-                        .delete()
-                        .eq('room_id', roomId);
-
-                    await collabController.supabase
-                        .from('room_cameras')
-                        .delete()
-                        .eq('room_id', roomId);
-
-                    if (presets.length) {
-                        const camRows = presets.map((preset) => ({
-                            id: preset.id,
-                            room_id: roomId,
-                            name: preset.name || 'Camera',
-                            position: preset.position || [0, 0, 0],
-                            target: preset.target || [0, 0, 0],
-                            up: preset.up || [0, 1, 0],
-                            fov: preset.fov,
-                            zoom: preset.zoom,
-                            near: preset.near,
-                            far: preset.far,
-                            shift_x: preset.shiftX ?? 0,
-                            shift_y: preset.shiftY ?? 0,
-                        }));
-                        await collabController.supabase.from('room_cameras').insert(camRows);
-                    }
-
-                    if (transitions.length) {
-                        const trRows = transitions
-                            .filter((tr) => tr.fromId && tr.toId)
-                            .map((tr) => ({
-                                room_id: roomId,
-                                from_camera_id: tr.fromId,
-                                to_camera_id: tr.toId,
-                                seconds: tr.seconds ?? 0,
-                                type: tr.type || 'ease-in-out',
-                                trajectory: tr.trajectory || 'linear',
-                            }));
-                        if (trRows.length) {
-                            await collabController.supabase.from('room_transitions').insert(trRows);
-                        }
-                    }
+                    await persistRoomCameraState(state);
                 } catch (err) {
                     console.error('Room cameras sync failed', err);
+                    await loadRoomCameras();
                 } finally {
                     cameraSyncMuted = false;
                 }

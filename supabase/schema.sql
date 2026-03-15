@@ -52,23 +52,31 @@ declare
     raw_path text;
     bucket text;
     object_name text;
+    meta_storage_path text;
 begin
-    if old.url is null or old.url = '' then
+    meta_storage_path := coalesce(old.meta ->> 'storagePath', old.meta ->> 'storage_path', '');
+    if meta_storage_path <> '' then
+        bucket := 'models';
+        object_name := ltrim(meta_storage_path, '/');
+    elsif old.url is null or old.url = '' then
         return old;
-    end if;
-    if position('/storage/v1/object/' in old.url) = 0 then
+    elsif position('storage://' in old.url) = 1 then
+        raw_path := substr(old.url, length('storage://') + 1);
+        bucket := split_part(raw_path, '/', 1);
+        object_name := substr(raw_path, length(bucket) + 2);
+    elsif position('/storage/v1/object/' in old.url) > 0 then
+        raw_path := split_part(old.url, '/storage/v1/object/', 2);
+        raw_path := split_part(raw_path, '?', 1);
+        if raw_path = '' then
+            return old;
+        end if;
+        raw_path := regexp_replace(raw_path, '^(public|sign|authenticated)/', '');
+        bucket := split_part(raw_path, '/', 1);
+        object_name := substr(raw_path, length(bucket) + 2);
+    else
         return old;
     end if;
 
-    raw_path := split_part(old.url, '/storage/v1/object/', 2);
-    raw_path := split_part(raw_path, '?', 1);
-    if raw_path = '' then
-        return old;
-    end if;
-
-    raw_path := regexp_replace(raw_path, '^(public|sign)/', '');
-    bucket := split_part(raw_path, '/', 1);
-    object_name := substr(raw_path, length(bucket) + 2);
     if bucket = '' or object_name = '' then
         return old;
     end if;
@@ -827,9 +835,9 @@ on conflict do nothing;
 -- alter publication supabase_realtime add table public.annotations;
 -- alter publication supabase_realtime add table public.messages;
 
--- Storage (optional): public bucket for model files.
+-- Storage (optional): private bucket for model files.
 -- insert into storage.buckets (id, name, public)
--- values ('models', 'models', true)
+-- values ('models', 'models', false)
 -- on conflict (id) do nothing;
 -- create policy "models_upload" on storage.objects
 -- for insert to authenticated
