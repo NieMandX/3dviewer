@@ -43,6 +43,7 @@ import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
+import { createVoiceController } from '../voice/voice-controller.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
 import { createAndStartRenderLoop } from '../render/render-loop-bootstrap.js';
 import { createDebugTextureProvider } from '../render/debug-textures.js';
@@ -705,6 +706,9 @@ class ViewerApp {
         const collabFooterProjectNameEl = dom.collabFooterProjectNameEl;
         const collabFooterRoomNameEl = dom.collabFooterRoomNameEl;
         const collabStatusBtn = dom.collabStatusBtn;
+        const voiceJoinBtn = dom.voiceJoinBtn;
+        const voiceMuteBtn = dom.voiceMuteBtn;
+        const voiceAudioMountEl = dom.voiceAudioMountEl;
         const collabChatPanelEl = dom.collabChatPanelEl;
         const collabChatToggleBtn = dom.collabChatToggleBtn;
         const collabProjectSelectEl = dom.collabProjectSelectEl;
@@ -834,6 +838,7 @@ class ViewerApp {
             if (collabOwnerEl) {
                 collabOwnerEl.hidden = !collabController;
             }
+            updateVoiceButtons();
         }
 
         const supabaseUrl =
@@ -842,8 +847,12 @@ class ViewerApp {
         const supabaseAnonKey =
             (typeof window !== 'undefined' && window.__SUPABASE_ANON_KEY ? String(window.__SUPABASE_ANON_KEY) : '') ||
             (typeof localStorage !== 'undefined' ? String(localStorage.getItem('lpmview.supabaseAnonKey') || '') : '');
+        const voiceApiUrl =
+            (typeof window !== 'undefined' && window.__VOICE_API_URL ? String(window.__VOICE_API_URL) : '') ||
+            (typeof localStorage !== 'undefined' ? String(localStorage.getItem('lpmview.voiceApiUrl') || '') : '');
 
         const collabReady = !!(supabaseUrl && supabaseAnonKey);
+        const voiceReady = !!voiceApiUrl;
         let collabSupabase = null;
         let collabSupabaseMode = 'default';
         let collabUser = null;
@@ -887,6 +896,130 @@ class ViewerApp {
         const seenChatMessageIds = new Set();
         const collabContributors = new Map();
         let contributorsRenderQueued = false;
+        let voiceController = null;
+        let voiceConnected = false;
+        let voiceConnecting = false;
+        let voiceMicEnabled = false;
+        let voiceParticipants = [];
+        let voiceAutoJoinRequested = false;
+
+        function getVoiceParticipantState(ids) {
+            const list = Array.isArray(ids) ? ids : [ids];
+            let connected = false;
+            let speaking = false;
+            let isLocal = false;
+            list.forEach((id) => {
+                if (!id) return;
+                const match = voiceParticipants.find((participant) => participant.id === id);
+                if (!match) return;
+                connected = true;
+                speaking = speaking || !!match.speaking;
+                isLocal = isLocal || !!match.isLocal;
+            });
+            return { connected, speaking, isLocal };
+        }
+
+        function getVoiceRoomName() {
+            const roomId = String(collabRoom?.id || '').trim();
+            if (!roomId) return '';
+            return `room:${roomId}`;
+        }
+
+        function getVoiceDisplayName() {
+            return String(collabController?.getDisplayName?.() || collabNameEl?.value || '').trim() || 'Guest';
+        }
+
+        function getVoiceMetadata() {
+            return {
+                source: 'lpmview',
+                projectId: String(collabProject?.id || ''),
+                roomId: String(collabRoom?.id || ''),
+                registered: !!collabIsRegistered,
+            };
+        }
+
+        function applyVoiceState(snapshot = {}) {
+            voiceConnected = !!snapshot.connected;
+            voiceConnecting = !!snapshot.connecting;
+            voiceMicEnabled = !!snapshot.micEnabled;
+            voiceParticipants = Array.isArray(snapshot.participants) ? snapshot.participants : [];
+            updateVoiceButtons();
+            renderParticipants(collabParticipants);
+            scheduleContributorsRender();
+            if (snapshot?.error) {
+                console.error('Voice state error', snapshot.error);
+            }
+        }
+
+        async function ensureVoiceController() {
+            if (voiceController) return voiceController;
+            voiceController = createVoiceController({
+                voiceApiUrl,
+                audioMountEl: voiceAudioMountEl,
+                onState: applyVoiceState,
+            });
+            return voiceController;
+        }
+
+        function updateVoiceButtons() {
+            const canUseVoice = !!(voiceReady && collabController && collabRoom);
+            if (voiceJoinBtn) {
+                voiceJoinBtn.hidden = !canUseVoice;
+                voiceJoinBtn.disabled = !canUseVoice || voiceConnecting;
+                voiceJoinBtn.textContent = voiceConnecting
+                    ? 'VOICE…'
+                    : voiceConnected
+                        ? (voiceParticipants.some((participant) => participant.speaking) ? 'VOICE LIVE' : 'VOICE ON')
+                        : 'VOICE';
+                voiceJoinBtn.classList.toggle('is-online', voiceConnected);
+                voiceJoinBtn.classList.toggle('is-offline', !voiceConnected);
+                voiceJoinBtn.classList.toggle('is-speaking', voiceParticipants.some((participant) => participant.speaking));
+                voiceJoinBtn.setAttribute('aria-pressed', voiceConnected ? 'true' : 'false');
+            }
+            if (voiceMuteBtn) {
+                voiceMuteBtn.hidden = !voiceConnected;
+                voiceMuteBtn.disabled = !voiceConnected || voiceConnecting;
+                voiceMuteBtn.textContent = voiceMicEnabled ? 'MIC ON' : 'MIC OFF';
+                voiceMuteBtn.classList.toggle('is-unmuted', voiceConnected && voiceMicEnabled);
+                voiceMuteBtn.classList.toggle('is-muted', voiceConnected && !voiceMicEnabled);
+                voiceMuteBtn.setAttribute('aria-pressed', voiceConnected && !voiceMicEnabled ? 'true' : 'false');
+            }
+        }
+
+        async function joinVoiceRoom(options = {}) {
+            if (!voiceReady || !collabController || !collabRoom) return;
+            voiceAutoJoinRequested = true;
+            try {
+                const controller = await ensureVoiceController();
+                await controller.connect({
+                    room: getVoiceRoomName(),
+                    identity: String(collabController?.user?.id || '').trim() || undefined,
+                    name: getVoiceDisplayName(),
+                    metadata: getVoiceMetadata(),
+                });
+            } catch (error) {
+                if (!options?.preserveIntent) {
+                    voiceAutoJoinRequested = false;
+                }
+                console.error('Voice connect failed', error);
+            }
+        }
+
+        async function disconnectVoiceRoom(options = {}) {
+            const preserveIntent = !!options?.preserveIntent;
+            if (!preserveIntent) {
+                voiceAutoJoinRequested = false;
+            }
+            if (!voiceController) {
+                applyVoiceState({ connected: false, connecting: false, micEnabled: false, participants: [] });
+                return;
+            }
+            try {
+                await voiceController.disconnect();
+            } catch (error) {
+                console.error('Voice disconnect failed', error);
+            }
+        }
 
         function setCollabStatus(text) {
             if (!collabStatusEl) return;
@@ -906,6 +1039,7 @@ class ViewerApp {
             collabStatusBtn.classList.toggle('is-online', isOnline);
             collabStatusBtn.classList.toggle('is-offline', !isOnline);
             collabStatusBtn.setAttribute('aria-pressed', isOnline ? 'true' : 'false');
+            updateVoiceButtons();
         }
 
         function clearCollabAutoResumeTimer() {
@@ -1081,6 +1215,7 @@ class ViewerApp {
                 const row = document.createElement('div');
                 const online = entry.online;
                 row.className = `collab-chat-user ${online ? 'online' : 'offline'}`;
+                const voiceState = getVoiceParticipantState(entry.ids);
 
                 const eyeBtn = document.createElement('button');
                 eyeBtn.type = 'button';
@@ -1122,7 +1257,15 @@ class ViewerApp {
                 nameEl.className = 'collab-chat-user-name';
                 nameEl.textContent = entry.name || 'Guest';
 
-                row.append(eyeBtn, pinBtn, nameEl);
+                const voiceEl = document.createElement('span');
+                voiceEl.className = 'collab-chat-user-voice';
+                if (voiceState.connected) voiceEl.classList.add('is-online');
+                if (voiceState.speaking) voiceEl.classList.add('is-speaking');
+                voiceEl.title = voiceState.connected
+                    ? (voiceState.speaking ? 'В голосовом чате, говорит' : 'В голосовом чате')
+                    : 'Не в голосовом чате';
+
+                row.append(eyeBtn, pinBtn, voiceEl, nameEl);
                 collabChatParticipantsEl.appendChild(row);
             });
         }
@@ -1320,6 +1463,7 @@ class ViewerApp {
         async function teardownCollabSession(options = {}) {
             const preserveAutoResume = !!options?.preserveAutoResume;
             const previousRoomId = String(collabController?.room?.id || collabRoom?.id || '');
+            await disconnectVoiceRoom({ preserveIntent: preserveAutoResume && voiceAutoJoinRequested });
             stopPresenceRefresh();
             cameraSync?.dispose?.();
             cameraSync = null;
@@ -1514,13 +1658,17 @@ class ViewerApp {
                 const nameEl = document.createElement('span');
                 nameEl.textContent = participant.name || 'Guest';
                 const meta = document.createElement('small');
+                const metaParts = [];
                 if (participant.id === collabOwnerId) {
-                    meta.textContent = 'ведёт';
+                    metaParts.push('ведёт');
                 } else if (participant.id === collabController?.user?.id) {
-                    meta.textContent = 'вы';
-                } else {
-                    meta.textContent = '';
+                    metaParts.push('вы');
                 }
+                const voiceState = getVoiceParticipantState(participant.id);
+                if (voiceState.connected) {
+                    metaParts.push(voiceState.speaking ? 'говорит' : 'voice');
+                }
+                meta.textContent = metaParts.join(' · ');
                 row.append(nameEl, meta);
                 collabParticipantsEl.appendChild(row);
                 const existing = collabContributors.get(participant.id);
@@ -2299,6 +2447,9 @@ class ViewerApp {
                     recordContributor(collabController.user.id, collabController.getDisplayName?.());
                     annotations3d?.refreshAuthorVisibility?.(collabController.user.id);
                 }
+                if (voiceAutoJoinRequested && voiceReady && !voiceConnected && !voiceConnecting) {
+                    void joinVoiceRoom({ preserveIntent: true });
+                }
             } catch (err) {
                 console.error('Collab init failed', err);
                 setCollabConnectionState(false, 'connect-error');
@@ -2375,6 +2526,10 @@ class ViewerApp {
                 await collabController.setDisplayName(displayName);
                 if (typeof localStorage !== 'undefined') {
                     localStorage.setItem('lpmview.displayName', displayName);
+                }
+                if (voiceConnected) {
+                    await disconnectVoiceRoom({ preserveIntent: true });
+                    await joinVoiceRoom({ preserveIntent: true });
                 }
                 renderParticipants(collabParticipants);
                 updateOwnerLabel();
@@ -2635,6 +2790,28 @@ class ViewerApp {
                         window.location.reload();
                     }
                 }
+            });
+        }
+
+        if (voiceJoinBtn) {
+            voiceJoinBtn.disabled = true;
+            voiceJoinBtn.addEventListener('click', () => {
+                if (voiceConnecting) return;
+                if (voiceConnected) {
+                    void disconnectVoiceRoom();
+                    return;
+                }
+                void joinVoiceRoom();
+            });
+        }
+
+        if (voiceMuteBtn) {
+            voiceMuteBtn.disabled = true;
+            voiceMuteBtn.addEventListener('click', () => {
+                if (!voiceController || !voiceConnected) return;
+                void voiceController.toggleMute().catch((error) => {
+                    console.error('Voice mute toggle failed', error);
+                });
             });
         }
 

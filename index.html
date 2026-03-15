@@ -23,6 +23,7 @@
             window.__LPMVIEW_RENDERER = isQuest ? 'webgl' : 'webgpu';
             window.__SUPABASE_URL = window.__SUPABASE_URL || runtime.supabaseUrl || 'https://xlajjnmxvlkygixamyam.supabase.co';
             window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || runtime.supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsYWpqbm14dmxreWdpeGFteWFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NjY2MzEsImV4cCI6MjA4MjA0MjYzMX0.02uAo7lQq8UNVB3yL45WudQ8WSR4opNlZ2frTZNRl8Q';
+            window.__VOICE_API_URL = window.__VOICE_API_URL || runtime.voiceApiUrl || 'https://voice-api.agr.vision';
         })();
     </script>
 
@@ -756,6 +757,8 @@
             <div id="statsOverlay" class="stats-overlay" hidden></div>
             <button id="vrToggleBtn" class="btn footer-btn vr-btn" type="button" title="Войти в VR" aria-pressed="false">VR</button>
             <button id="collabStatusBtn" class="btn footer-btn collab-status-btn is-offline" type="button" title="Совместная работа" aria-pressed="false">OFFLINE</button>
+            <button id="voiceJoinBtn" class="btn footer-btn voice-btn is-offline" type="button" title="Голосовой чат" aria-pressed="false" hidden>VOICE</button>
+            <button id="voiceMuteBtn" class="btn footer-btn voice-mute-btn" type="button" title="Микрофон" aria-pressed="false" hidden>MIC ON</button>
             <div id="collabFooter" class="collab-footer" hidden>
                 <div id="collabFooterGuest" class="collab-footer-guest" hidden>
                     <span class="collab-footer-label collab-footer-label-project">
@@ -802,6 +805,7 @@
                 </div>
             </div>
             <button id="collabChatToggleBtn" class="btn footer-btn collab-chat-toggle" type="button" hidden>Чат</button>
+            <div id="voiceAudioMount" hidden></div>
         </div>
     </footer>
 

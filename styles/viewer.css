@@ -1708,6 +1708,23 @@ body.room-entry-landing .collab-drawer.room-entry-overlay {
     color: inherit;
 }
 
+.collab-chat-user-voice {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(127, 140, 155, 0.55);
+    flex: 0 0 auto;
+}
+
+.collab-chat-user-voice.is-online {
+    background: #0b57d0;
+}
+
+.collab-chat-user-voice.is-speaking {
+    background: #1aa34a;
+    box-shadow: 0 0 0 2px rgba(26, 163, 74, 0.18);
+}
+
 .collab-chat-row {
     display: flex;
     align-items: center;
@@ -1748,6 +1765,40 @@ body.room-entry-landing .collab-drawer.room-entry-overlay {
 }
 
 .collab-status-btn.is-online {
+    color: #1aa34a;
+    border-color: rgba(26, 163, 74, 0.35);
+}
+
+.voice-btn,
+.voice-mute-btn {
+    font-family: "SFMono-Regular", Consolas, Monaco, "Liberation Mono", monospace;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    background: transparent;
+    border: 1px solid var(--border);
+}
+
+.voice-btn.is-offline {
+    color: var(--muted);
+    border-color: rgba(127, 140, 155, 0.28);
+}
+
+.voice-btn.is-online {
+    color: #0b57d0;
+    border-color: rgba(11, 87, 208, 0.35);
+}
+
+.voice-btn.is-speaking {
+    color: #1aa34a;
+    border-color: rgba(26, 163, 74, 0.35);
+}
+
+.voice-mute-btn.is-muted {
+    color: #ff4e4e;
+    border-color: rgba(255, 78, 78, 0.35);
+}
+
+.voice-mute-btn.is-unmuted {
     color: #1aa34a;
     border-color: rgba(26, 163, 74, 0.35);
 }
