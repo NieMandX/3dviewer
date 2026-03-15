@@ -374,7 +374,7 @@ begin
 
     if invite_row.room_id is null then
         insert into public.room_invites (room_id, project_id, token, created_by)
-        values (room_row.id, room_row.project_id, encode(gen_random_bytes(24), 'hex'), auth.uid())
+        values (room_row.id, room_row.project_id, encode(extensions.gen_random_bytes(24), 'hex'), auth.uid())
         returning * into invite_row;
     end if;
 
