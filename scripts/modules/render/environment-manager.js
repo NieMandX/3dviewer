@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 
 export const DEFAULT_ENV_URL = 'exr/forest-01-1024.exr';
 export const FALLBACK_HDR_URL = 'hdr/royal_esplanade_1k.hdr';
@@ -29,6 +30,8 @@ export function createEnvironmentManager(options = {}) {
     const scene = options.scene || null;
     const world = options.world || null;
     const app = options.app || null;
+    let loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
+    let sceneIndex = options.sceneIndex || (loadedModels.length ? createLoadedModelSceneIndex({ loadedModels }) : null);
 
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const ensureBgMesh = typeof options.ensureBgMesh === 'function' ? options.ensureBgMesh : () => null;
@@ -65,6 +68,62 @@ export function createEnvironmentManager(options = {}) {
     let envRebuildQueued = false;
 
     const envMaterials = new Set();
+    let envMaterialsDirty = true;
+    let envMaterialsKey = '';
+
+    function setMaterialSources(next = {}) {
+        loadedModels = Array.isArray(next.loadedModels) ? next.loadedModels : loadedModels;
+        sceneIndex = next.sceneIndex || sceneIndex || (loadedModels.length ? createLoadedModelSceneIndex({ loadedModels }) : null);
+        invalidateMaterialRegistry();
+    }
+
+    function invalidateMaterialRegistry() {
+        envMaterialsDirty = true;
+        envMaterialsKey = '';
+    }
+
+    function buildEnvMaterialsKey() {
+        if (!Array.isArray(loadedModels) || !loadedModels.length) return '';
+        return loadedModels.map((model) => String(model?.obj?.uuid || '')).join('|');
+    }
+
+    function addEnvMaterialCandidate(targetSet, material) {
+        if (!material) return;
+        if (Array.isArray(material)) {
+            material.forEach((entry) => addEnvMaterialCandidate(targetSet, entry));
+            return;
+        }
+        if (material.isMeshStandardMaterial || material.isMeshPhysicalMaterial) {
+            targetSet.add(material);
+        }
+    }
+
+    function rebuildMaterialRegistry() {
+        envMaterials.clear();
+        if (!sceneIndex || !Array.isArray(loadedModels) || !loadedModels.length) {
+            envMaterialsKey = buildEnvMaterialsKey();
+            envMaterialsDirty = false;
+            return;
+        }
+
+        loadedModels.forEach((model) => {
+            sceneIndex.getModelRenderables(model).forEach((obj) => {
+                if (!obj?.isMesh) return;
+                addEnvMaterialCandidate(envMaterials, obj.material);
+                addEnvMaterialCandidate(envMaterials, obj.userData?._origMaterial);
+            });
+        });
+
+        envMaterialsKey = buildEnvMaterialsKey();
+        envMaterialsDirty = false;
+    }
+
+    function ensureMaterialRegistry() {
+        const nextKey = buildEnvMaterialsKey();
+        if (envMaterialsDirty || envMaterialsKey !== nextKey) {
+            rebuildMaterialRegistry();
+        }
+    }
 
     function flipHDRTextureVertically(srcTex) {
         const { data, width, height } = srcTex.image;
@@ -166,6 +225,7 @@ export function createEnvironmentManager(options = {}) {
             bgMesh.rotation.y = rad;
         }
 
+        ensureMaterialRegistry();
         envMaterials.forEach((mat) => {
             if (!mat) return;
             if (mat.envMapRotation?.isEuler) {
@@ -183,33 +243,14 @@ export function createEnvironmentManager(options = {}) {
         if (scene) {
             scene.environmentIntensity = env ? intensity : 0;
         }
-        if (!env) {
-            envMaterials.clear();
-        }
-        world?.traverse?.(o => {
-            if (!o.isMesh || !o.material) return;
-            const matsSet = new Set();
-            const add = (mat) => {
-                if (!mat) return;
-                if (Array.isArray(mat)) {
-                    mat.forEach(add);
-                    return;
-                }
-                matsSet.add(mat);
-            };
-            add(o.material);
-            if (o.userData?._origMaterial) add(o.userData._origMaterial);
-            const mats = Array.from(matsSet);
-            mats.forEach(m => {
-                if (m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) {
-                    if (m.envMap !== env) {
-                        m.envMap = env;
-                        m.needsUpdate = true;
-                    }
-                    m.envMapIntensity = intensity;
-                    if (env) envMaterials.add(m);
-                }
-            });
+        ensureMaterialRegistry();
+        envMaterials.forEach((m) => {
+            if (!m) return;
+            if (m.envMap !== env) {
+                m.envMap = env;
+                m.needsUpdate = true;
+            }
+            m.envMapIntensity = intensity;
         });
 
         requestRender();
@@ -536,6 +577,8 @@ export function createEnvironmentManager(options = {}) {
     return Object.freeze({
         setEnabled,
         isEnabled,
+        setMaterialSources,
+        invalidateMaterialRegistry,
         requestRebuild,
         rebuild,
         loadHDRBase,

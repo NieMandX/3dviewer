@@ -11,6 +11,14 @@ export function createEnvironmentWiring(options = {}) {
         environmentManager.requestRebuild({ immediate });
     }
 
+    function setMaterialSources(sources) {
+        environmentManager.setMaterialSources?.(sources);
+    }
+
+    function invalidateMaterialRegistry() {
+        environmentManager.invalidateMaterialRegistry?.();
+    }
+
     async function loadHDRBase() {
         return environmentManager.loadHDRBase();
     }
@@ -45,6 +53,8 @@ export function createEnvironmentWiring(options = {}) {
 
     return Object.freeze({
         environmentManager,
+        setMaterialSources,
+        invalidateMaterialRegistry,
         setEnvironmentRotation,
         requestEnvironmentRebuild,
         loadHDRBase,
@@ -57,4 +67,3 @@ export function createEnvironmentWiring(options = {}) {
         selectPresetIndex,
     });
 }
-

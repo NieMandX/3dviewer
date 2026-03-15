@@ -2766,6 +2766,27 @@ class ViewerApp {
 	            disableWorker: disableFBXWorker,
 		            unpackZIPInWorker,
 		        } = createAssetLoaders({ THREE });
+                const environmentWiring = createEnvironmentWiring({
+                    renderer,
+                    scene,
+                    world,
+                    app,
+                    requestRender,
+                    ensureBgMesh: backgroundController.ensureBgMesh,
+                    getBgMesh: backgroundController.getBgMesh,
+                    updateBgVisibility: backgroundController.updateVisibility,
+                    applyGlassControlsToScene,
+                    useWebGPU: USE_WEBGPU,
+                    rendererInitPromise,
+			            iblGammaEl,
+			            iblTintEl,
+			            hdriExposureEl,
+			            hdriSaturationEl,
+			            hdriBlurEl,
+			            getIntensity: () => parseFloat(iblIntEl?.value) || 1.0,
+			            initialRotationDeg: parseFloat(iblRotEl?.value) || 0,
+			            enabled: !!iblChk?.checked,
+		        });
 		        const {
 		            setEnvironmentRotation,
 		            requestEnvironmentRebuild,
@@ -2777,27 +2798,7 @@ class ViewerApp {
 		            getCurrentEnv,
 		            getCurrentBg,
 		            selectPresetIndex,
-		        } = createEnvironmentWiring({
-		            renderer,
-		            scene,
-		            world,
-		            app,
-		            requestRender,
-		            ensureBgMesh: backgroundController.ensureBgMesh,
-		            getBgMesh: backgroundController.getBgMesh,
-		            updateBgVisibility: backgroundController.updateVisibility,
-		            applyGlassControlsToScene,
-		            useWebGPU: USE_WEBGPU,
-		            rendererInitPromise,
-			            iblGammaEl,
-			            iblTintEl,
-			            hdriExposureEl,
-			            hdriSaturationEl,
-			            hdriBlurEl,
-			            getIntensity: () => parseFloat(iblIntEl?.value) || 1.0,
-			            initialRotationDeg: parseFloat(iblRotEl?.value) || 0,
-			            enabled: !!iblChk?.checked,
-		        });
+		        } = environmentWiring;
 
         // =====================================================================
         // Asset Loading · Shared State
@@ -2810,6 +2811,7 @@ class ViewerApp {
         const loadedModels = app.loadedModels = [];
         const sceneIndex = createLoadedModelSceneIndex({ loadedModels });
         app.sceneIndex = sceneIndex;
+        environmentWiring.setMaterialSources?.({ loadedModels, sceneIndex });
 
         /**
          * Список всех изображений, извлечённых из FBX или ZIP (включая embedded).
@@ -3403,6 +3405,7 @@ class ViewerApp {
 	                if (!force) return;
 	            }
 	            obj.userData._origMaterial = obj.material;
+                environmentWiring.invalidateMaterialRegistry?.();
 	        }
 
         glassController = createGlassController({
