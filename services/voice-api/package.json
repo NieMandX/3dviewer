@@ -1,0 +1,11 @@
+{
+  "name": "@lpmview/voice-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "livekit-server-sdk": "^2.15.0"
+  }
+}
