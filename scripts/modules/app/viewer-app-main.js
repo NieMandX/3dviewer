@@ -4372,6 +4372,7 @@ class ViewerApp {
             controls,
             flightControls,
             loadedModels,
+            sceneIndex,
             vrToggleBtn,
             requestRender,
             setStatusMessage,

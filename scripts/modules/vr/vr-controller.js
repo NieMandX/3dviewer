@@ -1,4 +1,6 @@
 import { createVRMenu3D } from './vr-menu-3d.js';
+import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
+import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 
 const QUEST_UA_RX = /(OculusBrowser|Meta Quest|Quest)/i;
 
@@ -122,6 +124,7 @@ export function createVRController(options = {}) {
     const controls = options.controls || null;
     const flightControls = options.flightControls || null;
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
+    const sceneIndex = options.sceneIndex || createLoadedModelSceneIndex({ loadedModels });
     const vrToggleBtn = options.vrToggleBtn || null;
     const sampleModels = Array.isArray(options.sampleModels) ? options.sampleModels : [];
     const loadSampleModel = typeof options.loadSampleModel === 'function' ? options.loadSampleModel : async () => {};
@@ -172,6 +175,7 @@ export function createVRController(options = {}) {
     };
 
     const raycaster = new THREE.Raycaster();
+    raycaster.firstHitOnly = true;
     const rayHits = [];
     const normalMatrix = new THREE.Matrix3();
 
@@ -192,6 +196,23 @@ export function createVRController(options = {}) {
     const worldHeadOffset = new THREE.Vector3();
     const cameraWorldPos = new THREE.Vector3();
     const rigQuat = new THREE.Quaternion();
+
+    function prepareColliderMesh(mesh) {
+        if (!mesh?.isMesh || !mesh.geometry?.isBufferGeometry) return;
+        if (!mesh.userData) mesh.userData = {};
+        if (mesh.userData._vrBvhPrepared) return;
+
+        if (!mesh.geometry.boundsTree) {
+            try {
+                computeBoundsTree.call(mesh.geometry, { lazyGeneration: false });
+            } catch (_) {
+                return;
+            }
+        }
+
+        mesh.raycast = acceleratedRaycast;
+        mesh.userData._vrBvhPrepared = true;
+    }
 
     function detectQuestDevice() {
         if (typeof globalThis !== 'undefined' && typeof globalThis.__LPMVIEW_QUEST_DEVICE === 'boolean') {
@@ -686,7 +707,6 @@ export function createVRController(options = {}) {
         let closest = null;
         for (const mesh of state.colliderMeshes) {
             if (!mesh?.isMesh || !mesh.geometry) continue;
-            mesh.updateWorldMatrix?.(true, false);
             rayHits.length = 0;
             mesh.raycast(raycaster, rayHits);
             for (const hit of rayHits) {
@@ -701,6 +721,13 @@ export function createVRController(options = {}) {
         return closest;
     }
 
+    function syncColliderWorldMatrices() {
+        for (const mesh of state.colliderMeshes) {
+            if (!mesh?.isMesh) continue;
+            mesh.updateWorldMatrix?.(true, false);
+        }
+    }
+
     function rebuildCollidersIfNeeded() {
         const signature = loadedModels
             .map((model) => `${model?.obj?.uuid || ''}:${String(model?.zipKind || '').toUpperCase()}`)
@@ -713,9 +740,9 @@ export function createVRController(options = {}) {
         loadedModels.forEach((model) => {
             if (!model?.obj) return;
             if (String(model.zipKind || '').toUpperCase() !== 'SM') return;
-            model.obj.traverse((node) => {
+            sceneIndex.getModelCollisions(model).forEach((node) => {
                 if (!node?.isMesh) return;
-                if (!node.userData?.isCollision) return;
+                prepareColliderMesh(node);
                 state.colliderMeshes.push(node);
             });
         });
@@ -935,6 +962,7 @@ export function createVRController(options = {}) {
         if (flightControls?.setEnabled) flightControls.setEnabled(false);
 
         rebuildCollidersIfNeeded();
+        syncColliderWorldMatrices();
         session.addEventListener('end', handleSessionEnded, { once: true });
         vrMenu?.show?.({ doRecenter: true });
         updateButtonUi();
@@ -981,6 +1009,7 @@ export function createVRController(options = {}) {
 
         syncXrCameraPose();
         rebuildCollidersIfNeeded();
+        syncColliderWorldMatrices();
 
         let changed = false;
         if (state.pendingCalibration) {
