@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 scripts/vendor/
+scripts/collect_erz_top100_contacts.py
 exr/*
 !exr/forest-01-1024.exr
 tmp/
