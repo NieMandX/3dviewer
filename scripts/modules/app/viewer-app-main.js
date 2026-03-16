@@ -801,9 +801,21 @@ class ViewerApp {
             return safeValue || fallback;
         }
 
+        function formatRoomEntryProjectLabel(value, fallback = '—') {
+            const safeValue = String(value || '').trim();
+            if (!safeValue) return fallback;
+            const parts = safeValue.split('-').filter(Boolean);
+            if (parts.length < 2) return safeValue;
+            const suffix = parts[parts.length - 1] || '';
+            if (suffix.length >= 8 && /[a-z]/i.test(suffix) && /\d/.test(suffix)) {
+                return parts.slice(0, -1).join('-') || safeValue;
+            }
+            return safeValue;
+        }
+
         function updateRoomEntryIntro() {
             if (!collabRoomEntryIntroEl) return;
-            const projectLabel = formatRoomEntrySlug(collabProject?.slug || getProjectSlugFromUrl());
+            const projectLabel = formatRoomEntryProjectLabel(collabProject?.name || collabProject?.slug || getProjectSlugFromUrl());
             const roomLabel = formatRoomEntrySlug(collabRoom?.slug || getRoomSlugFromUrl());
             if (collabEntryProjectEl) {
                 collabEntryProjectEl.textContent = projectLabel;
