@@ -42,7 +42,13 @@
     -->
 
     <div class="appbar">
-        <button id="toggleSideBtn" class="btn" title="Показать/скрыть боковую панель">☰</button>
+        <button id="toggleSideBtn" class="btn" type="button" title="Показать/скрыть боковую панель" aria-label="Показать/скрыть боковую панель">
+            <svg class="icon icon-menu" viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="4" y1="7" x2="20" y2="7"></line>
+                <line x1="4" y1="12" x2="20" y2="12"></line>
+                <line x1="4" y1="17" x2="20" y2="17"></line>
+            </svg>
+        </button>
         <button id="fullscreenBtn" class="btn" type="button" title="На весь экран" aria-label="На весь экран">
             <svg class="icon icon-fullscreen" viewBox="0 0 24 24" aria-hidden="true">
                 <polyline points="4 9 4 4 9 4"></polyline>
@@ -140,7 +146,12 @@
 	    <div id="viewer"></div>
 	    <canvas id="annotateCanvas" class="annotate-canvas" aria-hidden="true"></canvas>
 	    <div id="annotateToolbar" class="anno-toolbar" aria-label="Аннотации" hidden>
-	        <button id="annoVisibleBtn" class="btn anno-btn" type="button" title="Показать/скрыть аннотации (H)" aria-label="Показать/скрыть аннотации">👁</button>
+	        <button id="annoVisibleBtn" class="btn anno-btn" type="button" title="Показать/скрыть аннотации (H)" aria-label="Показать/скрыть аннотации">
+                <svg class="icon icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                    <circle cx="12" cy="12" r="2.5"></circle>
+                </svg>
+            </button>
         <span class="anno-divider" aria-hidden="true"></span>
 	        <button class="btn anno-tool" type="button" data-tool="pencil" title="Карандаш (1)" aria-label="Карандаш">
                 <svg class="icon icon-pencil" viewBox="0 0 24 24" aria-hidden="true">
@@ -148,10 +159,30 @@
                     <line x1="16" y1="5" x2="20" y2="9"></line>
                 </svg>
             </button>
-	        <button class="btn anno-tool" type="button" data-tool="line" title="Линия (2)" aria-label="Линия">／</button>
-        <button class="btn anno-tool" type="button" data-tool="rect" title="Прямоугольник (3)" aria-label="Прямоугольник">▭</button>
-        <button class="btn anno-tool" type="button" data-tool="pin" title="Pin (4)" aria-label="Pin">▣</button>
-        <button class="btn anno-tool" type="button" data-tool="eraser" title="Eraser (5)" aria-label="Eraser">E</button>
+	        <button class="btn anno-tool" type="button" data-tool="line" title="Линия (2)" aria-label="Линия">
+                <svg class="icon icon-line" viewBox="0 0 24 24" aria-hidden="true">
+                    <line x1="5" y1="19" x2="19" y2="5"></line>
+                    <circle cx="5" cy="19" r="1.5"></circle>
+                    <circle cx="19" cy="5" r="1.5"></circle>
+                </svg>
+            </button>
+        <button class="btn anno-tool" type="button" data-tool="rect" title="Прямоугольник (3)" aria-label="Прямоугольник">
+            <svg class="icon icon-rect" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="5" y="6" width="14" height="12" rx="2"></rect>
+            </svg>
+        </button>
+        <button class="btn anno-tool" type="button" data-tool="pin" title="Метка (4)" aria-label="Метка">
+            <svg class="icon icon-pin" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 21s-5-4.9-5-9a5 5 0 1 1 10 0c0 4.1-5 9-5 9z"></path>
+                <circle cx="12" cy="12" r="1.5"></circle>
+            </svg>
+        </button>
+        <button class="btn anno-tool" type="button" data-tool="eraser" title="Ластик (5)" aria-label="Ластик">
+            <svg class="icon icon-eraser" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 17l6.8-6.8a2.2 2.2 0 0 1 3.1 0l1.9 1.9a2.2 2.2 0 0 1 0 3.1L15 20H8.5L5 16.5a2.2 2.2 0 0 1 0-3.1l5.9-5.9"></path>
+                <line x1="8.5" y1="20" x2="19" y2="20"></line>
+            </svg>
+        </button>
         <span class="anno-divider" aria-hidden="true"></span>
         <select id="annoLayerSelect" class="anno-select anno-layer-select" title="Layer" aria-label="Layer"></select>
         <button id="annoLayerAddBtn" class="btn anno-btn" type="button" title="New layer" aria-label="New layer">+</button>
@@ -166,15 +197,33 @@
 	        </select>
 	        <input id="annoWidth" class="anno-number" type="number" min="1" max="40" step="1" value="3" title="Толщина ([ / ])" aria-label="Толщина линии" />
 	        <span class="anno-divider" aria-hidden="true"></span>
-	        <button id="annoUndoBtn" class="btn anno-btn" type="button" title="Undo (Ctrl+Z / ⌘Z)" aria-label="Undo">↶</button>
-	        <button id="annoClearBtn" class="btn anno-btn" type="button" title="Clear" aria-label="Clear">⌫</button>
+	        <button id="annoUndoBtn" class="btn anno-btn" type="button" title="Отменить (Ctrl+Z / ⌘Z)" aria-label="Отменить">
+                <svg class="icon icon-undo" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 7H4v5"></path>
+                    <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5"></path>
+                </svg>
+            </button>
+	        <button id="annoClearBtn" class="btn anno-btn" type="button" title="Очистить" aria-label="Очистить">
+                <svg class="icon icon-trash" viewBox="0 0 24 24" aria-hidden="true">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M8 6V4h8v2"></path>
+                    <path d="M19 6l-1 13H6L5 6"></path>
+                    <line x1="10" y1="10" x2="10" y2="17"></line>
+                    <line x1="14" y1="10" x2="14" y2="17"></line>
+                </svg>
+            </button>
 	    </div>
         <div id="collabDrawer" class="collab-drawer" hidden>
             <div id="collabAuthPanel" class="auth-panel" data-mode="initial">
                 <div class="auth-head">
                     <div class="auth-title">Совместная работа</div>
                     <span id="collabStatus" class="chip">off</span>
-                    <button id="collabDrawerClose" class="btn auth-close" type="button" title="Скрыть панель" aria-label="Скрыть панель">✕</button>
+                    <button id="collabDrawerClose" class="btn auth-close" type="button" title="Скрыть панель" aria-label="Скрыть панель">
+                        <svg class="icon icon-close" viewBox="0 0 24 24" aria-hidden="true">
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                        </svg>
+                    </button>
                 </div>
                 <div id="collabRoomEntryIntro" class="auth-room-entry">
                     <div class="auth-room-entry-kicker">Вход по ссылке</div>
@@ -802,7 +851,14 @@
                         <select id="collabRoomSelect" class="collab-input collab-footer-select" disabled>
                             <option value="">— выберите комнату —</option>
                         </select>
-                        <button id="collabCopyBtn" class="btn collab-copy-btn" type="button" title="Скопировать ссылку" aria-label="Скопировать ссылку">🔗</button>
+                        <button id="collabCopyBtn" class="btn collab-copy-btn" type="button" title="Скопировать ссылку" aria-label="Скопировать ссылку">
+                            <svg class="icon icon-link" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M10.5 13.5l3-3"></path>
+                                <path d="M8.5 15.5l-2 2a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0"></path>
+                                <path d="M15.5 8.5l2-2a3.5 3.5 0 1 1 5 5l-3 3a3.5 3.5 0 0 1-5 0"></path>
+                            </svg>
+                            <span class="btn-label">Ссылка</span>
+                        </button>
                         <input id="collabRoomLink" class="collab-input collab-link-input" type="text" readonly />
                     </div>
                     <div id="collabRoomCreate" class="collab-footer-create" hidden>
