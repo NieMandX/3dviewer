@@ -700,6 +700,9 @@ class ViewerApp {
         const collabDrawerEl = dom.collabDrawerEl;
         const collabDrawerCloseBtn = dom.collabDrawerCloseBtn;
         const collabAuthPanelEl = dom.collabAuthPanelEl;
+        const collabRoomEntryIntroEl = dom.collabRoomEntryIntroEl;
+        const collabEntryProjectEl = dom.collabEntryProjectEl;
+        const collabEntryRoomEl = dom.collabEntryRoomEl;
         const collabFooterEl = dom.collabFooterEl;
         const collabFooterGuestEl = dom.collabFooterGuestEl;
         const collabFooterRegisteredEl = dom.collabFooterRegisteredEl;
@@ -793,6 +796,23 @@ class ViewerApp {
             setFieldError(collabAuthErrorEl, message);
         }
 
+        function formatRoomEntrySlug(value, fallback = '—') {
+            const safeValue = String(value || '').trim();
+            return safeValue || fallback;
+        }
+
+        function updateRoomEntryIntro() {
+            if (!collabRoomEntryIntroEl) return;
+            const projectLabel = formatRoomEntrySlug(collabProject?.slug || getProjectSlugFromUrl());
+            const roomLabel = formatRoomEntrySlug(collabRoom?.slug || getRoomSlugFromUrl());
+            if (collabEntryProjectEl) {
+                collabEntryProjectEl.textContent = projectLabel;
+            }
+            if (collabEntryRoomEl) {
+                collabEntryRoomEl.textContent = roomLabel;
+            }
+        }
+
         function canGuestEnter() {
             return hasRoomEntryLinkInUrl();
         }
@@ -811,6 +831,7 @@ class ViewerApp {
             if (active) {
                 setEmptyHintVisible(false);
             }
+            updateRoomEntryIntro();
         }
 
         function updateCollabFooter() {
@@ -1021,10 +1042,34 @@ class ViewerApp {
             }
         }
 
+        function formatCollabStatusLabel(value) {
+            const raw = String(value || '').trim();
+            if (!raw) {
+                if (collabController) {
+                    return collabConnectionOnline ? 'в комнате' : 'не в сети';
+                }
+                return isRoomEntryLandingActive() ? 'по ссылке' : 'не подключено';
+            }
+            const key = raw.toLowerCase();
+            const mapped = {
+                on: 'в комнате',
+                off: isRoomEntryLandingActive() ? 'по ссылке' : 'не подключено',
+                offline: 'не в сети',
+                ready: 'готово',
+                auth: 'вход',
+                connecting: 'подключение',
+                reconnecting: 'переподключение',
+                error: 'ошибка',
+                'confirm email': 'подтвердите email',
+                'room missing': 'комната не найдена',
+                'project missing': 'проект не найден',
+            };
+            return mapped[key] || raw;
+        }
+
         function setCollabStatus(text) {
             if (!collabStatusEl) return;
-            const label = String(text || '').trim();
-            collabStatusEl.textContent = label || (collabController ? (collabConnectionOnline ? 'on' : 'offline') : 'off');
+            collabStatusEl.textContent = formatCollabStatusLabel(text);
         }
 
         function updateCollabStatusButton() {
@@ -1034,11 +1079,14 @@ class ViewerApp {
                 return;
             }
             const isOnline = !!collabController && collabConnectionOnline;
+            const isEntry = !collabAuthed;
+            const isIdle = collabAuthed && !collabController && !isOnline;
             collabStatusBtn.hidden = false;
-            collabStatusBtn.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
+            collabStatusBtn.textContent = isOnline ? 'ONLINE' : (isEntry ? 'ВХОД' : 'ГОТОВО');
             collabStatusBtn.classList.toggle('is-online', isOnline);
-            collabStatusBtn.classList.toggle('is-offline', !isOnline);
-            collabStatusBtn.setAttribute('aria-pressed', isOnline ? 'true' : 'false');
+            collabStatusBtn.classList.toggle('is-offline', !isOnline && !isEntry && !isIdle);
+            collabStatusBtn.classList.toggle('is-entry', isEntry || isIdle);
+            collabStatusBtn.setAttribute('aria-pressed', (isOnline || isIdle) ? 'true' : 'false');
             updateVoiceButtons();
         }
 
@@ -2981,6 +3029,9 @@ class ViewerApp {
         setCollabCreateEnabled(false);
         setCollabSessionEnabled(false);
         setCollabToolsEnabled(false);
+        if (collabReady) {
+            setCollabStatus(collabAuthed ? 'ready' : 'off');
+        }
         updateCollabStatusButton();
         setChatPanelAvailability(false);
         if (typeof window !== 'undefined') {

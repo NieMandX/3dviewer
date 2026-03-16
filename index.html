@@ -176,6 +176,23 @@
                     <span id="collabStatus" class="chip">off</span>
                     <button id="collabDrawerClose" class="btn auth-close" type="button" title="Скрыть панель" aria-label="Скрыть панель">✕</button>
                 </div>
+                <div id="collabRoomEntryIntro" class="auth-room-entry">
+                    <div class="auth-room-entry-kicker">Вход по ссылке</div>
+                    <div class="auth-room-entry-title">Откройте комнату просмотра</div>
+                    <div class="auth-room-entry-copy">
+                        Введите имя, чтобы подключиться к комнате и получить синхронизированную модель.
+                    </div>
+                    <div class="auth-room-entry-meta">
+                        <div class="auth-room-entry-item">
+                            <span class="auth-room-entry-label">Проект</span>
+                            <strong id="collabEntryProject" class="auth-room-entry-value">—</strong>
+                        </div>
+                        <div class="auth-room-entry-item">
+                            <span class="auth-room-entry-label">Комната</span>
+                            <strong id="collabEntryRoom" class="auth-room-entry-value">—</strong>
+                        </div>
+                    </div>
+                </div>
                 <div class="auth-body">
                     <div class="auth-fields">
                         <label class="auth-field auth-email">
@@ -215,7 +232,7 @@
                         <button class="btn collab-back" type="button">Назад</button>
                     </div>
                     <div class="auth-actions auth-actions-room">
-                        <button id="collabGuestBtn" class="btn primary" type="button">Войти</button>
+                        <button id="collabGuestBtn" class="btn primary" type="button">Войти в комнату</button>
                     </div>
                 </div>
             </div>
