@@ -1509,7 +1509,7 @@ body.room-entry-landing .collab-status-btn {
 
 .auth-panel[data-mode="initial"],
 .auth-panel[data-mode="roomEntry"] {
-    gap: 20px;
+    gap: 16px;
 }
 
 .auth-panel[data-mode="roomEntry"] .auth-room-entry {
@@ -1527,13 +1527,47 @@ body.room-entry-landing .collab-status-btn {
 }
 
 .auth-panel[data-mode="roomEntry"] .auth-head {
-    justify-content: flex-end;
-    min-height: 28px;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    min-height: 0;
+    z-index: 1;
 }
 
 .auth-panel[data-mode="roomEntry"] .auth-title,
 .auth-panel[data-mode="roomEntry"] .chip {
     display: none;
+}
+
+.auth-panel[data-mode="roomEntry"] {
+    position: relative;
+    padding-top: 18px;
+}
+
+.auth-panel[data-mode="roomEntry"] .auth-room-entry-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 10px 22px;
+    padding-right: 54px;
+}
+
+.auth-panel[data-mode="roomEntry"] .auth-room-entry-field {
+    gap: 6px;
+}
+
+.auth-panel[data-mode="roomEntry"] .auth-room-entry-field-label {
+    margin-bottom: 0;
+}
+
+.auth-panel[data-mode="roomEntry"] .auth-room-entry-display {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: 18px;
+    line-height: 1.1;
+    font-weight: 700;
 }
 
 .auth-panel[data-mode="initial"] .auth-actions-initial,
