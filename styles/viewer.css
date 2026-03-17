@@ -455,9 +455,9 @@ body.app-loading {
 	    inset: 0 0 auto 0; /* верхняя панель */
 	    display: flex;
 	    align-items: center;
-	    gap: 8px;
+	    gap: 10px;
 	    flex-wrap: wrap;
-	    padding: 6px 10px;
+	    padding: 0 10px;
 	    background: var(--surfaceWeak);
 	    -webkit-backdrop-filter: blur(var(--glassBlur));
 	    backdrop-filter: blur(var(--glassBlur));
@@ -720,15 +720,6 @@ body.bg-black details.cam-props-panel .btn.active:not(.primary) {
     gap: 6px;
 }
 
-.appbar-group-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    white-space: nowrap;
-}
-
 .appbar .row label {
     font-size: 12px;
     display: flex;
@@ -741,9 +732,9 @@ body.bg-black details.cam-props-panel .btn.active:not(.primary) {
     color: var(--ink);
     background: var(--controlBg);
     padding: 6px 10px;
-    border-radius: 999px;
+    border-radius: 8px;
     line-height: 1.3;
-    height: 30px;
+    height: 28px;
     font: inherit;
     box-sizing: border-box;
     -webkit-appearance: none;
@@ -789,7 +780,6 @@ body.bg-black details.cam-props-panel .btn.active:not(.primary) {
 
 .appbar #toggleSideBtn,
 .appbar #fullscreenBtn,
-.appbar #resetViewerBtn,
 .appbar #resetViewBtn,
 .appbar #focusPickBtn,
 .appbar #exportBtn,
@@ -804,46 +794,6 @@ body.bg-black details.cam-props-panel .btn.active:not(.primary) {
     align-items: center;
     justify-content: center;
     line-height: 1;
-}
-
-.appbar #solidToggleBtn,
-.appbar #collToggleBtn,
-.appbar #vpmToggleBtn,
-.appbar #npmToggleBtn,
-.appbar #camsToggleBtn,
-.appbar #orderBtn {
-    height: 28px;
-    padding: 0 12px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-}
-
-.appbar #solidToggleBtn,
-.appbar #collToggleBtn,
-.appbar #vpmToggleBtn,
-.appbar #npmToggleBtn,
-.appbar #camsToggleBtn {
-    background: transparent;
-}
-
-.appbar #exportBtn,
-.appbar #camsToggleBtn {
-    position: relative;
-}
-
-.appbar #exportBtn::after,
-.appbar #camsToggleBtn::after {
-    content: "";
-    position: absolute;
-    right: -6px;
-    top: 6px;
-    width: 1px;
-    height: 16px;
-    background: var(--border);
-    pointer-events: none;
 }
 
 .btn:hover {
@@ -1354,7 +1304,7 @@ body.room-entry-landing .collab-drawer.room-entry-overlay {
 }
 
 body.room-entry-landing .appbar {
-    display: none;
+    justify-content: flex-end;
 }
 
 body.room-entry-landing #toggleSideBtn,
@@ -2082,11 +2032,6 @@ body.bg-black .collab-chat-panel {
         order: 20;
         flex: 1 1 auto;
         min-width: 0;
-        padding-right: 0;
-    }
-
-    .appbar .appbar-group-label {
-        display: none;
     }
 
     .appbar .appbar-shading label {
@@ -2106,11 +2051,6 @@ body.bg-black .collab-chat-panel {
     .appbar #npmToggleBtn { order: 23; }
     .appbar #vpmToggleBtn { order: 24; }
 
-    .appbar #exportBtn::after,
-    .appbar #camsToggleBtn::after {
-        display: none;
-    }
-
     .appbar #toggleSideBtn,
     .appbar #resetViewBtn,
     .appbar #focusPickBtn,
@@ -2128,13 +2068,13 @@ body.bg-black .collab-chat-panel {
     .appbar #collToggleBtn,
     .appbar #npmToggleBtn,
     .appbar #vpmToggleBtn {
-        width: 46px;
-        min-width: 46px;
-        max-width: 46px;
+        width: 40px;
+        min-width: 40px;
+        max-width: 40px;
         height: 26px;
         padding: 0;
         font-size: 12px;
-        flex: 0 0 46px;
+        flex: 0 0 40px;
         justify-content: center;
     }
 

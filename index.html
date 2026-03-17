@@ -44,64 +44,46 @@
     <div class="appbar">
         <button id="toggleSideBtn" class="btn" type="button" title="Показать/скрыть боковую панель" aria-label="Показать/скрыть боковую панель">
             <svg class="icon icon-menu" viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="4" y="4" width="16" height="16" rx="2"></rect>
-                <line x1="15" y1="4" x2="15" y2="20"></line>
-                <polyline points="12.5 9 15.5 12 12.5 15"></polyline>
+                <line x1="4" y1="7" x2="20" y2="7"></line>
+                <line x1="4" y1="12" x2="20" y2="12"></line>
+                <line x1="4" y1="17" x2="20" y2="17"></line>
             </svg>
         </button>
         <button id="fullscreenBtn" class="btn" type="button" title="На весь экран" aria-label="На весь экран">
             <svg class="icon icon-fullscreen" viewBox="0 0 24 24" aria-hidden="true">
-                <polyline points="9 4 4 4 4 9"></polyline>
-                <line x1="10" y1="10" x2="4" y2="4"></line>
+                <polyline points="4 9 4 4 9 4"></polyline>
                 <polyline points="15 4 20 4 20 9"></polyline>
-                <line x1="14" y1="10" x2="20" y2="4"></line>
-                <polyline points="4 15 4 20 9 20"></polyline>
-                <line x1="10" y1="14" x2="4" y2="20"></line>
-                <polyline points="15 20 20 20 20 15"></polyline>
-                <line x1="14" y1="14" x2="20" y2="20"></line>
+                <polyline points="20 15 20 20 15 20"></polyline>
+                <polyline points="9 20 4 20 4 15"></polyline>
             </svg>
         </button>
-        <button id="resetViewerBtn" class="btn" type="button" title="Сбросить просмотр" aria-label="Сбросить просмотр">
-            <svg class="icon icon-reset" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M18.5 8.5A7.5 7.5 0 1 0 19 12"></path>
-                <polyline points="15 3.5 20 3.5 20 8.5"></polyline>
-            </svg>
-        </button>
+        <button id="resetViewerBtn" class="btn" type="button">Reset</button>
         <button id="resetViewBtn" class="btn" type="button" title="Сбросить вид на объект" aria-label="Сбросить вид на объект">
             <svg class="icon icon-zoomall" viewBox="0 0 24 24" aria-hidden="true">
-                <polyline points="8 4 4 4 4 8"></polyline>
-                <polyline points="16 4 20 4 20 8"></polyline>
-                <polyline points="4 16 4 20 8 20"></polyline>
-                <polyline points="16 20 20 20 20 16"></polyline>
-                <line x1="6" y1="20" x2="18" y2="20"></line>
-                <line x1="8" y1="20" x2="8" y2="13.5"></line>
-                <line x1="12" y1="20" x2="12" y2="9.5"></line>
-                <line x1="16" y1="20" x2="16" y2="15.5"></line>
+                <rect x="5" y="5" width="14" height="14" rx="2"></rect>
+                <circle cx="12" cy="12" r="2"></circle>
             </svg>
         </button>
         <button id="focusPickBtn" class="btn" type="button" title="Позиционировать камеру по клику" aria-label="Позиционировать камеру по клику" aria-pressed="false">
             <svg class="icon icon-zoompoint" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="10.5" cy="10.5" r="5.5"></circle>
-                <line x1="14.5" y1="14.5" x2="20" y2="20"></line>
-                <circle cx="7.5" cy="13.5" r="1.2" fill="currentColor" stroke="none"></circle>
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="3" x2="12" y2="6"></line>
+                <line x1="12" y1="18" x2="12" y2="21"></line>
+                <line x1="3" y1="12" x2="6" y2="12"></line>
+                <line x1="18" y1="12" x2="21" y2="12"></line>
             </svg>
         </button>
         <button id="exportBtn" class="btn" type="button" title="Экспорт сцены (GLB/GLTF)" aria-label="Экспорт сцены (GLB/GLTF)">
             <svg class="icon icon-export" viewBox="0 0 24 24" aria-hidden="true">
-                <line x1="10" y1="4" x2="10" y2="14"></line>
-                <polyline points="6 10 10 14 14 10"></polyline>
-                <polyline points="4 16 4 20 14 20"></polyline>
-                <path d="M16 11.5 19 10l3 1.5v4L19 17l-3-1.5z"></path>
-                <line x1="19" y1="10" x2="19" y2="17"></line>
-                <line x1="16" y1="11.5" x2="19" y2="13"></line>
-                <line x1="22" y1="11.5" x2="19" y2="13"></line>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="5" y1="21" x2="19" y2="21"></line>
             </svg>
         </button>
         <!-- Files -->
         
         <input id="fileInput" type="file" accept=".fbx,.zip" multiple hidden />
         <div class="row appbar-shading">
-            <span class="appbar-group-label">Рендер</span>
             <label>
                 <select id="shadingMode" title="Режим шейдинга">
                     <option value="pbr" selected>PBR</option>
@@ -122,20 +104,19 @@
 		        <button id="collToggleBtn" class="btn" type="button" title="Показать/скрыть коллизии (UCX)">UCX</button>
             <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">ВПМ</button>
             <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">НПМ</button>
-		        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">Камеры</button>
+		        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">CAMS</button>
                 <button id="collabPanelBtn" class="btn" type="button" title="Совместная работа" aria-label="Совместная работа" aria-pressed="false">
                     <svg class="icon icon-collab" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M3 12.5 6.5 9l4.5 4.5-2.8 2.8a2 2 0 0 1-2.8 0L3 13.6z"></path>
-                        <path d="M21 12.5 17.5 9 13 13.5l2.8 2.8a2 2 0 0 0 2.8 0l2.4-2.7z"></path>
-                        <path d="M9.5 12l2 2a1.7 1.7 0 0 0 2.4 0l1.6-1.6"></path>
-                        <path d="M8 10.5 10 8.5h3"></path>
-                        <path d="M16 10.5 14 8.5h-1"></path>
+                        <circle cx="8" cy="9" r="3"></circle>
+                        <circle cx="16" cy="10" r="3"></circle>
+                        <path d="M2.5 19c.7-3.2 3-5 5.5-5"></path>
+                        <path d="M10.5 19c.7-3.2 3-5 5.5-5"></path>
                     </svg>
                 </button>
 		        <button id="annoToggleBtn" class="btn" type="button" title="Аннотации" aria-label="Аннотации" aria-pressed="false">
                     <svg class="icon icon-pencil" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 20l4-1 10-10a2.4 2.4 0 1 0-3.4-3.4L4.6 15.6 4 20z"></path>
-                        <line x1="13.5" y1="6.5" x2="17.5" y2="10.5"></line>
+                        <path d="M17 3a2.8 2.8 0 0 1 4 4L7 21H3v-4z"></path>
+                        <line x1="16" y1="5" x2="20" y2="9"></line>
                     </svg>
                 </button>
 		        <button id="bgToggleBtn" class="btn bg-btn" type="button" title="Тёмная тема" aria-label="Тёмная тема">
