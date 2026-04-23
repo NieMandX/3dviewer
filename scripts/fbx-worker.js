@@ -2,8 +2,8 @@ import { extractImagesFromFBXToBuffers } from './modules/fbx/embedded-images-cor
 import { readFBXOrientationFromTree } from './modules/fbx/orientation-tree.js';
 
 const FBX_LOADER_MODULE = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/loaders/FBXLoader.js?module';
-const FBX_Z_UP_WARNING = 'THREE.FBXLoader: You are loading an asset with a Z-UP coordinate system.';
-const FBX_Z_UP_WARNING_PARTIAL = 'The vertex data are not converted.';
+const FBX_Z_UP_WARNING = 'z-up coordinate system';
+const FBX_Z_UP_WARNING_PARTIAL = 'vertex data are not converted';
 
 let FBXLoaderCtor = null;
 
@@ -13,17 +13,15 @@ function withFilteredFBXWarnings(task) {
 
     console.warn = (...args) => {
         const msg = (typeof args[0] === 'string' ? args[0] : args[0]?.message) || '';
-        if (typeof msg === 'string' && msg.includes(FBX_Z_UP_WARNING) && msg.includes(FBX_Z_UP_WARNING_PARTIAL)) {
-            return;
-        }
+        const payload = String(msg || '').toLowerCase();
+        if (payload.includes(FBX_Z_UP_WARNING) && payload.includes(FBX_Z_UP_WARNING_PARTIAL)) return;
         warn(...args);
     };
 
     console.error = (...args) => {
         const msg = (typeof args[0] === 'string' ? args[0] : args[0]?.message) || '';
-        if (typeof msg === 'string' && msg.includes('THREE.FBXLoader') && msg.includes('Z-UP coordinate system')) {
-            return;
-        }
+        const payload = String(msg || '').toLowerCase();
+        if (payload.includes(FBX_Z_UP_WARNING) && payload.includes(FBX_Z_UP_WARNING_PARTIAL)) return;
         error(...args);
     };
 

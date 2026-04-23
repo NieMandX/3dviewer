@@ -52,28 +52,28 @@ export function createFBXFileHandler(options = {}) {
     const applyGlassControlsToScene = typeof options.applyGlassControlsToScene === 'function' ? options.applyGlassControlsToScene : () => {};
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
-    const FBX_Z_UP_WARNING = 'THREE.FBXLoader: You are loading an asset with a Z-UP coordinate system.';
-    const FBX_Z_UP_WARNING_PARTIAL = 'The vertex data are not converted.';
+    const FBX_Z_UP_WARNING = 'z-up coordinate system';
+    const FBX_Z_UP_WARNING_PARTIAL = 'vertex data are not converted';
 
     async function withFilteredFBXWarnings(task) {
-        const warn = console.warn.bind(console);
-        const error = console.error.bind(console);
+        const warn = console.warn?.bind(console);
+        const error = console.error?.bind(console);
         const warnMessage = (...args) => {
+            if (!warn) return;
             const msg = (typeof args[0] === 'string' ? args[0] : args[0]?.message) || '';
-            if (typeof msg === 'string' &&
-                msg.includes(FBX_Z_UP_WARNING) &&
-                msg.includes(FBX_Z_UP_WARNING_PARTIAL)) {
-                return;
-            }
+            const payload = String(msg || '')
+                .toLowerCase();
+            if (payload.includes(FBX_Z_UP_WARNING) && payload.includes(FBX_Z_UP_WARNING_PARTIAL)) return;
             warn(...args);
         };
 
         console.warn = warnMessage;
         console.error = (...args) => {
+            if (!error) return;
             const msg = (typeof args[0] === 'string' ? args[0] : args[0]?.message) || '';
-            if (typeof msg === 'string' && msg.includes('THREE.FBXLoader') && msg.includes('Z-UP coordinate system')) {
-                return;
-            }
+            const payload = String(msg || '')
+                .toLowerCase();
+            if (payload.includes(FBX_Z_UP_WARNING) && payload.includes(FBX_Z_UP_WARNING_PARTIAL)) return;
             error(...args);
         };
 

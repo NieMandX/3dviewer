@@ -13,9 +13,8 @@ export function createAssetLoaders(options = {}) {
     const fbxWorkerClient = createFBXWorkerClient();
     let fbxWorkerSupported = fbxWorkerClient.isSupported();
     const parseFBXInWorker = fbxWorkerClient.parseFBXInWorker;
-    const FBX_Z_UP_WARNING = 'You are loading an asset with a Z-UP coordinate system.';
-    const FBX_Z_UP_WARNING_PREFIX = 'THREE.FBXLoader:';
-    const FBX_Z_UP_WARNING_SECOND = 'The vertex data are not converted.';
+    const FBX_Z_UP_WARNING = 'z-up coordinate system';
+    const FBX_Z_UP_WARNING_SECOND = 'vertex data are not converted';
 
     function isFBXZUpWarning(args) {
         if (!args?.length) return false;
@@ -27,11 +26,11 @@ export function createAssetLoaders(options = {}) {
                 return '';
             })
             .filter(Boolean)
-            .join(' ');
+            .join(' ')
+            .toLowerCase();
 
-        if (!payload.includes(FBX_Z_UP_WARNING_PREFIX)) return false;
-        if (!payload.includes(FBX_Z_UP_WARNING) && !payload.includes(FBX_Z_UP_WARNING_SECOND)) return false;
-        return payload.includes(FBX_Z_UP_WARNING) || payload.includes(FBX_Z_UP_WARNING_SECOND);
+        if (!payload.includes(FBX_Z_UP_WARNING)) return false;
+        return payload.includes(FBX_Z_UP_WARNING) && payload.includes(FBX_Z_UP_WARNING_SECOND);
     }
 
     function withFilteredFBXWarnings(task) {
