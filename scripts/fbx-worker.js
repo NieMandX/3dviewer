@@ -1,37 +1,12 @@
 import { extractImagesFromFBXToBuffers } from './modules/fbx/embedded-images-core.js';
 import { readFBXOrientationFromTree } from './modules/fbx/orientation-tree.js';
+import { installConsoleDiagnosticsGate } from './modules/utils/console-diagnostics.js';
 
 const FBX_LOADER_MODULE = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/loaders/FBXLoader.js?module';
-const FBX_Z_UP_WARNING = 'z-up coordinate system';
-const FBX_Z_UP_WARNING_PARTIAL = 'vertex data are not converted';
 
 let FBXLoaderCtor = null;
 
-function withFilteredFBXWarnings(task) {
-    const warn = console.warn.bind(console);
-    const error = console.error.bind(console);
-
-    console.warn = (...args) => {
-        const msg = (typeof args[0] === 'string' ? args[0] : args[0]?.message) || '';
-        const payload = String(msg || '').toLowerCase();
-        if (payload.includes(FBX_Z_UP_WARNING) && payload.includes(FBX_Z_UP_WARNING_PARTIAL)) return;
-        warn(...args);
-    };
-
-    console.error = (...args) => {
-        const msg = (typeof args[0] === 'string' ? args[0] : args[0]?.message) || '';
-        const payload = String(msg || '').toLowerCase();
-        if (payload.includes(FBX_Z_UP_WARNING) && payload.includes(FBX_Z_UP_WARNING_PARTIAL)) return;
-        error(...args);
-    };
-
-    try {
-        return task();
-    } finally {
-        console.warn = warn;
-        console.error = error;
-    }
-}
+installConsoleDiagnosticsGate();
 
 async function ensureLoader() {
     if (!FBXLoaderCtor) {
@@ -47,7 +22,7 @@ self.onmessage = async (event) => {
         await ensureLoader();
         const loader = new FBXLoaderCtor();
         const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        let obj = withFilteredFBXWarnings(() => loader.parse(buffer, ''));
+        let obj = loader.parse(buffer, '');
         const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         const json = obj.toJSON();
         obj = null;

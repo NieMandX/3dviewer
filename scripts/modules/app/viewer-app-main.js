@@ -70,6 +70,7 @@ import { createMaterialRenamer } from '../material/rename-materials.js';
 import { createAutobindPipeline } from '../material/autobind-pipeline.js';
 import { copyTextureSettings } from '../material/texture-utils.js';
 import { createToStandard } from '../material/to-standard.js';
+import { installConsoleDiagnosticsGate } from '../utils/console-diagnostics.js';
 import {
     applyGeoOffsetByOrientation,
     describeFBXOrientation,
@@ -90,36 +91,7 @@ import {
 } from '../render/wire-overlays.js';
 import { detectRendererMode } from '../render/renderer-mode.js';
 
-function isFBXZUpWarning(args) {
-    const payload = Array.from(args || [])
-        .map((arg) => {
-            if (typeof arg === 'string') return arg;
-            if (arg && typeof arg === 'object' && typeof arg.message === 'string') return arg.message;
-            return '';
-        })
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-    return payload.includes('z-up coordinate system') && payload.includes('vertex data are not converted');
-}
-
-function installFBXZUpWarningFilter() {
-    if (typeof console === 'undefined' || !console?.warn || !console?.error) return;
-
-    const prevWarn = console.warn;
-    const prevError = console.error;
-
-    console.warn = (...args) => {
-        if (!isFBXZUpWarning(args)) prevWarn(...args);
-    };
-
-    console.error = (...args) => {
-        if (!isFBXZUpWarning(args)) prevError(...args);
-    };
-}
-
-installFBXZUpWarningFilter();
+installConsoleDiagnosticsGate();
 
 const rendererMode = await detectRendererMode();
 const activeRendererMode = rendererMode.activeRendererMode;
