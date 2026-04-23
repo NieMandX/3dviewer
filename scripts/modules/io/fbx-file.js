@@ -52,6 +52,38 @@ export function createFBXFileHandler(options = {}) {
     const applyGlassControlsToScene = typeof options.applyGlassControlsToScene === 'function' ? options.applyGlassControlsToScene : () => {};
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
+    const FBX_Z_UP_WARNING = 'THREE.FBXLoader: You are loading an asset with a Z-UP coordinate system.';
+    const FBX_Z_UP_WARNING_PARTIAL = 'The vertex data are not converted.';
+
+    async function withFilteredFBXWarnings(task) {
+        const warn = console.warn.bind(console);
+        const error = console.error.bind(console);
+        const warnMessage = (...args) => {
+            const msg = (typeof args[0] === 'string' ? args[0] : args[0]?.message) || '';
+            if (typeof msg === 'string' &&
+                msg.includes(FBX_Z_UP_WARNING) &&
+                msg.includes(FBX_Z_UP_WARNING_PARTIAL)) {
+                return;
+            }
+            warn(...args);
+        };
+
+        console.warn = warnMessage;
+        console.error = (...args) => {
+            const msg = (typeof args[0] === 'string' ? args[0] : args[0]?.message) || '';
+            if (typeof msg === 'string' && msg.includes('THREE.FBXLoader') && msg.includes('Z-UP coordinate system')) {
+                return;
+            }
+            error(...args);
+        };
+
+        try {
+            return await task();
+        } finally {
+            console.warn = warn;
+            console.error = error;
+        }
+    }
 
     return async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, callOptions = null) {
         logSessionHeader(`FBX: ${file.name}`);
@@ -79,7 +111,8 @@ export function createFBXFileHandler(options = {}) {
 
         if (parseFBXInWorker && isWorkerSupported()) {
             try {
-                const workerResult = await parseFBXInWorker(ab, { embedded: true, orientation: true });
+                // parseFBXInWorker can emit a noisy FBXLoader warning about Z-UP rotation.
+                const workerResult = await withFilteredFBXWarnings(() => parseFBXInWorker(ab, { embedded: true, orientation: true }));
                 parsedObj = workerResult.obj;
                 parsedViaWorker = true;
                 parseDuration = workerResult.duration;
@@ -116,7 +149,7 @@ export function createFBXFileHandler(options = {}) {
         if (!parsedObj) {
             try {
                 if (!parseFBXOnMainThread) throw new Error('parseFBXOnMainThread not available');
-                const mainResult = parseFBXOnMainThread(ab);
+                const mainResult = await withFilteredFBXWarnings(() => Promise.resolve(parseFBXOnMainThread(ab)));
                 parsedObj = mainResult.obj;
                 parseDuration = mainResult.duration;
 
