@@ -2,6 +2,9 @@ import * as THREE from 'three';
 
 import { readFBXOrientationFromTree } from './orientation-tree.js';
 
+const THREE_REVISION = Number.parseInt(THREE.REVISION || '0', 10) || 0;
+const FBX_LOADER_AUTO_CONVERTS_Z_UP = THREE_REVISION >= 184;
+
 const AXIS_VECTORS = Object.freeze({
     X: new THREE.Vector3(1, 0, 0),
     Y: new THREE.Vector3(0, 1, 0),
@@ -232,6 +235,21 @@ export function describeOrientationType(type) {
 
 export function normalizeObjectOrientation(obj, orientationType) {
     if (!obj) return;
+    if (FBX_LOADER_AUTO_CONVERTS_Z_UP) {
+        switch (orientationType) {
+            case 1: // Y-up right-handed
+            case 2: // Z-up right-handed; FBXLoader r184 already converted to Y-up.
+                break;
+            case 3: // Z-up left-handed; preserve handedness correction only.
+            case 4: // Y-up left-handed
+                obj.rotateY(Math.PI);
+                break;
+            default:
+                break;
+        }
+        return;
+    }
+
     switch (orientationType) {
         case 1: // Y-up right-handed
             break;

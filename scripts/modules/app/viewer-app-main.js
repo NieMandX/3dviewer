@@ -480,6 +480,7 @@ class ViewerApp {
 	        let galleryNeedsRefresh = false;
 	        let layoutController = null;
 	        let lastFinalizedModelIndex = 0;
+	        let appDisposed = false;
 		        let renderLoop = null;
 		        let glassController = null;
 		        let materialsPanel = null;
@@ -495,6 +496,7 @@ class ViewerApp {
         app.location = { latitude: MOSCOW_LAT, longitude: MOSCOW_LON };
 
         function requestRender() {
+            if (appDisposed) return;
             renderLoop?.requestRender?.();
         }
 
@@ -903,16 +905,21 @@ class ViewerApp {
         let collabRooms = [];
         let collabOwnerId = null;
         let collabParticipants = [];
+        let collabSessionGeneration = 0;
         let presenceRefreshTimer = null;
         const PRESENCE_REFRESH_MS = 3000;
         const PRESENCE_STALE_MS = 15000;
         let roomModelsChannel = null;
         const loadedRoomModelIds = new Set();
         let isLoadingRoomModels = false;
+        let loadingRoomModelsGeneration = 0;
         let roomModelCount = 0;
+        let roomLoadGeneration = 0;
+        const activeRoomImportControllers = new Set();
         let roomCamerasChannel = null;
         let roomTransitionsChannel = null;
         let cameraSyncMuted = false;
+        let cameraSyncMuteToken = 0;
         let cameraPersistTimer = null;
         let roomCameraCount = 0;
         let collabConnectionOnline = false;
@@ -1109,6 +1116,68 @@ class ViewerApp {
             if (!collabAutoResumeTimer) return;
             clearTimeout(collabAutoResumeTimer);
             collabAutoResumeTimer = null;
+        }
+
+        function makeRoomLoadAbortError(message = 'Room model load superseded') {
+            try {
+                return new DOMException(message, 'AbortError');
+            } catch (_) {
+                const err = new Error(message);
+                err.name = 'AbortError';
+                return err;
+            }
+        }
+
+        function isAbortError(error) {
+            return error?.name === 'AbortError';
+        }
+
+        function abortActiveRoomImports() {
+            if (!activeRoomImportControllers.size) return;
+            const reason = makeRoomLoadAbortError();
+            activeRoomImportControllers.forEach((controller) => {
+                try {
+                    if (!controller.signal?.aborted) controller.abort(reason);
+                } catch (_) {}
+            });
+            activeRoomImportControllers.clear();
+        }
+
+        function bumpRoomLoadGeneration() {
+            roomLoadGeneration += 1;
+            abortActiveRoomImports();
+            return roomLoadGeneration;
+        }
+
+        function isActiveRoomLoad(generation, roomId) {
+            if (generation !== roomLoadGeneration) return false;
+            if (!collabController?.room?.id) return false;
+            return String(collabController.room.id) === String(roomId || '');
+        }
+
+        function bumpCollabSessionGeneration() {
+            collabSessionGeneration += 1;
+            return collabSessionGeneration;
+        }
+
+        function isActiveCollabSession(generation) {
+            return generation === collabSessionGeneration;
+        }
+
+        function beginCameraSyncMute() {
+            cameraSyncMuted = true;
+            cameraSyncMuteToken += 1;
+            return cameraSyncMuteToken;
+        }
+
+        function endCameraSyncMute(token) {
+            if (token !== cameraSyncMuteToken) return;
+            cameraSyncMuted = false;
+        }
+
+        function clearCameraSyncMute() {
+            cameraSyncMuteToken += 1;
+            cameraSyncMuted = false;
         }
 
         function setCollabConnectionState(connected, reason = '') {
@@ -1526,11 +1595,13 @@ class ViewerApp {
         async function teardownCollabSession(options = {}) {
             const preserveAutoResume = !!options?.preserveAutoResume;
             const previousRoomId = String(collabController?.room?.id || collabRoom?.id || '');
+            bumpCollabSessionGeneration();
+            bumpRoomLoadGeneration();
             await disconnectVoiceRoom({ preserveIntent: preserveAutoResume && voiceAutoJoinRequested });
             stopPresenceRefresh();
             cameraSync?.dispose?.();
             cameraSync = null;
-            cameraSyncMuted = false;
+            clearCameraSyncMute();
             if (cameraPersistTimer) {
                 clearTimeout(cameraPersistTimer);
                 cameraPersistTimer = null;
@@ -2391,10 +2462,13 @@ class ViewerApp {
             if (!collabSupabase || !collabUser || !collabProject || !collabRoom) return;
             const isAutoReconnect = !!options?.isAutoReconnect;
             const throwOnError = !!options?.throwOnError;
+            const sessionGeneration = bumpCollabSessionGeneration();
+            const isCurrentSession = () => isActiveCollabSession(sessionGeneration);
+            bumpRoomLoadGeneration();
             collabJoinBtn.disabled = true;
             setCollabStatus('connecting');
             try {
-                collabController = await createCollabController({
+                const nextController = await createCollabController({
                     supabaseUrl,
                     supabaseAnonKey,
                     supabase: collabSupabase,
@@ -2405,6 +2479,7 @@ class ViewerApp {
                     roomSlug: collabRoom.slug,
                     displayName: name,
                     onStatus: (text) => {
+                        if (!isCurrentSession()) return;
                         const label = String(text || '').trim();
                         if (!label) {
                             setCollabStatus(collabConnectionOnline ? 'on' : 'offline');
@@ -2413,6 +2488,7 @@ class ViewerApp {
                         setCollabStatus(label);
                     },
                     onConnectionState: ({ connected, reason }) => {
+                        if (!isCurrentSession()) return;
                         setCollabConnectionState(connected, reason);
                         if (connected) {
                             collabAutoResumeAttempt = 0;
@@ -2425,39 +2501,55 @@ class ViewerApp {
                         scheduleCollabAutoResume(reason || 'channel-disconnected');
                     },
                     onProjectReady: (project) => {
+                        if (!isCurrentSession()) return;
                         collabProject = project;
                         updateCollabFooter();
                     },
                     onRoomReady: ({ project, room }) => {
+                        if (!isCurrentSession()) return;
                         collabProject = project || collabProject;
                         collabRoom = room || collabRoom;
                         void refreshRoomShareLink({ updateHistory: true });
                         updateCollabFooter();
                     },
                     onParticipants: (list) => {
+                        if (!isCurrentSession()) return;
                         renderParticipants(list);
                         updateOwnerLabel();
                     },
                     onMessage: (message, meta) => {
+                        if (!isCurrentSession()) return;
                         appendChatMessage(message, { scroll: meta?.source !== 'history' });
                     },
                     onAnnotation: (record) => {
+                        if (!isCurrentSession()) return;
                         if (record?.author_id) {
                             recordContributor(record.author_id, record.author_name);
                         }
                         annotations3d?.addRemoteAnnotation?.(record);
                     },
                     onAnnotationDelete: (record) => {
+                        if (!isCurrentSession()) return;
                         annotations3d?.removeRemoteAnnotation?.(record?.id);
                     },
                     onCameraState: (state) => {
+                        if (!isCurrentSession()) return;
                         cameraSync?.handleRemoteState?.(state);
                     },
                     onCameraOwner: (ownerId) => {
+                        if (!isCurrentSession()) return;
                         setCollabOwner(ownerId);
                     },
-                    onRoomUpdate: (room) => roomUpdateHandler?.(room),
+                    onRoomUpdate: (room) => {
+                        if (!isCurrentSession()) return;
+                        roomUpdateHandler?.(room);
+                    },
                 });
+                if (!isCurrentSession()) {
+                    await nextController.dispose?.();
+                    return;
+                }
+                collabController = nextController;
                 updateCollabFooter();
 
                 cameraSync = createCameraSyncController({
@@ -2473,7 +2565,9 @@ class ViewerApp {
                 }
                 roomUpdateHandler?.(collabController.room);
                 await loadRoomModels();
+                if (!isCurrentSession()) return;
                 await loadRoomCameras();
+                if (!isCurrentSession()) return;
                 if (roomCameraCount === 0) {
                     scheduleCameraPersist({
                         presets: cameraPresets.getPresets?.() || [],
@@ -2482,6 +2576,7 @@ class ViewerApp {
                 }
                 subscribeRoomCameraChanges();
                 await syncPendingLocalModels({ onlyIfRoomEmpty: true });
+                if (!isCurrentSession()) return;
 
                 if (dom.annotateCanvasEl && !collabAnnotatePointerHooksBound) {
                     dom.annotateCanvasEl.addEventListener('pointerdown', () => cameraSync?.markLocalActivity(true));
@@ -2514,6 +2609,7 @@ class ViewerApp {
                     void joinVoiceRoom({ preserveIntent: true });
                 }
             } catch (err) {
+                if (!isCurrentSession()) return;
                 console.error('Collab init failed', err);
                 setCollabConnectionState(false, 'connect-error');
                 if (!isAutoReconnect) {
@@ -2522,7 +2618,7 @@ class ViewerApp {
                 setCollabStatus('error');
                 if (throwOnError) throw err;
             } finally {
-                collabJoinBtn.disabled = false;
+                if (isCurrentSession()) collabJoinBtn.disabled = false;
             }
         }
 
@@ -2715,8 +2811,10 @@ class ViewerApp {
                     setCollabStatus('confirm email');
                     setAuthError('Подтвердите email, чтобы войти.');
                 } else if (message.toLowerCase().includes('invalid login credentials')) {
+                    setCollabStatus('off');
                     setFieldError(collabPasswordErrorEl, 'Неверный email или пароль.');
                 } else if (message.toLowerCase().includes('invalid format')) {
+                    setCollabStatus('off');
                     setFieldError(collabEmailErrorEl, 'Некорректный email.');
                 } else {
                     setCollabStatus('error');
@@ -2726,6 +2824,7 @@ class ViewerApp {
                 collabJoinBtn.disabled = false;
                 if (collabSignupBtn) collabSignupBtn.disabled = false;
                 if (collabGuestBtn) collabGuestBtn.disabled = false;
+                updateCollabStatusButton();
             }
         }
 
@@ -3303,14 +3402,21 @@ class ViewerApp {
             if (scene?.environment?.isTexture) sharedTextures.add(scene.environment);
             if (scene?.background?.isTexture) sharedTextures.add(scene.background);
 
-            const disposeMaterial = (material) => {
+            const asMaterialArray = (value) => {
+                if (!value) return [];
+                return Array.isArray(value) ? value.filter(Boolean) : [value];
+            };
+
+            const disposeMaterial = (material, { disposeTextures = true } = {}) => {
                 if (!material || disposedMaterials.has(material)) return;
                 disposedMaterials.add(material);
-                Object.values(material).forEach((value) => {
-                    if (!value?.isTexture || sharedTextures.has(value) || disposedTextures.has(value)) return;
-                    disposedTextures.add(value);
-                    value.dispose?.();
-                });
+                if (disposeTextures) {
+                    Object.values(material).forEach((value) => {
+                        if (!value?.isTexture || sharedTextures.has(value) || disposedTextures.has(value)) return;
+                        disposedTextures.add(value);
+                        value.dispose?.();
+                    });
+                }
                 material.dispose?.();
             };
 
@@ -3320,12 +3426,35 @@ class ViewerApp {
                     disposedGeometries.add(geometry);
                     geometry.dispose();
                 }
-                if (!child?.material) return;
-                if (Array.isArray(child.material)) {
-                    child.material.forEach((material) => disposeMaterial(material));
-                } else {
-                    disposeMaterial(child.material);
-                }
+                const originalMaterials = asMaterialArray(child?.userData?._origMaterial);
+                const originalSet = new Set(originalMaterials);
+                originalMaterials.forEach((material) => disposeMaterial(material, { disposeTextures: true }));
+
+                const generatedMaterialKeys = ['_bfFront', '_bfBack', '_wireBase', '_beautyBase'];
+                generatedMaterialKeys.forEach((key) => {
+                    asMaterialArray(child?.userData?.[key]).forEach((material) => {
+                        disposeMaterial(material, { disposeTextures: false });
+                    });
+                });
+
+                asMaterialArray(child?.material).forEach((material) => {
+                    const isOriginal = originalSet.has(material) || originalMaterials.length === 0;
+                    disposeMaterial(material, { disposeTextures: isOriginal });
+                });
+
+                const generatedChildKeys = ['_bfChild', '_wireOverlay', '_beautyWire'];
+                generatedChildKeys.forEach((key) => {
+                    const generatedChild = child?.userData?.[key] || null;
+                    if (!generatedChild) return;
+                    asMaterialArray(generatedChild.material).forEach((material) => {
+                        disposeMaterial(material, { disposeTextures: false });
+                    });
+                    if (generatedChild.geometry?.dispose && !disposedGeometries.has(generatedChild.geometry)) {
+                        disposedGeometries.add(generatedChild.geometry);
+                        generatedChild.geometry.dispose();
+                    }
+                });
+
             });
         }
 
@@ -3682,6 +3811,7 @@ class ViewerApp {
 	            loadedModels,
 	            requestRender,
 	            logBind,
+	            useWebGPU: USE_WEBGPU,
 	        });
 		        importedLightsController.bindUI({
 		            lightHelpersBtn: dom.lightHelpersBtn,
@@ -3967,6 +4097,7 @@ class ViewerApp {
         const pendingLocalModelKeys = new Set();
         const nonRetryableModelSyncKeys = new Set();
         let isRemoteModelLoad = false;
+        let remoteModelLoadGeneration = 0;
         let activeRoomModelId = '';
         const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 16 * 1024 * 1024;
         const RESUMABLE_UPLOAD_CHUNK_BYTES = 6 * 1024 * 1024;
@@ -4078,13 +4209,14 @@ class ViewerApp {
             return tusClientPromise;
         }
 
-        async function uploadModelToProjectResumable({ supabase, file, path }) {
+        async function uploadModelToProjectResumable({ supabase, file, path, onProgress = null }) {
             const sessionResult = await supabase.auth.getSession();
             const accessToken = sessionResult?.data?.session?.access_token || '';
             if (!accessToken) {
                 throw new Error('No active Supabase session for resumable upload.');
             }
             const tus = await ensureTusClient();
+            let lastProgressPercent = -1;
             await new Promise((resolve, reject) => {
                 const upload = new tus.Upload(file, {
                     endpoint: `${supabaseUrl}/storage/v1/upload/resumable`,
@@ -4103,6 +4235,16 @@ class ViewerApp {
                         contentType: file.type || 'application/octet-stream',
                         cacheControl: '3600',
                     },
+                    onProgress: (bytesUploaded, bytesTotal) => {
+                        if (typeof onProgress !== 'function') return;
+                        const total = Number(bytesTotal || file.size || 0);
+                        if (!Number.isFinite(total) || total <= 0) return;
+                        const uploaded = Math.max(0, Number(bytesUploaded || 0));
+                        const percent = Math.max(0, Math.min(99, Math.floor((uploaded / total) * 100)));
+                        if (percent === lastProgressPercent) return;
+                        lastProgressPercent = percent;
+                        onProgress(percent);
+                    },
                     onError: (error) => reject(error),
                     onSuccess: () => resolve(true),
                 });
@@ -4117,7 +4259,7 @@ class ViewerApp {
             });
         }
 
-        async function uploadModelToProject(file) {
+        async function uploadModelToProject(file, options = {}) {
             if (!collabController || !file) return null;
             const supabase = collabController.supabase;
             const bucket = supabase.storage.from('models');
@@ -4126,7 +4268,12 @@ class ViewerApp {
             const path = `projects/${projectId}/${Date.now()}-${safeName}`;
             const useResumable = Number(file.size || 0) > RESUMABLE_UPLOAD_THRESHOLD_BYTES;
             if (useResumable) {
-                await uploadModelToProjectResumable({ supabase, file, path });
+                await uploadModelToProjectResumable({
+                    supabase,
+                    file,
+                    path,
+                    onProgress: options.onProgress,
+                });
             } else {
                 const { error: uploadError } = await bucket.upload(path, file, {
                     upsert: true,
@@ -4205,9 +4352,12 @@ class ViewerApp {
             let shouldKeepStatusMessage = false;
             let uploadedPath = '';
             let createdModelRowId = '';
+            const setSyncStatus = (message) => setStatusMessage(`Синхронизация: ${message}`);
             try {
-                setStatusMessage('Синхронизация модели…');
-                const uploadResult = await uploadModelToProject(file);
+                setSyncStatus('загрузка модели…');
+                const uploadResult = await uploadModelToProject(file, {
+                    onProgress: (percent) => setSyncStatus(`загрузка ${percent}%…`),
+                });
                 const url = uploadResult?.url || '';
                 uploadedPath = uploadResult?.path || '';
                 if (!url) {
@@ -4220,6 +4370,7 @@ class ViewerApp {
                     lastModified: file.lastModified || null,
                     storagePath: uploadedPath,
                 };
+                setSyncStatus('запись модели в проект…');
                 const { data: modelRow, error: modelError } = await collabController.supabase
                     .from('project_models')
                     .insert({
@@ -4233,6 +4384,7 @@ class ViewerApp {
                 if (modelError) throw modelError;
                 createdModelRowId = modelRow.id;
 
+                setSyncStatus('привязка модели к комнате…');
                 const { data: roomModelRow, error: roomModelError } = await collabController.supabase
                     .from('room_models')
                     .insert({
@@ -4248,6 +4400,7 @@ class ViewerApp {
                     throw new Error('Room model link was not persisted.');
                 }
 
+                setSyncStatus('обновление активной модели…');
                 const { data: updatedRoomRow, error: activeModelError } = await collabController.supabase
                     .from('rooms')
                     .update({ active_model_id: modelRow.id })
@@ -4262,6 +4415,8 @@ class ViewerApp {
                 activeRoomModelId = modelRow.id;
                 loadedRoomModelIds.add(modelRow.id);
                 roomModelCount += 1;
+                setStatusMessage('готово: модель синхронизирована');
+                shouldKeepStatusMessage = true;
                 return true;
             } catch (err) {
                 if (isModelSyncFileTooLargeError(err)) {
@@ -4316,14 +4471,31 @@ class ViewerApp {
             return syncedAny;
         }
 
-        async function loadProjectModel(model) {
-            if (!model || isRemoteModelLoad) return;
+        async function loadProjectModel(model, options = {}) {
+            if (!model) return;
+            const expectedRoomId = String(options.roomId || collabController?.room?.id || '');
+            const expectedGeneration = Number.isFinite(options.generation)
+                ? options.generation
+                : roomLoadGeneration;
+            const isStaleLoad = () => !isActiveRoomLoad(expectedGeneration, expectedRoomId);
+            if (isStaleLoad()) return;
+            if (isRemoteModelLoad && remoteModelLoadGeneration === expectedGeneration) return;
             if (loadedRoomModelIds.has(model.id)) return;
+
             const storagePath = getProjectModelStoragePath(model);
             const modelRef = storagePath || model.url || '';
             if (!modelRef) return;
             const name = model.name || basename(modelRef) || 'model.zip';
             const kind = model.meta?.kind || getModelKindFromName(name);
+            const importAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const importSignal = importAbortController?.signal || null;
+            const abortImport = () => {
+                if (!importAbortController || importSignal?.aborted) return;
+                try {
+                    importAbortController.abort(makeRoomLoadAbortError());
+                } catch (_) {}
+            };
+            if (importAbortController) activeRoomImportControllers.add(importAbortController);
             try {
                 setStatusMessage('Загрузка модели из комнаты…');
                 let blob = null;
@@ -4334,68 +4506,101 @@ class ViewerApp {
                     if (error) throw error;
                     blob = data || null;
                 } else if (model.url && !String(model.url).startsWith('storage://')) {
-                    const response = await fetch(model.url, { cache: 'no-cache' });
+                    const response = await fetch(model.url, { cache: 'no-cache', signal: importSignal || undefined });
                     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
                     blob = await response.blob();
+                }
+                if (isStaleLoad() || importSignal?.aborted) {
+                    abortImport();
+                    return;
                 }
                 if (!blob) {
                     throw new Error('Model download returned empty payload.');
                 }
                 const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
                 isRemoteModelLoad = true;
+                remoteModelLoadGeneration = expectedGeneration;
                 pendingLocalModelFiles.length = 0;
                 pendingLocalModelKeys.clear();
                 const roomImportScope = {
                     kind: 'room',
-                    roomId: collabController?.room?.id || '',
+                    roomId: expectedRoomId,
                     modelId: model.id,
                 };
                 if (kind === 'fbx') {
-                    await runImportWithScope(roomImportScope, () => rawHandleFBXFile(file));
+                    await runImportWithScope(roomImportScope, () => (
+                        rawHandleFBXFile(file, null, null, null, { signal: importSignal })
+                    ));
                 } else {
-                    await runImportWithScope(roomImportScope, () => rawHandleZIPFile(file));
+                    await runImportWithScope(roomImportScope, () => rawHandleZIPFile(file, { signal: importSignal }));
+                }
+                if (isStaleLoad()) {
+                    abortImport();
+                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId: model.id });
+                    return;
                 }
                 await finalizeBatchAfterAllFiles();
+                if (isStaleLoad()) {
+                    abortImport();
+                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId: model.id });
+                    return;
+                }
                 loadedRoomModelIds.add(model.id);
             } catch (err) {
+                if (isAbortError(err) || isStaleLoad()) {
+                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId: model.id });
+                    return;
+                }
                 console.error('Room model load failed', err);
             } finally {
-                isRemoteModelLoad = false;
-                setStatusMessage('');
+                if (importAbortController) activeRoomImportControllers.delete(importAbortController);
+                if (remoteModelLoadGeneration === expectedGeneration) {
+                    isRemoteModelLoad = false;
+                    remoteModelLoadGeneration = 0;
+                }
+                if (isActiveRoomLoad(expectedGeneration, expectedRoomId)) setStatusMessage('');
             }
         }
 
         async function loadRoomModels() {
-            if (!collabController || isLoadingRoomModels) return;
+            if (!collabController) return;
+            const roomId = String(collabController.room?.id || '');
+            const generation = roomLoadGeneration;
+            if (!roomId) return;
+            if (isLoadingRoomModels && loadingRoomModelsGeneration === generation) return;
             isLoadingRoomModels = true;
+            loadingRoomModelsGeneration = generation;
             try {
                 const { data, error } = await collabController.supabase
                     .from('room_models')
                     .select('model_id, sort_order, project_models (id, url, name, meta)')
-                    .eq('room_id', collabController.room.id)
+                    .eq('room_id', roomId)
                     .order('sort_order', { ascending: true });
                 if (error) throw error;
+                if (!isActiveRoomLoad(generation, roomId)) return;
                 const rows = Array.isArray(data) ? data : [];
                 roomModelCount = rows.length;
                 for (const row of rows) {
+                    if (!isActiveRoomLoad(generation, roomId)) return;
                     const model = row.project_models;
                     if (model) {
-                        await loadProjectModel(model);
+                        await loadProjectModel(model, { roomId, generation });
                     }
                 }
                 if (!roomModelsChannel && collabController) {
-                    roomModelsChannel = collabController.supabase.channel(`room:${collabController.room.id}:models`);
+                    roomModelsChannel = collabController.supabase.channel(`room:${roomId}:models`);
                     roomModelsChannel.on(
                         'postgres_changes',
-                        { event: '*', schema: 'public', table: 'room_models', filter: `room_id=eq.${collabController.room.id}` },
+                        { event: '*', schema: 'public', table: 'room_models', filter: `room_id=eq.${roomId}` },
                         async (payload) => {
+                            if (!isActiveRoomLoad(generation, roomId)) return;
                             const eventType = String(payload?.eventType || '').toUpperCase();
                             if (eventType === 'DELETE') {
                                 const deletedRow = payload.old;
                                 if (!deletedRow?.model_id) return;
                                 roomModelCount = Math.max(0, roomModelCount - 1);
                                 cleanupRoomModelScopedAssets({
-                                    roomId: collabController?.room?.id || '',
+                                    roomId,
                                     modelId: deletedRow.model_id,
                                 });
                                 return;
@@ -4412,7 +4617,8 @@ class ViewerApp {
                                 .limit(1)
                                 .maybeSingle();
                             if (modelError) return;
-                            if (modelRow) await loadProjectModel(modelRow);
+                            if (!isActiveRoomLoad(generation, roomId)) return;
+                            if (modelRow) await loadProjectModel(modelRow, { roomId, generation });
                         }
                     );
                     roomModelsChannel.subscribe();
@@ -4420,7 +4626,10 @@ class ViewerApp {
             } catch (err) {
                 console.error('Room models load failed', err);
             } finally {
-                isLoadingRoomModels = false;
+                if (loadingRoomModelsGeneration === generation) {
+                    isLoadingRoomModels = false;
+                    loadingRoomModelsGeneration = 0;
+                }
             }
         }
 
@@ -4428,24 +4637,32 @@ class ViewerApp {
             return roomModelCount > 0;
         }
 
-        async function loadRoomCameras() {
-            if (!collabController || !cameraPresets?.loadState) return;
-            cameraSyncMuted = true;
+        async function loadRoomCameras(options = {}) {
+            const controller = options.controller || collabController;
+            const roomId = String(options.roomId || controller?.room?.id || '');
+            const generation = Number.isFinite(options.generation) ? options.generation : roomLoadGeneration;
+            const isCurrent = () => (
+                !!controller
+                && controller === collabController
+                && isActiveRoomLoad(generation, roomId)
+            );
+            if (!controller || !roomId || !cameraPresets?.loadState || !isCurrent()) return;
+            const muteToken = beginCameraSyncMute();
             try {
-                const roomId = collabController.room.id;
-                const { data: camRows, error: camError } = await collabController.supabase
+                const { data: camRows, error: camError } = await controller.supabase
                     .from('room_cameras')
                     .select('*')
                     .eq('room_id', roomId)
                     .order('created_at', { ascending: true });
                 if (camError) throw camError;
-                roomCameraCount = Array.isArray(camRows) ? camRows.length : 0;
+                if (!isCurrent()) return;
 
-                const { data: trRows, error: trError } = await collabController.supabase
+                const { data: trRows, error: trError } = await controller.supabase
                     .from('room_transitions')
                     .select('*')
                     .eq('room_id', roomId);
                 if (trError) throw trError;
+                if (!isCurrent()) return;
 
                 const presets = (camRows || []).map((row) => ({
                     id: row.id,
@@ -4467,6 +4684,7 @@ class ViewerApp {
                     type: row.type,
                     trajectory: row.trajectory,
                 }));
+                roomCameraCount = Array.isArray(camRows) ? camRows.length : 0;
                 cameraPresets.loadState({
                     presets,
                     transitions,
@@ -4474,9 +4692,9 @@ class ViewerApp {
                     lastCreatedId: cameraPresets.getLastCreatedId?.(),
                 });
             } catch (err) {
-                console.error('Room cameras load failed', err);
+                if (isCurrent()) console.error('Room cameras load failed', err);
             } finally {
-                cameraSyncMuted = false;
+                endCameraSyncMute(muteToken);
             }
         }
 
@@ -4578,11 +4796,17 @@ class ViewerApp {
             });
         }
 
-        async function persistRoomCameraState(state) {
-            if (!collabController) return;
-            const roomId = collabController.room?.id;
-            const supabase = collabController.supabase;
-            if (!roomId || !supabase) return;
+        async function persistRoomCameraState(state, options = {}) {
+            const controller = options.controller || collabController;
+            const roomId = String(options.roomId || controller?.room?.id || '');
+            const generation = Number.isFinite(options.generation) ? options.generation : roomLoadGeneration;
+            const isCurrent = () => (
+                !!controller
+                && controller === collabController
+                && isActiveRoomLoad(generation, roomId)
+            );
+            const supabase = controller?.supabase || null;
+            if (!roomId || !supabase || !isCurrent()) return;
 
             const presets = Array.isArray(state?.presets) ? state.presets : [];
             const transitions = Array.isArray(state?.transitions) ? state.transitions : [];
@@ -4597,6 +4821,7 @@ class ViewerApp {
                 .select('*')
                 .eq('room_id', roomId);
             if (existingCameraError) throw existingCameraError;
+            if (!isCurrent()) return;
 
             const existingCameraById = new Map(
                 (Array.isArray(existingCameraRows) ? existingCameraRows : [])
@@ -4610,10 +4835,12 @@ class ViewerApp {
             });
 
             if (cameraRowsToSave.length) {
+                if (!isCurrent()) return;
                 const { error: saveCameraError } = await supabase
                     .from('room_cameras')
                     .upsert(cameraRowsToSave, { onConflict: 'id' });
                 if (saveCameraError) throw saveCameraError;
+                if (!isCurrent()) return;
             }
 
             const desiredTransitionRows = transitions
@@ -4628,6 +4855,7 @@ class ViewerApp {
                 .select('*')
                 .eq('room_id', roomId);
             if (existingTransitionError) throw existingTransitionError;
+            if (!isCurrent()) return;
 
             const existingTransitionsByKey = new Map();
             (Array.isArray(existingTransitionRows) ? existingTransitionRows : []).forEach((row) => {
@@ -4676,6 +4904,7 @@ class ViewerApp {
             });
 
             for (const row of transitionRowsToUpdate) {
+                if (!isCurrent()) return;
                 const { id, ...payload } = row;
                 const { error: updateTransitionError } = await supabase
                     .from('room_transitions')
@@ -4685,18 +4914,22 @@ class ViewerApp {
             }
 
             if (transitionRowsToInsert.length) {
+                if (!isCurrent()) return;
                 const { error: insertTransitionError } = await supabase
                     .from('room_transitions')
                     .insert(transitionRowsToInsert);
                 if (insertTransitionError) throw insertTransitionError;
+                if (!isCurrent()) return;
             }
 
             if (transitionIdsToDelete.length) {
+                if (!isCurrent()) return;
                 const { error: deleteTransitionError } = await supabase
                     .from('room_transitions')
                     .delete()
                     .in('id', transitionIdsToDelete);
                 if (deleteTransitionError) throw deleteTransitionError;
+                if (!isCurrent()) return;
             }
 
             const cameraIdsToDelete = (Array.isArray(existingCameraRows) ? existingCameraRows : [])
@@ -4704,30 +4937,42 @@ class ViewerApp {
                 .map((row) => row.id);
 
             if (cameraIdsToDelete.length) {
+                if (!isCurrent()) return;
                 const { error: deleteCameraError } = await supabase
                     .from('room_cameras')
                     .delete()
                     .in('id', cameraIdsToDelete);
                 if (deleteCameraError) throw deleteCameraError;
+                if (!isCurrent()) return;
             }
 
             roomCameraCount = desiredCameraRows.length;
         }
 
         function scheduleCameraPersist(state) {
-            if (!collabController || cameraSyncMuted) return;
+            const controller = collabController;
+            const roomId = String(controller?.room?.id || '');
+            const generation = roomLoadGeneration;
+            const isCurrent = () => (
+                !!controller
+                && controller === collabController
+                && isActiveRoomLoad(generation, roomId)
+            );
+            if (!controller || !roomId || cameraSyncMuted || !isCurrent()) return;
             if (cameraPersistTimer) clearTimeout(cameraPersistTimer);
             cameraPersistTimer = setTimeout(async () => {
                 cameraPersistTimer = null;
-                if (!collabController || cameraSyncMuted) return;
-                cameraSyncMuted = true;
+                if (cameraSyncMuted || !isCurrent()) return;
+                const muteToken = beginCameraSyncMute();
                 try {
-                    await persistRoomCameraState(state);
+                    await persistRoomCameraState(state, { controller, roomId, generation });
                 } catch (err) {
-                    console.error('Room cameras sync failed', err);
-                    await loadRoomCameras();
+                    if (isCurrent()) {
+                        console.error('Room cameras sync failed', err);
+                        await loadRoomCameras({ controller, roomId, generation });
+                    }
                 } finally {
-                    cameraSyncMuted = false;
+                    endCameraSyncMute(muteToken);
                 }
             }, 300);
         }
@@ -4735,29 +4980,37 @@ class ViewerApp {
         cameraPresetsChangeHandler = scheduleCameraPersist;
 
         function subscribeRoomCameraChanges() {
-            if (!collabController) return;
-            const roomId = collabController.room.id;
+            const controller = collabController;
+            if (!controller) return;
+            const roomId = String(controller.room?.id || '');
+            const generation = roomLoadGeneration;
+            const isCurrent = () => (
+                !!roomId
+                && controller === collabController
+                && isActiveRoomLoad(generation, roomId)
+            );
+            if (!isCurrent()) return;
             if (!roomCamerasChannel) {
-                roomCamerasChannel = collabController.supabase.channel(`room:${roomId}:cameras`);
+                roomCamerasChannel = controller.supabase.channel(`room:${roomId}:cameras`);
                 roomCamerasChannel.on(
                     'postgres_changes',
                     { event: '*', schema: 'public', table: 'room_cameras', filter: `room_id=eq.${roomId}` },
                     () => {
-                        if (!cameraSyncMuted) {
-                            void loadRoomCameras();
+                        if (isCurrent() && !cameraSyncMuted) {
+                            void loadRoomCameras({ controller, roomId, generation });
                         }
                     }
                 );
                 roomCamerasChannel.subscribe();
             }
             if (!roomTransitionsChannel) {
-                roomTransitionsChannel = collabController.supabase.channel(`room:${roomId}:transitions`);
+                roomTransitionsChannel = controller.supabase.channel(`room:${roomId}:transitions`);
                 roomTransitionsChannel.on(
                     'postgres_changes',
                     { event: '*', schema: 'public', table: 'room_transitions', filter: `room_id=eq.${roomId}` },
                     () => {
-                        if (!cameraSyncMuted) {
-                            void loadRoomCameras();
+                        if (isCurrent() && !cameraSyncMuted) {
+                            void loadRoomCameras({ controller, roomId, generation });
                         }
                     }
                 );
@@ -4766,18 +5019,23 @@ class ViewerApp {
         }
 
         async function loadModelFromRoom(room) {
-            if (!room || !room.active_model_id || isRemoteModelLoad) return;
+            if (!room || !room.active_model_id) return;
             if (room.active_model_id === activeRoomModelId) return;
-            activeRoomModelId = room.active_model_id;
             if (!collabController) return;
+            const roomId = String(room.id || collabController.room?.id || '');
+            const generation = roomLoadGeneration;
+            if (!isActiveRoomLoad(generation, roomId)) return;
+            if (isRemoteModelLoad && remoteModelLoadGeneration === generation) return;
             const { data: modelRow, error } = await collabController.supabase
                 .from('project_models')
                 .select('*')
                 .eq('id', room.active_model_id)
                 .limit(1)
                 .maybeSingle();
+            if (!isActiveRoomLoad(generation, roomId)) return;
             if (error || !modelRow) return;
-            await loadProjectModel(modelRow);
+            activeRoomModelId = room.active_model_id;
+            await loadProjectModel(modelRow, { roomId, generation });
         }
 
         roomUpdateHandler = (room) => {
@@ -4897,25 +5155,55 @@ class ViewerApp {
         /**
          * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
          */
-        async function finalizeBatchAfterAllFiles() {
-            const result = await batchFinalizer.finalizeBatchAfterAllFiles();
-            await syncPendingLocalModels();
-            return result;
-        }
+	        async function finalizeBatchAfterAllFiles() {
+	            const result = await batchFinalizer.finalizeBatchAfterAllFiles();
+	            await syncPendingLocalModels();
+	            return result;
+	        }
 
-        app.api = Object.freeze({
-            applyShading,
-            setEnvironmentEnabled,
-            updateSun,
+	        async function disposeApp() {
+	            if (appDisposed) return;
+	            appDisposed = true;
+
+	            try { renderLoop?.dispose?.(); } catch (_) {}
+	            try { await teardownCollabSession(); } catch (_) {}
+	            try { vrController?.dispose?.(); } catch (_) {}
+	            try { annotations3d?.dispose?.(); } catch (_) {}
+	            try { cameraPresets?.dispose?.(); } catch (_) {}
+	            try { cameraPickController?.dispose?.(); } catch (_) {}
+	            try { shadingController?.disposeUI?.(); } catch (_) {}
+	            try { environmentWiring?.dispose?.(); } catch (_) {}
+	            try { layoutController?.dispose?.(); } catch (_) {}
+	            try { customSelects?.dispose?.(); } catch (_) {}
+	            try { statusUI?.dispose?.(); } catch (_) {}
+
+	            loadedModels.forEach((record) => {
+	                const obj = record?.obj || null;
+	                try { obj?.parent?.remove?.(obj); } catch (_) {}
+	                disposeImportedObjectTree(obj);
+	            });
+	            loadedModels.length = 0;
+	            allEmbedded.forEach((entry) => revokeEmbeddedEntryUrl(entry));
+	            allEmbedded.length = 0;
+
+	            try { sceneCore?.dispose?.(); } catch (_) {}
+	        }
+	        app.dispose = disposeApp;
+
+	        app.api = Object.freeze({
+	            applyShading,
+	            setEnvironmentEnabled,
+	            updateSun,
             focusOn,
             fitAll,
             computeSceneBounds,
             layout,
             updateBgVisibility: backgroundController.updateVisibility,
-            computeWorldCenter,
-            setStatsVisible,
-            requestRender,
-        });
+	            computeWorldCenter,
+	            setStatsVisible,
+	            requestRender,
+	            dispose: disposeApp,
+	        });
 
         // =====================
         // Animation loop & init
@@ -4937,9 +5225,14 @@ class ViewerApp {
                 if (vrChanged) {
                     cameraPresets?.updateLastCreatedFromCurrentView?.();
                 }
-	                backgroundController.syncToCamera();
+		                backgroundController.syncToCamera();
+		            },
+	            onError: (err, meta = {}) => {
+	                const phase = String(meta.phase || 'frame');
+	                console.error(`Render loop stopped during ${phase}`, err);
+	                setStatusMessage(`Ошибка рендера: ${phase}`);
 	            },
-        });
+	        });
         setBootProgress(92, 'Запускаем рендер...');
         layout();
         const nextFrame = () => new Promise((resolve) => {

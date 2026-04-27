@@ -53,7 +53,64 @@ export function createFBXFileHandler(options = {}) {
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
 
+    function isAbortError(error) {
+        return error?.name === 'AbortError';
+    }
+
+    function makeAbortError(message = 'FBX import aborted') {
+        try {
+            return new DOMException(message, 'AbortError');
+        } catch (_) {
+            const err = new Error(message);
+            err.name = 'AbortError';
+            return err;
+        }
+    }
+
+    function revokeEmbeddedUrls(entries) {
+        (Array.isArray(entries) ? entries : []).forEach((entry) => {
+            const url = String(entry?.url || '');
+            if (!url.startsWith('blob:')) return;
+            try {
+                URL.revokeObjectURL(url);
+            } catch (_) {}
+        });
+    }
+
+    function disposeObjectResources(root) {
+        if (!root?.traverse) return;
+        const geometries = new Set();
+        const materials = new Set();
+        const textures = new Set();
+        root.traverse((node) => {
+            if (node?.geometry?.dispose && !geometries.has(node.geometry)) {
+                geometries.add(node.geometry);
+                node.geometry.dispose();
+            }
+            const mats = Array.isArray(node?.material) ? node.material : [node?.material];
+            mats.filter(Boolean).forEach((material) => {
+                if (materials.has(material)) return;
+                materials.add(material);
+                Object.values(material).forEach((value) => {
+                    if (!value?.isTexture || textures.has(value)) return;
+                    textures.add(value);
+                    value.dispose?.();
+                });
+                material.dispose?.();
+            });
+        });
+    }
+
     return async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, callOptions = null) {
+        const signal = callOptions?.signal || null;
+        const throwIfAborted = (root = null, embeddedEntries = null) => {
+            if (!signal?.aborted) return;
+            revokeEmbeddedUrls(embeddedEntries);
+            disposeObjectResources(root);
+            throw makeAbortError();
+        };
+
+        throwIfAborted();
         logSessionHeader(`FBX: ${file.name}`);
         hideSidePanel();
 
@@ -65,6 +122,7 @@ export function createFBXFileHandler(options = {}) {
         const bufferOverride = callOptions?.buffer || null;
         let ab = bufferOverride || await file.arrayBuffer();
         let embedded = [];
+        throwIfAborted();
 
         let orientationInfo = null;
         let orientationSource = null;
@@ -79,7 +137,7 @@ export function createFBXFileHandler(options = {}) {
 
         if (parseFBXInWorker && isWorkerSupported()) {
             try {
-                const workerResult = await parseFBXInWorker(ab, { embedded: true, orientation: true });
+                const workerResult = await parseFBXInWorker(ab, { embedded: true, orientation: true }, { signal });
                 parsedObj = workerResult.obj;
                 parsedViaWorker = true;
                 parseDuration = workerResult.duration;
@@ -101,11 +159,13 @@ export function createFBXFileHandler(options = {}) {
                     };
                 }).filter((e) => e && e.url);
             } catch (err) {
+                if (isAbortError(err)) throw err;
                 logBind(`FBX: фон. парсер не сработал → ${err?.message || err}`, 'warn');
                 setWorkerSupported(false);
                 disableWorker(err);
                 try {
                     ab = await file.arrayBuffer();
+                    throwIfAborted();
                 } catch (reloadErr) {
                     logBind(`FBX: повторное чтение файла не удалось → ${reloadErr?.message || reloadErr}`, 'warn');
                     throw err;
@@ -116,22 +176,27 @@ export function createFBXFileHandler(options = {}) {
         if (!parsedObj) {
             try {
                 if (!parseFBXOnMainThread) throw new Error('parseFBXOnMainThread not available');
+                throwIfAborted();
                 const mainResult = await Promise.resolve(parseFBXOnMainThread(ab));
                 parsedObj = mainResult.obj;
                 parseDuration = mainResult.duration;
+                throwIfAborted(parsedObj);
 
                 // embedded-извлечение (fallback на UI-потоке)
                 if (extractImagesFromFBX) {
                     embedded = await extractImagesFromFBX(ab);
                     embedded.forEach(e => e.fileName = file.name);
+                    throwIfAborted(parsedObj, embedded);
                 }
             } catch (err) {
+                if (isAbortError(err)) throw err;
                 setStatusMessage(`Ошибка парсинга: ${file.name}`);
                 logBind(`⚠️ Ошибка парсинга ${file.name}: ${err?.message || String(err)}`, 'warn');
                 throw err;
             }
         }
 
+        throwIfAborted(parsedObj, embedded);
         if (embedded.length) {
             allEmbedded.push(...embedded);
             markGalleryNeedsRefresh();
@@ -144,6 +209,7 @@ export function createFBXFileHandler(options = {}) {
             return;
         }
 
+        throwIfAborted(obj);
         setStatusMessage('Обработка сцены…');
 
         if (typeof globalThis !== 'undefined') {
@@ -260,6 +326,7 @@ export function createFBXFileHandler(options = {}) {
             logBind(`VPM: смещение для ${file.name} из GeoJSON → Δx=${x} Δy=${y} Δz=${z}`, 'ok');
         }
 
+        throwIfAborted(obj);
         world?.add?.(obj);
 
         restoreLightTargetsFromOrientation(obj);

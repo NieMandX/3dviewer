@@ -20,7 +20,36 @@ export function createZIPFileHandler(options = {}) {
 
     const JSZip = options.JSZip || (typeof globalThis !== 'undefined' ? globalThis.JSZip : null);
 
-    return async function handleZIPFile(file) {
+    function isAbortError(error) {
+        return error?.name === 'AbortError';
+    }
+
+    function makeAbortError(message = 'ZIP import aborted') {
+        try {
+            return new DOMException(message, 'AbortError');
+        } catch (_) {
+            const err = new Error(message);
+            err.name = 'AbortError';
+            return err;
+        }
+    }
+
+    function revokeBlobUrl(url) {
+        const value = String(url || '');
+        if (!value.startsWith('blob:')) return;
+        try {
+            URL.revokeObjectURL(value);
+        } catch (_) {}
+    }
+
+    return async function handleZIPFile(file, callOptions = null) {
+        const signal = callOptions?.signal || null;
+        const throwIfAborted = () => {
+            if (!signal?.aborted) return;
+            throw makeAbortError();
+        };
+
+        throwIfAborted();
         logSessionHeader(`ZIP: ${file.name}`);
         setStatusMessage(`Чтение ZIP: ${file.name}…`);
         hideSidePanel();
@@ -31,6 +60,7 @@ export function createZIPFileHandler(options = {}) {
 
         const workerRun = unpackZIPInWorker?.(file, {
             onMeta: (msg) => {
+                throwIfAborted();
                 if (zipKind === 'SM') {
                     const hasGeo = (msg?.counts?.geojson || 0) > 0;
                     if (!hasGeo) {
@@ -39,11 +69,13 @@ export function createZIPFileHandler(options = {}) {
                 }
             },
             onProgress: (msg) => {
+                throwIfAborted();
                 const phaseLabel = msg.phase === 'fbx' ? 'FBX' : msg.phase === 'image' ? 'IMG' : msg.phase;
                 const name = basename(msg.name || '');
                 setStatusMessage(`ZIP ${phaseLabel}: ${msg.index}/${msg.total} · ${name}`);
             },
             onGeoJSON: async (msg) => {
+                throwIfAborted();
                 if (zipKind !== 'SM') return;
                 if (!makeGeoJsonMeta) return;
                 try {
@@ -55,17 +87,18 @@ export function createZIPFileHandler(options = {}) {
                 }
             },
             onFBX: async (msg) => {
+                throwIfAborted();
                 const blob = msg.blob;
                 if (!blob) return;
                 if (!handleFBXFile) return;
                 const fileName = msg.fileName || basename(msg.name) || '';
                 const isLightFBX = /_Light\.fbx$/i.test(fileName);
                 const beforeCount = loadedModels.length;
-                const callOptions = isLightFBX && lastNormalizeOrientationType != null
-                    ? { inheritOrientationType: lastNormalizeOrientationType }
-                    : null;
+                const nextCallOptions = isLightFBX && lastNormalizeOrientationType != null
+                    ? { ...(callOptions || {}), inheritOrientationType: lastNormalizeOrientationType }
+                    : callOptions;
                 const fbxFile = new File([blob], fileName, { type: blob.type || 'model/fbx' });
-                await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta, callOptions);
+                await handleFBXFile(fbxFile, file.name, zipKind, zipGeoMeta, nextCallOptions);
                 const newModel = loadedModels[beforeCount];
                 if (newModel && !isLightFBX) {
                     lastNormalizeOrientationType = newModel.normalizedOrientationType ?? newModel.orientationType ?? null;
@@ -73,18 +106,26 @@ export function createZIPFileHandler(options = {}) {
                 setEmptyHintVisible(false);
             },
             onImage: async (msg) => {
+                throwIfAborted();
                 const blob = msg.blob;
                 if (!blob) return;
                 const url = URL.createObjectURL(blob);
+                try {
+                    throwIfAborted();
+                } catch (err) {
+                    revokeBlobUrl(url);
+                    throw err;
+                }
                 const short = basename(msg.name).toLowerCase();
                 allEmbedded.push({ short, url, full: msg.name, mime: msg.mime || blob.type || "image/png", source: "zip" });
                 markGalleryNeedsRefresh();
             },
-        });
+        }, { signal });
 
         if (workerRun) {
             try {
                 await workerRun;
+                throwIfAborted();
 
                 // 4) если в ZIP был geojson — прикрепим его ко ВСЕМ FBX из этого ZIP
                 if (zipGeoMeta) {
@@ -109,15 +150,18 @@ export function createZIPFileHandler(options = {}) {
                 setStatusMessage(`Готово: ${file.name}`);
                 return;
             } catch (err) {
+                if (isAbortError(err)) throw err;
                 logBind(`ZIP worker: не удалось обработать «${file.name}» → fallback на main thread (${err?.message || err})`, 'warn');
             }
         }
 
+        throwIfAborted();
         if (!JSZip) {
             throw new Error('JSZip not available for main-thread ZIP fallback');
         }
 
         const zip = await JSZip.loadAsync(file);
+        throwIfAborted();
         const entries = Object.values(zip.files);
 
         // ↓↓↓ ТОЛЬКО ДЛЯ ВПМ
@@ -125,6 +169,7 @@ export function createZIPFileHandler(options = {}) {
             const geoEntries = entries.filter(e => !e.dir && /\.geojson$/i.test(e.name));
             if (geoEntries.length && makeGeoJsonMeta) {
                 const bytes = await geoEntries[0].async('uint8array');
+                throwIfAborted();
                 let geoText = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
                 // снять BOM, если есть
                 geoText = geoText.replace(/^\uFEFF/, '');
@@ -142,15 +187,17 @@ export function createZIPFileHandler(options = {}) {
         const fbxEntries = entries.filter((e) => e && !e.dir && /\.fbx$/i.test(e.name));
         const orderedFBXEntries = [...fbxEntries.filter((e) => !isLightFBX(e)), ...fbxEntries.filter((e) => isLightFBX(e))];
         for (const entry of orderedFBXEntries) {
+            throwIfAborted();
             const ab = await entry.async('arraybuffer');
+            throwIfAborted();
             const fbxFile = new File([ab], basename(entry.name), { type: 'model/fbx' });
             const fileName = basename(entry.name) || '';
             const isLight = /_Light\.fbx$/i.test(fileName);
             const beforeCount = loadedModels.length;
-            const callOptions = isLight && lastNormalizeOrientationType != null
-                ? { inheritOrientationType: lastNormalizeOrientationType }
-                : null;
-            await handleFBXFile?.(fbxFile, file.name, zipKind, zipGeoMeta, callOptions);
+            const nextCallOptions = isLight && lastNormalizeOrientationType != null
+                ? { ...(callOptions || {}), inheritOrientationType: lastNormalizeOrientationType }
+                : callOptions;
+            await handleFBXFile?.(fbxFile, file.name, zipKind, zipGeoMeta, nextCallOptions);
             const newModel = loadedModels[beforeCount];
             if (newModel && !isLight) {
                 lastNormalizeOrientationType = newModel.normalizedOrientationType ?? newModel.orientationType ?? null;
@@ -160,10 +207,18 @@ export function createZIPFileHandler(options = {}) {
 
         // Затем картинки как было
         for (const entry of entries) {
+            throwIfAborted();
             if (entry.dir) continue;
             if (/\.(png|jpe?g|webp)$/i.test(entry.name)) {
                 const blob = await entry.async('blob');
+                throwIfAborted();
                 const url = URL.createObjectURL(blob);
+                try {
+                    throwIfAborted();
+                } catch (err) {
+                    revokeBlobUrl(url);
+                    throw err;
+                }
                 const short = basename(entry.name).toLowerCase();
                 allEmbedded.push({ short, url, full: entry.name, mime: blob.type || 'image/png', source: 'zip' });
                 markGalleryNeedsRefresh();

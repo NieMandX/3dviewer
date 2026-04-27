@@ -213,6 +213,7 @@ export async function createCollabController(options = {}) {
         throw new Error('Room not found.');
     }
 
+    let disposed = false;
     const deleteQueue = [];
     const deletePending = new Map();
     let deleteProcessing = false;
@@ -235,6 +236,29 @@ export async function createCollabController(options = {}) {
     }
 
     const channels = [];
+    let presenceHeartbeat = null;
+
+    function stopPresenceHeartbeat() {
+        if (!presenceHeartbeat) return;
+        clearInterval(presenceHeartbeat);
+        presenceHeartbeat = null;
+    }
+
+    async function removeRealtimeChannels() {
+        for (const ch of channels) {
+            try {
+                await supabase.removeChannel(ch);
+            } catch (_) {}
+        }
+    }
+
+    async function cleanupInitFailure(err) {
+        disposed = true;
+        stopPresenceHeartbeat();
+        await removeRealtimeChannels();
+        throw err;
+    }
+
     const roomChannel = supabase.channel(`room:${room.id}`, {
         config: { presence: { key: user.id } },
     });
@@ -248,6 +272,7 @@ export async function createCollabController(options = {}) {
     };
 
     const syncPresence = () => {
+        if (disposed) return;
         if (typeof onParticipants !== 'function') return;
         const state = roomChannel.presenceState();
         onParticipants(parsePresence(state));
@@ -258,51 +283,59 @@ export async function createCollabController(options = {}) {
     roomChannel.on('presence', { event: 'leave' }, syncPresence);
 
     roomChannel.on('broadcast', { event: 'camera' }, ({ payload }) => {
+        if (disposed) return;
         if (!payload || payload.sender === user.id) return;
         if (typeof onCameraState === 'function') onCameraState(payload);
     });
 
     roomChannel.on('broadcast', { event: 'camera-lock' }, ({ payload }) => {
+        if (disposed) return;
         if (!payload || payload.sender === user.id) return;
         if (typeof onCameraOwner === 'function') onCameraOwner(payload.ownerId || null);
     });
 
     roomChannel.on('broadcast', { event: 'annotation' }, ({ payload }) => {
+        if (disposed) return;
         if (!payload || payload.sender === user.id) return;
         if (typeof onAnnotation === 'function') onAnnotation(payload, { source: 'broadcast' });
     });
 
     roomChannel.on('broadcast', { event: 'annotation-delete' }, ({ payload }) => {
+        if (disposed) return;
         if (!payload || payload.sender === user.id) return;
         if (typeof onAnnotationDelete === 'function') onAnnotationDelete(payload, { source: 'broadcast' });
     });
 
     roomChannel.on('broadcast', { event: 'message' }, ({ payload }) => {
+        if (disposed) return;
         if (!payload || payload.sender === user.id) return;
         if (typeof onMessage === 'function') onMessage(payload, { source: 'broadcast' });
     });
 
-    await new Promise((resolve, reject) => {
-        roomChannel.subscribe((statusValue, err) => {
-            const nextStatus = String(statusValue || '');
-            if (err) {
-                emitConnectionState(false, 'SUBSCRIBE_ERROR');
-                reject(err);
-                return;
-            }
-            if (nextStatus === 'SUBSCRIBED') {
-                emitConnectionState(true, nextStatus);
-                roomChannel.track(presenceMeta);
-                resolve();
-                return;
-            }
-            if (nextStatus === 'CLOSED' || nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') {
-                emitConnectionState(false, nextStatus);
-            }
+    try {
+        await new Promise((resolve, reject) => {
+            roomChannel.subscribe((statusValue, err) => {
+                const nextStatus = String(statusValue || '');
+                if (err) {
+                    emitConnectionState(false, 'SUBSCRIBE_ERROR');
+                    reject(err);
+                    return;
+                }
+                if (nextStatus === 'SUBSCRIBED') {
+                    emitConnectionState(true, nextStatus);
+                    roomChannel.track(presenceMeta);
+                    resolve();
+                    return;
+                }
+                if (nextStatus === 'CLOSED' || nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') {
+                    emitConnectionState(false, nextStatus);
+                }
+            });
         });
-    });
+    } catch (err) {
+        await cleanupInitFailure(err);
+    }
 
-    let presenceHeartbeat = null;
     const PRESENCE_HEARTBEAT_MS = 8000;
     const startPresenceHeartbeat = () => {
         if (presenceHeartbeat) return;
@@ -320,6 +353,7 @@ export async function createCollabController(options = {}) {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${room.id}` },
         (payload) => {
+            if (disposed) return;
             if (typeof onRoomUpdate === 'function') onRoomUpdate(payload.new);
             const next = payload.new || {};
             if (typeof onCameraOwner === 'function') onCameraOwner(next.camera_owner_id || null);
@@ -339,6 +373,7 @@ export async function createCollabController(options = {}) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
         (payload) => {
+            if (disposed) return;
             if (typeof onAnnotation === 'function') onAnnotation(payload.new, { source: 'realtime' });
         }
     );
@@ -346,6 +381,7 @@ export async function createCollabController(options = {}) {
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
         (payload) => {
+            if (disposed) return;
             if (typeof onAnnotationDelete === 'function') onAnnotationDelete(payload.old);
         }
     );
@@ -357,6 +393,7 @@ export async function createCollabController(options = {}) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${room.id}` },
         (payload) => {
+            if (disposed) return;
             if (typeof onMessage === 'function') onMessage(payload.new, { source: 'realtime' });
         }
     );
@@ -370,6 +407,7 @@ export async function createCollabController(options = {}) {
         .order('created_at', { ascending: true });
     if (!historyAnnotations.error && Array.isArray(historyAnnotations.data)) {
         historyAnnotations.data.forEach((row) => {
+            if (disposed) return;
             if (typeof onAnnotation === 'function') onAnnotation(row, { source: 'history' });
         });
     }
@@ -381,14 +419,15 @@ export async function createCollabController(options = {}) {
         .order('created_at', { ascending: true });
     if (!historyMessages.error && Array.isArray(historyMessages.data)) {
         historyMessages.data.forEach((row) => {
+            if (disposed) return;
             if (typeof onMessage === 'function') onMessage(row, { source: 'history' });
         });
     }
 
-    if (room.camera_state && typeof onCameraState === 'function') {
+    if (!disposed && room.camera_state && typeof onCameraState === 'function') {
         onCameraState({ ...room.camera_state, source: 'db' });
     }
-    if (typeof onCameraOwner === 'function') {
+    if (!disposed && typeof onCameraOwner === 'function') {
         onCameraOwner(room.camera_owner_id || null);
     }
 
@@ -419,6 +458,7 @@ export async function createCollabController(options = {}) {
     }
 
     async function sendBroadcast(event, payload) {
+        if (disposed) return false;
         const sender = getBroadcastSender(roomChannel);
         if (!sender) return false;
         const safePayload = payload ?? {};
@@ -437,6 +477,7 @@ export async function createCollabController(options = {}) {
     }
 
     async function setDisplayName(name) {
+        if (disposed) return currentName;
         currentName = normalizeName(name);
         presenceMeta.name = currentName;
         await supabase.from('profiles').upsert({
@@ -449,6 +490,7 @@ export async function createCollabController(options = {}) {
     }
 
     async function sendMessage(body) {
+        if (disposed) return null;
         const text = String(body || '').trim();
         if (!text) return null;
         const { data, error } = await supabase
@@ -467,6 +509,7 @@ export async function createCollabController(options = {}) {
     }
 
     async function sendAnnotation(record) {
+        if (disposed) return null;
         if (!record) return null;
         const payload = {
             room_id: room.id,
@@ -521,7 +564,7 @@ export async function createCollabController(options = {}) {
     async function processDeleteQueue() {
         if (deleteProcessing) return;
         deleteProcessing = true;
-        while (deleteQueue.length) {
+        while (!disposed && deleteQueue.length) {
             const entry = deleteQueue.shift();
             if (!entry) continue;
             let done = false;
@@ -555,6 +598,7 @@ export async function createCollabController(options = {}) {
     }
 
     function enqueueDelete(id) {
+        if (disposed) return Promise.reject(new Error('Collab controller disposed'));
         if (deletePending.has(id)) return deletePending.get(id).promise;
         let resolveFn;
         let rejectFn;
@@ -581,6 +625,7 @@ export async function createCollabController(options = {}) {
     }
 
     async function claimCamera() {
+        if (disposed) return false;
         let rpcError = null;
         const { error } = await supabase.rpc('claim_camera', { room_id: room.id });
         if (error) {
@@ -596,6 +641,7 @@ export async function createCollabController(options = {}) {
     }
 
     async function releaseCamera() {
+        if (disposed) return false;
         let rpcError = null;
         const { error } = await supabase.rpc('release_camera', { room_id: room.id });
         if (error) {
@@ -611,11 +657,13 @@ export async function createCollabController(options = {}) {
     }
 
     async function broadcastCameraState(state) {
+        if (disposed) return;
         if (!state) return;
         await sendBroadcast('camera', { ...state, sender: user.id });
     }
 
     async function persistCameraState(state) {
+        if (disposed) return;
         if (!state) return;
         const payload = { camera_state: state };
         const { error } = await supabase.from('rooms').update(payload).eq('id', room.id);
@@ -623,6 +671,7 @@ export async function createCollabController(options = {}) {
     }
 
     async function updatePresence(meta) {
+        if (disposed) return;
         Object.assign(presenceMeta, meta || {});
         if (!presenceMeta.lastSeenAt) {
             presenceMeta.lastSeenAt = new Date().toISOString();
@@ -632,19 +681,23 @@ export async function createCollabController(options = {}) {
     }
 
     async function dispose() {
+        if (disposed) return;
+        disposed = true;
         emitConnectionState(false, 'DISPOSED');
+        deleteQueue.length = 0;
+        deletePending.forEach((entry) => {
+            try {
+                entry.reject?.(new Error('Collab controller disposed'));
+            } catch (_) {}
+        });
+        deletePending.clear();
         if (onlineWaitHandler && typeof window !== 'undefined') {
             window.removeEventListener('online', onlineWaitHandler);
             onlineWaitHandler = null;
             onlineWaitPromise = null;
         }
-        if (presenceHeartbeat) {
-            clearInterval(presenceHeartbeat);
-            presenceHeartbeat = null;
-        }
-        for (const ch of channels) {
-            await supabase.removeChannel(ch);
-        }
+        stopPresenceHeartbeat();
+        await removeRealtimeChannels();
     }
 
     return Object.freeze({

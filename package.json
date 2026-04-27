@@ -4,7 +4,8 @@
   "scripts": {
     "ci:syntax": "node ./scripts/ci/check-syntax.mjs",
     "ci:smoke": "node ./scripts/ci/smoke-viewer.mjs",
-    "ci:verify": "npm run ci:syntax && npm run ci:smoke"
+    "ci:versions": "node ./scripts/ci/check-runtime-versions.mjs",
+    "ci:verify": "npm run ci:syntax && npm run ci:versions && npm run ci:smoke"
   },
   "devDependencies": {
     "playwright": "^1.58.2"

@@ -12,8 +12,16 @@ export function createShadowController(options = {}) {
     let autoFrustum = true;
     let frustumScale = 1;
 
+    function ensureShadowTarget() {
+        if (!scene || !dirLight?.target) return;
+        dirLight.target.userData ||= {};
+        dirLight.target.userData.excludeFromBounds = true;
+        if (!dirLight.target.parent) scene.add(dirLight.target);
+    }
+
     function ensureShadowHelpers() {
         if (!THREE || !scene || !dirLight) return;
+        ensureShadowTarget();
         if (!shadowCamHelper && dirLight.shadow?.camera) {
             shadowCamHelper = new THREE.CameraHelper(dirLight.shadow.camera);
             shadowCamHelper.visible = false;
@@ -60,6 +68,7 @@ export function createShadowController(options = {}) {
 
     function fitSunShadowToScene(recenterTarget = false, margin = 1.3) {
         if (!THREE || !renderer || !dirLight || !dirLight.shadow?.camera) return;
+        ensureShadowTarget();
 
         const box = computeSceneBounds();
         if (!box || typeof box.isEmpty !== 'function' || box.isEmpty()) return;
@@ -70,12 +79,26 @@ export function createShadowController(options = {}) {
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const radius = size.length() * 0.5 * effectiveMargin;
-        const spanXY = Math.max(size.x, size.y, size.z) * 0.5 * effectiveMargin;
+        const spanXY = Math.max(size.x, size.y, size.z, 0.1) * 0.5 * effectiveMargin;
 
         if (recenterTarget) {
+            const lightOffset = new THREE.Vector3().subVectors(dirLight.position, dirLight.target.position);
+            if (!Number.isFinite(lightOffset.lengthSq()) || lightOffset.lengthSq() < 0.0001) {
+                lightOffset.set(1, 1, 1);
+            }
+            lightOffset.normalize();
+            const nextDist = Math.max(
+                dirLight.position.distanceTo(dirLight.target.position) || 0,
+                radius * 1.2,
+                spanXY * 2,
+                10
+            );
             dirLight.target.position.copy(center);
-            dirLight.target.updateMatrixWorld();
+            dirLight.position.copy(center).addScaledVector(lightOffset, nextDist);
         }
+
+        dirLight.target.updateMatrixWorld(true);
+        dirLight.updateMatrixWorld(true);
 
         const cam = dirLight.shadow.camera;
         cam.left = -spanXY;
@@ -88,6 +111,8 @@ export function createShadowController(options = {}) {
         cam.far = dist + radius;
 
         cam.updateProjectionMatrix();
+        dirLight.shadow.updateMatrices?.(dirLight);
+        cam.updateMatrixWorld(true);
 
         dirLight.shadow.needsUpdate = true;
         renderer.shadowMap.needsUpdate = true;
@@ -107,4 +132,3 @@ export function createShadowController(options = {}) {
         setFrustumScale,
     };
 }
-

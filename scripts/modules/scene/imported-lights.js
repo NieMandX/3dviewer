@@ -7,6 +7,7 @@ export function createImportedLightsController(options = {}) {
     const onLightsUpdated = typeof options.onLightsUpdated === 'function' ? options.onLightsUpdated : () => {};
 
     const LIGHT_HELPER_COLOR = options.lightHelperColor ?? 0xffc107;
+    const IMPORTED_LIGHT_POWER = 1000;
 
     let showLightHelpers = !!options.showLightHelpers;
     let importedLightsEnabled = !!options.importedLightsEnabled;
@@ -17,6 +18,15 @@ export function createImportedLightsController(options = {}) {
     const targetWorldPos = THREE ? new THREE.Vector3() : null;
     const tempBox = THREE ? new THREE.Box3() : null;
     const tempSize = THREE ? new THREE.Vector3() : null;
+
+    function collectImportedLights(root) {
+        const lights = [];
+        root?.traverse(o => {
+            if (!o?.isLight) return;
+            lights.push(o);
+        });
+        return lights;
+    }
 
     function disableShadowsOnImportedLights(root) {
         if (!root) return;
@@ -188,21 +198,25 @@ export function createImportedLightsController(options = {}) {
 
         roots.forEach(root => {
             if (!root) return;
-            root.traverse(o => {
-                if (!o?.isLight) return;
+            collectImportedLights(root).forEach(o => {
                 o.userData ||= {};
 
                 if (enabled) {
+                    let forcedIntensity = null;
                     if ('intensity' in o && o.userData._origIntensity !== undefined) {
-                        // o.intensity = o.userData._origIntensity;
-                        o.intensity = 1000;
+                        o.intensity = IMPORTED_LIGHT_POWER;
+                        forcedIntensity = o.intensity;
                     }
                     if ('power' in o && o.userData._origPower !== undefined) {
-                        // o.power = o.userData._origPower;
-                        o.power = 1000;
+                        o.power = IMPORTED_LIGHT_POWER;
+                        forcedIntensity = Number.isFinite(o.intensity) ? o.intensity : IMPORTED_LIGHT_POWER;
+                    }
+                    if (Number.isFinite(forcedIntensity)) {
+                        o.userData._forcedLightIntensity = forcedIntensity;
                     }
                     const restoreVisible = o.userData._origVisible;
-                    o.visible = restoreVisible !== undefined ? restoreVisible : true;
+                    const nextVisible = restoreVisible !== undefined ? restoreVisible : true;
+                    o.visible = nextVisible;
                 } else {
                     if ('intensity' in o) {
                         if (o.userData._origIntensity === undefined) o.userData._origIntensity = o.intensity;
@@ -214,8 +228,10 @@ export function createImportedLightsController(options = {}) {
                     }
                     if (o.userData._origVisible === undefined) o.userData._origVisible = o.visible;
                     o.visible = false;
+                    delete o.userData._forcedLightIntensity;
                 }
 
+                o.updateMatrixWorld?.(true);
                 o.userData._lightEnabled = !!enabled;
                 affected++;
             });

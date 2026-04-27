@@ -9,12 +9,19 @@ export function createRenderLoopController(options = {}) {
 
     const updateStatsOverlay = typeof options.updateStatsOverlay === 'function' ? options.updateStatsOverlay : () => {};
     const onFrame = typeof options.onFrame === 'function' ? options.onFrame : () => {};
+    const onError = typeof options.onError === 'function' ? options.onError : null;
 
     const raf =
         typeof options.requestAnimationFrame === 'function'
             ? options.requestAnimationFrame
             : (typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
                 ? globalThis.requestAnimationFrame.bind(globalThis)
+                : null);
+    const cancelRaf =
+        typeof options.cancelAnimationFrame === 'function'
+            ? options.cancelAnimationFrame
+            : (typeof globalThis !== 'undefined' && typeof globalThis.cancelAnimationFrame === 'function'
+                ? globalThis.cancelAnimationFrame.bind(globalThis)
                 : null);
 
     function timeNow() {
@@ -29,9 +36,11 @@ export function createRenderLoopController(options = {}) {
     let fpsEstimate = 0;
     let lastFrameTime = 0;
     let lastRenderStats = null;
+    let rafToken = 0;
     const hasAnimationLoop = typeof renderer?.setAnimationLoop === 'function';
 
     function requestRender() {
+        if (!running && !hasAnimationLoop && !raf) return;
         needsRender = true;
     }
 
@@ -43,29 +52,66 @@ export function createRenderLoopController(options = {}) {
         return lastRenderStats;
     }
 
+    function reportLoopError(err, phase = 'frame') {
+        stop();
+        if (onError) {
+            try {
+                onError(err, { phase });
+            } catch (handlerErr) {
+                console.error('Render loop error handler failed', handlerErr);
+            }
+        } else {
+            console.error(`Render loop stopped during ${phase}`, err);
+        }
+    }
+
+    function updateStatsSafely() {
+        try {
+            updateStatsOverlay();
+        } catch (err) {
+            reportLoopError(err, 'stats');
+        }
+    }
+
+    function scheduleNextFrame() {
+        if (hasAnimationLoop || !raf || !running || rafToken) return;
+        rafToken = raf(animate);
+    }
+
     function animate() {
         if (!running) return;
-        if (!hasAnimationLoop && raf) raf(animate);
+        rafToken = 0;
+        scheduleNextFrame();
 
         const now = timeNow();
         if (!lastFrameTime) lastFrameTime = now;
         const delta = now - lastFrameTime;
         lastFrameTime = now;
 
-        const controlsChanged = controls?.update?.();
-        if (controlsChanged) needsRender = true;
+        try {
+            const controlsChanged = controls?.update?.();
+            if (controlsChanged) needsRender = true;
+        } catch (err) {
+            reportLoopError(err, 'controls');
+            return;
+        }
 
-        onFrame();
+        try {
+            onFrame();
+        } catch (err) {
+            reportLoopError(err, 'frame');
+            return;
+        }
 
         if (isWebGPU && !getRendererReady()) {
-            updateStatsOverlay();
+            updateStatsSafely();
             return;
         }
 
         const xrPresenting = !!renderer?.xr?.isPresenting;
 
         if (!needsRender && !xrPresenting) {
-            updateStatsOverlay();
+            updateStatsSafely();
             return;
         }
 
@@ -75,7 +121,13 @@ export function createRenderLoopController(options = {}) {
         }
 
         needsRender = false;
-        renderer?.render?.(scene, camera);
+        try {
+            renderer?.render?.(scene, camera);
+        } catch (err) {
+            needsRender = true;
+            reportLoopError(err, 'render');
+            return;
+        }
 
         const info = renderer?.info || {};
         lastRenderStats = {
@@ -91,7 +143,7 @@ export function createRenderLoopController(options = {}) {
             info.reset();
         }
 
-        updateStatsOverlay();
+        updateStatsSafely();
     }
 
     function start() {
@@ -101,11 +153,16 @@ export function createRenderLoopController(options = {}) {
             renderer.setAnimationLoop(animate);
             return;
         }
-        animate();
+        scheduleNextFrame();
+        needsRender = true;
     }
 
     function stop() {
         running = false;
+        if (rafToken && cancelRaf) {
+            cancelRaf(rafToken);
+        }
+        rafToken = 0;
         if (hasAnimationLoop) {
             renderer.setAnimationLoop(null);
         }
@@ -115,6 +172,7 @@ export function createRenderLoopController(options = {}) {
         requestRender,
         start,
         stop,
+        dispose: stop,
         getFpsEstimate,
         getLastRenderStats,
     };

@@ -59,6 +59,7 @@ export function createEnvironmentManager(options = {}) {
     let hdrBaseTex = app?.hdrBaseTex || null;
     let currentEnv = app?.currentEnv || null;
     let currentBg = app?.currentBg || null;
+    let currentEnvTarget = app?.currentEnvTarget || null;
 
     let currentRotDeg = Number.isFinite(options.initialRotationDeg) ? options.initialRotationDeg : (Number.isFinite(app?.currentRotDeg) ? app.currentRotDeg : 0);
 
@@ -452,6 +453,7 @@ export function createEnvironmentManager(options = {}) {
         nextBg.needsUpdate = true;
 
         let nextEnv = null;
+        let nextEnvTarget = null;
         if (useWebGPU) {
             nextBg.needsPMREMUpdate = true;
             nextEnv = nextBg;
@@ -461,6 +463,7 @@ export function createEnvironmentManager(options = {}) {
                 if (app) app.pmremGen = pmremGen;
             }
             const rt = pmremGen.fromEquirectangular(nextBg);
+            nextEnvTarget = rt;
             nextEnv = rt.texture;
         }
 
@@ -471,17 +474,24 @@ export function createEnvironmentManager(options = {}) {
 
         const prevEnv = currentEnv;
         const prevBg = currentBg;
+        const prevEnvTarget = currentEnvTarget;
 
         currentEnv = nextEnv;
         currentBg = nextBg;
+        currentEnvTarget = nextEnvTarget;
         if (app) {
             app.currentEnv = currentEnv;
             app.currentBg = currentBg;
+            app.currentEnvTarget = currentEnvTarget;
         }
 
         envDirty = false;
 
-        if (prevEnv && prevEnv !== base && prevEnv !== prevBg) prevEnv.dispose?.();
+        if (prevEnvTarget && prevEnvTarget !== currentEnvTarget) {
+            prevEnvTarget.dispose?.();
+        } else if (prevEnv && prevEnv !== base && prevEnv !== prevBg) {
+            prevEnv.dispose?.();
+        }
         if (prevBg && prevBg !== base) prevBg.dispose?.();
 
         applyBuiltEnvironment();
@@ -574,6 +584,38 @@ export function createEnvironmentManager(options = {}) {
         return enabled;
     }
 
+    function dispose() {
+        if (envRebuildTimer) {
+            clearTimeout(envRebuildTimer);
+            envRebuildTimer = null;
+        }
+        envRebuildQueued = false;
+        enabled = false;
+        if (scene) scene.environment = null;
+        applyEnvToMaterials(null, 1.0, { silent: true });
+        if (currentEnvTarget) {
+            currentEnvTarget.dispose?.();
+        } else if (currentEnv && currentEnv !== currentBg && currentEnv !== hdrBaseTex) {
+            currentEnv.dispose?.();
+        }
+        if (currentBg && currentBg !== hdrBaseTex) currentBg.dispose?.();
+        hdrBaseTex?.dispose?.();
+        pmremGen?.dispose?.();
+        currentEnv = null;
+        currentBg = null;
+        currentEnvTarget = null;
+        hdrBaseTex = null;
+        pmremGen = null;
+        envMaterials.clear();
+        if (app) {
+            app.currentEnv = null;
+            app.currentBg = null;
+            app.currentEnvTarget = null;
+            app.hdrBaseTex = null;
+            app.pmremGen = null;
+        }
+    }
+
     return Object.freeze({
         setEnabled,
         isEnabled,
@@ -590,5 +632,6 @@ export function createEnvironmentManager(options = {}) {
         getCurrentEnv,
         getCurrentBg,
         getHDRBase,
+        dispose,
     });
 }

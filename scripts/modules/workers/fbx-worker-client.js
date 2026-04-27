@@ -15,19 +15,69 @@ export function createFBXWorkerClient(options = {}) {
     let reqId = 0;
     const pending = new Map();
 
-    function disable(reason = null) {
-        supported = false;
-        const err = reason instanceof Error ? reason : reason ? new Error(String(reason)) : new Error('FBX worker disabled');
-        pending.forEach(({ reject }) => {
+    function makeAbortError(message = 'FBX worker job aborted') {
+        try {
+            return new DOMException(message, 'AbortError');
+        } catch (_) {
+            const err = new Error(message);
+            err.name = 'AbortError';
+            return err;
+        }
+    }
+
+    function cleanupJob(job) {
+        if (!job?.signal || !job?.abortHandler) return;
+        try {
+            job.signal.removeEventListener('abort', job.abortHandler);
+        } catch (_) {}
+    }
+
+    function rejectPending(err) {
+        pending.forEach((job) => {
+            cleanupJob(job);
             try {
-                reject(err);
+                job.reject(err);
             } catch (_) {}
         });
         pending.clear();
+    }
+
+    function terminateWorker() {
         try {
             workerInstance?.terminate?.();
         } catch (_) {}
         workerInstance = null;
+    }
+
+    function disposeParsedObject(root) {
+        if (!root?.traverse) return;
+        const geometries = new Set();
+        const materials = new Set();
+        const textures = new Set();
+        root.traverse((node) => {
+            if (node?.geometry?.dispose && !geometries.has(node.geometry)) {
+                geometries.add(node.geometry);
+                node.geometry.dispose();
+            }
+            const mats = Array.isArray(node?.material) ? node.material : [node?.material];
+            mats.filter(Boolean).forEach((material) => {
+                if (materials.has(material)) return;
+                materials.add(material);
+                Object.values(material).forEach((value) => {
+                    if (!value?.isTexture || textures.has(value)) return;
+                    textures.add(value);
+                    value.dispose?.();
+                });
+                material.dispose?.();
+            });
+        });
+    }
+
+    function disable(reason = null) {
+        supported = false;
+        const err = reason instanceof Error ? reason : reason ? new Error(String(reason)) : new Error('FBX worker disabled');
+        rejectPending(err);
+        terminateWorker();
     }
 
     function ensureFBXWorker() {
@@ -40,6 +90,7 @@ export function createFBXWorkerClient(options = {}) {
                 const job = pending.get(id);
                 if (!job) return;
                 pending.delete(id);
+                cleanupJob(job);
                 if (ok) job.resolve({ json, duration, embedded, orientation });
                 else job.reject(new Error(error || 'FBX worker error'));
             };
@@ -55,20 +106,47 @@ export function createFBXWorkerClient(options = {}) {
         return workerInstance;
     }
 
-    async function parseFBXInWorker(buffer, features = null) {
+    async function parseFBXInWorker(buffer, features = null, options = {}) {
         const worker = ensureFBXWorker();
         if (!worker) throw new Error('worker not available');
+        const signal = options?.signal || null;
+        if (signal?.aborted) throw makeAbortError();
         const id = ++reqId;
         const promise = new Promise((resolve, reject) => {
-            pending.set(id, { resolve, reject });
+            const job = { resolve, reject, signal, abortHandler: null };
+            if (signal?.addEventListener) {
+                job.abortHandler = () => {
+                    const err = makeAbortError();
+                    rejectPending(err);
+                    terminateWorker();
+                };
+                signal.addEventListener('abort', job.abortHandler, { once: true });
+            }
+            pending.set(id, job);
         });
-        worker.postMessage({ id, buffer, features: features || { embedded: true, orientation: true } }, [buffer]);
+        try {
+            worker.postMessage({ id, buffer, features: features || { embedded: true, orientation: true } }, [buffer]);
+        } catch (err) {
+            const job = pending.get(id);
+            pending.delete(id);
+            cleanupJob(job);
+            throw err;
+        }
         const { json, duration, embedded, orientation } = await promise;
+        if (signal?.aborted) throw makeAbortError();
         const loader = new THREE.ObjectLoader();
         const parsed = loader.parse(json);
+        if (signal?.aborted) {
+            disposeParsedObject(parsed);
+            throw makeAbortError();
+        }
         if (json.animations?.length) {
             const clips = json.animations.map(THREE.AnimationClip.parse).filter(Boolean);
             if (clips.length) parsed.animations = clips;
+        }
+        if (signal?.aborted) {
+            disposeParsedObject(parsed);
+            throw makeAbortError();
         }
         return { obj: parsed, duration: duration || 0, embedded: embedded || [], orientationInfo: orientation || null };
     }
@@ -84,4 +162,3 @@ export function createFBXWorkerClient(options = {}) {
         disable,
     });
 }
-

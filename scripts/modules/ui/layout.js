@@ -10,8 +10,10 @@ export function createLayoutController(options = {}) {
 
     let lastW = 0;
     let lastH = 0;
+    let disposed = false;
 
     function layout() {
+        if (disposed) return;
         if (!renderer || !camera || !root) return;
 
         const appbar = root.querySelector?.('.appbar');
@@ -38,6 +40,7 @@ export function createLayoutController(options = {}) {
     }
 
     function hideSidePanel() {
+        if (disposed) return;
         if (!root?.body) return;
         if (!root.body.classList.contains('side-hidden')) {
             root.body.classList.add('side-hidden');
@@ -45,14 +48,25 @@ export function createLayoutController(options = {}) {
         }
     }
 
-    win?.addEventListener?.('resize', layout);
-    toggleSideBtn?.addEventListener?.('click', () => {
+    function onToggleSideClick() {
+        if (disposed) return;
         root?.body?.classList?.toggle?.('side-hidden');
         layout();
-    });
+    }
+
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        win?.removeEventListener?.('resize', layout);
+        toggleSideBtn?.removeEventListener?.('click', onToggleSideClick);
+    }
+
+    win?.addEventListener?.('resize', layout);
+    toggleSideBtn?.addEventListener?.('click', onToggleSideClick);
 
     return {
         layout,
         hideSidePanel,
+        dispose,
     };
 }

@@ -123,10 +123,26 @@ async function runBootSmoke(browser, baseUrl) {
         loading: document.body.classList.contains('app-loading'),
         activeRenderer: globalThis.__LPMVIEW_ACTIVE_RENDERER || null,
     }));
+    const webgpuImports = await page.evaluate(async () => {
+        const [webgpu, tsl] = await Promise.all([
+            import('three/webgpu'),
+            import('three/tsl'),
+        ]);
+        return {
+            webgpuRenderer: !!webgpu.WebGPURenderer,
+            meshBasicNodeMaterial: !!webgpu.MeshBasicNodeMaterial,
+            normalView: !!tsl.normalView,
+            positionViewDirection: !!tsl.positionViewDirection,
+        };
+    });
 
     assert.equal(state.appReady, true, 'Boot smoke: viewerApp not initialized');
     assert.equal(state.loading, false, 'Boot smoke: body still in app-loading state');
     assert.equal(state.activeRenderer, 'webgl', 'Boot smoke: unexpected renderer mode');
+    assert.equal(webgpuImports.webgpuRenderer, true, 'Boot smoke: three/webgpu WebGPURenderer export missing');
+    assert.equal(webgpuImports.meshBasicNodeMaterial, true, 'Boot smoke: three/webgpu MeshBasicNodeMaterial export missing');
+    assert.equal(webgpuImports.normalView, true, 'Boot smoke: three/tsl normalView export missing');
+    assert.equal(webgpuImports.positionViewDirection, true, 'Boot smoke: three/tsl positionViewDirection export missing');
     diagnostics.assertNoErrors('Boot smoke');
     await page.close();
 }

@@ -51,6 +51,10 @@ export function createEnvironmentWiring(options = {}) {
         return environmentManager.selectPresetIndex(idx);
     }
 
+    function dispose() {
+        environmentManager.dispose?.();
+    }
+
     return Object.freeze({
         environmentManager,
         setMaterialSources,
@@ -65,5 +69,6 @@ export function createEnvironmentWiring(options = {}) {
         getCurrentEnv,
         getCurrentBg,
         selectPresetIndex,
+        dispose,
     });
 }

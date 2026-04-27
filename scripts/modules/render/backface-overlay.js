@@ -175,6 +175,26 @@ export function createBackfaceOverlayController(options = {}) {
         // кэшированные материалы оставим (переиспользуем при повторном включении)
     }
 
+    const MATERIAL_PRESERVE_FLAGS = [
+        'annotationRoot',
+        'annotationLayer',
+        'annotationStroke',
+        'annotationFill',
+        'annotationLabel',
+        'annotationPin',
+    ];
+
+    function shouldPreserveMeshMaterial(obj) {
+        let current = obj;
+        while (current) {
+            const userData = current.userData || null;
+            if (MATERIAL_PRESERVE_FLAGS.some((flag) => !!userData?.[flag])) return true;
+            if (userData?.annotationRect) return true;
+            current = current.parent || null;
+        }
+        return false;
+    }
+
     function setBackfaceMode(on) {
         // Сначала собираем список целевых мешей (не служебных), чтобы
         // не модифицировать дерево прямо во время обхода
@@ -188,6 +208,10 @@ export function createBackfaceOverlayController(options = {}) {
         if (on) {
             targets.forEach(m => {
                 if (m.userData?.isCollision) return;
+                if (shouldPreserveMeshMaterial(m)) {
+                    removeBackfaceOverlay(m);
+                    return;
+                }
                 ensureBackfaceOverlay(m, Array.isArray(m.material) ? m.material[0] : m.material);
             });
         } else {

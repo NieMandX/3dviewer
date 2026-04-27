@@ -72,10 +72,12 @@ export function createSceneCore(options = {}) {
     });
 
     let controls = null;
+    let onControlsChange = null;
     if (OrbitControls) {
         controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        controls.addEventListener('change', requestRender);
+        onControlsChange = () => requestRender();
+        controls.addEventListener('change', onControlsChange);
     }
 
     const flightControls = createWASDFlightController({
@@ -97,6 +99,29 @@ export function createSceneCore(options = {}) {
     dirLight.shadow.normalBias = 0.02;
     dirLight.position.set(3, 5, 4);
     scene.add(dirLight);
+    dirLight.target.name = dirLight.target.name || 'SunLightTarget';
+    dirLight.target.userData.excludeFromBounds = true;
+    scene.add(dirLight.target);
+
+    function dispose() {
+        if (controls && onControlsChange) {
+            try {
+                controls.removeEventListener('change', onControlsChange);
+            } catch (_) {}
+        }
+        try {
+            controls?.dispose?.();
+        } catch (_) {}
+        try {
+            flightControls?.dispose?.();
+        } catch (_) {}
+        try {
+            backgroundController?.dispose?.();
+        } catch (_) {}
+        try {
+            rendererInit?.dispose?.();
+        } catch (_) {}
+    }
 
     return Object.freeze({
         scene,
@@ -112,6 +137,6 @@ export function createSceneCore(options = {}) {
         dirLight,
         markSceneStatsDirty,
         getSceneGeometryStats,
+        dispose,
     });
 }
-

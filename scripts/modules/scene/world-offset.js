@@ -20,9 +20,16 @@ export function createWorldOffsetController(options = {}) {
         const bgMesh = getBgMesh();
         if (bgMesh && camera) bgMesh.position.copy(camera.position);
 
-        if (dirLight?.target) {
-            dirLight.target.position.set(0, 0, 0);
-            dirLight.target.updateMatrixWorld();
+        if (THREE && dirLight?.target) {
+            const box = computeSceneBounds();
+            if (box && typeof box.isEmpty === 'function' && !box.isEmpty()) {
+                const nextTarget = box.getCenter(new THREE.Vector3());
+                const delta = nextTarget.clone().sub(dirLight.target.position);
+                dirLight.target.position.copy(nextTarget);
+                dirLight.position.add(delta);
+            }
+            dirLight.target.updateMatrixWorld(true);
+            dirLight.updateMatrixWorld(true);
         }
     }
 
@@ -50,4 +57,3 @@ export function createWorldOffsetController(options = {}) {
         computeAutoOffsetHorizontalOnly,
     };
 }
-

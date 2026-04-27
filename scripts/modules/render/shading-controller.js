@@ -33,6 +33,35 @@ export function createShadingController(options = {}) {
 
     let currentShadingMode = (typeof options.initialMode === 'string' && options.initialMode) ? options.initialMode : 'pbr';
 
+    const MATERIAL_PRESERVE_FLAGS = [
+        'annotationRoot',
+        'annotationLayer',
+        'annotationStroke',
+        'annotationFill',
+        'annotationLabel',
+        'annotationPin',
+    ];
+
+    function shouldPreserveMeshMaterial(obj) {
+        let current = obj;
+        while (current) {
+            const userData = current.userData || null;
+            if (MATERIAL_PRESERVE_FLAGS.some((flag) => !!userData?.[flag])) return true;
+            if (userData?.annotationRect) return true;
+            current = current.parent || null;
+        }
+        return false;
+    }
+
+    function restorePreservedMeshMaterial(obj) {
+        if (!obj?.isMesh) return;
+        clearBeautyWire(obj);
+        clearWireframeOverlay(obj);
+        if (obj.userData?._origMaterial) {
+            obj.material = obj.userData._origMaterial;
+        }
+    }
+
     /**
      * Возвращает материал-вариант для режима отображения.
      * В режиме PBR возвращаем исходный материал, в остальных — создаём clone подходящего типа.
@@ -126,6 +155,28 @@ export function createShadingController(options = {}) {
         }
     }
 
+    function asMaterialArray(value) {
+        if (!value) return [];
+        return Array.isArray(value) ? value.filter(Boolean) : [value];
+    }
+
+    function disposeCurrentShadingVariant(obj) {
+        if (!obj?.material || !obj.userData?._origMaterial) return;
+        const originalSet = new Set(asMaterialArray(obj.userData._origMaterial));
+        asMaterialArray(obj.material).forEach((material) => {
+            if (!material || originalSet.has(material)) return;
+            if (
+                material === obj.userData._bfFront ||
+                material === obj.userData._bfBack ||
+                material === obj.userData._wireBase ||
+                material === obj.userData._beautyBase
+            ) {
+                return;
+            }
+            material.dispose?.();
+        });
+    }
+
     function applyShading(mode, afterRender) {
         currentShadingMode = mode;
 
@@ -159,6 +210,10 @@ export function createShadingController(options = {}) {
             world?.traverse?.(o => {
                 if (o.userData?.isCollision) return; // не переписывать материал коллизий
                 if (!o.isMesh) return;
+                if (shouldPreserveMeshMaterial(o)) {
+                    restorePreservedMeshMaterial(o);
+                    return;
+                }
                 ensureBeautyWire(o, beautyWireAngleDeg);
             });
             requestRender();
@@ -173,6 +228,10 @@ export function createShadingController(options = {}) {
             world?.traverse?.(o => {
                 if (o.userData?.isCollision) return;
                 if (!o.isMesh) return;
+                if (shouldPreserveMeshMaterial(o)) {
+                    restorePreservedMeshMaterial(o);
+                    return;
+                }
                 ensureWireframeOverlay(o);
             });
             requestRender();
@@ -183,8 +242,13 @@ export function createShadingController(options = {}) {
         world?.traverse?.(obj => {
             if (obj.userData?.isCollision) return; // не переписывать материал коллизий
             if (!obj.isMesh || !obj.material) return;
+            if (shouldPreserveMeshMaterial(obj)) {
+                restorePreservedMeshMaterial(obj);
+                return;
+            }
             if (!obj.userData._origMaterial) obj.userData._origMaterial = obj.material;
             const origArray = Array.isArray(obj.userData._origMaterial) ? obj.userData._origMaterial : [obj.userData._origMaterial];
+            disposeCurrentShadingVariant(obj);
             if (mode === 'pbr') {
                 obj.material = obj.userData._origMaterial;
             } else {

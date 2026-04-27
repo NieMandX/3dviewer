@@ -17,16 +17,19 @@ export function createRenderer(options = {}) {
         renderer.info.autoReset = false;
     }
 
+    let disposed = false;
     let rendererReady = !useWebGPU;
     let rendererInitPromise = Promise.resolve();
 
     if (useWebGPU && typeof renderer.init === 'function') {
         rendererInitPromise = renderer.init()
             .then(() => {
+                if (disposed) return;
                 rendererReady = true;
                 requestRender();
             })
             .catch((err) => {
+                if (disposed) return;
                 console.error('WebGPU init failed', err);
                 setStatusMessage('⚠️ WebGPU: не удалось инициализировать рендерер.');
             });
@@ -52,10 +55,25 @@ export function createRenderer(options = {}) {
         rootEl.appendChild(renderer.domElement);
     }
 
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        rendererReady = false;
+        try {
+            renderer.setAnimationLoop?.(null);
+        } catch (_) {}
+        try {
+            renderer.dispose?.();
+        } catch (_) {}
+        try {
+            renderer.domElement?.parentNode?.removeChild?.(renderer.domElement);
+        } catch (_) {}
+    }
+
     return Object.freeze({
         renderer,
         rendererInitPromise,
         getRendererReady: () => rendererReady,
+        dispose,
     });
 }
-

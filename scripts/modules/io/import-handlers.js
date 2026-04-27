@@ -165,8 +165,8 @@ export function createImportHandlers(options = {}) {
         return handleFBXFileImpl(file, groupName, zipKind, zipMeta, nextOptions);
     }
 
-    async function handleZIPFile(file) {
-        return handleZIPFileImpl(file);
+    async function handleZIPFile(file, callOptions = null) {
+        return handleZIPFileImpl(file, callOptions);
     }
 
     return {
@@ -174,4 +174,3 @@ export function createImportHandlers(options = {}) {
         handleZIPFile,
     };
 }
-

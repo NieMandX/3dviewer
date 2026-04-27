@@ -31,10 +31,12 @@ export async function detectRendererMode(options = {}) {
     let webgpuModuleError = null;
     let rendererModeNote = '';
     let backfaceNodeSupport = null;
+    let webgpuModule = null;
 
     if (useWebGPU) {
         try {
-            const mod = await import('three/src/renderers/webgpu/WebGPURenderer.js');
+            const mod = await import('three/webgpu');
+            webgpuModule = mod;
             WebGPURendererCtor = mod.WebGPURenderer || mod.default || null;
             if (!WebGPURendererCtor) {
                 throw new Error('WebGPURenderer export not found');
@@ -51,23 +53,16 @@ export async function detectRendererMode(options = {}) {
 
     if (useWebGPU) {
         try {
-            const [
-                { default: MeshBasicNodeMaterial },
-                normalMod,
-                positionMod,
-                tslMod,
-            ] = await Promise.all([
-                import('three/src/materials/nodes/MeshBasicNodeMaterial.js'),
-                import('three/src/nodes/accessors/Normal.js'),
-                import('three/src/nodes/accessors/Position.js'),
-                import('three/src/nodes/tsl/TSLBase.js'),
+            const [webgpuMod, tslMod] = await Promise.all([
+                webgpuModule ? Promise.resolve(webgpuModule) : import('three/webgpu'),
+                import('three/tsl'),
             ]);
 
-            if (MeshBasicNodeMaterial && normalMod?.normalView && positionMod?.positionViewDirection && tslMod?.float && tslMod?.vec3) {
+            if (webgpuMod?.MeshBasicNodeMaterial && tslMod?.normalView && tslMod?.positionViewDirection && tslMod?.float && tslMod?.vec3) {
                 backfaceNodeSupport = {
-                    MeshBasicNodeMaterial,
-                    normalView: normalMod.normalView,
-                    positionViewDirection: positionMod.positionViewDirection,
+                    MeshBasicNodeMaterial: webgpuMod.MeshBasicNodeMaterial,
+                    normalView: tslMod.normalView,
+                    positionViewDirection: tslMod.positionViewDirection,
                     floatNode: tslMod.float,
                     vec3Node: tslMod.vec3,
                 };
@@ -92,4 +87,3 @@ export async function detectRendererMode(options = {}) {
         backfaceNodeSupport,
     };
 }
-
