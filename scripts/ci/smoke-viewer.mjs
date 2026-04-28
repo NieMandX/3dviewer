@@ -1176,6 +1176,109 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runAbortableTusUploadSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { runAbortableTusUpload } = await import('/scripts/modules/collab/abortable-tus-upload.js');
+
+        const events = [];
+        let previousUploadsResolver = null;
+
+        class SlowUpload {
+            static instances = [];
+            constructor(file, options) {
+                this.file = file;
+                this.options = options;
+                SlowUpload.instances.push(this);
+                events.push(`create:${file.name}`);
+            }
+            findPreviousUploads() {
+                events.push('findPreviousUploads');
+                return new Promise((resolve) => {
+                    previousUploadsResolver = resolve;
+                });
+            }
+            resumeFromPreviousUpload() {
+                events.push('resume');
+            }
+            start() {
+                events.push('start');
+            }
+            abort(shouldTerminate) {
+                events.push(`abort:${shouldTerminate ? 'terminate' : 'keep'}`);
+                return Promise.resolve();
+            }
+        }
+
+        const abortController = new AbortController();
+        const abortedPromise = runAbortableTusUpload({
+            UploadCtor: SlowUpload,
+            file: new File([new Uint8Array([1, 2, 3])], 'large.zip'),
+            endpoint: '/upload',
+            signal: abortController.signal,
+            abortMessage: 'sync superseded',
+        }).then(
+            () => 'resolved',
+            (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+        );
+
+        for (let i = 0; i < 20 && !previousUploadsResolver; i += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        abortController.abort();
+        previousUploadsResolver?.([]);
+        const abortResult = await abortedPromise;
+
+        class SuccessUpload {
+            constructor(file, options) {
+                this.file = file;
+                this.options = options;
+                events.push(`create:${file.name}`);
+            }
+            findPreviousUploads() {
+                events.push('success:findPreviousUploads');
+                return Promise.resolve([{ url: 'previous' }]);
+            }
+            resumeFromPreviousUpload() {
+                events.push('success:resume');
+            }
+            start() {
+                events.push('success:start');
+                this.options.onProgress(25, 100);
+                this.options.onSuccess();
+            }
+        }
+
+        const progress = [];
+        const successResult = await runAbortableTusUpload({
+            UploadCtor: SuccessUpload,
+            file: new File([new Uint8Array([1])], 'ok.zip'),
+            endpoint: '/upload',
+            onProgress: (bytesUploaded, bytesTotal) => progress.push(`${bytesUploaded}/${bytesTotal}`),
+        }).then(() => 'resolved');
+
+        return {
+            abortResult,
+            successResult,
+            progress,
+            events,
+        };
+    });
+
+    assert.equal(result.abortResult, 'AbortError:sync superseded', 'Abortable TUS smoke: aborted upload did not reject with AbortError');
+    assert.equal(result.events.includes('start'), false, 'Abortable TUS smoke: aborted upload started after abort');
+    assert.ok(result.events.includes('abort:terminate'), 'Abortable TUS smoke: upload.abort(true) was not called');
+    assert.equal(result.successResult, 'resolved', 'Abortable TUS smoke: successful upload did not resolve');
+    assert.deepEqual(result.progress, ['25/100'], 'Abortable TUS smoke: progress callback did not fire');
+    assert.ok(result.events.includes('success:resume'), 'Abortable TUS smoke: previous upload was not resumed');
+    assert.ok(result.events.includes('success:start'), 'Abortable TUS smoke: successful upload did not start');
+    diagnostics.assertNoErrors('Abortable TUS upload smoke');
+    await page.close();
+}
+
 async function runWorkerLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -1804,6 +1907,8 @@ try {
     console.log('Room model load queue smoke passed.');
     await runDeferredRealtimeReloadSmoke(browser, smokeServer.baseUrl);
     console.log('Deferred realtime reload smoke passed.');
+    await runAbortableTusUploadSmoke(browser, smokeServer.baseUrl);
+    console.log('Abortable TUS upload smoke passed.');
     await runWorkerLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Worker lifecycle smoke passed.');
     await runFBXCleanupLifecycleSmoke(browser, smokeServer.baseUrl);

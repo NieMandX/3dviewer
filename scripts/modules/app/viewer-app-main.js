@@ -41,6 +41,7 @@ import { createVisibilityAndCollisions } from '../ui/visibility-collisions.js';
 import { collectViewerDom } from '../ui/viewer-dom.js';
 import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
+import { runAbortableTusUpload } from '../collab/abortable-tus-upload.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
@@ -983,6 +984,7 @@ export class ViewerApp {
         let roomModelCount = 0;
         let roomLoadGeneration = 0;
         const activeRoomImportControllers = new Set();
+        const activeRoomModelSyncControllers = new Set();
         let roomModelLoadQueue = null;
         let remoteModelLoadRoomId = '';
         let remoteModelLoadModelId = '';
@@ -1204,14 +1206,20 @@ export class ViewerApp {
         }
 
         function abortActiveRoomImports() {
-            if (!activeRoomImportControllers.size) return;
+            if (!activeRoomImportControllers.size && !activeRoomModelSyncControllers.size) return;
             const reason = makeRoomLoadAbortError();
             activeRoomImportControllers.forEach((controller) => {
                 try {
                     if (!controller.signal?.aborted) controller.abort(reason);
                 } catch (_) {}
             });
+            activeRoomModelSyncControllers.forEach((controller) => {
+                try {
+                    if (!controller.signal?.aborted) controller.abort(reason);
+                } catch (_) {}
+            });
             activeRoomImportControllers.clear();
+            activeRoomModelSyncControllers.clear();
         }
 
         function getRoomModelLoadQueue() {
@@ -4398,53 +4406,48 @@ export class ViewerApp {
             return tusClientPromise;
         }
 
-        async function uploadModelToProjectResumable({ supabase, file, path, onProgress = null }) {
+        async function uploadModelToProjectResumable({ supabase, file, path, onProgress = null, signal = null }) {
+            if (signal?.aborted) throw makeRoomLoadAbortError();
             const sessionResult = await supabase.auth.getSession();
+            if (signal?.aborted) throw makeRoomLoadAbortError();
             const accessToken = sessionResult?.data?.session?.access_token || '';
             if (!accessToken) {
                 throw new Error('No active Supabase session for resumable upload.');
             }
             const tus = await ensureTusClient();
+            if (signal?.aborted) throw makeRoomLoadAbortError();
             let lastProgressPercent = -1;
-            await new Promise((resolve, reject) => {
-                const upload = new tus.Upload(file, {
-                    endpoint: `${supabaseUrl}/storage/v1/upload/resumable`,
-                    retryDelays: [0, 3000, 5000, 10000, 20000],
-                    chunkSize: RESUMABLE_UPLOAD_CHUNK_BYTES,
-                    uploadDataDuringCreation: true,
-                    removeFingerprintOnSuccess: true,
-                    headers: {
-                        authorization: `Bearer ${accessToken}`,
-                        apikey: supabaseAnonKey,
-                        'x-upsert': 'true',
-                    },
-                    metadata: {
-                        bucketName: 'models',
-                        objectName: path,
-                        contentType: file.type || 'application/octet-stream',
-                        cacheControl: '3600',
-                    },
-                    onProgress: (bytesUploaded, bytesTotal) => {
-                        if (typeof onProgress !== 'function') return;
-                        const total = Number(bytesTotal || file.size || 0);
-                        if (!Number.isFinite(total) || total <= 0) return;
-                        const uploaded = Math.max(0, Number(bytesUploaded || 0));
-                        const percent = Math.max(0, Math.min(99, Math.floor((uploaded / total) * 100)));
-                        if (percent === lastProgressPercent) return;
-                        lastProgressPercent = percent;
-                        onProgress(percent);
-                    },
-                    onError: (error) => reject(error),
-                    onSuccess: () => resolve(true),
-                });
-                upload.findPreviousUploads()
-                    .then((previousUploads) => {
-                        if (Array.isArray(previousUploads) && previousUploads.length) {
-                            upload.resumeFromPreviousUpload(previousUploads[0]);
-                        }
-                        upload.start();
-                    })
-                    .catch(() => upload.start());
+            await runAbortableTusUpload({
+                tus,
+                file,
+                endpoint: `${supabaseUrl}/storage/v1/upload/resumable`,
+                retryDelays: [0, 3000, 5000, 10000, 20000],
+                chunkSize: RESUMABLE_UPLOAD_CHUNK_BYTES,
+                uploadDataDuringCreation: true,
+                removeFingerprintOnSuccess: true,
+                signal,
+                abortMessage: 'Model sync superseded',
+                headers: {
+                    authorization: `Bearer ${accessToken}`,
+                    apikey: supabaseAnonKey,
+                    'x-upsert': 'true',
+                },
+                metadata: {
+                    bucketName: 'models',
+                    objectName: path,
+                    contentType: file.type || 'application/octet-stream',
+                    cacheControl: '3600',
+                },
+                onProgress: (bytesUploaded, bytesTotal) => {
+                    if (typeof onProgress !== 'function') return;
+                    const total = Number(bytesTotal || file.size || 0);
+                    if (!Number.isFinite(total) || total <= 0) return;
+                    const uploaded = Math.max(0, Number(bytesUploaded || 0));
+                    const percent = Math.max(0, Math.min(99, Math.floor((uploaded / total) * 100)));
+                    if (percent === lastProgressPercent) return;
+                    lastProgressPercent = percent;
+                    onProgress(percent);
+                },
             });
         }
 
@@ -4462,12 +4465,15 @@ export class ViewerApp {
                     file,
                     path,
                     onProgress: options.onProgress,
+                    signal: options.signal || null,
                 });
             } else {
+                if (options.signal?.aborted) throw makeRoomLoadAbortError();
                 const { error: uploadError } = await bucket.upload(path, file, {
                     upsert: true,
                     contentType: file.type || 'application/octet-stream',
                 });
+                if (options.signal?.aborted) throw makeRoomLoadAbortError();
                 if (uploadError) throw uploadError;
             }
             return {
@@ -4577,15 +4583,18 @@ export class ViewerApp {
                 && isActiveRoomLoad(generation, roomId)
             );
             if (!controller || !supabase || !file || isRemoteModelLoad || !isCurrent()) return false;
+            const syncAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const syncSignal = syncAbortController?.signal || null;
             let shouldKeepStatusMessage = false;
             let uploadedPath = '';
             let createdModelRowId = '';
             const throwIfStale = () => {
-                if (!isCurrent()) throw makeRoomLoadAbortError('Model sync superseded');
+                if (syncSignal?.aborted || !isCurrent()) throw makeRoomLoadAbortError('Model sync superseded');
             };
             const setSyncStatus = (message) => {
-                if (isCurrent()) setStatusMessage(`Синхронизация: ${message}`);
+                if (!syncSignal?.aborted && isCurrent()) setStatusMessage(`Синхронизация: ${message}`);
             };
+            if (syncAbortController) activeRoomModelSyncControllers.add(syncAbortController);
             try {
                 throwIfStale();
                 setSyncStatus('загрузка модели…');
@@ -4593,6 +4602,7 @@ export class ViewerApp {
                     supabase,
                     projectId,
                     onProgress: (percent) => setSyncStatus(`загрузка ${percent}%…`),
+                    signal: syncSignal,
                 });
                 const url = uploadResult?.url || '';
                 uploadedPath = uploadResult?.path || '';
@@ -4696,6 +4706,7 @@ export class ViewerApp {
                 });
                 return false;
             } finally {
+                if (syncAbortController) activeRoomModelSyncControllers.delete(syncAbortController);
                 if (!shouldKeepStatusMessage && isCurrent()) setStatusMessage('');
             }
         }
