@@ -28,6 +28,13 @@ export function createGlassController(options = {}) {
     const glassResetBtn = elements.glassResetBtn || null;
 
     const glassValueDisplays = new Map();
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function sliderStepDecimals(input) {
         if (!input) return 2;
@@ -538,9 +545,9 @@ export function createGlassController(options = {}) {
         glassValueDisplays.forEach(({ display }, id) => {
             if (!(display instanceof HTMLInputElement)) return;
             const commit = () => commitGlassDisplayInput(id);
-            display.addEventListener('change', commit);
-            display.addEventListener('blur', commit);
-            display.addEventListener('keydown', (event) => {
+            addListener(display, 'change', commit);
+            addListener(display, 'blur', commit);
+            addListener(display, 'keydown', (event) => {
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     commit();
@@ -565,76 +572,84 @@ export function createGlassController(options = {}) {
     attachGlassDisplayInputs();
 
     if (glassOpacityEl) {
-        glassOpacityEl.addEventListener('input', () => {
+        addListener(glassOpacityEl, 'input', () => {
             glassOpacityEl.dataset.userSet = '1';
             updateGlassDisplay('glassOpacity');
             handleGlobalGlassInput();
         });
     }
     if (glassReflectEl) {
-        glassReflectEl.addEventListener('input', () => {
+        addListener(glassReflectEl, 'input', () => {
             glassReflectEl.dataset.userSet = '1';
             updateGlassDisplay('glassReflect');
             handleGlobalGlassInput();
         });
     }
     if (glassMetalEl) {
-        glassMetalEl.addEventListener('input', () => {
+        addListener(glassMetalEl, 'input', () => {
             glassMetalEl.dataset.userSet = '1';
             updateGlassDisplay('glassMetal');
             handleGlobalGlassInput();
         });
     }
     if (glassRoughEl) {
-        glassRoughEl.addEventListener('input', () => {
+        addListener(glassRoughEl, 'input', () => {
             glassRoughEl.dataset.userSet = '1';
             updateGlassDisplay('glassRough');
             handleGlobalGlassInput();
         });
     }
     if (glassIorEl) {
-        glassIorEl.addEventListener('input', () => {
+        addListener(glassIorEl, 'input', () => {
             glassIorEl.dataset.userSet = '1';
             updateGlassDisplay('glassIor');
             handleGlobalGlassInput();
         });
     }
     if (glassTransmissionEl) {
-        glassTransmissionEl.addEventListener('input', () => {
+        addListener(glassTransmissionEl, 'input', () => {
             glassTransmissionEl.dataset.userSet = '1';
             updateGlassDisplay('glassTransmission');
             handleGlobalGlassInput();
         });
     }
     if (glassAttenDistEl) {
-        glassAttenDistEl.addEventListener('input', () => {
+        addListener(glassAttenDistEl, 'input', () => {
             glassAttenDistEl.dataset.userSet = '1';
             updateGlassDisplay('glassAttenDist');
             handleGlobalGlassInput();
         });
     }
     if (glassAttenColorEl) {
-        glassAttenColorEl.addEventListener('input', () => {
+        addListener(glassAttenColorEl, 'input', () => {
             glassAttenColorEl.dataset.userSet = '1';
             updateGlassDisplay('glassAttenColor');
             handleGlobalGlassInput();
         });
     }
     if (glassColorEl) {
-        glassColorEl.addEventListener('input', () => {
+        addListener(glassColorEl, 'input', () => {
             glassColorEl.dataset.userSet = '1';
             updateGlassDisplay('glassColor');
             handleGlobalGlassInput();
         });
     }
 
-    glassResetBtn?.addEventListener('click', resetToOriginal);
+    addListener(glassResetBtn, 'click', resetToOriginal);
+
+    function dispose() {
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+        glassValueDisplays.clear();
+    }
 
     return Object.freeze({
         applyToScene,
         resetToOriginal,
         updateGlassDisplay,
         updateAllGlassDisplays,
+        dispose,
     });
 }
-

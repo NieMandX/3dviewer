@@ -8,6 +8,13 @@ export function createExportModalController(options = {}) {
     const closeBtn = options.closeBtn || null;
 
     let resolver = null;
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function close(value = null) {
         if (!modalEl) return;
@@ -51,11 +58,11 @@ export function createExportModalController(options = {}) {
         });
     }
 
-    okBtn?.addEventListener?.('click', confirm);
-    cancelBtn?.addEventListener?.('click', cancel);
-    closeBtn?.addEventListener?.('click', cancel);
+    addListener(okBtn, 'click', confirm);
+    addListener(cancelBtn, 'click', cancel);
+    addListener(closeBtn, 'click', cancel);
 
-    modalEl?.addEventListener?.('click', (e) => {
+    addListener(modalEl, 'click', (e) => {
         if (e.target === modalEl) cancel();
     });
 
@@ -69,13 +76,21 @@ export function createExportModalController(options = {}) {
         }
     };
 
-    formatEl?.addEventListener?.('keydown', onKey);
-    coordsEl?.addEventListener?.('keydown', onKey);
-    modalEl?.addEventListener?.('keydown', onKey);
+    addListener(formatEl, 'keydown', onKey);
+    addListener(coordsEl, 'keydown', onKey);
+    addListener(modalEl, 'keydown', onKey);
+
+    function dispose() {
+        close(null);
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
 
     return Object.freeze({
         open,
         close,
+        dispose,
     });
 }
-

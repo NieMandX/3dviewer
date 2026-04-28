@@ -15,6 +15,13 @@ export function createRectAnnotationModalController(options = {}) {
 
     let resolver = null;
     let currentArea = null;
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function isOpen() {
         return !!modalEl?.classList?.contains?.('show');
@@ -113,16 +120,16 @@ export function createRectAnnotationModalController(options = {}) {
         close(null);
     }
 
-    okBtn?.addEventListener?.('click', confirm);
-    cancelBtn?.addEventListener?.('click', cancel);
-    closeBtn?.addEventListener?.('click', cancel);
-    infoEl?.addEventListener?.('change', syncInfoVisibility);
+    addListener(okBtn, 'click', confirm);
+    addListener(cancelBtn, 'click', cancel);
+    addListener(closeBtn, 'click', cancel);
+    addListener(infoEl, 'change', syncInfoVisibility);
 
-    modalEl?.addEventListener?.('click', (e) => {
+    addListener(modalEl, 'click', (e) => {
         if (e.target === modalEl) cancel();
     });
 
-    modalEl?.addEventListener?.('keydown', (e) => {
+    addListener(modalEl, 'keydown', (e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
             cancel();
@@ -132,9 +139,19 @@ export function createRectAnnotationModalController(options = {}) {
         }
     });
 
+    function dispose() {
+        close(null);
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+        currentArea = null;
+    }
+
     return Object.freeze({
         open,
         close,
         isOpen,
+        dispose,
     });
 }

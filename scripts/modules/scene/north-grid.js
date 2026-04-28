@@ -193,12 +193,37 @@ export function createNorthGridController(options = {}) {
         requestRender();
     }
 
+    function disposeObject(root) {
+        if (!root) return;
+        root.parent?.remove?.(root);
+        root.traverse?.((node) => {
+            node.geometry?.dispose?.();
+            const material = node.material;
+            if (Array.isArray(material)) {
+                material.forEach((entry) => entry?.dispose?.());
+            } else {
+                material?.dispose?.();
+            }
+        });
+    }
+
+    function dispose() {
+        disposeObject(northPointer);
+        disposeObject(grid);
+        parcelsGroup = null;
+        if (app) {
+            if (app.grid === grid) app.grid = null;
+            if (app.northPointer === northPointer) app.northPointer = null;
+            app.northDirection = null;
+        }
+    }
+
     return {
         grid,
         northPointer,
         setParcelsGroup,
         alignParcelsGroupToNorth,
         updateNorthPointer,
+        dispose,
     };
 }
-

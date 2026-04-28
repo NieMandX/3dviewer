@@ -6,6 +6,13 @@ export function createHemiLightControlsController(options = {}) {
 
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const onLightsUpdated = typeof options.onLightsUpdated === 'function' ? options.onLightsUpdated : () => {};
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function applyFromInputs() {
         if (!hemiLight) return;
@@ -31,13 +38,21 @@ export function createHemiLightControlsController(options = {}) {
     }
 
     [hemiIntEl, hemiSkyEl, hemiGroundEl].filter(Boolean).forEach((el) => {
-        el.addEventListener('input', syncAndRender);
-        el.addEventListener('change', syncAndRender);
+        addListener(el, 'input', syncAndRender);
+        addListener(el, 'change', syncAndRender);
     });
 
     applyFromInputs();
 
+    function dispose() {
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
+
     return {
         applyFromInputs,
+        dispose,
     };
 }

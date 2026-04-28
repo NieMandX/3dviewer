@@ -12,6 +12,13 @@ export function createSunInputsController(options = {}) {
     const updateSun = typeof options.updateSun === 'function' ? options.updateSun : () => {};
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const onLightsUpdated = typeof options.onLightsUpdated === 'function' ? options.onLightsUpdated : () => {};
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function clampNumericInput(value, min, max) {
         if (!Number.isFinite(value)) return null;
@@ -41,7 +48,7 @@ export function createSunInputsController(options = {}) {
     const formatSunIntensity = (value) => value.toFixed(1);
 
     [sunHourEl, sunDayEl, sunMonthEl, sunNorthEl].filter(Boolean).forEach(el => {
-        el.addEventListener('input', () => {
+        addListener(el, 'input', () => {
             updateSun();
             onLightsUpdated();
         });
@@ -50,10 +57,10 @@ export function createSunInputsController(options = {}) {
 
     if (sunHourEl && sunHourInputEl) {
         sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
-        sunHourEl.addEventListener('input', () => {
+        addListener(sunHourEl, 'input', () => {
             sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
         });
-        sunHourInputEl.addEventListener('change', () => {
+        addListener(sunHourInputEl, 'change', () => {
             const parsed = parseSunHour(sunHourInputEl.value);
             if (parsed == null) {
                 sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
@@ -68,7 +75,7 @@ export function createSunInputsController(options = {}) {
     if (sunIntensityEl && sunIntensityInputEl && dirLight) {
         sunIntensityEl.value = String(dirLight.intensity);
         sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
-        sunIntensityEl.addEventListener('input', () => {
+        addListener(sunIntensityEl, 'input', () => {
             const value = clampNumericInput(
                 parseFloat(sunIntensityEl.value),
                 parseFloat(sunIntensityEl.min) || 0,
@@ -81,7 +88,7 @@ export function createSunInputsController(options = {}) {
             requestRender();
             onLightsUpdated();
         });
-        sunIntensityInputEl.addEventListener('change', () => {
+        addListener(sunIntensityInputEl, 'change', () => {
             let value = clampNumericInput(
                 parseFloat(sunIntensityInputEl.value),
                 parseFloat(sunIntensityInputEl.min) || 0,
@@ -99,9 +106,17 @@ export function createSunInputsController(options = {}) {
         });
     }
 
+    function dispose() {
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
+
     return {
         formatSunHour,
         parseSunHour,
         formatSunIntensity,
+        dispose,
     };
 }

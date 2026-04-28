@@ -315,12 +315,201 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
             annoToggleClick: count('#annoToggleBtn', 'click'),
             annoVisibleClick: count('#annoVisibleBtn', 'click'),
             annoDrawClick: count('#annoDrawBtn', 'click'),
+            statsClick: count('#statsBtn', 'click'),
+            gridClick: count('#gridToggleBtn', 'click'),
+            resetViewerClick: count('#resetViewerBtn', 'click'),
+            resetViewClick: count('#resetViewBtn', 'click'),
+            fullscreenClick: count('#fullscreenBtn', 'click'),
+            bgToggleClick: count('#bgToggleBtn', 'click'),
+            bgAlphaInput: count('#bgAlpha', 'input'),
+            bgAlphaChange: count('#bgAlpha', 'change'),
+            sunEnabledChange: count('#sunEnabled', 'change'),
+            sunDayInput: count('#sunDay', 'input'),
+            sunMonthInput: count('#sunMonth', 'input'),
+            sunHourInput: count('#sunHour', 'input'),
+            sunHourTextChange: count('#sunHourInput', 'change'),
+            sunIntensityInput: count('#sunIntensity', 'input'),
+            sunIntensityTextChange: count('#sunIntensityInput', 'change'),
+            sunNorthInput: count('#sunNorth', 'input'),
+            hdriCheckChange: count('#hdriChk', 'change'),
+            hdriPresetChange: count('#hdriPreset', 'change'),
+            iblIntInput: count('#iblInt', 'input'),
+            iblGammaInput: count('#iblGamma', 'input'),
+            iblRotInput: count('#iblRot', 'input'),
+            hdriExposureInput: count('#hdriExposure', 'input'),
+            hdriSaturationInput: count('#hdriSaturation', 'input'),
+            hdriBlurInput: count('#hdriBlur', 'input'),
+            hemiIntInput: count('#hemiInt', 'input'),
+            hemiIntChange: count('#hemiInt', 'change'),
+            hemiSkyInput: count('#hemiSky', 'input'),
+            hemiSkyChange: count('#hemiSky', 'change'),
+            hemiGroundInput: count('#hemiGround', 'input'),
+            hemiGroundChange: count('#hemiGround', 'change'),
+            shadingChange: count('#shadingMode', 'change'),
+            solidToggleClick: count('#solidToggleBtn', 'click'),
+            collToggleClick: count('#collToggleBtn', 'click'),
+            vpmToggleClick: count('#vpmToggleBtn', 'click'),
+            npmToggleClick: count('#npmToggleBtn', 'click'),
+            lightHelpersClick: count('#lightHelpersBtn', 'click'),
+            lightEmittersClick: count('#lightEmittersBtn', 'click'),
+            shadowHelpersClick: count('#shadowHelpersBtn', 'click'),
+            shadowDbgClick: count('#shadowDbgBtn', 'click'),
+            shadowDbgCloseClick: count('#shadowDbgClose', 'click'),
+            shadowApplyClick: count('#shadowApply', 'click'),
+            shadowResetClick: count('#shadowReset', 'click'),
+            glassOpacityInput: count('#glassOpacity', 'input'),
+            glassIorInput: count('#glassIor', 'input'),
+            glassTransmissionInput: count('#glassTransmission', 'input'),
+            glassReflectInput: count('#glassReflect', 'input'),
+            glassRoughInput: count('#glassRough', 'input'),
+            glassMetalInput: count('#glassMetal', 'input'),
+            glassAttenDistInput: count('#glassAttenDist', 'input'),
+            glassAttenColorInput: count('#glassAttenColor', 'input'),
+            glassColorInput: count('#glassColor', 'input'),
+            glassResetClick: count('#glassReset', 'click'),
+            promptOkClick: count('#promptOk', 'click'),
+            promptCancelClick: count('#promptCancel', 'click'),
+            promptCloseClick: count('#promptClose', 'click'),
+            promptModalClick: count('#promptModal', 'click'),
+            promptInputKeydown: count('#promptInput', 'keydown'),
+            confirmOkClick: count('#confirmOk', 'click'),
+            confirmCancelClick: count('#confirmCancel', 'click'),
+            confirmCloseClick: count('#confirmClose', 'click'),
+            confirmModalClick: count('#confirmModal', 'click'),
+            confirmModalKeydown: count('#confirmModal', 'keydown'),
+            resetOkClick: count('#resetOk', 'click'),
+            resetCancelClick: count('#resetCancel', 'click'),
+            resetCloseClick: count('#resetClose', 'click'),
+            resetModalClick: count('#resetModal', 'click'),
+            resetModalKeydown: count('#resetModal', 'keydown'),
+            transitionOkClick: count('#transitionOk', 'click'),
+            transitionCancelClick: count('#transitionCancel', 'click'),
+            transitionCloseClick: count('#transitionClose', 'click'),
+            transitionModalClick: count('#transitionModal', 'click'),
+            transitionSecondsKeydown: count('#transitionSeconds', 'keydown'),
+            transitionTypeKeydown: count('#transitionType', 'keydown'),
+            transitionTrajectoryKeydown: count('#transitionTrajectory', 'keydown'),
+            exportOkClick: count('#exportOk', 'click'),
+            exportCancelClick: count('#exportCancel', 'click'),
+            exportCloseClick: count('#exportClose', 'click'),
+            exportModalClick: count('#exportModal', 'click'),
+            exportFormatKeydown: count('#exportFormat', 'keydown'),
+            exportCoordsKeydown: count('#exportCoords', 'keydown'),
+            exportModalKeydown: count('#exportModal', 'keydown'),
+            rectAnnotOkClick: count('#rectAnnotOk', 'click'),
+            rectAnnotCancelClick: count('#rectAnnotCancel', 'click'),
+            rectAnnotCloseClick: count('#rectAnnotClose', 'click'),
+            rectAnnotInfoChange: count('#rectAnnotInfo', 'change'),
+            rectAnnotModalClick: count('#rectAnnotModal', 'click'),
+            rectAnnotModalKeydown: count('#rectAnnotModal', 'keydown'),
             dragListeners: dragTargets.reduce((total, target) => (
                 total + dragTypes.reduce((sum, type) => sum + count(target, type), 0)
             ), 0),
             canvasCount: document.querySelectorAll('canvas').length,
         };
     });
+
+    const lifecycleListenerExpectations = Object.freeze({
+        statsClick: 1,
+        gridClick: 1,
+        resetViewerClick: 1,
+        resetViewClick: 1,
+        fullscreenClick: 1,
+        bgToggleClick: 1,
+        bgAlphaInput: 2,
+        bgAlphaChange: 1,
+        sunEnabledChange: 1,
+        sunDayInput: 1,
+        sunMonthInput: 1,
+        sunHourInput: 2,
+        sunHourTextChange: 1,
+        sunIntensityInput: 1,
+        sunIntensityTextChange: 1,
+        sunNorthInput: 1,
+        hdriCheckChange: 1,
+        hdriPresetChange: 2,
+        iblIntInput: 2,
+        iblGammaInput: 2,
+        iblRotInput: 2,
+        hdriExposureInput: 2,
+        hdriSaturationInput: 2,
+        hdriBlurInput: 2,
+        hemiIntInput: 2,
+        hemiIntChange: 1,
+        hemiSkyInput: 1,
+        hemiSkyChange: 1,
+        hemiGroundInput: 1,
+        hemiGroundChange: 1,
+        shadingChange: 2,
+        solidToggleClick: 1,
+        collToggleClick: 1,
+        vpmToggleClick: 1,
+        npmToggleClick: 1,
+        lightHelpersClick: 1,
+        lightEmittersClick: 1,
+        shadowHelpersClick: 1,
+        shadowDbgClick: 1,
+        shadowDbgCloseClick: 1,
+        shadowApplyClick: 1,
+        shadowResetClick: 1,
+        glassOpacityInput: 1,
+        glassIorInput: 1,
+        glassTransmissionInput: 1,
+        glassReflectInput: 1,
+        glassRoughInput: 1,
+        glassMetalInput: 1,
+        glassAttenDistInput: 1,
+        glassAttenColorInput: 1,
+        glassColorInput: 1,
+        glassResetClick: 1,
+        promptOkClick: 1,
+        promptCancelClick: 1,
+        promptCloseClick: 1,
+        promptModalClick: 1,
+        promptInputKeydown: 1,
+        confirmOkClick: 1,
+        confirmCancelClick: 1,
+        confirmCloseClick: 1,
+        confirmModalClick: 1,
+        confirmModalKeydown: 1,
+        resetOkClick: 1,
+        resetCancelClick: 1,
+        resetCloseClick: 1,
+        resetModalClick: 1,
+        resetModalKeydown: 1,
+        transitionOkClick: 1,
+        transitionCancelClick: 1,
+        transitionCloseClick: 1,
+        transitionModalClick: 1,
+        transitionSecondsKeydown: 1,
+        transitionTypeKeydown: 1,
+        transitionTrajectoryKeydown: 1,
+        exportOkClick: 1,
+        exportCancelClick: 1,
+        exportCloseClick: 1,
+        exportModalClick: 1,
+        exportFormatKeydown: 1,
+        exportCoordsKeydown: 1,
+        exportModalKeydown: 1,
+        rectAnnotOkClick: 1,
+        rectAnnotCancelClick: 1,
+        rectAnnotCloseClick: 1,
+        rectAnnotInfoChange: 2,
+        rectAnnotModalClick: 1,
+        rectAnnotModalKeydown: 1,
+    });
+
+    function assertLifecycleListeners(snapshot, phase) {
+        for (const [key, expected] of Object.entries(lifecycleListenerExpectations)) {
+            assert.equal(snapshot[key], expected, `Dispose smoke: ${key} listener count mismatch ${phase}`);
+        }
+    }
+
+    function assertNoLifecycleListeners(snapshot, phase) {
+        for (const key of Object.keys(lifecycleListenerExpectations)) {
+            assert.equal(snapshot[key], 0, `Dispose smoke: ${key} listener leaked ${phase}`);
+        }
+    }
 
     const firstInit = await readCounts();
     assert.equal(firstInit.fileInputChange, 1, 'Dispose smoke: file input listener missing after first init');
@@ -357,6 +546,7 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(firstInit.annoDrawClick, 0, 'Dispose smoke: annotation draw button unexpectedly present after first init');
     assert.equal(firstInit.dragListeners, 20, 'Dispose smoke: unexpected file drop listener count after first init');
     assert.ok(firstInit.canvasCount >= 1, 'Dispose smoke: renderer canvas missing after first init');
+    assertLifecycleListeners(firstInit, 'after first init');
 
     await page.evaluate(async () => {
         await globalThis.viewerApp.dispose();
@@ -395,6 +585,7 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(afterFirstDispose.annoVisibleClick, 0, 'Dispose smoke: annotation visibility listener leaked after dispose');
     assert.equal(afterFirstDispose.annoDrawClick, 0, 'Dispose smoke: annotation draw listener leaked after dispose');
     assert.equal(afterFirstDispose.dragListeners, 0, 'Dispose smoke: file drop listeners leaked after dispose');
+    assertNoLifecycleListeners(afterFirstDispose, 'after dispose');
 
     await page.evaluate(async () => {
         const { ViewerApp } = await import('/scripts/modules/app/viewer-app-main.js');
@@ -438,6 +629,7 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(secondInit.annoVisibleClick, 1, 'Dispose smoke: annotation visibility listener duplicated after reinit');
     assert.equal(secondInit.annoDrawClick, 0, 'Dispose smoke: annotation draw button unexpectedly present after reinit');
     assert.equal(secondInit.dragListeners, 20, 'Dispose smoke: unexpected file drop listener count after reinit');
+    assertLifecycleListeners(secondInit, 'after reinit');
 
     await page.evaluate(async () => {
         await globalThis.viewerApp.dispose();

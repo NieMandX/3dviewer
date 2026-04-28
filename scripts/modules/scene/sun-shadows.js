@@ -91,7 +91,7 @@ export function createSunShadowsController(options = {}) {
         requestRender,
     });
 
-    createShadowDebugPanelController({
+    const shadowDebugPanel = createShadowDebugPanelController({
         root,
         THREE,
         renderer,
@@ -106,7 +106,7 @@ export function createSunShadowsController(options = {}) {
         setShadowFrustumScale: (next) => { shadowController.setFrustumScale(next); },
     });
 
-    createSunToggleController({
+    const sunToggle = createSunToggleController({
         root,
         app,
         sunEnabledEl,
@@ -121,9 +121,17 @@ export function createSunShadowsController(options = {}) {
         },
     });
 
+    function dispose() {
+        shadowDebugPanel?.dispose?.();
+        sunToggle?.dispose?.();
+        shadowController?.dispose?.();
+    }
+
     return Object.freeze({
         sceneFraming,
         shadowController,
+        shadowDebugPanel,
+        sunToggle,
         updateSun,
         fitSunShadowToScene,
         setShadowDebug,
@@ -131,5 +139,6 @@ export function createSunShadowsController(options = {}) {
         focusOn,
         fitAll,
         computeWorldCenter,
+        dispose,
     });
 }

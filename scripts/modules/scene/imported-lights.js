@@ -18,6 +18,20 @@ export function createImportedLightsController(options = {}) {
     const targetWorldPos = THREE ? new THREE.Vector3() : null;
     const tempBox = THREE ? new THREE.Box3() : null;
     const tempSize = THREE ? new THREE.Vector3() : null;
+    const uiListeners = [];
+
+    function addUIListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        uiListeners.push({ target, type, handler, options });
+    }
+
+    function disposeUI() {
+        while (uiListeners.length) {
+            const { target, type, handler, options } = uiListeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
 
     function collectImportedLights(root) {
         const lights = [];
@@ -258,8 +272,9 @@ export function createImportedLightsController(options = {}) {
         const lightHelpersBtn = options.lightHelpersBtn || null;
         const lightEmittersBtn = options.lightEmittersBtn || null;
 
+        disposeUI();
         if (lightHelpersBtn) {
-            lightHelpersBtn.addEventListener('click', () => {
+            addUIListener(lightHelpersBtn, 'click', () => {
                 const next = !showLightHelpers;
                 setLightHelpersVisible(next);
                 lightHelpersBtn.classList.toggle('active', next);
@@ -268,13 +283,43 @@ export function createImportedLightsController(options = {}) {
         }
 
         if (lightEmittersBtn) {
-            lightEmittersBtn.addEventListener('click', () => {
+            addUIListener(lightEmittersBtn, 'click', () => {
                 const next = !importedLightsEnabled;
                 setImportedLightsEnabled(next);
                 lightEmittersBtn.classList.toggle('active', next);
             });
             lightEmittersBtn.classList.toggle('active', importedLightsEnabled);
         }
+    }
+
+    function disposeLightHelper(helper) {
+        if (!helper) return;
+        helper.parent?.remove?.(helper);
+        helper.traverse?.((node) => {
+            node.geometry?.dispose?.();
+            const material = node.material;
+            if (Array.isArray(material)) {
+                material.forEach((entry) => entry?.dispose?.());
+            } else {
+                material?.dispose?.();
+            }
+        });
+    }
+
+    function disposeLightHelpers() {
+        loadedModels.forEach(model => {
+            model.obj?.traverse(o => {
+                const helper = o?.userData?._lightHelper || null;
+                if (!helper) return;
+                disposeLightHelper(helper);
+                delete o.userData._lightHelper;
+            });
+        });
+    }
+
+    function dispose() {
+        disposeUI();
+        disposeLightHelpers();
     }
 
     return {
@@ -286,5 +331,8 @@ export function createImportedLightsController(options = {}) {
         setImportedLightsEnabled,
         getImportedLightsEnabled,
         bindUI,
+        disposeUI,
+        disposeLightHelpers,
+        dispose,
     };
 }

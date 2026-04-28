@@ -7,23 +7,31 @@ export function createDebugTextureProvider(options = {}) {
 
     let matcapTexture = null;
     let checkerTexture = null;
+    let disposed = false;
 
     function getMatcap() {
+        if (disposed) return null;
         if (!THREE || !textureLoader) return null;
         if (matcapTexture) return matcapTexture;
-        matcapTexture = textureLoader.load(
+        const texture = textureLoader.load(
             'https://raw.githubusercontent.com/nidorx/matcaps/1b1e43a338335b6401034d48488298966755d717/1024/2A2A2A_B3B3B3_6D6D6D_848C8C.png',
             () => {
-                if (matcapTexture && 'colorSpace' in matcapTexture && THREE.SRGBColorSpace) {
-                    matcapTexture.colorSpace = THREE.SRGBColorSpace;
+                if (disposed) {
+                    texture.dispose?.();
+                    return;
+                }
+                if (texture && 'colorSpace' in texture && THREE.SRGBColorSpace) {
+                    texture.colorSpace = THREE.SRGBColorSpace;
                 }
                 requestRender();
             }
         );
+        matcapTexture = texture;
         return matcapTexture;
     }
 
     function getChecker() {
+        if (disposed) return null;
         if (!THREE) return null;
         if (checkerTexture) return checkerTexture;
 
@@ -60,23 +68,33 @@ export function createDebugTextureProvider(options = {}) {
 
         // Prefer project UV grid if present; fallback to canvas checker (works offline / without asset).
         if (checkerUrl && textureLoader?.load) {
-            checkerTexture = textureLoader.load(
+            const texture = textureLoader.load(
                 checkerUrl,
                 () => {
-                    applyCommonProps(checkerTexture);
+                    if (disposed) {
+                        texture.dispose?.();
+                        return;
+                    }
+                    applyCommonProps(texture);
                     requestRender();
                 },
                 undefined,
                 () => {
+                    if (disposed) {
+                        texture.dispose?.();
+                        return;
+                    }
                     // Если ассет не загрузился — подменяем изображение на canvas-checker в уже выданной текстуре.
                     const fallback = makeCanvasCheckerTexture();
-                    if (!fallback || !checkerTexture) return;
-                    checkerTexture.image = fallback.image;
-                    applyCommonProps(checkerTexture);
-                    checkerTexture.needsUpdate = true;
+                    if (!fallback) return;
+                    texture.image = fallback.image;
+                    fallback.dispose?.();
+                    applyCommonProps(texture);
+                    texture.needsUpdate = true;
                     requestRender();
                 }
             );
+            checkerTexture = texture;
             applyCommonProps(checkerTexture);
             return checkerTexture;
         }
@@ -85,8 +103,17 @@ export function createDebugTextureProvider(options = {}) {
         return checkerTexture;
     }
 
+    function dispose() {
+        disposed = true;
+        matcapTexture?.dispose?.();
+        checkerTexture?.dispose?.();
+        matcapTexture = null;
+        checkerTexture = null;
+    }
+
     return {
         getMatcap,
         getChecker,
+        dispose,
     };
 }

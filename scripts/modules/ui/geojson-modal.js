@@ -1,6 +1,13 @@
 export function createGeoJsonModalController(options = {}) {
     const documentRef =
         options.document || (typeof document !== 'undefined' ? document : null);
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function ensureModal() {
         if (!documentRef) return null;
@@ -28,10 +35,12 @@ export function createGeoJsonModalController(options = {}) {
             `;
             documentRef.body.appendChild(geoModal);
 
-            geoModal
-                .querySelector('#geoClose')
-                .addEventListener('click', () => geoModal.classList.remove('show'));
-            geoModal.addEventListener('click', (e) => {
+            addListener(
+                geoModal.querySelector('#geoClose'),
+                'click',
+                () => geoModal.classList.remove('show')
+            );
+            addListener(geoModal, 'click', (e) => {
                 if (e.target === geoModal) geoModal.classList.remove('show');
             });
         }
@@ -67,8 +76,17 @@ export function createGeoJsonModalController(options = {}) {
         geoModal.classList.add('show');
     }
 
+    function dispose() {
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+        const geoModal = documentRef?.getElementById?.('geoModal') || null;
+        geoModal?.remove?.();
+    }
+
     return {
         open,
+        dispose,
     };
 }
-

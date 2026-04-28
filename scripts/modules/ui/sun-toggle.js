@@ -23,6 +23,12 @@ export function createSunToggleController(options = {}) {
         sunAnchor = root?.createComment?.('sun-controls-anchor') || null;
         if (sunAnchor) sunControlsEl.parentNode.insertBefore(sunAnchor, sunControlsEl);
     }
+    const listeners = [];
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function mountControls() {
         if (!sunControlsEl || !sunAnchor) return;
@@ -71,16 +77,27 @@ export function createSunToggleController(options = {}) {
         return enabled;
     }
 
-    sunEnabledEl?.addEventListener('change', (e) => {
+    addListener(sunEnabledEl, 'change', (e) => {
         setEnabled(!!e.target?.checked);
     });
 
     setEnabled(enabled);
+
+    function dispose() {
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+        mountControls();
+        sunAnchor?.parentNode?.removeChild?.(sunAnchor);
+        sunAnchor = null;
+    }
 
     return {
         setEnabled,
         isEnabled,
         mountControls,
         unmountControls,
+        dispose,
     };
 }

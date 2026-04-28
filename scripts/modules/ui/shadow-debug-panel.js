@@ -36,6 +36,13 @@ export function createShadowDebugPanelController(options = {}) {
     const inAuto = $('shadowAuto');
     const inScale = $('shadowFrustumScale');
 
+    const listeners = [];
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
+
     function syncShadowUIFromLight() {
         if (!dirLight || !renderer) return;
         if (!inBias || !inNBias || !inRadius || !inNear || !inFar || !inSize || !inType || !inAuto || !inScale) return;
@@ -104,17 +111,17 @@ export function createShadowDebugPanelController(options = {}) {
         shadowDbg?.classList.remove('show');
     }
 
-    $('shadowHelpersBtn')?.addEventListener('click', () => {
+    addListener($('shadowHelpersBtn'), 'click', () => {
         const next = !getShadowDebugVisible();
         setShadowDebug(next);
         fitSunShadowToScene();
     });
 
-    shadowDbgBtn?.addEventListener('click', open);
-    shadowDbgClose?.addEventListener('click', close);
+    addListener(shadowDbgBtn, 'click', open);
+    addListener(shadowDbgClose, 'click', close);
 
-    $('shadowApply')?.addEventListener('click', applyShadowUIToLight);
-    $('shadowReset')?.addEventListener('click', () => {
+    addListener($('shadowApply'), 'click', applyShadowUIToLight);
+    addListener($('shadowReset'), 'click', () => {
         if (!inType || !inSize || !inBias || !inNBias || !inRadius || !inNear || !inFar || !inAuto || !inScale) return;
         inType.value = 'PCFSoft';
         inSize.value = '4096';
@@ -128,11 +135,19 @@ export function createShadowDebugPanelController(options = {}) {
         applyShadowUIToLight();
     });
 
+    function dispose() {
+        close();
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
+
     return {
         open,
         close,
         syncShadowUIFromLight,
         applyShadowUIToLight,
+        dispose,
     };
 }
-

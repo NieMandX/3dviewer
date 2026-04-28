@@ -19,6 +19,13 @@ export function createBackgroundController(options = {}) {
     let bgMesh = null;
     let bgMode = options.initialMode === 'black' ? 'black' : 'white';
     const worldCameraPos = THREE ? new THREE.Vector3() : null;
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function resolveAlpha() {
         const parsed = Number.parseFloat(getAlpha());
@@ -136,15 +143,29 @@ export function createBackgroundController(options = {}) {
     }
 
     if (bgToggleBtn && options.attachToggleButton !== false) {
-        bgToggleBtn.addEventListener('click', toggleMode);
+        addListener(bgToggleBtn, 'click', toggleMode);
     }
+    const handleAlphaInput = () => updateVisibility();
     if (bgAlphaEl && options.attachAlphaInput !== false) {
-        const handleAlphaInput = () => updateVisibility();
-        bgAlphaEl.addEventListener('input', handleAlphaInput);
-        bgAlphaEl.addEventListener('change', handleAlphaInput);
+        addListener(bgAlphaEl, 'input', handleAlphaInput);
+        addListener(bgAlphaEl, 'change', handleAlphaInput);
     }
 
     setMode(bgMode);
+
+    function dispose() {
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+        if (bgMesh) {
+            bgMesh.parent?.remove?.(bgMesh);
+            bgMesh.geometry?.dispose?.();
+            bgMesh.material?.dispose?.();
+            bgMesh = null;
+        }
+        if (app?.bgMesh) app.bgMesh = null;
+    }
 
     return {
         ensureBgMesh,
@@ -154,5 +175,6 @@ export function createBackgroundController(options = {}) {
         getMode,
         toggleMode,
         syncToCamera,
+        dispose,
     };
 }

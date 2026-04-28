@@ -30,6 +30,13 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         ? api.getNPMModelsState
         : () => ({ hasAny: false, anyVisible: false });
     const toggleNPMModelsVisible = typeof api.toggleNPMModelsVisible === 'function' ? api.toggleNPMModelsVisible : () => {};
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function enforceSuppressionIfNeeded() {
         if (!getNonGlassState().suppressed) return false;
@@ -98,38 +105,38 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         updateAll();
     }
 
-    if (solidToggleBtn) {
-        solidToggleBtn.addEventListener('click', () => {
-            toggleNonGlassSuppressed();
-            schedulePanelRefresh(true);
-            updateAll();
-        });
-    }
-    if (collToggleBtn) {
-        collToggleBtn.addEventListener('click', () => {
-            toggleCollisionsVisible();
-            enforceSuppressionIfNeeded();
-            updateAll();
-        });
-    }
-    if (vpmToggleBtn) {
-        vpmToggleBtn.addEventListener('click', () => {
-            toggleVPMModelsVisible();
-            enforceSuppressionIfNeeded();
-            updateAll();
-        });
-    }
-    if (npmToggleBtn) {
-        npmToggleBtn.addEventListener('click', () => {
-            toggleNPMModelsVisible();
-            enforceSuppressionIfNeeded();
-            updateAll();
-        });
+    addListener(solidToggleBtn, 'click', () => {
+        toggleNonGlassSuppressed();
+        schedulePanelRefresh(true);
+        updateAll();
+    });
+    addListener(collToggleBtn, 'click', () => {
+        toggleCollisionsVisible();
+        enforceSuppressionIfNeeded();
+        updateAll();
+    });
+    addListener(vpmToggleBtn, 'click', () => {
+        toggleVPMModelsVisible();
+        enforceSuppressionIfNeeded();
+        updateAll();
+    });
+    addListener(npmToggleBtn, 'click', () => {
+        toggleNPMModelsVisible();
+        enforceSuppressionIfNeeded();
+        updateAll();
+    });
+
+    function dispose() {
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
     }
 
     return Object.freeze({
         handleEyeToggle,
         updateAll,
         enforceSuppressionIfNeeded,
+        dispose,
     });
 }

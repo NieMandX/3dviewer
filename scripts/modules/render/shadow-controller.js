@@ -121,6 +121,27 @@ export function createShadowController(options = {}) {
         sunHelper?.update?.();
     }
 
+    function disposeHelper(helper) {
+        if (!helper) return;
+        helper.parent?.remove?.(helper);
+        helper.traverse?.((node) => {
+            node.geometry?.dispose?.();
+            const material = node.material;
+            if (Array.isArray(material)) {
+                material.forEach((entry) => entry?.dispose?.());
+            } else {
+                material?.dispose?.();
+            }
+        });
+    }
+
+    function dispose() {
+        disposeHelper(shadowCamHelper);
+        disposeHelper(sunHelper);
+        shadowCamHelper = null;
+        sunHelper = null;
+    }
+
     return {
         ensureShadowHelpers,
         setShadowDebug,
@@ -130,5 +151,6 @@ export function createShadowController(options = {}) {
         setAutoFrustum,
         getFrustumScale,
         setFrustumScale,
+        dispose,
     };
 }

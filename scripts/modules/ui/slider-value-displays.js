@@ -1,6 +1,13 @@
 export function createSliderValueDisplayController(options = {}) {
     const root = options.root || (typeof document !== 'undefined' ? document : null);
     const entries = new Map();
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function sliderStepDecimals(input) {
         if (!input) return 2;
@@ -60,7 +67,7 @@ export function createSliderValueDisplayController(options = {}) {
         const display = root.querySelector?.(`[data-light-value-for="${id}"]`);
         if (!display || !(display instanceof HTMLInputElement)) return;
         entries.set(id, { slider, display });
-        slider.addEventListener('input', () => update(id));
+        addListener(slider, 'input', () => update(id));
     }
 
     function commitInput(id) {
@@ -93,9 +100,9 @@ export function createSliderValueDisplayController(options = {}) {
         entries.forEach(({ display }, id) => {
             if (!(display instanceof HTMLInputElement)) return;
             const commit = () => commitInput(id);
-            display.addEventListener('change', commit);
-            display.addEventListener('blur', commit);
-            display.addEventListener('keydown', (event) => {
+            addListener(display, 'change', commit);
+            addListener(display, 'blur', commit);
+            addListener(display, 'keydown', (event) => {
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     commit();
@@ -108,11 +115,19 @@ export function createSliderValueDisplayController(options = {}) {
         });
     }
 
+    function dispose() {
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+        entries.clear();
+    }
+
     return {
         register,
         update,
         updateAll,
         attachInputs,
+        dispose,
     };
 }
-

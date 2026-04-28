@@ -526,7 +526,7 @@ export class ViewerApp {
 
 		        const bgAlphaEl = dom.bgAlphaEl;
 
-		        createSliderValuesUIController({
+		        const sliderValuesUI = createSliderValuesUIController({
 		            root: document,
 	            sliders: [
                 ['hemiInt', hemiIntEl],
@@ -3933,7 +3933,7 @@ export class ViewerApp {
 				        appbarVisibilityToggles.updateAll();
 
 
-			        createSunInputsController({
+			        const sunInputsController = createSunInputsController({
 			            sunHourEl,
 		            sunHourInputEl,
 	            sunDayEl,
@@ -3946,7 +3946,7 @@ export class ViewerApp {
 			            requestRender,
 			        });
 
-				        createEnvironmentControlsController({
+				        const environmentControlsController = createEnvironmentControlsController({
 				            scene,
 				            iblChk,
 				            hdriPresetSel,
@@ -3967,7 +3967,7 @@ export class ViewerApp {
 				            selectPresetIndex,
 				        });
 
-			        createAppbarControlsController({
+			        const appbarControlsController = createAppbarControlsController({
 			            document,
 			            window,
 			            statsBtn,
@@ -4223,7 +4223,7 @@ export class ViewerApp {
 	        // =====================
 	        // LIGHT CONTROLL
 	        // =====================
-        createHemiLightControlsController({
+        const hemiLightControlsController = createHemiLightControlsController({
             hemiLight,
             hemiIntEl,
             hemiSkyEl,
@@ -5497,7 +5497,27 @@ export class ViewerApp {
 	            try { fileFlowUI?.dispose?.(); } catch (_) {}
 	            try { inspectorPanels?.dispose?.(); } catch (_) {}
 	            try { shadingController?.disposeUI?.(); } catch (_) {}
+	            try { importedLightsController?.dispose?.(); } catch (_) {}
+	            try { appbarVisibilityToggles?.dispose?.(); } catch (_) {}
+	            try { appbarControlsController?.dispose?.(); } catch (_) {}
+	            try { sunInputsController?.dispose?.(); } catch (_) {}
+	            try { environmentControlsController?.dispose?.(); } catch (_) {}
+	            try { hemiLightControlsController?.dispose?.(); } catch (_) {}
+	            try { glassController?.dispose?.(); } catch (_) {}
+	            try { sliderValuesUI?.dispose?.(); } catch (_) {}
+	            try { debugTextures?.dispose?.(); } catch (_) {}
+	            try { backfaceOverlay?.dispose?.(); } catch (_) {}
 	            try { environmentWiring?.dispose?.(); } catch (_) {}
+	            try { sunShadows?.dispose?.(); } catch (_) {}
+	            try { mosParcels?.dispose?.(); } catch (_) {}
+	            try { northGrid?.dispose?.(); } catch (_) {}
+	            try { geoJsonModal?.dispose?.(); } catch (_) {}
+	            try { promptModal?.dispose?.(); } catch (_) {}
+	            try { confirmModal?.dispose?.(); } catch (_) {}
+	            try { resetModal?.dispose?.(); } catch (_) {}
+	            try { transitionModal?.dispose?.(); } catch (_) {}
+	            try { exportModal?.dispose?.(); } catch (_) {}
+	            try { rectAnnotModal?.dispose?.(); } catch (_) {}
 	            try { layoutController?.dispose?.(); } catch (_) {}
 	            try { customSelects?.dispose?.(); } catch (_) {}
 	            try { statusUI?.dispose?.(); } catch (_) {}

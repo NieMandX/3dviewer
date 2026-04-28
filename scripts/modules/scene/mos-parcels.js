@@ -33,6 +33,7 @@ export function createMosParcelsController(options = {}) {
 
     let parcelsGroup = null;
     let parcelsOrigin = null;
+    let disposed = false;
 
     const uiListeners = [];
     function addUIListener(target, type, handler, options) {
@@ -74,7 +75,15 @@ export function createMosParcelsController(options = {}) {
         if (!parcelsGroup) return;
 
         world?.remove?.(parcelsGroup);
-        parcelsGroup.traverse(o => o.geometry?.dispose?.());
+        parcelsGroup.traverse(o => {
+            o.geometry?.dispose?.();
+            const material = o.material;
+            if (Array.isArray(material)) {
+                material.forEach((entry) => entry?.dispose?.());
+            } else {
+                material?.dispose?.();
+            }
+        });
         parcelsGroup = null;
 
         northGrid?.setParcelsGroup?.(null);
@@ -84,6 +93,7 @@ export function createMosParcelsController(options = {}) {
     }
 
     async function loadMosParcels(options = {}) {
+        if (disposed) return null;
         const {
             fetchAll = true,
             batchSize = 200,
@@ -105,9 +115,12 @@ export function createMosParcelsController(options = {}) {
                 filter,
                 targetGlobalId,
                 onProgress: ({ collectedCount, processedCount }) => {
+                    if (disposed) return;
                     setStatusMessage(`Загрузка участков… найдено ${collectedCount} из ${processedCount}`);
                 },
             });
+
+            if (disposed) return null;
 
             if (!features.length) {
                 setStatusMessage('Участки не найдены');
@@ -121,9 +134,30 @@ export function createMosParcelsController(options = {}) {
                 return null;
             }
 
+            if (disposed) {
+                group.traverse(o => {
+                    o.geometry?.dispose?.();
+                    const material = o.material;
+                    if (Array.isArray(material)) {
+                        material.forEach((entry) => entry?.dispose?.());
+                    } else {
+                        material?.dispose?.();
+                    }
+                });
+                return null;
+            }
+
             if (parcelsGroup) {
                 world?.remove?.(parcelsGroup);
-                parcelsGroup.traverse(o => o.geometry?.dispose?.());
+                parcelsGroup.traverse(o => {
+                    o.geometry?.dispose?.();
+                    const material = o.material;
+                    if (Array.isArray(material)) {
+                        material.forEach((entry) => entry?.dispose?.());
+                    } else {
+                        material?.dispose?.();
+                    }
+                });
                 markSceneStatsDirty();
             }
 
@@ -142,6 +176,7 @@ export function createMosParcelsController(options = {}) {
             setStatusMessage('');
             return group;
         } catch (err) {
+            if (disposed) return null;
             console.error(err);
             setStatusMessage('Не удалось загрузить участки: ' + (err?.message || err));
             return null;
@@ -156,9 +191,16 @@ export function createMosParcelsController(options = {}) {
         return parcelsOrigin;
     }
 
+    function dispose() {
+        disposed = true;
+        disposeUI();
+        disposeCurrentParcels();
+    }
+
     return {
         bindUI,
         disposeUI,
+        dispose,
         loadMosParcels,
         disposeCurrentParcels,
         getParcelsGroup,

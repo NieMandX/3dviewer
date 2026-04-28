@@ -219,9 +219,16 @@ export function createBackfaceOverlayController(options = {}) {
         }
     }
 
+    function dispose() {
+        setBackfaceMode(false);
+        backfaceMatcapTexture?.dispose?.();
+        backfaceMatcapTexture = null;
+    }
+
     return {
         setBackfaceMode,
         ensureBackfaceOverlay,
         removeBackfaceOverlay,
+        dispose,
     };
 }

@@ -25,6 +25,14 @@ export function createEnvironmentControlsController(options = {}) {
 
     const getCurrentEnv = typeof options.getCurrentEnv === 'function' ? options.getCurrentEnv : () => null;
     const selectPresetIndex = typeof options.selectPresetIndex === 'function' ? options.selectPresetIndex : async () => {};
+    const listeners = [];
+    let disposed = false;
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function populateHdriPresets() {
         if (!hdriPresetSel || !presets) return;
@@ -57,6 +65,7 @@ export function createEnvironmentControlsController(options = {}) {
     }
 
     function scheduleEnvRebuildFromUI() {
+        if (disposed) return;
         syncEnvAdjustmentsState();
         requestEnvironmentRebuild({ immediate: false });
     }
@@ -65,9 +74,13 @@ export function createEnvironmentControlsController(options = {}) {
         populateHdriPresets();
         syncEnvAdjustmentsState();
 
-        iblChk?.addEventListener('change', () => setEnvironmentEnabled(!!iblChk.checked));
+        addListener(iblChk, 'change', () => {
+            if (disposed) return;
+            setEnvironmentEnabled(!!iblChk.checked);
+        });
 
-        iblIntEl?.addEventListener('input', () => {
+        addListener(iblIntEl, 'input', () => {
+            if (disposed) return;
             if (!iblChk?.checked) return;
             const env = scene?.environment || getCurrentEnv();
             if (!env) return;
@@ -76,17 +89,19 @@ export function createEnvironmentControlsController(options = {}) {
             applyEnvToMaterials(env, intensity);
         });
 
-        iblGammaEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-        iblTintEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-        hdriExposureEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-        hdriSaturationEl?.addEventListener('input', scheduleEnvRebuildFromUI);
-        hdriBlurEl?.addEventListener('input', scheduleEnvRebuildFromUI);
+        addListener(iblGammaEl, 'input', scheduleEnvRebuildFromUI);
+        addListener(iblTintEl, 'input', scheduleEnvRebuildFromUI);
+        addListener(hdriExposureEl, 'input', scheduleEnvRebuildFromUI);
+        addListener(hdriSaturationEl, 'input', scheduleEnvRebuildFromUI);
+        addListener(hdriBlurEl, 'input', scheduleEnvRebuildFromUI);
 
-        iblRotEl?.addEventListener('input', () => {
+        addListener(iblRotEl, 'input', () => {
+            if (disposed) return;
             setEnvironmentRotation(parseFloat(iblRotEl?.value) || 0);
         });
 
-        hdriPresetSel?.addEventListener('change', async (e) => {
+        addListener(hdriPresetSel, 'change', async (e) => {
+            if (disposed) return;
             const idx = parseInt(e.target.value, 10);
             if (Number.isNaN(idx)) return;
             await selectPresetIndex(idx);
@@ -95,8 +110,17 @@ export function createEnvironmentControlsController(options = {}) {
 
     bind();
 
+    function dispose() {
+        disposed = true;
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
+
     return {
         scheduleEnvRebuildFromUI,
         populateHdriPresets,
+        dispose,
     };
 }

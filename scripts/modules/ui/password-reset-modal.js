@@ -10,6 +10,13 @@ export function createPasswordResetModalController(options = {}) {
 
     let resolver = null;
     let baseMessage = '';
+    const listeners = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return;
+        target.addEventListener(type, handler, options);
+        listeners.push({ target, type, handler, options });
+    }
 
     function isOpen() {
         return !!modalEl?.classList?.contains?.('show');
@@ -83,15 +90,15 @@ export function createPasswordResetModalController(options = {}) {
         });
     }
 
-    okBtn?.addEventListener?.('click', confirm);
-    cancelBtn?.addEventListener?.('click', cancel);
-    closeBtn?.addEventListener?.('click', cancel);
+    addListener(okBtn, 'click', confirm);
+    addListener(cancelBtn, 'click', cancel);
+    addListener(closeBtn, 'click', cancel);
 
-    modalEl?.addEventListener?.('click', (e) => {
+    addListener(modalEl, 'click', (e) => {
         if (e.target === modalEl) cancel();
     });
 
-    modalEl?.addEventListener?.('keydown', (e) => {
+    addListener(modalEl, 'keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             confirm();
@@ -101,10 +108,19 @@ export function createPasswordResetModalController(options = {}) {
         }
     });
 
+    function dispose() {
+        close(null);
+        while (listeners.length) {
+            const { target, type, handler, options } = listeners.pop();
+            try { target.removeEventListener(type, handler, options); } catch (_) {}
+        }
+    }
+
     return Object.freeze({
         open,
         close,
         isOpen,
         setMessage,
+        dispose,
     });
 }
