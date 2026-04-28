@@ -42,6 +42,7 @@ import { collectViewerDom } from '../ui/viewer-dom.js';
 import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
+import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
 import { createVoiceController } from '../voice/voice-controller.js';
@@ -990,6 +991,7 @@ export class ViewerApp {
         let cameraSyncMuted = false;
         let cameraSyncMuteToken = 0;
         let cameraPersistTimer = null;
+        let roomCameraRealtimeReload = null;
         let roomCameraCount = 0;
         let collabConnectionOnline = false;
         let collabAutoResumeEnabled = false;
@@ -1259,6 +1261,32 @@ export class ViewerApp {
         function clearCameraSyncMute() {
             cameraSyncMuteToken += 1;
             cameraSyncMuted = false;
+        }
+
+        function getRoomCameraRealtimeReload() {
+            if (!roomCameraRealtimeReload) {
+                roomCameraRealtimeReload = createDeferredRealtimeReload({
+                    isMuted: () => cameraSyncMuted,
+                    isCurrent: ({ controller, roomId, generation }) => (
+                        !!controller
+                        && controller === collabController
+                        && isActiveRoomLoad(generation, roomId)
+                    ),
+                    reload: ({ controller, roomId, generation }) => (
+                        loadRoomCameras({ controller, roomId, generation })
+                    ),
+                    onError: (err) => console.error('Room cameras realtime reload failed', err),
+                });
+            }
+            return roomCameraRealtimeReload;
+        }
+
+        function requestRoomCameraRealtimeReload(context) {
+            getRoomCameraRealtimeReload().request(context);
+        }
+
+        function flushRoomCameraRealtimeReload(context) {
+            roomCameraRealtimeReload?.flush?.(context);
         }
 
         function setCollabConnectionState(connected, reason = '') {
@@ -1716,6 +1744,7 @@ export class ViewerApp {
             roomModelsChannel = null;
             roomCamerasChannel = null;
             roomTransitionsChannel = null;
+            roomCameraRealtimeReload?.clear?.();
 
             if (collabController?.dispose) {
                 try {
@@ -4978,6 +5007,7 @@ export class ViewerApp {
                 if (isCurrent()) console.error('Room cameras load failed', err);
             } finally {
                 endCameraSyncMute(muteToken);
+                flushRoomCameraRealtimeReload({ controller, roomId, generation });
             }
         }
 
@@ -5256,6 +5286,7 @@ export class ViewerApp {
                     }
                 } finally {
                     endCameraSyncMute(muteToken);
+                    flushRoomCameraRealtimeReload({ controller, roomId, generation });
                 }
             }, 300);
         }
@@ -5279,9 +5310,7 @@ export class ViewerApp {
                     'postgres_changes',
                     { event: '*', schema: 'public', table: 'room_cameras', filter: `room_id=eq.${roomId}` },
                     () => {
-                        if (isCurrent() && !cameraSyncMuted) {
-                            void loadRoomCameras({ controller, roomId, generation });
-                        }
+                        if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
                     }
                 );
                 roomCamerasChannel.subscribe();
@@ -5292,9 +5321,7 @@ export class ViewerApp {
                     'postgres_changes',
                     { event: '*', schema: 'public', table: 'room_transitions', filter: `room_id=eq.${roomId}` },
                     () => {
-                        if (isCurrent() && !cameraSyncMuted) {
-                            void loadRoomCameras({ controller, roomId, generation });
-                        }
+                        if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
                     }
                 );
                 roomTransitionsChannel.subscribe();

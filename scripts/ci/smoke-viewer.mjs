@@ -1071,6 +1071,111 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createDeferredRealtimeReload } = await import('/scripts/modules/collab/deferred-realtime-reload.js');
+
+        let muted = true;
+        let currentGeneration = 1;
+        const events = [];
+        const releases = new Map();
+        const starts = new Map();
+        const dones = new Map();
+
+        const waitFor = (map, label) => {
+            if (map.has(label)) return map.get(label).promise;
+            let resolve = null;
+            const promise = new Promise((nextResolve) => {
+                resolve = nextResolve;
+            });
+            map.set(label, { promise, resolve });
+            return promise;
+        };
+        const mark = (map, label) => {
+            if (!map.has(label)) void waitFor(map, label);
+            map.get(label).resolve();
+        };
+
+        const reloader = createDeferredRealtimeReload({
+            isMuted: () => muted,
+            isCurrent: ({ generation }) => generation === currentGeneration,
+            reload: async ({ label }) => {
+                events.push(`start:${label}`);
+                mark(starts, label);
+                if (label === 'A' || label === 'B') {
+                    await new Promise((resolve) => {
+                        releases.set(label, resolve);
+                    });
+                }
+                events.push(`done:${label}`);
+                mark(dones, label);
+            },
+        });
+
+        const requestMuted = reloader.request({ label: 'A', generation: 1 });
+        const dirtyAfterMuted = reloader.isDirty();
+        muted = false;
+        const flushA = reloader.flush();
+        await waitFor(starts, 'A');
+
+        const requestQueued = reloader.request({ label: 'B', generation: 1 });
+        currentGeneration = 2;
+        const staleIgnored = reloader.request({ label: 'STALE', generation: 1 });
+        currentGeneration = 1;
+
+        releases.get('A')();
+        await waitFor(dones, 'A');
+        await waitFor(starts, 'B');
+
+        muted = true;
+        const requestWhileMutedInFlight = reloader.request({ label: 'C', generation: 1 });
+        releases.get('B')();
+        await waitFor(dones, 'B');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const beforeFlushEvents = events.slice();
+
+        muted = false;
+        const flushC = reloader.flush();
+        await waitFor(dones, 'C');
+
+        return {
+            requestMuted,
+            dirtyAfterMuted,
+            flushA,
+            requestQueued,
+            staleIgnored,
+            requestWhileMutedInFlight,
+            flushC,
+            beforeFlushEvents,
+            events,
+            dirtyAfterFlush: reloader.isDirty(),
+            queuedAfterFlush: reloader.isQueued(),
+            inFlightAfterFlush: reloader.isInFlight(),
+            lastContext: reloader.getLastContext(),
+        };
+    });
+
+    assert.equal(result.requestMuted, false, 'Deferred realtime smoke: muted request should be deferred');
+    assert.equal(result.dirtyAfterMuted, true, 'Deferred realtime smoke: muted request did not mark dirty');
+    assert.equal(result.flushA, true, 'Deferred realtime smoke: flush did not start deferred reload');
+    assert.equal(result.requestQueued, false, 'Deferred realtime smoke: in-flight request should be queued');
+    assert.equal(result.staleIgnored, false, 'Deferred realtime smoke: stale request should be ignored');
+    assert.equal(result.requestWhileMutedInFlight, false, 'Deferred realtime smoke: muted in-flight request should be deferred');
+    assert.deepEqual(result.beforeFlushEvents, ['start:A', 'done:A', 'start:B', 'done:B'], 'Deferred realtime smoke: dirty muted reload ran before unmute');
+    assert.equal(result.flushC, true, 'Deferred realtime smoke: unmute flush did not replay dirty reload');
+    assert.deepEqual(result.events, ['start:A', 'done:A', 'start:B', 'done:B', 'start:C', 'done:C'], 'Deferred realtime smoke: reload order is wrong');
+    assert.equal(result.dirtyAfterFlush, false, 'Deferred realtime smoke: dirty flag stayed set');
+    assert.equal(result.queuedAfterFlush, false, 'Deferred realtime smoke: queued flag stayed set');
+    assert.equal(result.inFlightAfterFlush, false, 'Deferred realtime smoke: in-flight flag stayed set');
+    assert.equal(result.lastContext?.label, 'C', 'Deferred realtime smoke: stale context replaced latest valid context');
+    diagnostics.assertNoErrors('Deferred realtime reload smoke');
+    await page.close();
+}
+
 async function runWorkerLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -1697,6 +1802,8 @@ try {
     console.log('Camera sync lifecycle smoke passed.');
     await runRoomModelLoadQueueSmoke(browser, smokeServer.baseUrl);
     console.log('Room model load queue smoke passed.');
+    await runDeferredRealtimeReloadSmoke(browser, smokeServer.baseUrl);
+    console.log('Deferred realtime reload smoke passed.');
     await runWorkerLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Worker lifecycle smoke passed.');
     await runFBXCleanupLifecycleSmoke(browser, smokeServer.baseUrl);
