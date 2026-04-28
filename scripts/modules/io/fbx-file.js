@@ -82,21 +82,49 @@ export function createFBXFileHandler(options = {}) {
         const geometries = new Set();
         const materials = new Set();
         const textures = new Set();
-        root.traverse((node) => {
-            if (node?.geometry?.dispose && !geometries.has(node.geometry)) {
-                geometries.add(node.geometry);
-                node.geometry.dispose();
-            }
-            const mats = Array.isArray(node?.material) ? node.material : [node?.material];
-            mats.filter(Boolean).forEach((material) => {
-                if (materials.has(material)) return;
-                materials.add(material);
+        const skeletons = new Set();
+        const asMaterialArray = (value) => {
+            if (!value) return [];
+            return Array.isArray(value) ? value.filter(Boolean) : [value];
+        };
+        const disposeMaterial = (material, { disposeTextures = true } = {}) => {
+            if (!material || materials.has(material)) return;
+            materials.add(material);
+            if (disposeTextures) {
                 Object.values(material).forEach((value) => {
                     if (!value?.isTexture || textures.has(value)) return;
                     textures.add(value);
                     value.dispose?.();
                 });
-                material.dispose?.();
+            }
+            material.dispose?.();
+        };
+        root.traverse((node) => {
+            const skeleton = node?.skeleton || null;
+            if (skeleton?.dispose && !skeletons.has(skeleton)) {
+                skeletons.add(skeleton);
+                skeleton.dispose();
+            }
+            if (node?.geometry?.dispose && !geometries.has(node.geometry)) {
+                geometries.add(node.geometry);
+                node.geometry.dispose();
+            }
+            [
+                ...asMaterialArray(node?.userData?._origMaterial),
+                ...asMaterialArray(node?.userData?._removedMaterials),
+            ].forEach((material) => disposeMaterial(material, { disposeTextures: true }));
+            [
+                ...asMaterialArray(node?.userData?._bfFront),
+                ...asMaterialArray(node?.userData?._bfBack),
+                ...asMaterialArray(node?.userData?._wireBase),
+                ...asMaterialArray(node?.userData?._beautyBase),
+                ...asMaterialArray(node?.userData?._removedCustomDepthMaterial),
+                ...asMaterialArray(node?.userData?._removedCustomDistanceMaterial),
+                ...asMaterialArray(node?.customDepthMaterial),
+                ...asMaterialArray(node?.customDistanceMaterial),
+            ].forEach((material) => disposeMaterial(material, { disposeTextures: false }));
+            asMaterialArray(node?.material).forEach((material) => {
+                disposeMaterial(material, { disposeTextures: true });
             });
         });
     }

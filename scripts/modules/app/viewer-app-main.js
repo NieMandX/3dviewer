@@ -42,6 +42,7 @@ import { collectViewerDom } from '../ui/viewer-dom.js';
 import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
+import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
 import { createVoiceController } from '../voice/voice-controller.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
@@ -116,13 +117,62 @@ export class ViewerApp {
         const bodyEl = document?.body || null;
         let bootProgress = 0;
         let bootLoaderHidden = false;
+        const appEventCleanups = [];
+        const appTimeouts = new Set();
+
+        function addAppEventListener(target, type, handler, options) {
+            if (!target?.addEventListener || typeof handler !== 'function') return false;
+            target.addEventListener(type, handler, options);
+            appEventCleanups.push(() => {
+                try {
+                    target.removeEventListener(type, handler, options);
+                } catch (_) {}
+            });
+            return true;
+        }
+
+        function setAppTimeout(handler, delay = 0, ...args) {
+            const setTimer =
+                typeof window !== 'undefined' && typeof window.setTimeout === 'function'
+                    ? window.setTimeout.bind(window)
+                    : setTimeout;
+            const token = setTimer(() => {
+                appTimeouts.delete(token);
+                handler(...args);
+            }, delay);
+            appTimeouts.add(token);
+            return token;
+        }
+
+        function clearAppTimeout(token) {
+            if (!token) return;
+            const clearTimer =
+                typeof window !== 'undefined' && typeof window.clearTimeout === 'function'
+                    ? window.clearTimeout.bind(window)
+                    : clearTimeout;
+            appTimeouts.delete(token);
+            clearTimer(token);
+        }
+
+        function disposeAppEventListeners() {
+            appEventCleanups.splice(0).forEach((cleanup) => {
+                try {
+                    cleanup();
+                } catch (_) {}
+            });
+        }
+
+        function disposeAppTimers() {
+            Array.from(appTimeouts).forEach((token) => clearAppTimeout(token));
+            appTimeouts.clear();
+        }
 
         const pageLoadedPromise = new Promise((resolve) => {
             if (typeof window === 'undefined' || document.readyState === 'complete') {
                 resolve();
                 return;
             }
-            window.addEventListener('load', () => resolve(), { once: true });
+            addAppEventListener(window, 'load', () => resolve(), { once: true });
         });
 
         const isCoarseMobileViewport = () => {
@@ -167,9 +217,10 @@ export class ViewerApp {
 
             const collapseBrowserChrome = () => {
                 if (collapseTimer) {
-                    clearTimeout(collapseTimer);
+                    clearAppTimeout(collapseTimer);
                 }
-                collapseTimer = window.setTimeout(() => {
+                collapseTimer = setAppTimeout(() => {
+                    collapseTimer = 0;
                     syncViewportHeight();
                     try {
                         window.scrollTo(0, 1);
@@ -193,20 +244,32 @@ export class ViewerApp {
             syncViewportHeight();
             collapseBrowserChrome();
 
-            window.addEventListener('resize', () => {
+            addAppEventListener(window, 'resize', () => {
                 scheduleViewportSync();
                 collapseBrowserChrome();
             }, { passive: true });
-            window.addEventListener('orientationchange', () => {
+            addAppEventListener(window, 'orientationchange', () => {
                 scheduleViewportSync();
                 collapseBrowserChrome();
             }, { passive: true });
-            window.addEventListener('focus', collapseBrowserChrome, { passive: true });
-            window.addEventListener('pageshow', collapseBrowserChrome, { passive: true });
-            window.addEventListener('pointerup', collapseBrowserChrome, { passive: true });
-            window.addEventListener('pointerdown', tryRequestFullscreen, { once: true, passive: true });
-            window.visualViewport?.addEventListener('resize', scheduleViewportSync, { passive: true });
-            window.visualViewport?.addEventListener('scroll', scheduleViewportSync, { passive: true });
+            addAppEventListener(window, 'focus', collapseBrowserChrome, { passive: true });
+            addAppEventListener(window, 'pageshow', collapseBrowserChrome, { passive: true });
+            addAppEventListener(window, 'pointerup', collapseBrowserChrome, { passive: true });
+            addAppEventListener(window, 'pointerdown', tryRequestFullscreen, { once: true, passive: true });
+            addAppEventListener(window.visualViewport, 'resize', scheduleViewportSync, { passive: true });
+            addAppEventListener(window.visualViewport, 'scroll', scheduleViewportSync, { passive: true });
+            appEventCleanups.push(() => {
+                if (rafToken && typeof cancelAnimationFrame === 'function') {
+                    cancelAnimationFrame(rafToken);
+                }
+                rafToken = 0;
+                if (collapseTimer) {
+                    clearAppTimeout(collapseTimer);
+                    collapseTimer = 0;
+                }
+                rootEl.style.removeProperty('--mobileViewportH');
+                bodyEl?.classList.remove('mobile-immersive');
+            });
         }
 
         setupMobileImmersiveViewport();
@@ -229,6 +292,7 @@ export class ViewerApp {
         }
 
         function hideBootLoader() {
+            if (appDisposed) return;
             if (bootLoaderHidden) return;
             bootLoaderHidden = true;
             setBootProgress(100, 'Готово');
@@ -237,8 +301,8 @@ export class ViewerApp {
                 return;
             }
             bootLoaderEl.classList.add('is-leaving');
-            const timer = (typeof window !== 'undefined' ? window.setTimeout : setTimeout);
-            timer(() => {
+            setAppTimeout(() => {
+                if (appDisposed) return;
                 bootLoaderEl.hidden = true;
                 bodyEl?.classList.remove('app-loading');
             }, 230);
@@ -408,17 +472,17 @@ export class ViewerApp {
             }
         };
         if (orderBtn && orderModalEl) {
-            orderBtn.addEventListener('click', () => setOrderModalVisible(true));
+            addAppEventListener(orderBtn, 'click', () => setOrderModalVisible(true));
         }
         if (orderModalEl) {
-            orderModalEl.addEventListener('click', (event) => {
+            addAppEventListener(orderModalEl, 'click', (event) => {
                 if (event.target === orderModalEl) {
                     setOrderModalVisible(false);
                 }
             });
         }
         if (typeof window !== 'undefined' && orderModalEl) {
-            window.addEventListener('keydown', (event) => {
+            addAppEventListener(window, 'keydown', (event) => {
                 if (event.key === 'Escape' && orderModalEl.classList.contains('show')) {
                     setOrderModalVisible(false);
                 }
@@ -918,6 +982,9 @@ export class ViewerApp {
         let roomModelCount = 0;
         let roomLoadGeneration = 0;
         const activeRoomImportControllers = new Set();
+        let roomModelLoadQueue = null;
+        let remoteModelLoadRoomId = '';
+        let remoteModelLoadModelId = '';
         let roomCamerasChannel = null;
         let roomTransitionsChannel = null;
         let cameraSyncMuted = false;
@@ -1145,8 +1212,20 @@ export class ViewerApp {
             activeRoomImportControllers.clear();
         }
 
+        function getRoomModelLoadQueue() {
+            if (!roomModelLoadQueue) {
+                roomModelLoadQueue = createRoomModelLoadQueue({
+                    isCurrent: ({ generation, roomId }) => isActiveRoomLoad(generation, roomId),
+                    loadModelNow: (model, context) => loadProjectModelNow(model, context),
+                    onError: (err) => console.error('Room model queued load failed', err),
+                });
+            }
+            return roomModelLoadQueue;
+        }
+
         function bumpRoomLoadGeneration() {
             roomLoadGeneration += 1;
+            roomModelLoadQueue?.clear?.();
             abortActiveRoomImports();
             return roomLoadGeneration;
         }
@@ -1188,16 +1267,28 @@ export class ViewerApp {
             updateCollabStatusButton();
         }
 
+        function hasCollabReconnectContext() {
+            return !!(
+                collabAutoResumeEnabled
+                && collabProject
+                && collabRoom
+                && collabUser
+                && collabSupabase
+            );
+        }
+
         async function resumeCollabSession(trigger = '') {
             if (collabAutoResumeInFlight || !collabAutoResumeEnabled) return;
-            if (!collabController || !collabProject || !collabRoom || !collabUser || !collabSupabase) return;
+            if (!hasCollabReconnectContext()) return;
             if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
             collabAutoResumeInFlight = true;
             collabAutoResumeAttempt += 1;
             setCollabStatus('reconnecting');
             try {
-                const displayName = String(collabController.getDisplayName?.() || collabNameEl?.value || '').trim() || 'Guest';
-                await teardownCollabSession({ preserveAutoResume: true });
+                const displayName = String(collabController?.getDisplayName?.() || collabNameEl?.value || '').trim() || 'Guest';
+                if (collabController) {
+                    await teardownCollabSession({ preserveAutoResume: true });
+                }
                 await connectToRoom(displayName, { isAutoReconnect: true, throwOnError: true });
                 collabAutoResumeAttempt = 0;
             } catch (err) {
@@ -1210,8 +1301,7 @@ export class ViewerApp {
         }
 
         function scheduleCollabAutoResume(trigger = '') {
-            if (!collabAutoResumeEnabled || !collabController) return;
-            if (!collabProject || !collabRoom || !collabUser || !collabSupabase) return;
+            if (!hasCollabReconnectContext()) return;
             if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
             if (collabAutoResumeInFlight) return;
             clearCollabAutoResumeTimer();
@@ -2581,9 +2671,9 @@ export class ViewerApp {
                 if (!isCurrentSession()) return;
 
                 if (dom.annotateCanvasEl && !collabAnnotatePointerHooksBound) {
-                    dom.annotateCanvasEl.addEventListener('pointerdown', () => cameraSync?.markLocalActivity(true));
-                    dom.annotateCanvasEl.addEventListener('pointerup', () => cameraSync?.markLocalActivity(false));
-                    dom.annotateCanvasEl.addEventListener('pointercancel', () => cameraSync?.markLocalActivity(false));
+                    addAppEventListener(dom.annotateCanvasEl, 'pointerdown', () => cameraSync?.markLocalActivity(true));
+                    addAppEventListener(dom.annotateCanvasEl, 'pointerup', () => cameraSync?.markLocalActivity(false));
+                    addAppEventListener(dom.annotateCanvasEl, 'pointercancel', () => cameraSync?.markLocalActivity(false));
                     collabAnnotatePointerHooksBound = true;
                 }
 
@@ -2836,14 +2926,13 @@ export class ViewerApp {
         }
 
         function stopKeydownPropagation(el) {
-            if (!el?.addEventListener) return;
-            el.addEventListener('keydown', (event) => {
+            addAppEventListener(el, 'keydown', (event) => {
                 event.stopPropagation();
             });
         }
 
         if (typeof document !== 'undefined') {
-            document.addEventListener('keydown', (event) => {
+            addAppEventListener(document, 'keydown', (event) => {
                 const target = event?.target;
                 const tag = String(target?.tagName || '').toLowerCase();
                 if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) {
@@ -2866,10 +2955,10 @@ export class ViewerApp {
             submitAuthFromEnter();
         };
 
-        collabEmailEl?.addEventListener?.('keyup', authEnterHandler);
-        collabNameEl?.addEventListener?.('keyup', authEnterHandler);
-        collabPasswordEl?.addEventListener?.('keyup', authEnterHandler);
-        collabPasswordConfirmEl?.addEventListener?.('keyup', authEnterHandler);
+        addAppEventListener(collabEmailEl, 'keyup', authEnterHandler);
+        addAppEventListener(collabNameEl, 'keyup', authEnterHandler);
+        addAppEventListener(collabPasswordEl, 'keyup', authEnterHandler);
+        addAppEventListener(collabPasswordConfirmEl, 'keyup', authEnterHandler);
 
         setAuthMode(getInitialAuthMode());
         if (canGuestEnter() && !collabAuthed) {
@@ -2877,20 +2966,20 @@ export class ViewerApp {
         }
 
         if (collabShowLoginBtn) {
-            collabShowLoginBtn.addEventListener('click', () => {
+            addAppEventListener(collabShowLoginBtn, 'click', () => {
                 setAuthMode('login');
             });
         }
 
         if (collabShowRegisterBtn) {
-            collabShowRegisterBtn.addEventListener('click', () => {
+            addAppEventListener(collabShowRegisterBtn, 'click', () => {
                 setAuthMode('register');
             });
         }
 
         if (collabBackBtns && collabBackBtns.length) {
             collabBackBtns.forEach((btn) => {
-                btn.addEventListener('click', () => {
+                addAppEventListener(btn, 'click', () => {
                     setAuthMode(getInitialAuthMode());
                 });
             });
@@ -2898,34 +2987,34 @@ export class ViewerApp {
 
         if (collabJoinBtn) {
             collabJoinBtn.disabled = !collabReady;
-            collabJoinBtn.addEventListener('click', () => {
+            addAppEventListener(collabJoinBtn, 'click', () => {
                 void connectCollab('login');
             });
         }
 
         if (collabSignupBtn) {
             collabSignupBtn.disabled = !collabReady;
-            collabSignupBtn.addEventListener('click', () => {
+            addAppEventListener(collabSignupBtn, 'click', () => {
                 void connectCollab('signup');
             });
         }
 
         if (collabGuestBtn) {
             collabGuestBtn.disabled = !collabReady;
-            collabGuestBtn.addEventListener('click', () => {
+            addAppEventListener(collabGuestBtn, 'click', () => {
                 void connectCollab('guest');
             });
         }
 
         if (collabPanelBtn && collabDrawerEl) {
-            collabPanelBtn.addEventListener('click', () => {
+            addAppEventListener(collabPanelBtn, 'click', () => {
                 setCollabDrawerOpen(collabDrawerEl.hidden);
             });
         }
 
         if (collabStatusBtn) {
             collabStatusBtn.disabled = !collabReady;
-            collabStatusBtn.addEventListener('click', async () => {
+            addAppEventListener(collabStatusBtn, 'click', async () => {
                 if (!collabReady) return;
                 if (!collabController) {
                     setCollabDrawerOpen(true);
@@ -2959,7 +3048,7 @@ export class ViewerApp {
 
         if (voiceJoinBtn) {
             voiceJoinBtn.disabled = true;
-            voiceJoinBtn.addEventListener('click', () => {
+            addAppEventListener(voiceJoinBtn, 'click', () => {
                 if (voiceConnecting) return;
                 if (voiceConnected) {
                     void disconnectVoiceRoom();
@@ -2971,7 +3060,7 @@ export class ViewerApp {
 
         if (voiceMuteBtn) {
             voiceMuteBtn.disabled = true;
-            voiceMuteBtn.addEventListener('click', () => {
+            addAppEventListener(voiceMuteBtn, 'click', () => {
                 if (!voiceController || !voiceConnected) return;
                 void voiceController.toggleMute().catch((error) => {
                     console.error('Voice mute toggle failed', error);
@@ -2980,27 +3069,27 @@ export class ViewerApp {
         }
 
         if (collabDrawerCloseBtn) {
-            collabDrawerCloseBtn.addEventListener('click', () => {
+            addAppEventListener(collabDrawerCloseBtn, 'click', () => {
                 setCollabDrawerOpen(false);
             });
         }
 
         if (collabResetBtn) {
             collabResetBtn.disabled = !collabReady;
-            collabResetBtn.addEventListener('click', () => {
+            addAppEventListener(collabResetBtn, 'click', () => {
                 void requestPasswordReset();
             });
         }
 
         if (collabResendBtn) {
             collabResendBtn.disabled = !collabReady;
-            collabResendBtn.addEventListener('click', () => {
+            addAppEventListener(collabResendBtn, 'click', () => {
                 void requestSignupConfirmation();
             });
         }
 
         if (collabProjectSelectEl) {
-            collabProjectSelectEl.addEventListener('change', async () => {
+            addAppEventListener(collabProjectSelectEl, 'change', async () => {
                 const id = collabProjectSelectEl.value;
                 if (id === collabCreateOptionValue) {
                     toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, true);
@@ -3022,7 +3111,7 @@ export class ViewerApp {
                 }
                 updateAdminControls();
             });
-            collabProjectSelectEl.addEventListener('customselect:delete', (event) => {
+            addAppEventListener(collabProjectSelectEl, 'customselect:delete', (event) => {
                 const value = event?.detail?.value;
                 if (!value) return;
                 void deleteProjectById(String(value));
@@ -3030,7 +3119,7 @@ export class ViewerApp {
         }
 
         if (collabRoomSelectEl) {
-            collabRoomSelectEl.addEventListener('change', async () => {
+            addAppEventListener(collabRoomSelectEl, 'change', async () => {
                 const id = collabRoomSelectEl.value;
                 if (id === collabCreateOptionValue) {
                     toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, true);
@@ -3050,33 +3139,33 @@ export class ViewerApp {
                 }
                 updateAdminControls();
             });
-            collabRoomSelectEl.addEventListener('customselect:delete', (event) => {
+            addAppEventListener(collabRoomSelectEl, 'customselect:delete', (event) => {
                 const value = event?.detail?.value;
                 if (!value) return;
                 void deleteRoomById(String(value));
             });
         }
 
-        collabProjectNameInputEl?.addEventListener?.('keyup', (event) => {
+        addAppEventListener(collabProjectNameInputEl, 'keyup', (event) => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             void submitProjectCreate();
         });
 
-        collabRoomNameInputEl?.addEventListener?.('keyup', (event) => {
+        addAppEventListener(collabRoomNameInputEl, 'keyup', (event) => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             void submitRoomCreate();
         });
 
         if (collabChatSendBtn && collabChatInputEl) {
-            collabChatSendBtn.addEventListener('click', () => {
+            addAppEventListener(collabChatSendBtn, 'click', () => {
                 const text = String(collabChatInputEl.value || '').trim();
                 if (!text || !collabController) return;
                 collabController.sendMessage(text).catch((err) => console.error('Chat send failed', err));
                 collabChatInputEl.value = '';
             });
-            collabChatInputEl.addEventListener('keyup', (event) => {
+            addAppEventListener(collabChatInputEl, 'keyup', (event) => {
                 if (event.key !== 'Enter' || event.shiftKey) return;
                 event.preventDefault();
                 collabChatSendBtn.click();
@@ -3084,7 +3173,7 @@ export class ViewerApp {
         }
 
         if (!collabChatSendBtn && collabChatInputEl) {
-            collabChatInputEl.addEventListener('keyup', (event) => {
+            addAppEventListener(collabChatInputEl, 'keyup', (event) => {
                 if (event.key !== 'Enter' || event.shiftKey) return;
                 event.preventDefault();
                 const text = String(collabChatInputEl.value || '').trim();
@@ -3102,14 +3191,14 @@ export class ViewerApp {
         }
 
         if (collabChatToggleBtn) {
-            collabChatToggleBtn.addEventListener('click', () => {
+            addAppEventListener(collabChatToggleBtn, 'click', () => {
                 if (!collabController) return;
                 setChatPanelVisible(!chatPanelVisible);
             });
         }
 
         if (collabCopyBtn && collabRoomLinkEl) {
-            collabCopyBtn.addEventListener('click', () => {
+            addAppEventListener(collabCopyBtn, 'click', () => {
                 const value = String(collabRoomLinkEl.value || '').trim();
                 if (!value) return;
                 if (navigator?.clipboard?.writeText) {
@@ -3119,7 +3208,7 @@ export class ViewerApp {
         }
 
         if (collabReserveBtn) {
-            collabReserveBtn.addEventListener('click', async () => {
+            addAppEventListener(collabReserveBtn, 'click', async () => {
                 if (!collabController) return;
                 collabReserveBtn.disabled = true;
                 try {
@@ -3151,14 +3240,14 @@ export class ViewerApp {
         updateCollabStatusButton();
         setChatPanelAvailability(false);
         if (typeof window !== 'undefined') {
-            window.addEventListener('offline', handleBrowserOffline, { passive: true });
-            window.addEventListener('online', handleBrowserOnline, { passive: true });
+            addAppEventListener(window, 'offline', handleBrowserOffline, { passive: true });
+            addAppEventListener(window, 'online', handleBrowserOnline, { passive: true });
         }
         updateAdminControls();
         void maybeHandlePasswordRecovery();
         void clearPersistedEmailSession();
 
-        exportBtn?.addEventListener?.('click', () => {
+        addAppEventListener(exportBtn, 'click', () => {
             void (async () => {
                 const selection = await exportModal.open({
                     title: 'Экспорт сцены',
@@ -3438,6 +3527,7 @@ export class ViewerApp {
             const disposedGeometries = new Set();
             const disposedMaterials = new Set();
             const disposedTextures = new Set();
+            const disposedSkeletons = new Set();
             const sharedTextures = new Set();
             if (scene?.environment?.isTexture) sharedTextures.add(scene.environment);
             if (scene?.background?.isTexture) sharedTextures.add(scene.background);
@@ -3466,11 +3556,27 @@ export class ViewerApp {
                     disposedGeometries.add(geometry);
                     geometry.dispose();
                 }
-                const originalMaterials = asMaterialArray(child?.userData?._origMaterial);
+                const skeleton = child?.skeleton || null;
+                if (skeleton?.dispose && !disposedSkeletons.has(skeleton)) {
+                    disposedSkeletons.add(skeleton);
+                    skeleton.dispose();
+                }
+
+                const originalMaterials = [
+                    ...asMaterialArray(child?.userData?._origMaterial),
+                    ...asMaterialArray(child?.userData?._removedMaterials),
+                ];
                 const originalSet = new Set(originalMaterials);
                 originalMaterials.forEach((material) => disposeMaterial(material, { disposeTextures: true }));
 
-                const generatedMaterialKeys = ['_bfFront', '_bfBack', '_wireBase', '_beautyBase'];
+                const generatedMaterialKeys = [
+                    '_bfFront',
+                    '_bfBack',
+                    '_wireBase',
+                    '_beautyBase',
+                    '_removedCustomDepthMaterial',
+                    '_removedCustomDistanceMaterial',
+                ];
                 generatedMaterialKeys.forEach((key) => {
                     asMaterialArray(child?.userData?.[key]).forEach((material) => {
                         disposeMaterial(material, { disposeTextures: false });
@@ -3508,6 +3614,12 @@ export class ViewerApp {
         function cleanupRoomModelScopedAssets({ roomId = '', modelId = '' } = {}) {
             const targetRoomId = roomId ? String(roomId) : '';
             const targetModelId = modelId ? String(modelId) : '';
+            if (targetModelId) {
+                roomModelLoadQueue?.delete?.({ roomId: targetRoomId, modelId: targetModelId });
+                const isActiveImportTarget = remoteModelLoadModelId === targetModelId
+                    && (!targetRoomId || remoteModelLoadRoomId === targetRoomId);
+                if (isActiveImportTarget) abortActiveRoomImports();
+            }
             const roomModelRecords = loadedModels.filter((record) => (
                 scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId)
             ));
@@ -4626,14 +4738,28 @@ export class ViewerApp {
             const expectedGeneration = Number.isFinite(options.generation)
                 ? options.generation
                 : roomLoadGeneration;
+            return getRoomModelLoadQueue().load(model, {
+                ...options,
+                roomId: expectedRoomId,
+                generation: expectedGeneration,
+                modelId: model.id,
+            });
+        }
+
+        async function loadProjectModelNow(model, options = {}) {
+            if (!model) return false;
+            const expectedRoomId = String(options.roomId || collabController?.room?.id || '');
+            const expectedGeneration = Number.isFinite(options.generation)
+                ? options.generation
+                : roomLoadGeneration;
+            const modelId = String(model.id || '').trim();
             const isStaleLoad = () => !isActiveRoomLoad(expectedGeneration, expectedRoomId);
-            if (isStaleLoad()) return;
-            if (isRemoteModelLoad && remoteModelLoadGeneration === expectedGeneration) return;
-            if (loadedRoomModelIds.has(model.id)) return;
+            if (isStaleLoad()) return false;
+            if (loadedRoomModelIds.has(modelId)) return true;
 
             const storagePath = getProjectModelStoragePath(model);
             const modelRef = storagePath || model.url || '';
-            if (!modelRef) return;
+            if (!modelRef) return false;
             const name = model.name || basename(modelRef) || 'model.zip';
             const kind = model.meta?.kind || getModelKindFromName(name);
             const importAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -4646,6 +4772,10 @@ export class ViewerApp {
             };
             if (importAbortController) activeRoomImportControllers.add(importAbortController);
             try {
+                isRemoteModelLoad = true;
+                remoteModelLoadGeneration = expectedGeneration;
+                remoteModelLoadRoomId = expectedRoomId;
+                remoteModelLoadModelId = modelId;
                 setStatusMessage('Загрузка модели из комнаты…');
                 let blob = null;
                 if (storagePath && collabController?.supabase) {
@@ -4661,20 +4791,18 @@ export class ViewerApp {
                 }
                 if (isStaleLoad() || importSignal?.aborted) {
                     abortImport();
-                    return;
+                    return false;
                 }
                 if (!blob) {
                     throw new Error('Model download returned empty payload.');
                 }
                 const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
-                isRemoteModelLoad = true;
-                remoteModelLoadGeneration = expectedGeneration;
                 pendingLocalModelFiles.length = 0;
                 pendingLocalModelKeys.clear();
                 const roomImportScope = {
                     kind: 'room',
                     roomId: expectedRoomId,
-                    modelId: model.id,
+                    modelId,
                 };
                 if (kind === 'fbx') {
                     await runImportWithScope(roomImportScope, () => (
@@ -4685,27 +4813,31 @@ export class ViewerApp {
                 }
                 if (isStaleLoad()) {
                     abortImport();
-                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId: model.id });
-                    return;
+                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId });
+                    return false;
                 }
                 await finalizeBatchAfterAllFiles();
                 if (isStaleLoad()) {
                     abortImport();
-                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId: model.id });
-                    return;
+                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId });
+                    return false;
                 }
-                loadedRoomModelIds.add(model.id);
+                loadedRoomModelIds.add(modelId);
+                return true;
             } catch (err) {
                 if (isAbortError(err) || isStaleLoad()) {
-                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId: model.id });
-                    return;
+                    cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId });
+                    return false;
                 }
                 console.error('Room model load failed', err);
+                return false;
             } finally {
                 if (importAbortController) activeRoomImportControllers.delete(importAbortController);
-                if (remoteModelLoadGeneration === expectedGeneration) {
+                if (remoteModelLoadGeneration === expectedGeneration && remoteModelLoadModelId === modelId) {
                     isRemoteModelLoad = false;
                     remoteModelLoadGeneration = 0;
+                    remoteModelLoadRoomId = '';
+                    remoteModelLoadModelId = '';
                 }
                 if (isActiveRoomLoad(expectedGeneration, expectedRoomId)) setStatusMessage('');
             }
@@ -5170,22 +5302,22 @@ export class ViewerApp {
         }
 
         async function loadModelFromRoom(room) {
-            if (!room || !room.active_model_id) return;
-            if (room.active_model_id === activeRoomModelId) return;
+            const activeModelId = String(room?.active_model_id || '').trim();
+            if (!room || !activeModelId) return;
+            if (activeModelId === activeRoomModelId && loadedRoomModelIds.has(activeModelId)) return;
             if (!collabController) return;
             const roomId = String(room.id || collabController.room?.id || '');
             const generation = roomLoadGeneration;
             if (!isActiveRoomLoad(generation, roomId)) return;
-            if (isRemoteModelLoad && remoteModelLoadGeneration === generation) return;
             const { data: modelRow, error } = await collabController.supabase
                 .from('project_models')
                 .select('*')
-                .eq('id', room.active_model_id)
+                .eq('id', activeModelId)
                 .limit(1)
                 .maybeSingle();
             if (!isActiveRoomLoad(generation, roomId)) return;
             if (error || !modelRow) return;
-            activeRoomModelId = room.active_model_id;
+            activeRoomModelId = activeModelId;
             await loadProjectModel(modelRow, { roomId, generation });
         }
 
@@ -5249,7 +5381,7 @@ export class ViewerApp {
             if (document.readyState === 'complete') {
                 void revealEmptyHintWhenReady();
             } else {
-                window.addEventListener('load', () => {
+                addAppEventListener(window, 'load', () => {
                     void revealEmptyHintWhenReady();
                 }, { once: true });
             }
@@ -5317,6 +5449,8 @@ export class ViewerApp {
 	            appDisposed = true;
 
 	            try { renderLoop?.dispose?.(); } catch (_) {}
+	            try { disposeAppTimers(); } catch (_) {}
+	            try { disposeAppEventListeners(); } catch (_) {}
 	            try { await teardownCollabSession(); } catch (_) {}
 	            try { vrController?.dispose?.(); } catch (_) {}
 	            try { annotations3d?.dispose?.(); } catch (_) {}
@@ -5401,22 +5535,27 @@ export class ViewerApp {
         });
 
         const finishBoot = async () => {
+            if (appDisposed) return;
             setBootProgress(96, 'Финальная подготовка...');
             try {
                 await Promise.allSettled([rendererInitPromise, pageLoadedPromise]);
             } catch (_) {
                 /* ignore */
             }
+            if (appDisposed) return;
             requestRender();
             await nextFrame();
+            if (appDisposed) return;
             await nextFrame();
+            if (appDisposed) return;
             hideBootLoader();
         };
 
         void finishBoot();
 
         if (typeof window !== 'undefined') {
-            window.setTimeout(() => {
+            setAppTimeout(() => {
+                if (appDisposed) return;
                 hideBootLoader();
             }, 20000);
         }

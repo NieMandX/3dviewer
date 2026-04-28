@@ -348,90 +348,94 @@ export async function createCollabController(options = {}) {
     };
     startPresenceHeartbeat();
 
-    const roomUpdates = supabase.channel(`room:${room.id}:updates`);
-    roomUpdates.on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${room.id}` },
-        (payload) => {
-            if (disposed) return;
-            if (typeof onRoomUpdate === 'function') onRoomUpdate(payload.new);
-            const next = payload.new || {};
-            if (typeof onCameraOwner === 'function') onCameraOwner(next.camera_owner_id || null);
-            if (next.camera_state && typeof onCameraState === 'function') {
-                onCameraState({
-                    ...next.camera_state,
-                    source: 'db',
-                });
+    try {
+        const roomUpdates = supabase.channel(`room:${room.id}:updates`);
+        roomUpdates.on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${room.id}` },
+            (payload) => {
+                if (disposed) return;
+                if (typeof onRoomUpdate === 'function') onRoomUpdate(payload.new);
+                const next = payload.new || {};
+                if (typeof onCameraOwner === 'function') onCameraOwner(next.camera_owner_id || null);
+                if (next.camera_state && typeof onCameraState === 'function') {
+                    onCameraState({
+                        ...next.camera_state,
+                        source: 'db',
+                    });
+                }
             }
+        );
+        channels.push(roomUpdates);
+        await roomUpdates.subscribe();
+
+        const annotationsChannel = supabase.channel(`room:${room.id}:annotations`);
+        annotationsChannel.on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
+            (payload) => {
+                if (disposed) return;
+                if (typeof onAnnotation === 'function') onAnnotation(payload.new, { source: 'realtime' });
+            }
+        );
+        annotationsChannel.on(
+            'postgres_changes',
+            { event: 'DELETE', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
+            (payload) => {
+                if (disposed) return;
+                if (typeof onAnnotationDelete === 'function') onAnnotationDelete(payload.old);
+            }
+        );
+        channels.push(annotationsChannel);
+        await annotationsChannel.subscribe();
+
+        const messagesChannel = supabase.channel(`room:${room.id}:messages`);
+        messagesChannel.on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${room.id}` },
+            (payload) => {
+                if (disposed) return;
+                if (typeof onMessage === 'function') onMessage(payload.new, { source: 'realtime' });
+            }
+        );
+        channels.push(messagesChannel);
+        await messagesChannel.subscribe();
+
+        const historyAnnotations = await supabase
+            .from('annotations')
+            .select('*')
+            .eq('room_id', room.id)
+            .order('created_at', { ascending: true });
+        if (!historyAnnotations.error && Array.isArray(historyAnnotations.data)) {
+            historyAnnotations.data.forEach((row) => {
+                if (disposed) return;
+                if (typeof onAnnotation === 'function') onAnnotation(row, { source: 'history' });
+            });
         }
-    );
-    channels.push(roomUpdates);
-    await roomUpdates.subscribe();
 
-    const annotationsChannel = supabase.channel(`room:${room.id}:annotations`);
-    annotationsChannel.on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
-        (payload) => {
-            if (disposed) return;
-            if (typeof onAnnotation === 'function') onAnnotation(payload.new, { source: 'realtime' });
+        const historyMessages = await supabase
+            .from('messages')
+            .select('*')
+            .eq('room_id', room.id)
+            .order('created_at', { ascending: true });
+        if (!historyMessages.error && Array.isArray(historyMessages.data)) {
+            historyMessages.data.forEach((row) => {
+                if (disposed) return;
+                if (typeof onMessage === 'function') onMessage(row, { source: 'history' });
+            });
         }
-    );
-    annotationsChannel.on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
-        (payload) => {
-            if (disposed) return;
-            if (typeof onAnnotationDelete === 'function') onAnnotationDelete(payload.old);
+
+        if (!disposed && room.camera_state && typeof onCameraState === 'function') {
+            onCameraState({ ...room.camera_state, source: 'db' });
         }
-    );
-    channels.push(annotationsChannel);
-    await annotationsChannel.subscribe();
-
-    const messagesChannel = supabase.channel(`room:${room.id}:messages`);
-    messagesChannel.on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${room.id}` },
-        (payload) => {
-            if (disposed) return;
-            if (typeof onMessage === 'function') onMessage(payload.new, { source: 'realtime' });
+        if (!disposed && typeof onCameraOwner === 'function') {
+            onCameraOwner(room.camera_owner_id || null);
         }
-    );
-    channels.push(messagesChannel);
-    await messagesChannel.subscribe();
 
-    const historyAnnotations = await supabase
-        .from('annotations')
-        .select('*')
-        .eq('room_id', room.id)
-        .order('created_at', { ascending: true });
-    if (!historyAnnotations.error && Array.isArray(historyAnnotations.data)) {
-        historyAnnotations.data.forEach((row) => {
-            if (disposed) return;
-            if (typeof onAnnotation === 'function') onAnnotation(row, { source: 'history' });
-        });
+        status('');
+    } catch (err) {
+        await cleanupInitFailure(err);
     }
-
-    const historyMessages = await supabase
-        .from('messages')
-        .select('*')
-        .eq('room_id', room.id)
-        .order('created_at', { ascending: true });
-    if (!historyMessages.error && Array.isArray(historyMessages.data)) {
-        historyMessages.data.forEach((row) => {
-            if (disposed) return;
-            if (typeof onMessage === 'function') onMessage(row, { source: 'history' });
-        });
-    }
-
-    if (!disposed && room.camera_state && typeof onCameraState === 'function') {
-        onCameraState({ ...room.camera_state, source: 'db' });
-    }
-    if (!disposed && typeof onCameraOwner === 'function') {
-        onCameraOwner(room.camera_owner_id || null);
-    }
-
-    status('');
 
     function canRealtimeSend(channel) {
         if (!channel) return false;

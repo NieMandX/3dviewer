@@ -41,7 +41,17 @@ async function createStaticServer() {
     const server = createServer(async (req, res) => {
         try {
             if (String(req.url || '').startsWith('/__smoke_blank')) {
-                const body = Buffer.from('<!doctype html><meta charset="utf-8"><title>LPM smoke</title>');
+                const body = Buffer.from(`<!doctype html>
+                    <meta charset="utf-8">
+                    <title>LPM smoke</title>
+                    <script type="importmap">
+                    {
+                        "imports": {
+                            "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+                            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+                        }
+                    }
+                    </script>`);
                 res.writeHead(200, {
                     'Content-Length': body.length,
                     'Content-Type': 'text/html; charset=utf-8',
@@ -279,6 +289,32 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
             textureCloseClick: count('#mClose', 'click'),
             textureModalClick: count('#texModal', 'click'),
             textureBindClick: count('#bindBtn', 'click'),
+            documentKeydown: count('document', 'keydown'),
+            windowOffline: count('window', 'offline'),
+            windowOnline: count('window', 'online'),
+            orderClick: count('#orderBtn', 'click'),
+            orderModalClick: count('#orderModal', 'click'),
+            exportClick: count('#exportBtn', 'click'),
+            collabNameKeydown: count('#collabName', 'keydown'),
+            collabNameKeyup: count('#collabName', 'keyup'),
+            collabEmailKeydown: count('#collabEmail', 'keydown'),
+            collabEmailKeyup: count('#collabEmail', 'keyup'),
+            collabJoinClick: count('#collabJoinBtn', 'click'),
+            collabGuestClick: count('#collabGuestBtn', 'click'),
+            camsToggleClick: count('#camsToggleBtn', 'click'),
+            camsBarClick: count('#camsBarList', 'click'),
+            camsBarDragStart: count('#camsBarList', 'dragstart'),
+            camsBarDragOver: count('#camsBarList', 'dragover'),
+            camsBarDrop: count('#camsBarList', 'drop'),
+            camsBarDragEnd: count('#camsBarList', 'dragend'),
+            camsSideClick: count('#camsSideList', 'click'),
+            annotatePointerDown: count('#annotateCanvas', 'pointerdown'),
+            annotatePointerMove: count('#annotateCanvas', 'pointermove'),
+            annotatePointerUp: count('#annotateCanvas', 'pointerup'),
+            annotatePointerCancel: count('#annotateCanvas', 'pointercancel'),
+            annoToggleClick: count('#annoToggleBtn', 'click'),
+            annoVisibleClick: count('#annoVisibleBtn', 'click'),
+            annoDrawClick: count('#annoDrawBtn', 'click'),
             dragListeners: dragTargets.reduce((total, target) => (
                 total + dragTypes.reduce((sum, type) => sum + count(target, type), 0)
             ), 0),
@@ -293,6 +329,32 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(firstInit.textureCloseClick, 1, 'Dispose smoke: texture close listener missing after first init');
     assert.equal(firstInit.textureModalClick, 1, 'Dispose smoke: texture modal listener missing after first init');
     assert.equal(firstInit.textureBindClick, 1, 'Dispose smoke: texture bind listener missing after first init');
+    assert.equal(firstInit.documentKeydown, 3, 'Dispose smoke: document keydown listeners missing after first init');
+    assert.equal(firstInit.windowOffline, 1, 'Dispose smoke: window offline listener missing after first init');
+    assert.equal(firstInit.windowOnline, 1, 'Dispose smoke: window online listener missing after first init');
+    assert.equal(firstInit.orderClick, 1, 'Dispose smoke: order button listener missing after first init');
+    assert.equal(firstInit.orderModalClick, 1, 'Dispose smoke: order modal listener missing after first init');
+    assert.equal(firstInit.exportClick, 1, 'Dispose smoke: export listener missing after first init');
+    assert.equal(firstInit.collabNameKeydown, 1, 'Dispose smoke: collab name keydown listener missing after first init');
+    assert.equal(firstInit.collabNameKeyup, 1, 'Dispose smoke: collab name keyup listener missing after first init');
+    assert.equal(firstInit.collabEmailKeydown, 1, 'Dispose smoke: collab email keydown listener missing after first init');
+    assert.equal(firstInit.collabEmailKeyup, 1, 'Dispose smoke: collab email keyup listener missing after first init');
+    assert.equal(firstInit.collabJoinClick, 1, 'Dispose smoke: collab join listener missing after first init');
+    assert.equal(firstInit.collabGuestClick, 1, 'Dispose smoke: collab guest listener missing after first init');
+    assert.equal(firstInit.camsToggleClick, 1, 'Dispose smoke: camera toggle listener missing after first init');
+    assert.equal(firstInit.camsBarClick, 1, 'Dispose smoke: camera bar click listener missing after first init');
+    assert.equal(firstInit.camsBarDragStart, 1, 'Dispose smoke: camera bar dragstart listener missing after first init');
+    assert.equal(firstInit.camsBarDragOver, 1, 'Dispose smoke: camera bar dragover listener missing after first init');
+    assert.equal(firstInit.camsBarDrop, 1, 'Dispose smoke: camera bar drop listener missing after first init');
+    assert.equal(firstInit.camsBarDragEnd, 1, 'Dispose smoke: camera bar dragend listener missing after first init');
+    assert.equal(firstInit.camsSideClick, 1, 'Dispose smoke: camera side click listener missing after first init');
+    assert.ok(firstInit.annotatePointerDown >= 1, 'Dispose smoke: annotation pointerdown listener missing after first init');
+    assert.ok(firstInit.annotatePointerMove >= 1, 'Dispose smoke: annotation pointermove listener missing after first init');
+    assert.ok(firstInit.annotatePointerUp >= 1, 'Dispose smoke: annotation pointerup listener missing after first init');
+    assert.ok(firstInit.annotatePointerCancel >= 1, 'Dispose smoke: annotation pointercancel listener missing after first init');
+    assert.equal(firstInit.annoToggleClick, 1, 'Dispose smoke: annotation toggle listener missing after first init');
+    assert.equal(firstInit.annoVisibleClick, 1, 'Dispose smoke: annotation visibility listener missing after first init');
+    assert.equal(firstInit.annoDrawClick, 0, 'Dispose smoke: annotation draw button unexpectedly present after first init');
     assert.equal(firstInit.dragListeners, 20, 'Dispose smoke: unexpected file drop listener count after first init');
     assert.ok(firstInit.canvasCount >= 1, 'Dispose smoke: renderer canvas missing after first init');
 
@@ -306,6 +368,32 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(afterFirstDispose.textureCloseClick, 0, 'Dispose smoke: texture close listener leaked after dispose');
     assert.equal(afterFirstDispose.textureModalClick, 0, 'Dispose smoke: texture modal listener leaked after dispose');
     assert.equal(afterFirstDispose.textureBindClick, 0, 'Dispose smoke: texture bind listener leaked after dispose');
+    assert.equal(afterFirstDispose.documentKeydown, 0, 'Dispose smoke: document keydown listener leaked after dispose');
+    assert.equal(afterFirstDispose.windowOffline, 0, 'Dispose smoke: window offline listener leaked after dispose');
+    assert.equal(afterFirstDispose.windowOnline, 0, 'Dispose smoke: window online listener leaked after dispose');
+    assert.equal(afterFirstDispose.orderClick, 0, 'Dispose smoke: order button listener leaked after dispose');
+    assert.equal(afterFirstDispose.orderModalClick, 0, 'Dispose smoke: order modal listener leaked after dispose');
+    assert.equal(afterFirstDispose.exportClick, 0, 'Dispose smoke: export listener leaked after dispose');
+    assert.equal(afterFirstDispose.collabNameKeydown, 0, 'Dispose smoke: collab name keydown listener leaked after dispose');
+    assert.equal(afterFirstDispose.collabNameKeyup, 0, 'Dispose smoke: collab name keyup listener leaked after dispose');
+    assert.equal(afterFirstDispose.collabEmailKeydown, 0, 'Dispose smoke: collab email keydown listener leaked after dispose');
+    assert.equal(afterFirstDispose.collabEmailKeyup, 0, 'Dispose smoke: collab email keyup listener leaked after dispose');
+    assert.equal(afterFirstDispose.collabJoinClick, 0, 'Dispose smoke: collab join listener leaked after dispose');
+    assert.equal(afterFirstDispose.collabGuestClick, 0, 'Dispose smoke: collab guest listener leaked after dispose');
+    assert.equal(afterFirstDispose.camsToggleClick, 0, 'Dispose smoke: camera toggle listener leaked after dispose');
+    assert.equal(afterFirstDispose.camsBarClick, 0, 'Dispose smoke: camera bar click listener leaked after dispose');
+    assert.equal(afterFirstDispose.camsBarDragStart, 0, 'Dispose smoke: camera bar dragstart listener leaked after dispose');
+    assert.equal(afterFirstDispose.camsBarDragOver, 0, 'Dispose smoke: camera bar dragover listener leaked after dispose');
+    assert.equal(afterFirstDispose.camsBarDrop, 0, 'Dispose smoke: camera bar drop listener leaked after dispose');
+    assert.equal(afterFirstDispose.camsBarDragEnd, 0, 'Dispose smoke: camera bar dragend listener leaked after dispose');
+    assert.equal(afterFirstDispose.camsSideClick, 0, 'Dispose smoke: camera side click listener leaked after dispose');
+    assert.equal(afterFirstDispose.annotatePointerDown, 0, 'Dispose smoke: annotation pointerdown listener leaked after dispose');
+    assert.equal(afterFirstDispose.annotatePointerMove, 0, 'Dispose smoke: annotation pointermove listener leaked after dispose');
+    assert.equal(afterFirstDispose.annotatePointerUp, 0, 'Dispose smoke: annotation pointerup listener leaked after dispose');
+    assert.equal(afterFirstDispose.annotatePointerCancel, 0, 'Dispose smoke: annotation pointercancel listener leaked after dispose');
+    assert.equal(afterFirstDispose.annoToggleClick, 0, 'Dispose smoke: annotation toggle listener leaked after dispose');
+    assert.equal(afterFirstDispose.annoVisibleClick, 0, 'Dispose smoke: annotation visibility listener leaked after dispose');
+    assert.equal(afterFirstDispose.annoDrawClick, 0, 'Dispose smoke: annotation draw listener leaked after dispose');
     assert.equal(afterFirstDispose.dragListeners, 0, 'Dispose smoke: file drop listeners leaked after dispose');
 
     await page.evaluate(async () => {
@@ -323,6 +411,32 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(secondInit.textureCloseClick, 1, 'Dispose smoke: texture close listener duplicated after reinit');
     assert.equal(secondInit.textureModalClick, 1, 'Dispose smoke: texture modal listener duplicated after reinit');
     assert.equal(secondInit.textureBindClick, 1, 'Dispose smoke: texture bind listener duplicated after reinit');
+    assert.equal(secondInit.documentKeydown, 3, 'Dispose smoke: document keydown listeners duplicated after reinit');
+    assert.equal(secondInit.windowOffline, 1, 'Dispose smoke: window offline listener duplicated after reinit');
+    assert.equal(secondInit.windowOnline, 1, 'Dispose smoke: window online listener duplicated after reinit');
+    assert.equal(secondInit.orderClick, 1, 'Dispose smoke: order button listener duplicated after reinit');
+    assert.equal(secondInit.orderModalClick, 1, 'Dispose smoke: order modal listener duplicated after reinit');
+    assert.equal(secondInit.exportClick, 1, 'Dispose smoke: export listener duplicated after reinit');
+    assert.equal(secondInit.collabNameKeydown, 1, 'Dispose smoke: collab name keydown listener duplicated after reinit');
+    assert.equal(secondInit.collabNameKeyup, 1, 'Dispose smoke: collab name keyup listener duplicated after reinit');
+    assert.equal(secondInit.collabEmailKeydown, 1, 'Dispose smoke: collab email keydown listener duplicated after reinit');
+    assert.equal(secondInit.collabEmailKeyup, 1, 'Dispose smoke: collab email keyup listener duplicated after reinit');
+    assert.equal(secondInit.collabJoinClick, 1, 'Dispose smoke: collab join listener duplicated after reinit');
+    assert.equal(secondInit.collabGuestClick, 1, 'Dispose smoke: collab guest listener duplicated after reinit');
+    assert.equal(secondInit.camsToggleClick, 1, 'Dispose smoke: camera toggle listener duplicated after reinit');
+    assert.equal(secondInit.camsBarClick, 1, 'Dispose smoke: camera bar click listener duplicated after reinit');
+    assert.equal(secondInit.camsBarDragStart, 1, 'Dispose smoke: camera bar dragstart listener duplicated after reinit');
+    assert.equal(secondInit.camsBarDragOver, 1, 'Dispose smoke: camera bar dragover listener duplicated after reinit');
+    assert.equal(secondInit.camsBarDrop, 1, 'Dispose smoke: camera bar drop listener duplicated after reinit');
+    assert.equal(secondInit.camsBarDragEnd, 1, 'Dispose smoke: camera bar dragend listener duplicated after reinit');
+    assert.equal(secondInit.camsSideClick, 1, 'Dispose smoke: camera side click listener duplicated after reinit');
+    assert.equal(secondInit.annotatePointerDown, firstInit.annotatePointerDown, 'Dispose smoke: annotation pointerdown listener duplicated after reinit');
+    assert.equal(secondInit.annotatePointerMove, firstInit.annotatePointerMove, 'Dispose smoke: annotation pointermove listener duplicated after reinit');
+    assert.equal(secondInit.annotatePointerUp, firstInit.annotatePointerUp, 'Dispose smoke: annotation pointerup listener duplicated after reinit');
+    assert.equal(secondInit.annotatePointerCancel, firstInit.annotatePointerCancel, 'Dispose smoke: annotation pointercancel listener duplicated after reinit');
+    assert.equal(secondInit.annoToggleClick, 1, 'Dispose smoke: annotation toggle listener duplicated after reinit');
+    assert.equal(secondInit.annoVisibleClick, 1, 'Dispose smoke: annotation visibility listener duplicated after reinit');
+    assert.equal(secondInit.annoDrawClick, 0, 'Dispose smoke: annotation draw button unexpectedly present after reinit');
     assert.equal(secondInit.dragListeners, 20, 'Dispose smoke: unexpected file drop listener count after reinit');
 
     await page.evaluate(async () => {
@@ -600,6 +714,960 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createCollabController } = await import('/scripts/modules/collab/collab-controller.js');
+
+        const nativeSetInterval = globalThis.setInterval;
+        const nativeClearInterval = globalThis.clearInterval;
+        const intervalIds = [];
+        const clearedIntervals = [];
+        globalThis.setInterval = (fn, ms, ...args) => {
+            const id = nativeSetInterval(fn, ms, ...args);
+            intervalIds.push(id);
+            return id;
+        };
+        globalThis.clearInterval = (id) => {
+            clearedIntervals.push(id);
+            return nativeClearInterval(id);
+        };
+
+        class FakeQuery {
+            constructor(table) {
+                this.table = table;
+            }
+            upsert() {
+                return Promise.resolve({ data: null, error: null });
+            }
+            select() {
+                return this;
+            }
+            eq() {
+                return this;
+            }
+            order() {
+                return Promise.resolve({ data: [], error: null });
+            }
+        }
+
+        class FakeChannel {
+            constructor(name) {
+                this.name = name;
+                this.handlers = [];
+                this.state = 'joined';
+                this.socket = { isConnected: () => true };
+            }
+            on(type, filter, callback) {
+                this.handlers.push({ type, filter: filter || {}, callback });
+                return this;
+            }
+            subscribe(callback) {
+                if (this.name.endsWith(':annotations')) {
+                    return Promise.reject(new Error('annotations subscribe failed'));
+                }
+                if (typeof callback === 'function') {
+                    Promise.resolve().then(() => callback('SUBSCRIBED'));
+                }
+                return Promise.resolve('SUBSCRIBED');
+            }
+            track() {
+                return Promise.resolve('ok');
+            }
+            presenceState() {
+                return {
+                    peer: [{ name: 'Peer', joinedAt: 't0', lastSeenAt: 't1' }],
+                };
+            }
+            send() {
+                return Promise.resolve('ok');
+            }
+            httpSend() {
+                return Promise.resolve('ok');
+            }
+            emit(type, event, payload) {
+                this.handlers
+                    .filter((handler) => handler.type === type && handler.filter?.event === event)
+                    .forEach((handler) => handler.callback(payload));
+            }
+        }
+
+        const channels = [];
+        const removedChannels = [];
+        const supabase = {
+            from: (table) => new FakeQuery(table),
+            channel: (name) => {
+                const channel = new FakeChannel(name);
+                channels.push(channel);
+                return channel;
+            },
+            removeChannel: async (channel) => {
+                removedChannels.push(channel.name);
+                return 'ok';
+            },
+            rpc: async () => ({ data: null, error: null }),
+        };
+
+        const calls = [];
+        let thrown = '';
+        try {
+            await createCollabController({
+                supabase,
+                user: { id: 'local-user' },
+                project: { id: 'project-1', slug: 'project' },
+                room: { id: 'room-1', slug: 'room', camera_owner_id: null, camera_state: null },
+                displayName: 'Local',
+                onParticipants: (list) => calls.push(`participants:${list.length}`),
+                onMessage: (record, meta) => calls.push(`message:${meta?.source || ''}:${record?.id || ''}`),
+                onAnnotation: (record, meta) => calls.push(`annotation:${meta?.source || ''}:${record?.id || ''}`),
+                onAnnotationDelete: (record) => calls.push(`annotation-delete:${record?.id || ''}`),
+                onCameraState: (state) => calls.push(`camera:${state?.source || 'broadcast'}`),
+                onCameraOwner: (ownerId) => calls.push(`owner:${ownerId || ''}`),
+                onRoomUpdate: (room) => calls.push(`room:${room?.id || ''}`),
+                onConnectionState: ({ connected, reason }) => calls.push(`connection:${connected ? 'on' : 'off'}:${reason}`),
+            });
+        } catch (err) {
+            thrown = err?.message || String(err);
+        }
+
+        const afterFailure = calls.slice();
+        channels.forEach((channel) => {
+            channel.emit('presence', 'sync', {});
+            channel.emit('broadcast', 'message', { payload: { id: 'late-message', sender: 'peer-user' } });
+            channel.emit('broadcast', 'annotation', { payload: { id: 'late-annotation', sender: 'peer-user' } });
+            channel.emit('postgres_changes', 'UPDATE', {
+                new: { id: 'room-1', camera_owner_id: 'late-owner', camera_state: { position: [1, 2, 3] } },
+            });
+            channel.emit('postgres_changes', 'INSERT', { new: { id: 'late-row' } });
+            channel.emit('postgres_changes', 'DELETE', { old: { id: 'late-old' } });
+        });
+        await Promise.resolve();
+
+        globalThis.setInterval = nativeSetInterval;
+        globalThis.clearInterval = nativeClearInterval;
+
+        return {
+            thrown,
+            channelNames: channels.map((channel) => channel.name),
+            removedChannels,
+            afterFailure,
+            afterLateEvents: calls.slice(),
+            intervalCount: intervalIds.length,
+            clearedIntervalCount: clearedIntervals.length,
+            heartbeatCleared: intervalIds.length === clearedIntervals.length,
+        };
+    });
+
+    assert.equal(result.thrown, 'annotations subscribe failed', 'Collab init-failure smoke: expected subscribe failure');
+    assert.deepEqual(result.channelNames, [
+        'room:room-1',
+        'room:room-1:updates',
+        'room:room-1:annotations',
+    ], 'Collab init-failure smoke: unexpected channel set before failure');
+    assert.deepEqual(result.removedChannels, result.channelNames, 'Collab init-failure smoke: failed init did not remove opened channels');
+    assert.ok(result.afterFailure.includes('connection:on:SUBSCRIBED'), 'Collab init-failure smoke: room channel did not subscribe before failure');
+    assert.deepEqual(result.afterLateEvents, result.afterFailure, 'Collab init-failure smoke: stale callbacks fired after failed init cleanup');
+    assert.equal(result.intervalCount, 1, 'Collab init-failure smoke: expected one presence heartbeat');
+    assert.equal(result.heartbeatCleared, true, 'Collab init-failure smoke: presence heartbeat leaked after failed init');
+    diagnostics.assertNoErrors('Collab init-failure cleanup smoke');
+    await page.close();
+}
+
+async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createCameraSyncController } = await import('/scripts/modules/collab/camera-sync.js');
+
+        const unhandled = [];
+        const onUnhandled = (event) => {
+            event.preventDefault();
+            unhandled.push(String(event.reason?.message || event.reason || 'unknown'));
+        };
+        window.addEventListener('unhandledrejection', onUnhandled);
+
+        function makeVector(x, y, z) {
+            return {
+                values: [x, y, z],
+                toArray() {
+                    return this.values.slice();
+                },
+                set(nx, ny, nz) {
+                    this.values = [nx, ny, nz];
+                },
+            };
+        }
+
+        const controls = new EventTarget();
+        controls.target = makeVector(0, 0, 0);
+        controls.update = () => {
+            calls.push('controls:update');
+        };
+        const camera = {
+            position: makeVector(1, 2, 3),
+            up: makeVector(0, 1, 0),
+            fov: 50,
+            zoom: 1,
+            near: 0.1,
+            far: 1000,
+            updateProjectionMatrix: () => {
+                calls.push('camera:updateProjectionMatrix');
+            },
+        };
+        const calls = [];
+        const collab = {
+            broadcastCameraState: async () => {
+                calls.push('broadcast');
+                throw new Error('broadcast offline');
+            },
+            persistCameraState: async () => {
+                calls.push('persist');
+                throw new Error('persist offline');
+            },
+        };
+
+        const controller = createCameraSyncController({
+            camera,
+            controls,
+            collab,
+            localUserId: 'local-user',
+            requestRender: () => calls.push('render'),
+            broadcastIntervalMs: 20,
+            persistIntervalMs: 200,
+            idleDelayMs: 200,
+        });
+        controller.setOwner('local-user');
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        controls.dispatchEvent(new Event('change'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await Promise.resolve();
+        const beforeDisposeCalls = calls.slice();
+
+        controller.dispose();
+        controller.setOwner('local-user');
+        controls.dispatchEvent(new Event('change'));
+        controller.handleRemoteState({
+            sender: 'peer-user',
+            position: [9, 9, 9],
+            target: [1, 1, 1],
+            up: [0, 1, 0],
+            fov: 35,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        window.removeEventListener('unhandledrejection', onUnhandled);
+
+        return {
+            beforeDisposeCalls,
+            afterDisposeCalls: calls.slice(),
+            unhandled,
+            cameraPosition: camera.position.toArray(),
+        };
+    });
+
+    assert.deepEqual(result.beforeDisposeCalls, ['broadcast', 'persist'], 'Camera sync smoke: owner change did not send camera updates');
+    assert.deepEqual(result.unhandled, [], 'Camera sync smoke: rejected camera sync promises became unhandled');
+    assert.deepEqual(result.afterDisposeCalls, result.beforeDisposeCalls, 'Camera sync smoke: disposed controller still reacted to controls/remote state');
+    assert.deepEqual(result.cameraPosition, [1, 2, 3], 'Camera sync smoke: disposed controller applied remote camera state');
+    diagnostics.assertNoErrors('Camera sync lifecycle smoke');
+    await page.close();
+}
+
+async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createRoomModelLoadQueue } = await import('/scripts/modules/collab/room-model-load-queue.js');
+
+        let currentGeneration = 1;
+        const events = [];
+        const releases = new Map();
+        const starts = new Map();
+
+        const waitForStart = (id) => {
+            if (starts.has(id)) return starts.get(id).promise;
+            let resolve = null;
+            const promise = new Promise((nextResolve) => {
+                resolve = nextResolve;
+            });
+            starts.set(id, { promise, resolve });
+            return promise;
+        };
+
+        const markStart = (id) => {
+            if (!starts.has(id)) void waitForStart(id);
+            starts.get(id).resolve();
+        };
+
+        const queue = createRoomModelLoadQueue({
+            isCurrent: ({ generation, roomId }) => generation === currentGeneration && roomId === 'room-1',
+            loadModelNow: async (model) => {
+                const id = String(model?.id || '');
+                events.push(`start:${id}`);
+                markStart(id);
+                if (id === 'A' || id === 'C') {
+                    await new Promise((resolve) => {
+                        releases.set(id, resolve);
+                    });
+                }
+                events.push(`done:${id}`);
+                return true;
+            },
+        });
+
+        const firstLoad = queue.load({ id: 'A' }, { roomId: 'room-1', generation: 1 });
+        await waitForStart('A');
+        const secondLoadResult = await queue.load({ id: 'B' }, { roomId: 'room-1', generation: 1 });
+        const staleLoadResult = await queue.load({ id: 'STALE' }, { roomId: 'room-1', generation: 2 });
+        const pendingDuringActive = queue.getPendingModelIds();
+        releases.get('A')();
+        const firstLoadResult = await firstLoad;
+        await waitForStart('B');
+
+        currentGeneration = 2;
+        const thirdLoad = queue.load({ id: 'C' }, { roomId: 'room-1', generation: 2 });
+        await waitForStart('C');
+        const removedBeforeDrain = queue.load({ id: 'D' }, { roomId: 'room-1', generation: 2 });
+        const deletedPending = queue.delete({ roomId: 'room-1', modelId: 'D' });
+        releases.get('C')();
+        const thirdLoadResult = await thirdLoad;
+        const removedLoadResult = await removedBeforeDrain;
+
+        return {
+            events,
+            firstLoadResult,
+            secondLoadResult,
+            staleLoadResult,
+            thirdLoadResult,
+            removedLoadResult,
+            pendingDuringActive,
+            deletedPending,
+            pendingAfter: queue.getPendingModelIds(),
+            activeAfter: queue.isActive(),
+        };
+    });
+
+    assert.equal(result.firstLoadResult, true, 'Room model queue smoke: first load did not complete');
+    assert.equal(result.secondLoadResult, false, 'Room model queue smoke: concurrent load should be queued');
+    assert.equal(result.staleLoadResult, false, 'Room model queue smoke: stale load should be ignored');
+    assert.equal(result.thirdLoadResult, true, 'Room model queue smoke: next generation load did not complete');
+    assert.equal(result.removedLoadResult, false, 'Room model queue smoke: queued load should resolve false immediately');
+    assert.deepEqual(result.pendingDuringActive, ['B'], 'Room model queue smoke: concurrent model was not queued');
+    assert.equal(result.deletedPending, true, 'Room model queue smoke: pending delete did not remove queued model');
+    assert.deepEqual(result.pendingAfter, [], 'Room model queue smoke: pending queue did not drain');
+    assert.equal(result.activeAfter, false, 'Room model queue smoke: queue stayed active after drain');
+    assert.deepEqual(
+        result.events,
+        ['start:A', 'done:A', 'start:B', 'done:B', 'start:C', 'done:C'],
+        'Room model queue smoke: queued/stale/deleted model order is wrong',
+    );
+    diagnostics.assertNoErrors('Room model load queue smoke');
+    await page.close();
+}
+
+async function runWorkerLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const NativeWorker = globalThis.Worker;
+        const THREE = await import('three');
+        const successJson = new THREE.Group().toJSON();
+
+        const events = [];
+        let fbxAutoRespond = false;
+        let zipAutoRespond = true;
+
+        class FakeWorker {
+            static instances = [];
+            constructor(url) {
+                this.url = String(url || '');
+                this.onmessage = null;
+                this.onerror = null;
+                this.terminated = false;
+                this.posts = [];
+                FakeWorker.instances.push(this);
+            }
+            postMessage(message) {
+                this.posts.push(message);
+                if (this.terminated) {
+                    events.push(`post-after-terminate:${this.kind}`);
+                    return;
+                }
+                if (this.url.includes('fbx-worker')) {
+                    this.kind = 'fbx';
+                    if (fbxAutoRespond && message?.id != null) {
+                        queueMicrotask(() => {
+                            this.onmessage?.({
+                                data: {
+                                    id: message.id,
+                                    ok: true,
+                                    json: successJson,
+                                    duration: 1,
+                                    embedded: [],
+                                    orientation: null,
+                                },
+                            });
+                        });
+                    }
+                    return;
+                }
+                if (this.url.includes('zip-worker')) {
+                    this.kind = 'zip';
+                    if (message?.type === 'ack') {
+                        events.push(`ack:${message.seq}`);
+                        return;
+                    }
+                    if (zipAutoRespond && message?.id != null) {
+                        queueMicrotask(() => {
+                            this.onmessage?.({
+                                data: {
+                                    id: message.id,
+                                    type: 'meta',
+                                    counts: { fbx: 0, images: 0, geojson: 0 },
+                                },
+                            });
+                            this.onmessage?.({ data: { id: message.id, type: 'done' } });
+                        });
+                    }
+                }
+            }
+            terminate() {
+                this.terminated = true;
+                events.push(`terminate:${this.kind || 'unknown'}`);
+            }
+        }
+
+        globalThis.Worker = FakeWorker;
+        try {
+            const { createFBXWorkerClient } = await import('/scripts/modules/workers/fbx-worker-client.js');
+            const { createZIPWorkerClient } = await import('/scripts/modules/workers/zip-worker-client.js');
+
+            const fbxClient = createFBXWorkerClient();
+            const fbxAbort = new AbortController();
+            const fbxFirst = fbxClient.parseFBXInWorker(
+                new ArrayBuffer(8),
+                { embedded: true, orientation: true },
+                { signal: fbxAbort.signal },
+            ).then(
+                () => 'resolved',
+                (err) => err?.name || String(err),
+            );
+            await Promise.resolve();
+            fbxAbort.abort();
+            const fbxAbortResult = await fbxFirst;
+            const fbxOldWorker = FakeWorker.instances.find((worker) => worker.url.includes('fbx-worker'));
+            fbxOldWorker?.onmessage?.({
+                data: {
+                    id: 1,
+                    ok: true,
+                    json: successJson,
+                    duration: 1,
+                    embedded: [{ short: 'late.png', buffer: new ArrayBuffer(1) }],
+                    orientation: { source: 'late' },
+                },
+            });
+
+            fbxAutoRespond = true;
+            const fbxSecond = await fbxClient.parseFBXInWorker(
+                new ArrayBuffer(8),
+                { embedded: true, orientation: true },
+            );
+
+            const zipClient = createZIPWorkerClient();
+            zipAutoRespond = false;
+            const zipAbort = new AbortController();
+            let resolveZipBuffer = null;
+            const zipFile = {
+                name: 'slow.zip',
+                arrayBuffer: () => new Promise((resolve) => {
+                    resolveZipBuffer = resolve;
+                }),
+            };
+            const zipCallbacks = [];
+            const zipFirst = zipClient.unpackZIPInWorker(zipFile, {
+                onError: (err) => zipCallbacks.push(`onError:${err?.name || err}`),
+            }, { signal: zipAbort.signal }).then(
+                () => 'resolved',
+                (err) => err?.name || String(err),
+            );
+            await Promise.resolve();
+            zipAbort.abort();
+            resolveZipBuffer(new ArrayBuffer(4));
+            const zipAbortResult = await zipFirst;
+            await Promise.resolve();
+            const zipOldWorker = FakeWorker.instances.find((worker) => worker.url.includes('zip-worker'));
+            zipOldWorker?.onmessage?.({ data: { id: 1, type: 'done' } });
+
+            zipAutoRespond = true;
+            const zipSecondMeta = [];
+            const zipSecond = await zipClient.unpackZIPInWorker({
+                name: 'ok.zip',
+                arrayBuffer: async () => new ArrayBuffer(4),
+            }, {
+                onMeta: (msg) => zipSecondMeta.push(msg.counts?.fbx ?? -1),
+                onError: (err) => zipCallbacks.push(`lateOnError:${err?.name || err}`),
+            });
+
+            return {
+                fbxAbortResult,
+                fbxOldTerminated: !!fbxOldWorker?.terminated,
+                fbxSecondOk: !!fbxSecond?.obj,
+                fbxWorkerCount: FakeWorker.instances.filter((worker) => worker.url.includes('fbx-worker')).length,
+                zipAbortResult,
+                zipOldTerminated: !!zipOldWorker?.terminated,
+                zipSecondType: zipSecond?.type || null,
+                zipWorkerCount: FakeWorker.instances.filter((worker) => worker.url.includes('zip-worker')).length,
+                zipCallbacks,
+                zipSecondMeta,
+                events,
+            };
+        } finally {
+            globalThis.Worker = NativeWorker;
+        }
+    });
+
+    assert.equal(result.fbxAbortResult, 'AbortError', 'Worker smoke: FBX abort did not reject with AbortError');
+    assert.equal(result.fbxOldTerminated, true, 'Worker smoke: FBX worker was not terminated on abort');
+    assert.equal(result.fbxSecondOk, true, 'Worker smoke: FBX worker did not recover after abort');
+    assert.equal(result.fbxWorkerCount, 2, 'Worker smoke: FBX worker was not recreated after abort');
+    assert.equal(result.zipAbortResult, 'AbortError', 'Worker smoke: ZIP abort did not reject with AbortError');
+    assert.equal(result.zipOldTerminated, true, 'Worker smoke: ZIP worker was not terminated on abort');
+    assert.equal(result.zipSecondType, 'done', 'Worker smoke: ZIP worker did not recover after abort');
+    assert.equal(result.zipWorkerCount, 2, 'Worker smoke: ZIP worker was not recreated after abort');
+    assert.deepEqual(result.zipCallbacks, [], 'Worker smoke: ZIP stale onError fired after abort');
+    assert.deepEqual(result.zipSecondMeta, [0], 'Worker smoke: ZIP next job did not receive meta after abort');
+    assert.equal(result.events.includes('post-after-terminate:zip'), false, 'Worker smoke: ZIP posted ack to a terminated worker');
+    diagnostics.assertNoErrors('Worker lifecycle smoke');
+    await page.close();
+}
+
+async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { splitMeshByUDIM } = await import('/scripts/modules/fbx/udim-split.js');
+        const { createFBXFileHandler } = await import('/scripts/modules/io/fbx-file.js');
+
+        const disposedGeometries = [];
+        const disposedMaterials = [];
+        let skeletonDisposed = 0;
+        const nativeDispose = THREE.BufferGeometry.prototype.dispose;
+        const nativeMaterialDispose = THREE.Material.prototype.dispose;
+        THREE.BufferGeometry.prototype.dispose = function patchedDispose(...args) {
+            disposedGeometries.push(this.name || this.uuid || 'geometry');
+            return nativeDispose.apply(this, args);
+        };
+        THREE.Material.prototype.dispose = function patchedMaterialDispose(...args) {
+            disposedMaterials.push(this.name || this.uuid || 'material');
+            return nativeMaterialDispose.apply(this, args);
+        };
+
+        function makeGeometry({ split = false } = {}) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.name = split ? 'splitSource' : 'singleSource';
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+                0, 0, 0,
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1,
+                1, 0, 1,
+                0, 1, 1,
+            ], 3));
+            geometry.setAttribute('uv', new THREE.Float32BufferAttribute(split ? [
+                0.1, 0.1,
+                0.2, 0.1,
+                0.1, 0.2,
+                1.1, 0.1,
+                1.2, 0.1,
+                1.1, 0.2,
+            ] : [
+                0.1, 0.1,
+                0.2, 0.1,
+                0.1, 0.2,
+                0.3, 0.1,
+                0.4, 0.1,
+                0.3, 0.2,
+            ], 2));
+            return geometry;
+        }
+
+        try {
+            const singleParent = new THREE.Group();
+            const singleMesh = new THREE.Mesh(makeGeometry(), new THREE.MeshBasicMaterial({ name: 'singleMaterial' }));
+            singleParent.add(singleMesh);
+            const beforeSingle = disposedGeometries.length;
+            const singleResult = splitMeshByUDIM(singleMesh);
+            const singleDisposed = disposedGeometries.length - beforeSingle;
+
+            const splitParent = new THREE.Group();
+            const sourceMaterial = new THREE.MeshBasicMaterial({ name: 'sourceMaterial' });
+            const customDepth = new THREE.MeshDepthMaterial();
+            const customDistance = new THREE.MeshDistanceMaterial();
+            const splitMesh = new THREE.Mesh(makeGeometry({ split: true }), sourceMaterial);
+            splitMesh.customDepthMaterial = customDepth;
+            splitMesh.customDistanceMaterial = customDistance;
+            splitParent.add(splitMesh);
+
+            const beforeSplit = disposedGeometries.length;
+            const splitResult = splitMeshByUDIM(splitMesh);
+            const splitDisposed = disposedGeometries.length - beforeSplit;
+            const holder = splitParent.children[0] || null;
+
+            const abortWorld = new THREE.Group();
+            const abortLoadedModels = [];
+            const abortRoot = new THREE.Group();
+            const abortGeometry = makeGeometry();
+            abortGeometry.name = 'abortGeometry';
+            const abortMaterial = new THREE.MeshBasicMaterial({ name: 'abortMaterial' });
+            const abortMesh = new THREE.Mesh(abortGeometry, abortMaterial);
+            abortMesh.skeleton = {
+                dispose: () => {
+                    skeletonDisposed += 1;
+                },
+            };
+            abortRoot.add(abortMesh);
+
+            let releaseParse = null;
+            let markParseStarted = null;
+            const parseStarted = new Promise((resolve) => {
+                markParseStarted = resolve;
+            });
+            const abortController = new AbortController();
+            const handleFBXFile = createFBXFileHandler({
+                THREE,
+                world: abortWorld,
+                loadedModels: abortLoadedModels,
+                parseFBXOnMainThread: async () => {
+                    markParseStarted();
+                    await new Promise((resolve) => {
+                        releaseParse = resolve;
+                    });
+                    return { obj: abortRoot, duration: 1 };
+                },
+            });
+            const abortPromise = handleFBXFile(
+                new File([new Uint8Array([1, 2, 3])], 'abort.fbx', { type: 'application/octet-stream' }),
+                null,
+                null,
+                null,
+                { signal: abortController.signal },
+            ).then(
+                () => 'resolved',
+                (err) => err?.name || String(err),
+            );
+            await parseStarted;
+            abortController.abort();
+            releaseParse();
+            const abortResult = await abortPromise;
+
+            return {
+                singleResult,
+                singleDisposed,
+                singleStillInParent: singleParent.children[0] === singleMesh,
+                splitResult,
+                splitDisposed,
+                holderIsUDIM: !!holder?.userData?.udimHolder,
+                holderMaterialTracked: holder?.userData?._removedMaterials === sourceMaterial,
+                holderDepthTracked: holder?.userData?._removedCustomDepthMaterial === customDepth,
+                holderDistanceTracked: holder?.userData?._removedCustomDistanceMaterial === customDistance,
+                childTileCount: holder?.children?.length || 0,
+                oldMeshDetached: splitMesh.parent == null,
+                oldMeshCleared: splitMesh.geometry == null && splitMesh.material == null,
+                abortResult,
+                abortWorldChildren: abortWorld.children.length,
+                abortLoadedCount: abortLoadedModels.length,
+                abortGeometryDisposed: disposedGeometries.includes('abortGeometry'),
+                abortMaterialDisposed: disposedMaterials.includes('abortMaterial'),
+                skeletonDisposed,
+            };
+        } finally {
+            THREE.BufferGeometry.prototype.dispose = nativeDispose;
+            THREE.Material.prototype.dispose = nativeMaterialDispose;
+        }
+    });
+
+    assert.equal(result.singleResult, false, 'FBX cleanup smoke: single-UDIM mesh should not be split');
+    assert.equal(result.singleDisposed, 1, 'FBX cleanup smoke: no-op UDIM temp geometry was not disposed');
+    assert.equal(result.singleStillInParent, true, 'FBX cleanup smoke: no-op UDIM changed scene tree');
+    assert.equal(result.splitResult, true, 'FBX cleanup smoke: multi-UDIM mesh was not split');
+    assert.equal(result.splitDisposed, 2, 'FBX cleanup smoke: split source/temp geometries were not disposed');
+    assert.equal(result.holderIsUDIM, true, 'FBX cleanup smoke: split holder missing');
+    assert.equal(result.holderMaterialTracked, true, 'FBX cleanup smoke: removed source material is not tracked for later dispose');
+    assert.equal(result.holderDepthTracked, true, 'FBX cleanup smoke: removed custom depth material is not tracked for later dispose');
+    assert.equal(result.holderDistanceTracked, true, 'FBX cleanup smoke: removed custom distance material is not tracked for later dispose');
+    assert.equal(result.childTileCount, 2, 'FBX cleanup smoke: expected two UDIM tile groups');
+    assert.equal(result.oldMeshDetached, true, 'FBX cleanup smoke: original split mesh stayed attached');
+    assert.equal(result.oldMeshCleared, true, 'FBX cleanup smoke: original split mesh retained disposed resources');
+    assert.equal(result.abortResult, 'AbortError', 'FBX cleanup smoke: aborted post-parse FBX did not reject with AbortError');
+    assert.equal(result.abortWorldChildren, 0, 'FBX cleanup smoke: aborted post-parse FBX was added to world');
+    assert.equal(result.abortLoadedCount, 0, 'FBX cleanup smoke: aborted post-parse FBX was registered as loaded');
+    assert.equal(result.abortGeometryDisposed, true, 'FBX cleanup smoke: aborted post-parse geometry was not disposed');
+    assert.equal(result.abortMaterialDisposed, true, 'FBX cleanup smoke: aborted post-parse material was not disposed');
+    assert.equal(result.skeletonDisposed, 1, 'FBX cleanup smoke: aborted post-parse skeleton was not disposed exactly once');
+    diagnostics.assertNoErrors('FBX cleanup lifecycle smoke');
+    await page.close();
+}
+
+async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createVPMBinder } = await import('/scripts/modules/material/vpm-autobind.js');
+
+        const disposed = [];
+        const labels = new Map();
+        let bitmapClosed = 0;
+        let releaseBitmap = null;
+        const nativeCreateImageBitmap = globalThis.createImageBitmap;
+        const nativeClose = globalThis.ImageBitmap?.prototype?.close || null;
+
+        if (nativeClose) {
+            globalThis.ImageBitmap.prototype.close = function patchedClose(...args) {
+                bitmapClosed += 1;
+                return nativeClose.apply(this, args);
+            };
+        }
+        globalThis.createImageBitmap = async (...args) => {
+            await new Promise((resolve) => {
+                releaseBitmap = resolve;
+            });
+            return nativeCreateImageBitmap(...args);
+        };
+
+        class FakeTexture {
+            constructor(label = '') {
+                this.label = label;
+                this.name = label;
+                this.isTexture = true;
+                this.userData = {};
+            }
+            dispose() {
+                disposed.push(`texture:${this.label || this.name || 'unnamed'}`);
+            }
+        }
+
+        class FakeMaterial {
+            constructor(name = 'mat') {
+                this.name = name;
+                this.userData = {};
+                this.alphaTest = 0;
+                this.transparent = false;
+            }
+            clone() {
+                return new FakeMaterial(`${this.name}:clone`);
+            }
+            dispose() {
+                disposed.push(`material:${this.name}`);
+            }
+        }
+
+        class FakeShadowMaterial {
+            constructor(params = {}) {
+                Object.assign(this, params);
+            }
+            dispose() {
+                disposed.push('shadow');
+            }
+        }
+
+        const THREE = {
+            CanvasTexture: class FakeCanvasTexture extends FakeTexture {
+                constructor() {
+                    super('canvas');
+                }
+            },
+            MeshDepthMaterial: FakeShadowMaterial,
+            MeshDistanceMaterial: FakeShadowMaterial,
+            LinearSRGBColorSpace: 'linear',
+            SRGBColorSpace: 'srgb',
+            FrontSide: 0,
+            RGBADepthPacking: 1,
+            Vector2: class FakeVector2 {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                }
+            },
+            Color: class FakeColor {
+                constructor(r, g, b) {
+                    this.r = r;
+                    this.g = g;
+                    this.b = b;
+                }
+            },
+        };
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgb(128, 64, 32)';
+        ctx.fillRect(0, 0, 1, 1);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        const urls = [URL.createObjectURL(blob), URL.createObjectURL(blob), URL.createObjectURL(blob)];
+        labels.set(urls[0], 'T_foo_bar_Diffuse_1.1001.png');
+        labels.set(urls[1], 'T_foo_bar_Normal_1.1001.png');
+        labels.set(urls[2], 'T_foo_bar_ERM_1.1001.png');
+
+        const baseMaterial = new FakeMaterial('base');
+        const mesh = {
+            isMesh: true,
+            name: 'Mesh',
+            userData: {},
+            geometry: { getAttribute: () => null },
+            material: baseMaterial,
+        };
+        const root = {
+            userData: { _fbxFileName: 'SM_foo_bar.fbx' },
+            traverse: (callback) => callback(mesh),
+        };
+        const loadedModels = [{ obj: root, name: 'SM_foo_bar.fbx', zipKind: 'SM' }];
+        const binder = createVPMBinder({
+            THREE,
+            loadedModels,
+            labelFromURL: (url) => labels.get(url) || '',
+            toStandard: (material) => material,
+            textureLoader: { load: (url) => new FakeTexture(labels.get(url) || url) },
+            detectSlotFromMatOrObj: () => 1,
+            requestRender: () => disposed.push('requestRender'),
+            schedulePanelRefresh: () => disposed.push('panelRefresh'),
+            materialsPanel: { markNeedsFullRefresh: () => disposed.push('materialsRefresh') },
+        });
+
+        try {
+            const vpmIndex = binder.buildVPMIndex([
+                { url: urls[0] },
+                { url: urls[1] },
+                { url: urls[2] },
+            ]);
+            const bindPromise = binder.autoBindVPMForModel(root, vpmIndex);
+
+            for (let i = 0; i < 50 && !releaseBitmap; i += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+            if (!releaseBitmap) throw new Error('VPM smoke: createImageBitmap was not reached');
+
+            loadedModels.length = 0;
+            releaseBitmap();
+            await bindPromise;
+
+            return {
+                materialStillOriginal: mesh.material === baseMaterial,
+                customDepthCleared: mesh.customDepthMaterial == null,
+                customDistanceCleared: mesh.customDistanceMaterial == null,
+                disposed,
+                bitmapClosed,
+            };
+        } finally {
+            globalThis.createImageBitmap = nativeCreateImageBitmap;
+            if (nativeClose) globalThis.ImageBitmap.prototype.close = nativeClose;
+            urls.forEach((url) => URL.revokeObjectURL(url));
+        }
+    });
+
+    assert.equal(result.materialStillOriginal, true, 'VPM smoke: stale async bind replaced material after model removal');
+    assert.equal(result.customDepthCleared, true, 'VPM smoke: stale async bind leaked custom depth material');
+    assert.equal(result.customDistanceCleared, true, 'VPM smoke: stale async bind leaked custom distance material');
+    assert.equal(result.bitmapClosed, 1, 'VPM smoke: ERM ImageBitmap was not closed');
+    assert.ok(result.disposed.includes('texture:T_foo_bar_Diffuse_1.1001.png'), 'VPM smoke: stale diffuse texture was not disposed');
+    assert.ok(result.disposed.includes('texture:T_foo_bar_Normal_1.1001.png'), 'VPM smoke: stale normal texture was not disposed');
+    assert.equal(result.disposed.filter((entry) => entry === 'texture:canvas').length, 3, 'VPM smoke: stale ERM channel textures were not disposed');
+    assert.equal(result.disposed.filter((entry) => entry === 'shadow').length, 2, 'VPM smoke: stale custom shadow materials were not disposed');
+    assert.equal(result.disposed.includes('requestRender'), false, 'VPM smoke: stale async bind requested render after model removal');
+    diagnostics.assertNoErrors('VPM autobind lifecycle smoke');
+    await page.close();
+}
+
+async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createEnvironmentManager } = await import('/scripts/modules/render/environment-manager.js');
+
+        const data = new Float32Array([1, 1, 1, 1]);
+        const sourceTex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat, THREE.FloatType);
+        sourceTex.mapping = THREE.EquirectangularReflectionMapping;
+        sourceTex.needsUpdate = true;
+
+        let sourceDisposed = 0;
+        sourceTex.addEventListener('dispose', () => {
+            sourceDisposed += 1;
+        });
+
+        let releaseLoad = null;
+        let loadCount = 0;
+        const loadStarted = new Promise((resolve) => {
+            const resolveStarted = resolve;
+            const loader = async () => {
+                loadCount += 1;
+                resolveStarted();
+                await new Promise((loadResolve) => {
+                    releaseLoad = loadResolve;
+                });
+                return sourceTex;
+            };
+            globalThis.__smokeLoadEnvironmentTexture = loader;
+        });
+
+        const scene = new THREE.Scene();
+        const events = [];
+        const manager = createEnvironmentManager({
+            scene,
+            useWebGPU: true,
+            enabled: true,
+            rendererInitPromise: Promise.resolve(),
+            loadEquirectTexture: (...args) => globalThis.__smokeLoadEnvironmentTexture(...args),
+            requestRender: () => events.push('render'),
+            onEnvironmentUpdated: (event) => events.push(`updated:${event?.type || 'unknown'}`),
+        });
+
+        const rebuildPromise = manager.rebuild({ force: true });
+        await loadStarted;
+        manager.dispose();
+        releaseLoad();
+        await rebuildPromise;
+
+        delete globalThis.__smokeLoadEnvironmentTexture;
+        return {
+            sceneEnvironmentCleared: scene.environment == null,
+            currentEnvCleared: manager.getCurrentEnv() == null,
+            currentBgCleared: manager.getCurrentBg() == null,
+            hdrBaseCleared: manager.getHDRBase() == null,
+            disabled: manager.isEnabled() === false,
+            loadCount,
+            sourceDisposed,
+            events,
+        };
+    });
+
+    assert.equal(result.loadCount, 1, 'Environment smoke: HDR loader was not exercised');
+    assert.equal(result.sourceDisposed, 1, 'Environment smoke: late HDR texture was not disposed after manager dispose');
+    assert.equal(result.sceneEnvironmentCleared, true, 'Environment smoke: disposed manager restored scene.environment');
+    assert.equal(result.currentEnvCleared, true, 'Environment smoke: disposed manager retained currentEnv');
+    assert.equal(result.currentBgCleared, true, 'Environment smoke: disposed manager retained currentBg');
+    assert.equal(result.hdrBaseCleared, true, 'Environment smoke: disposed manager retained hdrBaseTex');
+    assert.equal(result.disabled, true, 'Environment smoke: disposed manager stayed enabled');
+    assert.deepEqual(result.events, [], 'Environment smoke: disposed manager fired render/update callbacks');
+    diagnostics.assertNoErrors('Environment lifecycle smoke');
+    await page.close();
+}
+
 const smokeServer = await createStaticServer();
 const browser = await chromium.launch({
     headless: true,
@@ -623,6 +1691,20 @@ try {
     console.log('File-flow failure smoke passed.');
     await runCollabRealtimeDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Collab realtime dispose smoke passed.');
+    await runCollabInitFailureCleanupSmoke(browser, smokeServer.baseUrl);
+    console.log('Collab init-failure cleanup smoke passed.');
+    await runCameraSyncLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Camera sync lifecycle smoke passed.');
+    await runRoomModelLoadQueueSmoke(browser, smokeServer.baseUrl);
+    console.log('Room model load queue smoke passed.');
+    await runWorkerLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Worker lifecycle smoke passed.');
+    await runFBXCleanupLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('FBX cleanup lifecycle smoke passed.');
+    await runVPMAutobindLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('VPM autobind lifecycle smoke passed.');
+    await runEnvironmentLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Environment lifecycle smoke passed.');
 } finally {
     await browser.close();
     await smokeServer.close();

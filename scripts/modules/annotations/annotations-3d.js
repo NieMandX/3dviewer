@@ -58,6 +58,18 @@ export function createAnnotations3DController(options = {}) {
             : (typeof globalThis !== 'undefined' && typeof globalThis.prompt === 'function'
                 ? globalThis.prompt.bind(globalThis)
                 : null);
+    const toolbarCleanups = [];
+
+    function addToolbarListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return false;
+        target.addEventListener(type, handler, options);
+        toolbarCleanups.push(() => {
+            try {
+                target.removeEventListener(type, handler, options);
+            } catch (_) {}
+        });
+        return true;
+    }
 
     if (!THREE || !world || !camera || !canvas) {
         return Object.freeze({
@@ -2167,7 +2179,7 @@ export function createAnnotations3DController(options = {}) {
         if (!toolbarEl || toolbarReady) return;
         toolbarReady = true;
 
-        toolbarEl.addEventListener('click', (event) => {
+        addToolbarListener(toolbarEl, 'click', (event) => {
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
             const btn = target.closest?.('.anno-tool');
@@ -2183,47 +2195,47 @@ export function createAnnotations3DController(options = {}) {
             setDrawEnabled(true);
         });
 
-        annoVisibleBtn?.addEventListener?.('click', () => {
+        addToolbarListener(annoVisibleBtn, 'click', () => {
             setVisible(!visible);
         });
 
-        annoDrawBtn?.addEventListener?.('click', () => {
+        addToolbarListener(annoDrawBtn, 'click', () => {
             const next = !drawEnabled;
             if (next) setVisible(true);
             setDrawEnabled(next);
             syncToolbar();
         });
 
-        annoUndoBtn?.addEventListener?.('click', () => {
+        addToolbarListener(annoUndoBtn, 'click', () => {
             undo();
             syncToolbar();
         });
 
-        annoClearBtn?.addEventListener?.('click', () => {
+        addToolbarListener(annoClearBtn, 'click', () => {
             clear();
             syncToolbar();
         });
 
-        annoColorEl?.addEventListener?.('input', () => {
+        addToolbarListener(annoColorEl, 'input', () => {
             setColor(annoColorEl.value);
             syncToolbar();
         });
 
-        annoDashEl?.addEventListener?.('change', () => {
+        addToolbarListener(annoDashEl, 'change', () => {
             setDash(annoDashEl.value);
             syncToolbar();
         });
 
-        annoWidthEl?.addEventListener?.('input', () => {
+        addToolbarListener(annoWidthEl, 'input', () => {
             setWidth(annoWidthEl.value);
             syncToolbar();
         });
 
-        annoLayerSelectEl?.addEventListener?.('change', () => {
+        addToolbarListener(annoLayerSelectEl, 'change', () => {
             setActiveLayer(annoLayerSelectEl.value);
         });
 
-        annoLayerAddBtn?.addEventListener?.('click', () => {
+        addToolbarListener(annoLayerAddBtn, 'click', () => {
             void (async () => {
                 let name = null;
                 if (promptLayerName) {
@@ -2375,6 +2387,9 @@ export function createAnnotations3DController(options = {}) {
         if (onKeyDownBound && typeof window !== 'undefined') {
             window.removeEventListener('keydown', onKeyDownBound);
         }
+        toolbarCleanups.splice(0).forEach((cleanup) => {
+            try { cleanup(); } catch (_) {}
+        });
         clearDraft();
         layers.forEach((layer) => {
             layer.strokes.forEach((stroke) => disposeObject(stroke));
@@ -2386,7 +2401,7 @@ export function createAnnotations3DController(options = {}) {
 
     ensureToolbar();
     setToolbarVisible(false);
-    annoToggleBtn?.addEventListener?.('click', toggleToolbar);
+    addToolbarListener(annoToggleBtn, 'click', toggleToolbar);
     ensureHotkeys();
     attachEvents();
     syncLayerSelect();

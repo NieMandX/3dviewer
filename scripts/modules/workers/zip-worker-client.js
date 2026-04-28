@@ -133,7 +133,9 @@ export function createZIPWorkerClient(options = {}) {
                             if (signal?.aborted) throw makeAbortError();
                             await handlers.onFBX?.(msg);
                         } finally {
-                            worker.postMessage({ id, type: 'ack', seq: msg.seq });
+                            if (!signal?.aborted && workerInstance === worker) {
+                                worker.postMessage({ id, type: 'ack', seq: msg.seq });
+                            }
                         }
                         return;
                     }
@@ -142,7 +144,9 @@ export function createZIPWorkerClient(options = {}) {
                             if (signal?.aborted) throw makeAbortError();
                             await handlers.onImage?.(msg);
                         } finally {
-                            worker.postMessage({ id, type: 'ack', seq: msg.seq });
+                            if (!signal?.aborted && workerInstance === worker) {
+                                worker.postMessage({ id, type: 'ack', seq: msg.seq });
+                            }
                         }
                         return;
                     }
@@ -170,7 +174,7 @@ export function createZIPWorkerClient(options = {}) {
                 pending.delete(id);
                 cleanupJob(job);
                 if (job) job.reject(err);
-                else handlers.onError?.(err);
+                else if (!signal?.aborted) handlers.onError?.(err);
             }
         })();
 

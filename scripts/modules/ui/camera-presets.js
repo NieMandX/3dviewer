@@ -104,6 +104,34 @@ export function createCameraPresetsController(options = {}) {
     let playing = false;
     let changeTimer = null;
     let suppressChange = false;
+    let disposed = false;
+    let transitionRafToken = 0;
+    const cleanupFns = [];
+
+    function addListener(target, type, handler, options) {
+        if (!target?.addEventListener || typeof handler !== 'function') return false;
+        target.addEventListener(type, handler, options);
+        cleanupFns.push(() => {
+            try {
+                target.removeEventListener(type, handler, options);
+            } catch (_) {}
+        });
+        return true;
+    }
+
+    function requestAnimationFrameSafe(callback) {
+        if (typeof requestAnimationFrame === 'function') return requestAnimationFrame(callback);
+        return setTimeout(() => callback(Date.now()), 16);
+    }
+
+    function cancelAnimationFrameSafe(token) {
+        if (!token) return;
+        if (typeof cancelAnimationFrame === 'function') {
+            cancelAnimationFrame(token);
+        } else {
+            clearTimeout(token);
+        }
+    }
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
     ensureDefaultPreset();
@@ -150,7 +178,7 @@ export function createCameraPresetsController(options = {}) {
         if (!annotationsEnabled || !annotateToolbarEl || annoToolbarReady) return;
         annoToolbarReady = true;
 
-        annotateToolbarEl.addEventListener('click', (event) => {
+        addListener(annotateToolbarEl, 'click', (event) => {
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
             const btn = target.closest?.('.anno-tool');
@@ -163,41 +191,41 @@ export function createCameraPresetsController(options = {}) {
             syncAnnotationsToolbar();
         });
 
-        annoVisibleBtn?.addEventListener?.('click', () => {
+        addListener(annoVisibleBtn, 'click', () => {
             const next = !annotations.getVisibleForActivePreset();
             if (!next) annotations.setDrawEnabled(false);
             annotations.setVisibleForActivePreset(next);
             syncAnnotationsToolbar();
         });
 
-        annoDrawBtn?.addEventListener?.('click', () => {
+        addListener(annoDrawBtn, 'click', () => {
             const next = !annotations.getDrawEnabled();
             if (next) annotations.setVisibleForActivePreset(true);
             annotations.setDrawEnabled(next);
             syncAnnotationsToolbar();
         });
 
-        annoUndoBtn?.addEventListener?.('click', () => {
+        addListener(annoUndoBtn, 'click', () => {
             annotations.undo();
             syncAnnotationsToolbar();
         });
 
-        annoClearBtn?.addEventListener?.('click', () => {
+        addListener(annoClearBtn, 'click', () => {
             annotations.clear();
             syncAnnotationsToolbar();
         });
 
-        annoColorEl?.addEventListener?.('input', () => {
+        addListener(annoColorEl, 'input', () => {
             annotations.setColor(annoColorEl.value);
             syncAnnotationsToolbar();
         });
 
-        annoDashEl?.addEventListener?.('change', () => {
+        addListener(annoDashEl, 'change', () => {
             annotations.setDash(annoDashEl.value);
             syncAnnotationsToolbar();
         });
 
-        annoWidthEl?.addEventListener?.('input', () => {
+        addListener(annoWidthEl, 'input', () => {
             annotations.setWidth(annoWidthEl.value);
             syncAnnotationsToolbar();
         });
@@ -208,7 +236,7 @@ export function createCameraPresetsController(options = {}) {
     if (annotationsEnabled) {
         ensureAnnotationsToolbar();
         setAnnotationsToolbarVisible(false);
-        annoToggleBtn?.addEventListener?.('click', toggleAnnotationsToolbarVisible);
+        addListener(annoToggleBtn, 'click', toggleAnnotationsToolbarVisible);
     }
 
     function isEditableElement(el) {
@@ -241,7 +269,7 @@ export function createCameraPresetsController(options = {}) {
             Digit5: 'text',
         });
 
-        win.addEventListener('keydown', (event) => {
+        addListener(win, 'keydown', (event) => {
             if (!event) return;
             if (event.defaultPrevented) return;
             if (isAnyModalOpen()) return;
@@ -370,9 +398,12 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function scheduleChange() {
+        if (disposed) return;
         if (!onChange || suppressChange) return;
         if (changeTimer) clearTimeout(changeTimer);
         changeTimer = setTimeout(() => {
+            changeTimer = null;
+            if (disposed) return;
             if (suppressChange) return;
             onChange({
                 presets: presets.map(clonePreset).filter((p) => p),
@@ -434,6 +465,20 @@ export function createCameraPresetsController(options = {}) {
         let pointerId = null;
         let prevControlsEnabled = null;
         let redrawScheduled = false;
+        let redrawRafToken = 0;
+        let resizeObserver = null;
+        const annotationCleanups = [];
+
+        function addAnnotationListener(target, type, handler, options) {
+            if (!target?.addEventListener || typeof handler !== 'function') return false;
+            target.addEventListener(type, handler, options);
+            annotationCleanups.push(() => {
+                try {
+                    target.removeEventListener(type, handler, options);
+                } catch (_) {}
+            });
+            return true;
+        }
 
         function getViewRect() {
             if (!canvas?.getBoundingClientRect) return null;
@@ -612,10 +657,13 @@ export function createCameraPresetsController(options = {}) {
         }
 
         function scheduleDraw() {
+            if (disposed) return;
             if (!canvas) return;
             if (redrawScheduled) return;
             redrawScheduled = true;
-            requestAnimationFrame(() => {
+            redrawRafToken = requestAnimationFrameSafe(() => {
+                redrawRafToken = 0;
+                if (disposed) return;
                 redrawScheduled = false;
                 renderNow();
             });
@@ -824,15 +872,15 @@ export function createCameraPresetsController(options = {}) {
 
         function attach() {
             if (!canvas) return;
-            canvas.addEventListener('pointerdown', beginStroke);
-            canvas.addEventListener('pointermove', moveStroke);
-            canvas.addEventListener('pointerup', endStroke);
-            canvas.addEventListener('pointercancel', cancelStroke);
-            window.addEventListener('resize', scheduleDraw);
+            addAnnotationListener(canvas, 'pointerdown', beginStroke);
+            addAnnotationListener(canvas, 'pointermove', moveStroke);
+            addAnnotationListener(canvas, 'pointerup', endStroke);
+            addAnnotationListener(canvas, 'pointercancel', cancelStroke);
+            addAnnotationListener(globalThis?.window, 'resize', scheduleDraw);
             if (typeof ResizeObserver !== 'undefined') {
                 try {
-                    const ro = new ResizeObserver(() => scheduleDraw());
-                    ro.observe(canvas);
+                    resizeObserver = new ResizeObserver(() => scheduleDraw());
+                    resizeObserver.observe(canvas);
                 } catch (_) {
                     /* ignore */
                 }
@@ -858,6 +906,27 @@ export function createCameraPresetsController(options = {}) {
             clear,
             setVisibleForActivePreset,
             getVisibleForActivePreset,
+            dispose: () => {
+                drawEnabled = false;
+                draft = null;
+                pointerId = null;
+                if (controls && prevControlsEnabled != null) {
+                    controls.enabled = prevControlsEnabled;
+                    prevControlsEnabled = null;
+                }
+                if (redrawRafToken) {
+                    cancelAnimationFrameSafe(redrawRafToken);
+                    redrawRafToken = 0;
+                }
+                redrawScheduled = false;
+                try { resizeObserver?.disconnect?.(); } catch (_) {}
+                resizeObserver = null;
+                annotationCleanups.splice(0).forEach((cleanup) => {
+                    try { cleanup(); } catch (_) {}
+                });
+                setCanvasActive(false);
+                clearCanvas();
+            },
         });
     }
 
@@ -878,6 +947,7 @@ export function createCameraPresetsController(options = {}) {
             clear: () => false,
             setVisibleForActivePreset: () => false,
             getVisibleForActivePreset: () => false,
+            dispose: () => {},
         });
     }
 
@@ -1431,9 +1501,9 @@ export function createCameraPresetsController(options = {}) {
             scheduleChange();
         };
 
-        nameInput.addEventListener('change', applyFromInputs);
+        addListener(nameInput, 'change', applyFromInputs);
         [pos.x, pos.y, pos.z, tgt.x, tgt.y, tgt.z, up.x, up.y, up.z, fovInput, zoomInput, nearInput, farInput, shiftXInput, shiftYInput]
-            .forEach((input) => input.addEventListener('input', applyFromInputs));
+            .forEach((input) => addListener(input, 'input', applyFromInputs));
 
         const syncAnnotButtons = () => {
             if (!annotationsEnabled || !annotVisibleBtn || !annotDrawBtn || !annotToolSel || !annotDashSel || !annotColorInput || !annotWidthInput) return;
@@ -1456,7 +1526,7 @@ export function createCameraPresetsController(options = {}) {
         };
 
         if (annotationsEnabled && annotVisibleBtn && annotDrawBtn && annotUndoBtn && annotClearBtn && annotToolSel && annotDashSel && annotColorInput && annotWidthInput) {
-            annotVisibleBtn.addEventListener('click', () => {
+            addListener(annotVisibleBtn, 'click', () => {
                 const preset = getPresetById(editingId);
                 if (!preset) return;
                 ensureAnnotationsDefaults(preset);
@@ -1466,7 +1536,7 @@ export function createCameraPresetsController(options = {}) {
                 syncAnnotationsToolbar();
             });
 
-            annotDrawBtn.addEventListener('click', () => {
+            addListener(annotDrawBtn, 'click', () => {
                 const enabled = !annotations.getDrawEnabled();
                 annotations.setDrawEnabled(enabled);
                 if (enabled) {
@@ -1480,34 +1550,34 @@ export function createCameraPresetsController(options = {}) {
                 syncAnnotationsToolbar();
             });
 
-            annotUndoBtn.addEventListener('click', () => {
+            addListener(annotUndoBtn, 'click', () => {
                 annotations.undo();
                 syncAnnotButtons();
                 syncAnnotationsToolbar();
             });
 
-            annotClearBtn.addEventListener('click', () => {
+            addListener(annotClearBtn, 'click', () => {
                 annotations.clear();
                 syncAnnotButtons();
                 syncAnnotationsToolbar();
             });
 
-            annotToolSel.addEventListener('change', () => {
+            addListener(annotToolSel, 'change', () => {
                 annotations.setTool(annotToolSel.value);
                 syncAnnotButtons();
                 syncAnnotationsToolbar();
             });
-            annotDashSel.addEventListener('change', () => {
+            addListener(annotDashSel, 'change', () => {
                 annotations.setDash(annotDashSel.value);
                 syncAnnotButtons();
                 syncAnnotationsToolbar();
             });
-            annotColorInput.addEventListener('input', () => {
+            addListener(annotColorInput, 'input', () => {
                 annotations.setColor(annotColorInput.value);
                 syncAnnotButtons();
                 syncAnnotationsToolbar();
             });
-            annotWidthInput.addEventListener('input', () => {
+            addListener(annotWidthInput, 'input', () => {
                 annotations.setWidth(annotWidthInput.value);
                 syncAnnotButtons();
                 syncAnnotationsToolbar();
@@ -1862,6 +1932,7 @@ export function createCameraPresetsController(options = {}) {
 
     function animateTransition(fromPreset, toPreset, seconds, type, trajectory, token) {
         if (!THREE || !camera || !controls) return Promise.resolve(false);
+        if (disposed) return Promise.resolve(false);
         const duration = Math.max(0, Number(seconds) || 0);
         if (duration <= 0) {
             applyPreset(toPreset);
@@ -1932,7 +2003,8 @@ export function createCameraPresetsController(options = {}) {
             const durMs = duration * 1000;
 
             const tick = (now) => {
-                if (token !== playToken) {
+                transitionRafToken = 0;
+                if (disposed || token !== playToken) {
                     resolve(false);
                     return;
                 }
@@ -1974,14 +2046,15 @@ export function createCameraPresetsController(options = {}) {
                     resolve(true);
                     return;
                 }
-                requestAnimationFrame(tick);
+                transitionRafToken = requestAnimationFrameSafe(tick);
             };
 
-            requestAnimationFrame(tick);
+            transitionRafToken = requestAnimationFrameSafe(tick);
         });
     }
 
     async function playSequence() {
+        if (disposed) return;
         if (!presets.length) return;
 
         const token = ++playToken;
@@ -2078,7 +2151,7 @@ export function createCameraPresetsController(options = {}) {
 
     function attachListHandler(container) {
         if (!container?.addEventListener) return;
-        container.addEventListener('click', (event) => {
+        addListener(container, 'click', (event) => {
             if (Date.now() < suppressClicksUntil) {
                 event?.preventDefault?.();
                 return;
@@ -2120,7 +2193,7 @@ export function createCameraPresetsController(options = {}) {
             return presets.length;
         };
 
-        container.addEventListener('dragstart', (event) => {
+        addListener(container, 'dragstart', (event) => {
             const el = event?.target;
             if (!(el instanceof HTMLElement)) return;
             const chip = findChip(el);
@@ -2138,19 +2211,19 @@ export function createCameraPresetsController(options = {}) {
             }
         });
 
-        container.addEventListener('dragenter', (event) => {
+        addListener(container, 'dragenter', (event) => {
             if (!dragId) return;
             event.preventDefault();
         });
 
-        container.addEventListener('dragover', (event) => {
+        addListener(container, 'dragover', (event) => {
             if (!dragId) return;
             event.preventDefault();
             const dt = event.dataTransfer;
             if (dt) dt.dropEffect = 'move';
         });
 
-        container.addEventListener('drop', (event) => {
+        addListener(container, 'drop', (event) => {
             event.preventDefault();
 
             const fromId =
@@ -2170,7 +2243,7 @@ export function createCameraPresetsController(options = {}) {
             suppressClicksUntil = Date.now() + 350;
         });
 
-        container.addEventListener('dragend', (event) => {
+        addListener(container, 'dragend', (event) => {
             const el = event?.target;
             if (el instanceof HTMLElement) {
                 const chip = findChip(el);
@@ -2183,7 +2256,7 @@ export function createCameraPresetsController(options = {}) {
     attachListHandler(camsBarListEl);
     attachListHandler(camsSideListEl);
     attachBarReorder(camsBarListEl);
-    camsToggleBtn?.addEventListener?.('click', toggleBarVisible);
+    addListener(camsToggleBtn, 'click', toggleBarVisible);
 
     // initialize
     setBarVisible(false);
@@ -2191,7 +2264,22 @@ export function createCameraPresetsController(options = {}) {
     render();
 
     function dispose() {
-        // currently no-op (we only attach simple handlers once per page lifetime)
+        if (disposed) return;
+        disposed = true;
+        playToken += 1;
+        playing = false;
+        if (changeTimer) {
+            clearTimeout(changeTimer);
+            changeTimer = null;
+        }
+        if (transitionRafToken) {
+            cancelAnimationFrameSafe(transitionRafToken);
+            transitionRafToken = 0;
+        }
+        try { annotations.dispose?.(); } catch (_) {}
+        cleanupFns.splice(0).reverse().forEach((cleanup) => {
+            try { cleanup(); } catch (_) {}
+        });
     }
 
     function captureDebugPoint() {

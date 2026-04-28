@@ -25,6 +25,7 @@ export function createCameraSyncController(options = {}) {
     let lastLocalActivityAt = 0;
     let localActive = false;
     let applyingRemote = false;
+    let disposed = false;
 
     function captureCameraState() {
         if (!camera || !controls) return null;
@@ -78,27 +79,37 @@ export function createCameraSyncController(options = {}) {
     }
 
     function handleRemoteState(payload) {
+        if (disposed) return;
         if (!payload || payload.sender === localUserId) return;
         if (!shouldFollowRemote()) return;
         applyCameraState(payload);
     }
 
     function handleControlsChange() {
-        if (!isOwner || applyingRemote || !collab) return;
+        if (disposed || !isOwner || applyingRemote || !collab) return;
         const now = nowMs();
         if (now - lastBroadcastAt >= broadcastIntervalMs) {
             lastBroadcastAt = now;
             const state = captureCameraState();
-            if (state) collab.broadcastCameraState(state);
+            if (state) {
+                Promise.resolve(collab.broadcastCameraState(state)).catch((err) => {
+                    if (!disposed) console.warn('Camera broadcast failed', err);
+                });
+            }
         }
         if (now - lastPersistAt >= persistIntervalMs) {
             lastPersistAt = now;
             const state = captureCameraState();
-            if (state) collab.persistCameraState(state);
+            if (state) {
+                Promise.resolve(collab.persistCameraState(state)).catch((err) => {
+                    if (!disposed) console.warn('Camera persist failed', err);
+                });
+            }
         }
     }
 
     function setOwner(nextOwnerId) {
+        if (disposed) return;
         ownerId = nextOwnerId || null;
         isOwner = !!(ownerId && localUserId && ownerId === localUserId);
     }
@@ -127,6 +138,7 @@ export function createCameraSyncController(options = {}) {
     attachControlsListeners();
 
     function dispose() {
+        disposed = true;
         detachControlsListeners();
     }
 

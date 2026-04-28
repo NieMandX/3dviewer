@@ -67,6 +67,11 @@ export function createEnvironmentManager(options = {}) {
     let envRebuildTimer = null;
     let envRebuildPromise = null;
     let envRebuildQueued = false;
+    let disposed = false;
+    let lifecycleGeneration = 0;
+    let hdrBaseLoadGeneration = 0;
+    let presetLoadGeneration = 0;
+    let presetLoadActive = false;
 
     const envMaterials = new Set();
     let envMaterialsDirty = true;
@@ -164,14 +169,43 @@ export function createEnvironmentManager(options = {}) {
         return tex;
     }
 
-    async function loadHDRBase() {
-        if (hdrBaseTex) return hdrBaseTex;
-        try {
-            hdrBaseTex = await loadEquirectTexture(DEFAULT_ENV_URL);
-        } catch (err) {
-            console.warn('Default EXR environment failed to load, falling back to HDR.', err);
-            hdrBaseTex = await loadEquirectTexture(FALLBACK_HDR_URL);
+    const loadEquirectTextureImpl = typeof options.loadEquirectTexture === 'function'
+        ? options.loadEquirectTexture
+        : loadEquirectTexture;
+
+    function isLifecycleCurrent(generation) {
+        return !disposed && enabled && generation === lifecycleGeneration;
+    }
+
+    function disposeEnvironmentResources({ env = null, bg = null, envTarget = null, base = null } = {}) {
+        if (envTarget) {
+            envTarget.dispose?.();
+        } else if (env && env !== bg && env !== base) {
+            env.dispose?.();
         }
+        if (bg && bg !== base) {
+            bg.dispose?.();
+        }
+    }
+
+    async function loadHDRBase() {
+        if (disposed) return null;
+        if (hdrBaseTex) return hdrBaseTex;
+        if (presetLoadActive) return null;
+        const loadGeneration = hdrBaseLoadGeneration;
+        let nextBase = null;
+        try {
+            nextBase = await loadEquirectTextureImpl(DEFAULT_ENV_URL);
+        } catch (err) {
+            if (disposed || loadGeneration !== hdrBaseLoadGeneration) return null;
+            console.warn('Default EXR environment failed to load, falling back to HDR.', err);
+            nextBase = await loadEquirectTextureImpl(FALLBACK_HDR_URL);
+        }
+        if (disposed || loadGeneration !== hdrBaseLoadGeneration) {
+            nextBase?.dispose?.();
+            return null;
+        }
+        hdrBaseTex = nextBase;
         if (app) app.hdrBaseTex = hdrBaseTex;
         return hdrBaseTex;
     }
@@ -209,6 +243,7 @@ export function createEnvironmentManager(options = {}) {
     }
 
     function setRotation(deg, { silent = false } = {}) {
+        if (disposed) return;
         const safeDeg = Number.isFinite(deg) ? deg : 0;
         currentRotDeg = safeDeg;
         if (app) app.currentRotDeg = currentRotDeg;
@@ -241,6 +276,7 @@ export function createEnvironmentManager(options = {}) {
     }
 
     function applyEnvToMaterials(env, intensity, { silent = false } = {}) {
+        if (disposed && env) return;
         if (scene) {
             scene.environmentIntensity = env ? intensity : 0;
         }
@@ -254,14 +290,14 @@ export function createEnvironmentManager(options = {}) {
             m.envMapIntensity = intensity;
         });
 
-        requestRender();
+        if (!disposed) requestRender();
         if (!silent) {
             onEnvironmentUpdated?.({ type: 'intensity' });
         }
     }
 
     function applyBuiltEnvironment() {
-        if (!enabled) return;
+        if (disposed || !enabled) return;
         if (!currentEnv || !currentBg) return;
 
         if (scene) scene.environment = currentEnv;
@@ -280,6 +316,7 @@ export function createEnvironmentManager(options = {}) {
     }
 
     function requestRebuild({ immediate = false } = {}) {
+        if (disposed) return;
         envDirty = true;
         if (!enabled) return;
         if (envRebuildTimer) {
@@ -289,6 +326,7 @@ export function createEnvironmentManager(options = {}) {
         const delay = immediate ? 0 : debounceMs;
         envRebuildTimer = setTimeout(() => {
             envRebuildTimer = null;
+            if (disposed || !enabled) return;
             void rebuild({ force: true });
         }, delay);
     }
@@ -422,28 +460,37 @@ export function createEnvironmentManager(options = {}) {
     }
 
     async function rebuildOnce() {
-        if (!enabled) return;
+        const buildGeneration = lifecycleGeneration;
+        if (!isLifecycleCurrent(buildGeneration)) return;
         if (!envDirty && currentEnv && currentBg) {
             applyBuiltEnvironment();
             return;
         }
+        if (presetLoadActive) return;
 
         if (useWebGPU) {
             try {
                 await rendererInitPromise;
             } catch (err) {
+                if (disposed) return;
                 console.error('WebGPU init failed before env build', err);
                 return;
             }
+            if (!isLifecycleCurrent(buildGeneration)) return;
         }
 
         const base = await loadHDRBase();
+        if (!isLifecycleCurrent(buildGeneration)) return;
         if (!base) return;
 
         const { gamma, tintLinear, exposure, saturation, blur } = syncAdjustmentsState();
 
         const nextBg = cloneEquirectDataTexture(base);
         if (!nextBg) return;
+        if (!isLifecycleCurrent(buildGeneration)) {
+            nextBg.dispose?.();
+            return;
+        }
 
         applyHDRAdjustments(nextBg, { gamma, tintColor: tintLinear, exposure, saturation, blur });
         nextBg.mapping = THREE.EquirectangularReflectionMapping;
@@ -471,6 +518,10 @@ export function createEnvironmentManager(options = {}) {
             nextBg.dispose?.();
             return;
         }
+        if (!isLifecycleCurrent(buildGeneration)) {
+            disposeEnvironmentResources({ env: nextEnv, bg: nextBg, envTarget: nextEnvTarget, base });
+            return;
+        }
 
         const prevEnv = currentEnv;
         const prevBg = currentBg;
@@ -487,18 +538,18 @@ export function createEnvironmentManager(options = {}) {
 
         envDirty = false;
 
-        if (prevEnvTarget && prevEnvTarget !== currentEnvTarget) {
-            prevEnvTarget.dispose?.();
-        } else if (prevEnv && prevEnv !== base && prevEnv !== prevBg) {
-            prevEnv.dispose?.();
-        }
-        if (prevBg && prevBg !== base) prevBg.dispose?.();
+        disposeEnvironmentResources({
+            env: prevEnv,
+            bg: prevBg,
+            envTarget: prevEnvTarget && prevEnvTarget !== currentEnvTarget ? prevEnvTarget : null,
+            base,
+        });
 
         applyBuiltEnvironment();
     }
 
     async function rebuild({ force = false } = {}) {
-        if (!enabled) return;
+        if (disposed || !enabled) return;
         if (!force && !envDirty && currentEnv && currentBg) {
             applyBuiltEnvironment();
             return;
@@ -515,7 +566,7 @@ export function createEnvironmentManager(options = {}) {
             do {
                 envRebuildQueued = false;
                 await rebuildOnce();
-            } while (envRebuildQueued);
+            } while (!disposed && enabled && envRebuildQueued);
         })().finally(() => {
             envRebuildPromise = null;
         });
@@ -524,6 +575,7 @@ export function createEnvironmentManager(options = {}) {
     }
 
     async function setEnabled(on) {
+        if (disposed) return;
         const next = !!on;
         enabled = next;
         if (enabled) {
@@ -535,6 +587,7 @@ export function createEnvironmentManager(options = {}) {
                 envRebuildTimer = null;
             }
             envRebuildQueued = false;
+            lifecycleGeneration += 1;
             if (scene) scene.environment = null;
             applyEnvToMaterials(null, 1.0, { silent: true });
             const bgMesh = getBgMesh?.();
@@ -546,19 +599,39 @@ export function createEnvironmentManager(options = {}) {
     }
 
     async function buildAndApplyFromRotation(deg) {
+        if (disposed) return;
         setRotation(deg, { silent: true });
         await rebuild({ force: false });
     }
 
     async function selectPresetIndex(idx) {
+        if (disposed) return;
         const entry = HDRI_LIBRARY[idx];
         if (!entry) return;
 
+        const presetGeneration = presetLoadGeneration + 1;
+        presetLoadGeneration = presetGeneration;
+        presetLoadActive = true;
+        hdrBaseLoadGeneration += 1;
+        lifecycleGeneration += 1;
         const prevBase = hdrBaseTex;
-        hdrBaseTex = await loadEquirectTexture(entry.url);
+        let nextBase = null;
+        try {
+            nextBase = await loadEquirectTextureImpl(entry.url);
+        } finally {
+            if (presetGeneration === presetLoadGeneration) {
+                presetLoadActive = false;
+            }
+        }
+        if (disposed || presetGeneration !== presetLoadGeneration) {
+            nextBase?.dispose?.();
+            return;
+        }
+        hdrBaseTex = nextBase;
         if (app) app.hdrBaseTex = hdrBaseTex;
 
         envDirty = true;
+        lifecycleGeneration += 1;
         if (prevBase && prevBase !== hdrBaseTex && prevBase !== currentBg) {
             prevBase.dispose?.();
         }
@@ -585,6 +658,12 @@ export function createEnvironmentManager(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
+        lifecycleGeneration += 1;
+        hdrBaseLoadGeneration += 1;
+        presetLoadGeneration += 1;
+        presetLoadActive = false;
         if (envRebuildTimer) {
             clearTimeout(envRebuildTimer);
             envRebuildTimer = null;
@@ -593,12 +672,12 @@ export function createEnvironmentManager(options = {}) {
         enabled = false;
         if (scene) scene.environment = null;
         applyEnvToMaterials(null, 1.0, { silent: true });
-        if (currentEnvTarget) {
-            currentEnvTarget.dispose?.();
-        } else if (currentEnv && currentEnv !== currentBg && currentEnv !== hdrBaseTex) {
-            currentEnv.dispose?.();
-        }
-        if (currentBg && currentBg !== hdrBaseTex) currentBg.dispose?.();
+        disposeEnvironmentResources({
+            env: currentEnv,
+            bg: currentBg,
+            envTarget: currentEnvTarget,
+            base: hdrBaseTex,
+        });
         hdrBaseTex?.dispose?.();
         pmremGen?.dispose?.();
         currentEnv = null;

@@ -22,7 +22,8 @@ export function createVPMBinder(options = {}) {
     const getEnvMapIntensity = typeof options.getEnvMapIntensity === 'function' ? options.getEnvMapIntensity : () => 1.0;
     const isWebGL2 = typeof options.isWebGL2 === 'function' ? options.isWebGL2 : () => false;
 
-    const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
+    const hasLoadedModelRegistry = Array.isArray(options.loadedModels);
+    const loadedModels = hasLoadedModelRegistry ? options.loadedModels : [];
     const detectSlotFromMatOrObj = typeof options.detectSlotFromMatOrObj === 'function' ? options.detectSlotFromMatOrObj : () => 1;
     const findGeomSuffix = typeof options.findGeomSuffix === 'function' ? options.findGeomSuffix : () => null;
     const isGlassByName = typeof options.isGlassByName === 'function' ? options.isGlassByName : () => false;
@@ -61,6 +62,26 @@ export function createVPMBinder(options = {}) {
         }
     }
 
+    function isRootLive(root) {
+        if (!root) return false;
+        if (!hasLoadedModelRegistry) return true;
+        return loadedModels.some((model) => model?.obj === root);
+    }
+
+    function disposeMaterialTree(material) {
+        if (!material) return;
+        const materials = Array.isArray(material) ? material.filter(Boolean) : [material];
+        const textures = new Set();
+        materials.forEach((mat) => {
+            Object.values(mat).forEach((value) => {
+                if (!value?.isTexture || textures.has(value)) return;
+                textures.add(value);
+                value.dispose?.();
+            });
+            mat.dispose?.();
+        });
+    }
+
     /**
      * Строит индекс T_* текстур, присутствующих в ZIP, сгруппированных по ключу FBX.
      * Формат: Map<fbxKey, Map<`${slot}.${udim}`, { Diffuse, Normal, ERM }>>
@@ -96,39 +117,44 @@ export function createVPMBinder(options = {}) {
      * Разделяет ERM-карту (RGB: emissive/roughness/metalness) на отдельные CanvasTexture в линейном цветовом пространстве.
      */
     async function splitERMtoThreeMaps(url) {
-        const img = await createImageBitmap(await (await fetch(url)).blob());
-        const w = img.width, h = img.height;
+        let img = null;
+        try {
+            img = await createImageBitmap(await (await fetch(url)).blob());
+            const w = img.width, h = img.height;
 
-        const base = document.createElement('canvas');
-        base.width = w;
-        base.height = h;
-        const bctx = base.getContext('2d', { willReadFrequently: true });
-        bctx.drawImage(img, 0, 0);
-
-        function chanToTex(ci) {
-            const c = document.createElement('canvas');
-            c.width = w;
-            c.height = h;
-            const ctx = c.getContext('2d');
+            const base = document.createElement('canvas');
+            base.width = w;
+            base.height = h;
+            const bctx = base.getContext('2d', { willReadFrequently: true });
+            bctx.drawImage(img, 0, 0);
             const src = bctx.getImageData(0, 0, w, h);
-            const dst = ctx.createImageData(w, h);
-            for (let i = 0; i < src.data.length; i += 4) {
-                const v = src.data[i + ci];
-                dst.data[i] = dst.data[i + 1] = dst.data[i + 2] = v;
-                dst.data[i + 3] = 255;
-            }
-            ctx.putImageData(dst, 0, 0);
-            const t = new THREE.CanvasTexture(c);
-            t.colorSpace = THREE.LinearSRGBColorSpace; // линейные для rough/metal/emissiveMap
-            t.flipY = false;
-            return t;
-        }
 
-        return {
-            emissiveMap: chanToTex(0), // R
-            roughnessMap: chanToTex(1), // G
-            metalnessMap: chanToTex(2), // B
-        };
+            function chanToTex(ci) {
+                const c = document.createElement('canvas');
+                c.width = w;
+                c.height = h;
+                const ctx = c.getContext('2d');
+                const dst = ctx.createImageData(w, h);
+                for (let i = 0; i < src.data.length; i += 4) {
+                    const v = src.data[i + ci];
+                    dst.data[i] = dst.data[i + 1] = dst.data[i + 2] = v;
+                    dst.data[i + 3] = 255;
+                }
+                ctx.putImageData(dst, 0, 0);
+                const t = new THREE.CanvasTexture(c);
+                t.colorSpace = THREE.LinearSRGBColorSpace; // линейные для rough/metal/emissiveMap
+                t.flipY = false;
+                return t;
+            }
+
+            return {
+                emissiveMap: chanToTex(0), // R
+                roughnessMap: chanToTex(1), // G
+                metalnessMap: chanToTex(2), // B
+            };
+        } finally {
+            img?.close?.();
+        }
     }
 
     /**
@@ -157,6 +183,7 @@ export function createVPMBinder(options = {}) {
     async function autoBindVPMForModel(root, vpmIndex) {
         if (!root || !vpmIndex) return;
         if (!THREE) return;
+        if (!isRootLive(root)) return;
 
         const env = getEnvironment();
         const envInt = parseFloat(getEnvMapIntensity());
@@ -181,6 +208,7 @@ export function createVPMBinder(options = {}) {
         const bindOps = []; // промисы (для ERM)
 
         root.traverse(o => {
+            if (!isRootLive(root)) return;
             if (!o.isMesh || !o.geometry) return;
             if (o.userData?.isCollision) return;
 
@@ -297,6 +325,12 @@ export function createVPMBinder(options = {}) {
                     mat.metalness = 1.0; // карта задаёт финальное значение
                     mat.needsUpdate = true;
 
+                    if (!isRootLive(root)) {
+                        disposeMaterialTree(mat);
+                        disposeCustomShadowMaterials(o);
+                        return;
+                    }
+
                     if (env) {
                         mat.envMap = env;
                         mat.envMapIntensity = envInt;
@@ -318,6 +352,7 @@ export function createVPMBinder(options = {}) {
         });
 
         await Promise.all(bindOps);
+        if (!isRootLive(root)) return;
         requestRender();
         materialsPanel?.markNeedsFullRefresh?.();
         schedulePanelRefresh();
