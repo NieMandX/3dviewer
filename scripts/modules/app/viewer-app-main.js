@@ -101,7 +101,7 @@ const webgpuModuleError = rendererMode.webgpuModuleError;
 const rendererModeNote = rendererMode.rendererModeNote;
 const backfaceNodeSupport = rendererMode.backfaceNodeSupport;
 
-class ViewerApp {
+export class ViewerApp {
     constructor() {
         const app = this;
         // =====================

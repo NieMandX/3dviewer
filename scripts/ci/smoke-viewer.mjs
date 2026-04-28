@@ -40,6 +40,16 @@ function resolveFsPath(urlPathname) {
 async function createStaticServer() {
     const server = createServer(async (req, res) => {
         try {
+            if (String(req.url || '').startsWith('/__smoke_blank')) {
+                const body = Buffer.from('<!doctype html><meta charset="utf-8"><title>LPM smoke</title>');
+                res.writeHead(200, {
+                    'Content-Length': body.length,
+                    'Content-Type': 'text/html; charset=utf-8',
+                });
+                res.end(body);
+                return;
+            }
+
             const fsPath = resolveFsPath(req.url || '/');
             if (!fsPath) {
                 res.writeHead(403);
@@ -90,13 +100,16 @@ async function createStaticServer() {
     };
 }
 
-function attachPageDiagnostics(page) {
+function attachPageDiagnostics(page, options = {}) {
     const consoleErrors = [];
     const pageErrors = [];
+    const ignoreConsoleError =
+        typeof options.ignoreConsoleError === 'function' ? options.ignoreConsoleError : () => false;
 
     page.on('console', (message) => {
         if (message.type() !== 'error') return;
-        consoleErrors.push(message.text());
+        const text = message.text();
+        if (!ignoreConsoleError(text)) consoleErrors.push(text);
     });
     page.on('pageerror', (error) => {
         pageErrors.push(String(error));
@@ -188,6 +201,405 @@ async function runRoomEntrySmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runDisposeReinitSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+        const nativeAdd = EventTarget.prototype.addEventListener;
+        const nativeRemove = EventTarget.prototype.removeEventListener;
+        const registry = new WeakMap();
+
+        function captureFlag(options) {
+            if (options === true) return true;
+            if (!options || typeof options !== 'object') return false;
+            return !!options.capture;
+        }
+
+        function getTargetEntries(target, type, create = false) {
+            let byType = registry.get(target);
+            if (!byType && create) {
+                byType = new Map();
+                registry.set(target, byType);
+            }
+            if (!byType) return null;
+            let entries = byType.get(type);
+            if (!entries && create) {
+                entries = [];
+                byType.set(type, entries);
+            }
+            return entries || null;
+        }
+
+        EventTarget.prototype.addEventListener = function patchedAddEventListener(type, listener, options) {
+            if (listener) {
+                const eventType = String(type || '');
+                const capture = captureFlag(options);
+                const entries = getTargetEntries(this, eventType, true);
+                const exists = entries.some((entry) => entry.listener === listener && entry.capture === capture);
+                if (!exists) entries.push({ listener, capture });
+            }
+            return nativeAdd.call(this, type, listener, options);
+        };
+
+        EventTarget.prototype.removeEventListener = function patchedRemoveEventListener(type, listener, options) {
+            const eventType = String(type || '');
+            const capture = captureFlag(options);
+            const entries = getTargetEntries(this, eventType, false);
+            if (entries) {
+                const index = entries.findIndex((entry) => entry.listener === listener && entry.capture === capture);
+                if (index !== -1) entries.splice(index, 1);
+            }
+            return nativeRemove.call(this, type, listener, options);
+        };
+
+        globalThis.__lpmSmokeListenerCount = (targetRef, type) => {
+            let target = null;
+            if (targetRef === 'window') target = window;
+            else if (targetRef === 'document') target = document;
+            else if (targetRef === 'body') target = document.body;
+            else target = document.querySelector(String(targetRef || ''));
+            if (!target) return 0;
+            return getTargetEntries(target, String(type || ''), false)?.length || 0;
+        };
+    });
+
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/?renderer=webgl`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+
+    const readCounts = () => page.evaluate(() => {
+        const count = globalThis.__lpmSmokeListenerCount;
+        const dragTargets = ['window', 'document', 'body', '#viewer', '#drop'];
+        const dragTypes = ['dragenter', 'dragover', 'dragleave', 'drop'];
+        return {
+            fileInputChange: count('#fileInput', 'change'),
+            emptyHintClick: count('#emptyHint', 'click'),
+            sampleChange: count('#sampleSelect', 'change'),
+            textureCloseClick: count('#mClose', 'click'),
+            textureModalClick: count('#texModal', 'click'),
+            textureBindClick: count('#bindBtn', 'click'),
+            dragListeners: dragTargets.reduce((total, target) => (
+                total + dragTypes.reduce((sum, type) => sum + count(target, type), 0)
+            ), 0),
+            canvasCount: document.querySelectorAll('canvas').length,
+        };
+    });
+
+    const firstInit = await readCounts();
+    assert.equal(firstInit.fileInputChange, 1, 'Dispose smoke: file input listener missing after first init');
+    assert.equal(firstInit.emptyHintClick, 1, 'Dispose smoke: empty hint listener missing after first init');
+    assert.equal(firstInit.sampleChange, 2, 'Dispose smoke: sample select listeners missing after first init');
+    assert.equal(firstInit.textureCloseClick, 1, 'Dispose smoke: texture close listener missing after first init');
+    assert.equal(firstInit.textureModalClick, 1, 'Dispose smoke: texture modal listener missing after first init');
+    assert.equal(firstInit.textureBindClick, 1, 'Dispose smoke: texture bind listener missing after first init');
+    assert.equal(firstInit.dragListeners, 20, 'Dispose smoke: unexpected file drop listener count after first init');
+    assert.ok(firstInit.canvasCount >= 1, 'Dispose smoke: renderer canvas missing after first init');
+
+    await page.evaluate(async () => {
+        await globalThis.viewerApp.dispose();
+    });
+    const afterFirstDispose = await readCounts();
+    assert.equal(afterFirstDispose.fileInputChange, 0, 'Dispose smoke: file input listener leaked after dispose');
+    assert.equal(afterFirstDispose.emptyHintClick, 0, 'Dispose smoke: empty hint listener leaked after dispose');
+    assert.equal(afterFirstDispose.sampleChange, 0, 'Dispose smoke: sample select listener leaked after dispose');
+    assert.equal(afterFirstDispose.textureCloseClick, 0, 'Dispose smoke: texture close listener leaked after dispose');
+    assert.equal(afterFirstDispose.textureModalClick, 0, 'Dispose smoke: texture modal listener leaked after dispose');
+    assert.equal(afterFirstDispose.textureBindClick, 0, 'Dispose smoke: texture bind listener leaked after dispose');
+    assert.equal(afterFirstDispose.dragListeners, 0, 'Dispose smoke: file drop listeners leaked after dispose');
+
+    await page.evaluate(async () => {
+        const { ViewerApp } = await import('/scripts/modules/app/viewer-app-main.js');
+        globalThis.viewerApp = new ViewerApp();
+    });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && document.querySelectorAll('canvas').length >= 1
+    ), null, { timeout: 45000 });
+
+    const secondInit = await readCounts();
+    assert.equal(secondInit.fileInputChange, 1, 'Dispose smoke: file input listener duplicated after reinit');
+    assert.equal(secondInit.emptyHintClick, 1, 'Dispose smoke: empty hint listener duplicated after reinit');
+    assert.equal(secondInit.sampleChange, 2, 'Dispose smoke: sample select listeners duplicated after reinit');
+    assert.equal(secondInit.textureCloseClick, 1, 'Dispose smoke: texture close listener duplicated after reinit');
+    assert.equal(secondInit.textureModalClick, 1, 'Dispose smoke: texture modal listener duplicated after reinit');
+    assert.equal(secondInit.textureBindClick, 1, 'Dispose smoke: texture bind listener duplicated after reinit');
+    assert.equal(secondInit.dragListeners, 20, 'Dispose smoke: unexpected file drop listener count after reinit');
+
+    await page.evaluate(async () => {
+        await globalThis.viewerApp.dispose();
+    });
+    diagnostics.assertNoErrors('Dispose/reinit smoke');
+    await page.close();
+}
+
+async function runFileFlowFailureSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page, {
+        ignoreConsoleError: (text) => text.includes('File import failed: broken.fbx'),
+    });
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createFileFlowController } = await import('/scripts/modules/io/file-flow.js');
+
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.multiple = true;
+        const emptyHintEl = document.createElement('button');
+        const rootEl = document.createElement('main');
+        const dropEl = document.createElement('div');
+        const sampleSelect = document.createElement('select');
+        document.body.append(fileInput, emptyHintEl, rootEl, dropEl, sampleSelect);
+
+        const calls = [];
+        let loadedCount = 0;
+        let finalizeResolve = null;
+        const finalized = new Promise((resolve) => {
+            finalizeResolve = resolve;
+        });
+
+        const controller = createFileFlowController({
+            fileInput,
+            emptyHintEl,
+            rootEl,
+            dropEl,
+            sampleSelect,
+            sampleModels: [],
+            handleFBXFile: async (file) => {
+                calls.push(`fbx:${file.name}`);
+                throw new Error('broken import');
+            },
+            handleZIPFile: async (file) => {
+                calls.push(`zip:${file.name}`);
+                loadedCount += 1;
+            },
+            finalizeBatchAfterAllFiles: async () => {
+                calls.push('finalize');
+                finalizeResolve();
+            },
+            setEmptyHintVisible: (visible) => calls.push(`empty:${visible ? 'on' : 'off'}`),
+            getLoadedModelCount: () => loadedCount,
+        });
+
+        const files = [
+            new File(['bad'], 'broken.fbx', { type: 'application/octet-stream' }),
+            new File(['ok'], 'ok.zip', { type: 'application/zip' }),
+        ];
+        Object.defineProperty(fileInput, 'files', {
+            configurable: true,
+            value: files,
+        });
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        await finalized;
+        controller.dispose();
+
+        return {
+            calls,
+            fileInputValue: fileInput.value,
+            dropVisible: dropEl.classList.contains('show'),
+        };
+    });
+
+    assert.deepEqual(result.calls, [
+        'empty:off',
+        'fbx:broken.fbx',
+        'zip:ok.zip',
+        'empty:off',
+        'finalize',
+    ], 'File-flow smoke: failed file blocked batch finalization or later files');
+    assert.equal(result.fileInputValue, '', 'File-flow smoke: file input value was not reset');
+    assert.equal(result.dropVisible, false, 'File-flow smoke: drop overlay stayed visible after dispose');
+    diagnostics.assertNoErrors('File-flow failure smoke');
+    await page.close();
+}
+
+async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createCollabController } = await import('/scripts/modules/collab/collab-controller.js');
+
+        class FakeQuery {
+            constructor(table) {
+                this.table = table;
+                this.payload = null;
+            }
+            upsert(payload) {
+                this.payload = payload;
+                return Promise.resolve({ data: payload, error: null });
+            }
+            insert(payload) {
+                this.payload = payload;
+                return this;
+            }
+            update(payload) {
+                this.payload = payload;
+                return this;
+            }
+            delete() {
+                return this;
+            }
+            select() {
+                return this;
+            }
+            eq() {
+                return this;
+            }
+            order() {
+                return Promise.resolve({ data: [], error: null });
+            }
+            limit() {
+                return this;
+            }
+            maybeSingle() {
+                return Promise.resolve({ data: null, error: null });
+            }
+            single() {
+                const data = {
+                    id: `${this.table}-row`,
+                    ...(this.payload && typeof this.payload === 'object' ? this.payload : {}),
+                };
+                return Promise.resolve({ data, error: null });
+            }
+        }
+
+        class FakeChannel {
+            constructor(name) {
+                this.name = name;
+                this.handlers = [];
+                this.state = 'joined';
+                this.socket = { isConnected: () => true };
+                this.tracked = [];
+            }
+            on(type, filter, callback) {
+                this.handlers.push({ type, filter: filter || {}, callback });
+                return this;
+            }
+            subscribe(callback) {
+                if (typeof callback === 'function') {
+                    Promise.resolve().then(() => callback('SUBSCRIBED'));
+                }
+                return Promise.resolve('SUBSCRIBED');
+            }
+            track(meta) {
+                this.tracked.push({ ...(meta || {}) });
+                return Promise.resolve('ok');
+            }
+            presenceState() {
+                return {
+                    peer: [{ name: 'Peer', joinedAt: 't0', lastSeenAt: 't1' }],
+                };
+            }
+            send() {
+                return Promise.resolve('ok');
+            }
+            httpSend() {
+                return Promise.resolve('ok');
+            }
+            emit(type, event, payload) {
+                this.handlers
+                    .filter((handler) => handler.type === type && handler.filter?.event === event)
+                    .forEach((handler) => handler.callback(payload));
+            }
+        }
+
+        const channels = [];
+        const removedChannels = [];
+        const supabase = {
+            from: (table) => new FakeQuery(table),
+            channel: (name) => {
+                const channel = new FakeChannel(name);
+                channels.push(channel);
+                return channel;
+            },
+            removeChannel: async (channel) => {
+                removedChannels.push(channel.name);
+                return 'ok';
+            },
+            rpc: async () => ({ data: null, error: null }),
+        };
+
+        const calls = [];
+        const controller = await createCollabController({
+            supabase,
+            user: { id: 'local-user' },
+            project: { id: 'project-1', slug: 'project' },
+            room: { id: 'room-1', slug: 'room', camera_owner_id: null, camera_state: null },
+            displayName: 'Local',
+            onParticipants: (list) => calls.push(`participants:${list.length}`),
+            onMessage: (record, meta) => calls.push(`message:${meta?.source || ''}:${record?.id || ''}`),
+            onAnnotation: (record, meta) => calls.push(`annotation:${meta?.source || ''}:${record?.id || ''}`),
+            onAnnotationDelete: (record) => calls.push(`annotation-delete:${record?.id || ''}`),
+            onCameraState: (state) => calls.push(`camera:${state?.source || 'broadcast'}`),
+            onCameraOwner: (ownerId) => calls.push(`owner:${ownerId || ''}`),
+            onRoomUpdate: (room) => calls.push(`room:${room?.id || ''}`),
+            onConnectionState: ({ connected, reason }) => calls.push(`connection:${connected ? 'on' : 'off'}:${reason}`),
+        });
+
+        const roomChannel = channels.find((channel) => channel.name === 'room:room-1');
+        const updatesChannel = channels.find((channel) => channel.name === 'room:room-1:updates');
+        const annotationsChannel = channels.find((channel) => channel.name === 'room:room-1:annotations');
+        const messagesChannel = channels.find((channel) => channel.name === 'room:room-1:messages');
+
+        roomChannel.emit('presence', 'sync', {});
+        roomChannel.emit('broadcast', 'message', { payload: { id: 'broadcast-message', sender: 'peer-user' } });
+        roomChannel.emit('broadcast', 'annotation', { payload: { id: 'broadcast-annotation', sender: 'peer-user' } });
+        roomChannel.emit('broadcast', 'annotation-delete', { payload: { id: 'broadcast-delete', sender: 'peer-user' } });
+        roomChannel.emit('broadcast', 'camera', { payload: { sender: 'peer-user' } });
+        roomChannel.emit('broadcast', 'camera-lock', { payload: { ownerId: 'peer-user', sender: 'peer-user' } });
+        updatesChannel.emit('postgres_changes', 'UPDATE', {
+            new: { id: 'room-1', camera_owner_id: 'db-owner', camera_state: { position: [1, 2, 3] } },
+        });
+        annotationsChannel.emit('postgres_changes', 'INSERT', { new: { id: 'annotation-row' } });
+        annotationsChannel.emit('postgres_changes', 'DELETE', { old: { id: 'annotation-old' } });
+        messagesChannel.emit('postgres_changes', 'INSERT', { new: { id: 'message-row' } });
+
+        await Promise.resolve();
+        const beforeDispose = calls.slice();
+        await controller.dispose();
+        const afterDispose = calls.slice();
+
+        roomChannel.emit('presence', 'sync', {});
+        roomChannel.emit('broadcast', 'message', { payload: { id: 'late-broadcast-message', sender: 'peer-user' } });
+        roomChannel.emit('broadcast', 'annotation', { payload: { id: 'late-broadcast-annotation', sender: 'peer-user' } });
+        roomChannel.emit('broadcast', 'annotation-delete', { payload: { id: 'late-broadcast-delete', sender: 'peer-user' } });
+        roomChannel.emit('broadcast', 'camera', { payload: { sender: 'peer-user' } });
+        roomChannel.emit('broadcast', 'camera-lock', { payload: { ownerId: 'late-owner', sender: 'peer-user' } });
+        updatesChannel.emit('postgres_changes', 'UPDATE', {
+            new: { id: 'room-1', camera_owner_id: 'late-db-owner', camera_state: { position: [4, 5, 6] } },
+        });
+        annotationsChannel.emit('postgres_changes', 'INSERT', { new: { id: 'late-annotation-row' } });
+        annotationsChannel.emit('postgres_changes', 'DELETE', { old: { id: 'late-annotation-old' } });
+        messagesChannel.emit('postgres_changes', 'INSERT', { new: { id: 'late-message-row' } });
+
+        await Promise.resolve();
+        return {
+            beforeDispose,
+            afterDispose,
+            afterLateEvents: calls.slice(),
+            removedChannels,
+            channelNames: channels.map((channel) => channel.name),
+        };
+    });
+
+    assert.deepEqual(result.channelNames, [
+        'room:room-1',
+        'room:room-1:updates',
+        'room:room-1:annotations',
+        'room:room-1:messages',
+    ], 'Collab smoke: unexpected realtime channel set');
+    assert.ok(result.beforeDispose.includes('message:broadcast:broadcast-message'), 'Collab smoke: broadcast message did not fire before dispose');
+    assert.ok(result.beforeDispose.includes('annotation:realtime:annotation-row'), 'Collab smoke: realtime annotation did not fire before dispose');
+    assert.ok(result.beforeDispose.includes('room:room-1'), 'Collab smoke: room update did not fire before dispose');
+    assert.ok(result.afterDispose.includes('connection:off:DISPOSED'), 'Collab smoke: dispose did not emit connection close');
+    assert.deepEqual(result.removedChannels, result.channelNames, 'Collab smoke: dispose did not remove all realtime channels');
+    assert.deepEqual(result.afterLateEvents, result.afterDispose, 'Collab smoke: stale realtime callbacks fired after dispose');
+    diagnostics.assertNoErrors('Collab realtime dispose smoke');
+    await page.close();
+}
+
 const smokeServer = await createStaticServer();
 const browser = await chromium.launch({
     headless: true,
@@ -205,6 +617,12 @@ try {
     console.log('Boot smoke passed.');
     await runRoomEntrySmoke(browser, smokeServer.baseUrl);
     console.log('Room-entry smoke passed.');
+    await runDisposeReinitSmoke(browser, smokeServer.baseUrl);
+    console.log('Dispose/reinit smoke passed.');
+    await runFileFlowFailureSmoke(browser, smokeServer.baseUrl);
+    console.log('File-flow failure smoke passed.');
+    await runCollabRealtimeDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Collab realtime dispose smoke passed.');
 } finally {
     await browser.close();
     await smokeServer.close();
