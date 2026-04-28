@@ -62,6 +62,7 @@ export function createMaterialsPanelController(options = {}) {
         }
         panelState.ungroupedMarker = null;
         needsFullRefresh = false;
+        rebuildMaterialsDropdown();
     }
 
     function scheduleRefresh(afterRender) {

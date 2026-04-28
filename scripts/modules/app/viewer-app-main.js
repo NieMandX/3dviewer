@@ -3519,6 +3519,7 @@ export class ViewerApp {
 
             if (removedModels.length) {
                 lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
+                materialsPanel?.markNeedsFullRefresh?.();
             }
 
             if (removedEntries.length) {
@@ -3646,6 +3647,7 @@ export class ViewerApp {
                 });
 
             });
+            environmentWiring.invalidateMaterialRegistry?.();
         }
 
         function cleanupRoomModelScopedAssets({ roomId = '', modelId = '' } = {}) {
@@ -3685,6 +3687,7 @@ export class ViewerApp {
                 const keptModels = loadedModels.filter((record) => !scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId));
                 loadedModels.splice(0, loadedModels.length, ...keptModels);
                 lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
+                materialsPanel?.markNeedsFullRefresh?.();
             }
 
             if (roomTextureEntries.length) {

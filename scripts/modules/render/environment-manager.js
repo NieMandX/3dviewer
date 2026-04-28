@@ -84,6 +84,7 @@ export function createEnvironmentManager(options = {}) {
     }
 
     function invalidateMaterialRegistry() {
+        envMaterials.clear();
         envMaterialsDirty = true;
         envMaterialsKey = '';
     }

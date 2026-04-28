@@ -2068,6 +2068,89 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runMaterialsPanelRemovalSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createMaterialsPanelController } = await import('/scripts/modules/ui/materials-panel.js');
+
+        const world = new THREE.Group();
+        const loadedModels = [];
+        const outEl = document.createElement('div');
+        const matSelect = document.createElement('select');
+        document.body.append(outEl, matSelect);
+
+        const panel = createMaterialsPanelController({
+            world,
+            loadedModels,
+            outEl,
+            matSelect,
+            requestRender: () => {},
+        });
+
+        const flushPanel = async () => {
+            panel.scheduleRefresh();
+            await Promise.resolve();
+            await Promise.resolve();
+        };
+
+        const createModel = (label) => {
+            const root = new THREE.Group();
+            root.name = `${label}-root`;
+            const mesh = new THREE.Mesh(
+                new THREE.BoxGeometry(1, 1, 1),
+                new THREE.MeshStandardMaterial({ name: `${label}-material` })
+            );
+            mesh.name = `${label}-mesh`;
+            root.add(mesh);
+            world.add(root);
+            const record = { obj: root, name: `${label}.fbx` };
+            loadedModels.push(record);
+            return record;
+        };
+
+        const first = createModel('first');
+        await flushPanel();
+        const firstPanelText = outEl.textContent || '';
+        const firstOptions = matSelect.options.length;
+
+        loadedModels.splice(0, loadedModels.length);
+        world.remove(first.obj);
+        panel.markNeedsFullRefresh();
+        await flushPanel();
+        const afterRemovalText = outEl.textContent || '';
+        const afterRemovalOptions = matSelect.options.length;
+
+        createModel('second');
+        await flushPanel();
+        const secondPanelText = outEl.textContent || '';
+        const secondOptions = matSelect.options.length;
+
+        return {
+            firstRendered: firstPanelText.includes('first.fbx') && firstPanelText.includes('first-material'),
+            firstOptions,
+            stalePanelCleared: !afterRemovalText.includes('first.fbx') && !afterRemovalText.includes('first-material'),
+            afterRemovalOptions,
+            secondRendered: secondPanelText.includes('second.fbx') && secondPanelText.includes('second-material'),
+            oldModelStillAbsent: !secondPanelText.includes('first.fbx') && !secondPanelText.includes('first-material'),
+            secondOptions,
+        };
+    });
+
+    assert.equal(result.firstRendered, true, 'Materials panel removal smoke: first model was not rendered');
+    assert.equal(result.firstOptions, 2, 'Materials panel removal smoke: first material dropdown not populated');
+    assert.equal(result.stalePanelCleared, true, 'Materials panel removal smoke: removed model stayed in panel DOM');
+    assert.equal(result.afterRemovalOptions, 1, 'Materials panel removal smoke: removed model stayed in material dropdown');
+    assert.equal(result.secondRendered, true, 'Materials panel removal smoke: second model was not rendered');
+    assert.equal(result.oldModelStillAbsent, true, 'Materials panel removal smoke: stale model was mixed with new model');
+    assert.equal(result.secondOptions, 2, 'Materials panel removal smoke: second material dropdown not populated');
+    diagnostics.assertNoErrors('Materials panel removal smoke');
+    await page.close();
+}
+
 const smokeServer = await createStaticServer();
 const browser = await chromium.launch({
     headless: true,
@@ -2109,6 +2192,8 @@ try {
     console.log('VPM autobind lifecycle smoke passed.');
     await runEnvironmentLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Environment lifecycle smoke passed.');
+    await runMaterialsPanelRemovalSmoke(browser, smokeServer.baseUrl);
+    console.log('Materials panel removal smoke passed.');
 } finally {
     await browser.close();
     await smokeServer.close();
