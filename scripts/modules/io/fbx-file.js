@@ -206,7 +206,7 @@ export function createFBXFileHandler(options = {}) {
         if (!obj) {
             setStatusMessage(`Ошибка парсинга: ${file.name}`);
             logBind(`⚠️ Парсер FBX вернул пустой объект для ${file.name}`, 'warn');
-            return;
+            throw new Error(`FBX parser returned empty object for ${file.name}`);
         }
 
         throwIfAborted(obj);
@@ -329,6 +329,18 @@ export function createFBXFileHandler(options = {}) {
         throwIfAborted(obj);
         world?.add?.(obj);
 
+        const modelRecord = {
+            obj,
+            name: file.name,
+            group: groupName || null,
+            zipKind: zipKind || null,
+            geojson: zipMeta || null,
+            orientation: orientationInfo || null,
+            orientationType,
+            normalizedOrientationType,
+        };
+        loadedModels.push(modelRecord);
+
         restoreLightTargetsFromOrientation(obj);
         disableShadowsOnImportedLights(obj);
         ensureLightHelpers(obj);
@@ -366,16 +378,6 @@ export function createFBXFileHandler(options = {}) {
             splitAllMeshesByUDIM_SM(obj);
         }
         optimizeGlassMeshes(obj);
-        loadedModels.push({
-            obj,
-            name: file.name,
-            group: groupName || null,
-            zipKind: zipKind || null,
-            geojson: zipMeta || null,
-            orientation: orientationInfo || null,
-            orientationType,
-            normalizedOrientationType,
-        });
         obj.userData.zipGroup = groupName || null;
         obj.userData.zipKind = zipKind || null;
 

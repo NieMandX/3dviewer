@@ -17,18 +17,41 @@ export function createFileFlowController(options = {}) {
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
     const getLoadedModelCount = typeof options.getLoadedModelCount === 'function' ? options.getLoadedModelCount : () => 0;
 
+    const cleanupFns = [];
+
     function registerFileOpenTrigger(el) {
         if (!el || !fileInput) return;
-        el.addEventListener('click', () => fileInput.click());
+        const handler = () => fileInput.click();
+        el.addEventListener('click', handler);
+        cleanupFns.push(() => el.removeEventListener('click', handler));
     }
 
     async function handleFiles(files) {
+        const errors = [];
         for (const f of files) {
-            if (/\.fbx$/i.test(f.name)) {
-                await handleFBXFile(f);
-            } else if (/\.zip$/i.test(f.name)) {
-                await handleZIPFile(f);
+            try {
+                if (/\.fbx$/i.test(f.name)) {
+                    await handleFBXFile(f);
+                } else if (/\.zip$/i.test(f.name)) {
+                    await handleZIPFile(f);
+                }
+            } catch (err) {
+                errors.push({ file: f, error: err });
+                console.error(`File import failed: ${f?.name || 'unknown'}`, err);
             }
+        }
+        return errors;
+    }
+
+    async function runFileBatch(files, { resetInput = false } = {}) {
+        if (!files.length) return [];
+        setEmptyHintVisible(false);
+        try {
+            return await handleFiles(files);
+        } finally {
+            if (resetInput && fileInput) fileInput.value = '';
+            setEmptyHintVisible(getLoadedModelCount() === 0);
+            await finalizeBatchAfterAllFiles();
         }
     }
 
@@ -47,31 +70,34 @@ export function createFileFlowController(options = {}) {
     registerFileOpenTrigger(emptyHintEl);
 
     if (fileInput) {
-        fileInput.addEventListener('change', async (e) => {
+        const handleFileInputChange = async (e) => {
             const files = [...(e.target.files || [])];
-            setEmptyHintVisible(false);
-            await handleFiles(files);
-            if (fileInput) fileInput.value = '';
-            setEmptyHintVisible(getLoadedModelCount() === 0);
-            await finalizeBatchAfterAllFiles();
-        });
+            await runFileBatch(files, { resetInput: true });
+        };
+        fileInput.addEventListener('change', handleFileInputChange);
+        cleanupFns.push(() => fileInput.removeEventListener('change', handleFileInputChange));
     }
 
     populateSampleSelect();
     if (sampleSelect) {
-        sampleSelect.addEventListener('change', async () => {
+        const handleSampleChange = async () => {
             const idx = sampleSelect.selectedIndex;
             const sample = sampleModels[idx];
             if (!sample || !sample.files || !sample.files.length) return;
             onSampleChosen(sample);
             await loadSampleModel(sample);
-        });
+        };
+        sampleSelect.addEventListener('change', handleSampleChange);
+        cleanupFns.push(() => sampleSelect.removeEventListener('change', handleSampleChange));
     }
 
     const dragTargets = [window, document, document?.body, rootEl, dropEl].filter(Boolean);
     let dragHoverCount = 0;
     const addDragListener = (type, handler) => {
-        dragTargets.forEach(target => target.addEventListener(type, handler, { passive: false }));
+        dragTargets.forEach((target) => {
+            target.addEventListener(type, handler, { passive: false });
+            cleanupFns.push(() => target.removeEventListener(type, handler));
+        });
     };
 
     const isFileDrag = (e) => {
@@ -115,9 +141,7 @@ export function createFileFlowController(options = {}) {
         e.stopPropagation();
         dragHoverCount = 0;
         if (dropEl) dropEl.classList.remove('show');
-        setEmptyHintVisible(false);
-        await handleFiles(files);
-        await finalizeBatchAfterAllFiles();
+        await runFileBatch(files);
     };
 
     addDragListener('dragenter', handleDragEnter);
@@ -125,7 +149,18 @@ export function createFileFlowController(options = {}) {
     addDragListener('dragleave', handleDragLeave);
     addDragListener('drop', handleDrop);
 
+    function dispose() {
+        cleanupFns.splice(0).forEach((cleanup) => {
+            try {
+                cleanup();
+            } catch (_) {}
+        });
+        dragHoverCount = 0;
+        if (dropEl) dropEl.classList.remove('show');
+    }
+
     return {
         populateSampleSelect,
+        dispose,
     };
 }

@@ -51,5 +51,6 @@ export function createInspectorPanels(options = {}) {
         renderGallery: texturesUi?.renderGallery,
         schedulePanelRefresh,
         syncCollisionButtons,
+        dispose: () => texturesUi?.dispose?.(),
     });
 }

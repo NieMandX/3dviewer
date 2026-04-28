@@ -91,25 +91,38 @@ export function createTextureModalController(options = {}) {
         if (!textureLoader) return;
         const slot = slotSelectEl?.value || 'map';
         const linear = !(slot === 'map' || slot === 'emissiveMap');
+        const humanName = basename(modalTex.full || modalTex.short);
+
+        // делаем PBR-эквивалент и назначаем карту на НОВЫЙ материал
+        let std = toStandard(link.mat);
+
+        let prevTex = null;
+        if (slot === 'roughnessMap') prevTex = std.roughnessMap || null;
+        else if (slot === 'metalnessMap') prevTex = std.metalnessMap || null;
+        else if (slot === 'alphaMap') prevTex = std.alphaMap || null;
+        else prevTex = std[slot] || null;
+
+        const existingName = prevTex && (prevTex.userData?.origName || prevTex.name || '').toLowerCase();
+        const newName = humanName.toLowerCase();
+        if (existingName && existingName === newName) {
+            logBind(`${modalTex.short} → ${std.name || 'материал'}.${slot} уже назначена`, 'info');
+            return;
+        }
 
         const t = textureLoader.load(modalTex.url);
-        const humanName = basename(modalTex.full || modalTex.short);
         t.name = humanName;
         (t.userData ||= {}).origName = humanName;
         if (linearColorSpace && srgbColorSpace) {
             t.colorSpace = linear ? linearColorSpace : srgbColorSpace;
         }
 
-        // делаем PBR-эквивалент и назначаем карту на НОВЫЙ материал
-        let std = toStandard(link.mat);
-
-        let prevTex = null;
-        if (slot === 'roughnessMap') { prevTex = std.roughnessMap || null; std.roughnessMap = t; std.roughness = 0.6; }
-        else if (slot === 'metalnessMap') { prevTex = std.metalnessMap || null; std.metalnessMap = t; std.metalness = 1.0; }
-        else if (slot === 'alphaMap') { prevTex = std.alphaMap || null; std.alphaMap = t; std.alphaTest = 0.5; std.transparent = false; std.depthWrite = true; }
-        else { prevTex = std[slot] || null; std[slot] = t; }
+        if (slot === 'roughnessMap') { std.roughnessMap = t; std.roughness = 0.6; }
+        else if (slot === 'metalnessMap') { std.metalnessMap = t; std.metalness = 1.0; }
+        else if (slot === 'alphaMap') { std.alphaMap = t; std.alphaTest = 0.5; std.transparent = false; std.depthWrite = true; }
+        else { std[slot] = t; }
 
         copyTextureSettings(prevTex, t);
+        if (prevTex) prevTex.dispose?.();
 
         const env = getEnvironment();
         if (env) {
@@ -132,19 +145,28 @@ export function createTextureModalController(options = {}) {
         logBind(`${modalTex.short} → ${std.name || 'материал'}.${slot}`, 'ok');
     }
 
+    const handleModalClick = (e) => {
+        if (e.target === texModalEl) close();
+    };
+
     if (closeBtnEl) closeBtnEl.addEventListener('click', close);
     if (texModalEl) {
-        texModalEl.addEventListener('click', (e) => {
-            if (e.target === texModalEl) close();
-        });
+        texModalEl.addEventListener('click', handleModalClick);
     }
     if (bindBtnEl) bindBtnEl.addEventListener('click', bindSelected);
+
+    function dispose() {
+        if (closeBtnEl) closeBtnEl.removeEventListener('click', close);
+        if (texModalEl) texModalEl.removeEventListener('click', handleModalClick);
+        if (bindBtnEl) bindBtnEl.removeEventListener('click', bindSelected);
+        modalTex = null;
+    }
 
     return Object.freeze({
         open,
         close,
         bindSelected,
+        dispose,
         getEntry: () => modalTex,
     });
 }
-

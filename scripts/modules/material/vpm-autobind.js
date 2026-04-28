@@ -52,6 +52,15 @@ export function createVPMBinder(options = {}) {
         };
     }
 
+    function disposeCustomShadowMaterials(obj) {
+        obj?.customDepthMaterial?.dispose?.();
+        obj?.customDistanceMaterial?.dispose?.();
+        if (obj) {
+            obj.customDepthMaterial = undefined;
+            obj.customDistanceMaterial = undefined;
+        }
+    }
+
     /**
      * Строит индекс T_* текстур, присутствующих в ZIP, сгруппированных по ключу FBX.
      * Формат: Map<fbxKey, Map<`${slot}.${udim}`, { Diffuse, Normal, ERM }>>
@@ -237,6 +246,7 @@ export function createVPMBinder(options = {}) {
                     if (isWebGL2()) mat.alphaToCoverage = true;
 
                     const common = { map: mat.map, alphaTest: mat.alphaTest, side: THREE.FrontSide };
+                    disposeCustomShadowMaterials(o);
                     o.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, ...common });
                     o.customDistanceMaterial = new THREE.MeshDistanceMaterial(common);
                 }

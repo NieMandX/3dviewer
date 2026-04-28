@@ -48,5 +48,6 @@ export function createFileFlowUIController(options = {}) {
     return {
         loadSampleModel: sampleLoader.loadSampleModel,
         populateSampleSelect: fileFlow.populateSampleSelect,
+        dispose: fileFlow.dispose,
     };
 }

@@ -96,5 +96,6 @@ export function createTexturesUI(options = {}) {
         textureModal,
         textureGallery,
         renderGallery,
+        dispose: () => textureModal?.dispose?.(),
     };
 }

@@ -485,6 +485,8 @@ class ViewerApp {
 		        let glassController = null;
 		        let materialsPanel = null;
 		        let appbarVisibilityToggles = null;
+		        let fileFlowUI = null;
+		        let inspectorPanels = null;
 		        let schedulePanelRefreshImpl = () => {};
 		        let syncCollisionButtonsImpl = () => {
 		            appbarVisibilityToggles?.enforceSuppressionIfNeeded?.();
@@ -3375,11 +3377,49 @@ class ViewerApp {
             }
         }
 
+        function cleanupImportedRange({ modelStart = 0, embeddedStart = 0 } = {}) {
+            const safeModelStart = Math.max(0, Math.min(Number(modelStart) || 0, loadedModels.length));
+            const safeEmbeddedStart = Math.max(0, Math.min(Number(embeddedStart) || 0, allEmbedded.length));
+            const removedModels = loadedModels.splice(safeModelStart);
+            const removedEntries = allEmbedded.splice(safeEmbeddedStart);
+
+            removedModels.forEach((record) => {
+                const obj = record?.obj || null;
+                try { obj?.parent?.remove?.(obj); } catch (_) {}
+                disposeImportedObjectTree(obj);
+            });
+
+            removedEntries.forEach((entry) => revokeEmbeddedEntryUrl(entry));
+
+            if (removedModels.length) {
+                lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
+            }
+
+            if (removedEntries.length) {
+                galleryNeedsRefresh = false;
+                renderGallery(allEmbedded);
+            }
+
+            if (removedModels.length || removedEntries.length) {
+                markSceneStatsDirty();
+                schedulePanelRefresh();
+                setEmptyHintVisible(loadedModels.length === 0 && !isRoomEntryLandingActive());
+                requestRender();
+            }
+
+            return removedModels.length > 0 || removedEntries.length > 0;
+        }
+
         async function runImportWithScope(scope, loadFn) {
             const modelStart = loadedModels.length;
             const embeddedStart = allEmbedded.length;
             try {
+                assignImportScopeToRange({ modelStart, embeddedStart, scope });
                 return await loadFn();
+            } catch (err) {
+                assignImportScopeToRange({ modelStart, embeddedStart, scope });
+                cleanupImportedRange({ modelStart, embeddedStart });
+                throw err;
             } finally {
                 assignImportScopeToRange({ modelStart, embeddedStart, scope });
             }
@@ -3435,6 +3475,13 @@ class ViewerApp {
                     asMaterialArray(child?.userData?.[key]).forEach((material) => {
                         disposeMaterial(material, { disposeTextures: false });
                     });
+                });
+
+                asMaterialArray(child?.customDepthMaterial).forEach((material) => {
+                    disposeMaterial(material, { disposeTextures: false });
+                });
+                asMaterialArray(child?.customDistanceMaterial).forEach((material) => {
+                    disposeMaterial(material, { disposeTextures: false });
                 });
 
                 asMaterialArray(child?.material).forEach((material) => {
@@ -3901,7 +3948,7 @@ class ViewerApp {
 			        // =====================================================================
 			        // UI · Materials Panel & Gallery
 			        // =====================================================================
-			        const inspectorPanels = createInspectorPanels({
+			        inspectorPanels = createInspectorPanels({
 			            THREE,
 			            dom,
 			            world,
@@ -4098,6 +4145,7 @@ class ViewerApp {
         const nonRetryableModelSyncKeys = new Set();
         let isRemoteModelLoad = false;
         let remoteModelLoadGeneration = 0;
+        let isSyncingLocalModels = false;
         let activeRoomModelId = '';
         const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 16 * 1024 * 1024;
         const RESUMABLE_UPLOAD_CHUNK_BYTES = 6 * 1024 * 1024;
@@ -4260,11 +4308,11 @@ class ViewerApp {
         }
 
         async function uploadModelToProject(file, options = {}) {
-            if (!collabController || !file) return null;
-            const supabase = collabController.supabase;
+            const supabase = options.supabase || collabController?.supabase || null;
+            if (!supabase || !file) return null;
             const bucket = supabase.storage.from('models');
             const safeName = String(file.name || 'model.zip').replace(/\s+/g, '_');
-            const projectId = collabController.project?.id || 'project';
+            const projectId = options.projectId || collabController?.project?.id || 'project';
             const path = `projects/${projectId}/${Date.now()}-${safeName}`;
             const useResumable = Number(file.size || 0) > RESUMABLE_UPLOAD_THRESHOLD_BYTES;
             if (useResumable) {
@@ -4287,10 +4335,11 @@ class ViewerApp {
             };
         }
 
-        async function cleanupUploadedModelObject(path) {
-            if (!collabController || !path) return;
+        async function cleanupUploadedModelObject(path, supabaseClient = null) {
+            const supabase = supabaseClient || collabController?.supabase || collabSupabase || null;
+            if (!supabase || !path) return;
             try {
-                await removeModelStorageObjects([path], collabController.supabase);
+                await removeModelStorageObjects([path], supabase);
             } catch (err) {
                 console.error('Model storage cleanup failed', err);
             }
@@ -4327,39 +4376,86 @@ class ViewerApp {
             await removeModelStorageObjects(paths, collabSupabase);
         }
 
-        async function cleanupSyncedModelArtifacts({ modelRowId = '', uploadedPath = '' } = {}) {
-            if (collabController && modelRowId) {
+        async function cleanupSyncedModelArtifacts({ modelRowId = '', uploadedPath = '', supabaseClient = null, roomId = '' } = {}) {
+            const supabase = supabaseClient || collabController?.supabase || collabSupabase || null;
+            let canRemoveStorage = !modelRowId;
+            if (supabase && modelRowId) {
+                if (roomId) {
+                    try {
+                        const { error: roomError } = await supabase
+                            .from('rooms')
+                            .update({ active_model_id: null })
+                            .eq('id', roomId)
+                            .eq('active_model_id', modelRowId);
+                        if (roomError) console.error('Room active model cleanup failed', roomError);
+                    } catch (err) {
+                        console.error('Room active model cleanup failed', err);
+                    }
+                }
                 try {
-                    const { error } = await collabController.supabase
+                    let roomModelsDelete = supabase
+                        .from('room_models')
+                        .delete()
+                        .eq('model_id', modelRowId);
+                    if (roomId) roomModelsDelete = roomModelsDelete.eq('room_id', roomId);
+                    const { error: roomModelError } = await roomModelsDelete;
+                    if (roomModelError) console.error('Room model link cleanup failed', roomModelError);
+                } catch (err) {
+                    console.error('Room model link cleanup failed', err);
+                }
+                try {
+                    const { error } = await supabase
                         .from('project_models')
                         .delete()
                         .eq('id', modelRowId);
-                    if (!error) return;
-                    console.error('Project model cleanup failed', error);
-                    return;
+                    if (error) {
+                        console.error('Project model cleanup failed', error);
+                    } else {
+                        canRemoveStorage = true;
+                    }
                 } catch (err) {
                     console.error('Project model cleanup failed', err);
-                    return;
                 }
             }
-            if (uploadedPath) {
-                await cleanupUploadedModelObject(uploadedPath);
+            if (uploadedPath && canRemoveStorage) {
+                await cleanupUploadedModelObject(uploadedPath, supabase);
             }
         }
 
-        async function syncModelToRoom(file) {
-            if (!collabController || !file || isRemoteModelLoad) return false;
+        async function syncModelToRoom(file, options = {}) {
+            const controller = options.controller || collabController;
+            const supabase = controller?.supabase || null;
+            const roomId = String(options.roomId || controller?.room?.id || '');
+            const projectId = String(options.projectId || controller?.project?.id || '');
+            const generation = Number.isFinite(options.generation) ? options.generation : roomLoadGeneration;
+            const isCurrent = () => (
+                !!controller
+                && controller === collabController
+                && !!roomId
+                && !!projectId
+                && isActiveRoomLoad(generation, roomId)
+            );
+            if (!controller || !supabase || !file || isRemoteModelLoad || !isCurrent()) return false;
             let shouldKeepStatusMessage = false;
             let uploadedPath = '';
             let createdModelRowId = '';
-            const setSyncStatus = (message) => setStatusMessage(`Синхронизация: ${message}`);
+            const throwIfStale = () => {
+                if (!isCurrent()) throw makeRoomLoadAbortError('Model sync superseded');
+            };
+            const setSyncStatus = (message) => {
+                if (isCurrent()) setStatusMessage(`Синхронизация: ${message}`);
+            };
             try {
+                throwIfStale();
                 setSyncStatus('загрузка модели…');
                 const uploadResult = await uploadModelToProject(file, {
+                    supabase,
+                    projectId,
                     onProgress: (percent) => setSyncStatus(`загрузка ${percent}%…`),
                 });
                 const url = uploadResult?.url || '';
                 uploadedPath = uploadResult?.path || '';
+                throwIfStale();
                 if (!url) {
                     throw new Error('Uploaded model URL is empty.');
                 }
@@ -4371,10 +4467,10 @@ class ViewerApp {
                     storagePath: uploadedPath,
                 };
                 setSyncStatus('запись модели в проект…');
-                const { data: modelRow, error: modelError } = await collabController.supabase
+                const { data: modelRow, error: modelError } = await supabase
                     .from('project_models')
                     .insert({
-                        project_id: collabController.project.id,
+                        project_id: projectId,
                         name: file.name || 'model.zip',
                         url,
                         meta,
@@ -4382,43 +4478,60 @@ class ViewerApp {
                     .select('*')
                     .single();
                 if (modelError) throw modelError;
-                createdModelRowId = modelRow.id;
+                createdModelRowId = modelRow?.id || '';
+                if (!createdModelRowId) throw new Error('Project model insert returned empty id.');
+                loadedRoomModelIds.add(createdModelRowId);
+                throwIfStale();
 
                 setSyncStatus('привязка модели к комнате…');
-                const { data: roomModelRow, error: roomModelError } = await collabController.supabase
+                const { data: roomModelRow, error: roomModelError } = await supabase
                     .from('room_models')
                     .insert({
-                        room_id: collabController.room.id,
-                        project_id: collabController.project.id,
+                        room_id: roomId,
+                        project_id: projectId,
                         model_id: modelRow.id,
                         sort_order: roomModelCount,
                     })
                     .select('model_id')
                     .single();
                 if (roomModelError) throw roomModelError;
+                throwIfStale();
                 if (!roomModelRow?.model_id) {
                     throw new Error('Room model link was not persisted.');
                 }
 
                 setSyncStatus('обновление активной модели…');
-                const { data: updatedRoomRow, error: activeModelError } = await collabController.supabase
+                activeRoomModelId = modelRow.id;
+                const { data: updatedRoomRow, error: activeModelError } = await supabase
                     .from('rooms')
                     .update({ active_model_id: modelRow.id })
-                    .eq('id', collabController.room.id)
+                    .eq('id', roomId)
                     .select('id, active_model_id')
                     .single();
                 if (activeModelError) throw activeModelError;
+                throwIfStale();
                 if (updatedRoomRow?.active_model_id !== modelRow.id) {
                     throw new Error('Room active model was not updated.');
                 }
 
-                activeRoomModelId = modelRow.id;
-                loadedRoomModelIds.add(modelRow.id);
                 roomModelCount += 1;
                 setStatusMessage('готово: модель синхронизирована');
                 shouldKeepStatusMessage = true;
                 return true;
             } catch (err) {
+                if (isAbortError(err) || !isCurrent()) {
+                    if (createdModelRowId) {
+                        loadedRoomModelIds.delete(createdModelRowId);
+                        if (activeRoomModelId === createdModelRowId) activeRoomModelId = '';
+                    }
+                    await cleanupSyncedModelArtifacts({
+                        modelRowId: createdModelRowId,
+                        uploadedPath,
+                        supabaseClient: supabase,
+                        roomId,
+                    });
+                    return false;
+                }
                 if (isModelSyncFileTooLargeError(err)) {
                     const key = getModelFileKey(file);
                     if (key) nonRetryableModelSyncKeys.add(key);
@@ -4430,43 +4543,79 @@ class ViewerApp {
                     shouldKeepStatusMessage = true;
                 }
                 console.error('Model sync failed', err);
+                if (createdModelRowId) {
+                    loadedRoomModelIds.delete(createdModelRowId);
+                    if (activeRoomModelId === createdModelRowId) activeRoomModelId = '';
+                }
                 await cleanupSyncedModelArtifacts({
                     modelRowId: createdModelRowId,
                     uploadedPath,
+                    supabaseClient: supabase,
+                    roomId,
                 });
                 return false;
             } finally {
-                if (!shouldKeepStatusMessage) setStatusMessage('');
+                if (!shouldKeepStatusMessage && isCurrent()) setStatusMessage('');
             }
         }
 
         async function syncPendingLocalModels({ onlyIfRoomEmpty = false } = {}) {
-            if (!collabController || isRemoteModelLoad) return false;
+            if (isSyncingLocalModels) return false;
+            const controller = collabController;
+            const roomId = String(controller?.room?.id || '');
+            const projectId = String(controller?.project?.id || '');
+            const generation = roomLoadGeneration;
+            const isCurrent = () => (
+                !!controller
+                && controller === collabController
+                && !!roomId
+                && !!projectId
+                && isActiveRoomLoad(generation, roomId)
+            );
+            if (!controller || isRemoteModelLoad || !isCurrent()) return false;
             if (onlyIfRoomEmpty && collabRoomModelsPresent()) return false;
             if (!pendingLocalModelFiles.length) return false;
             let syncedAny = false;
-            const files = pendingLocalModelFiles.slice();
-            pendingLocalModelFiles.length = 0;
-            pendingLocalModelKeys.clear();
-            const failed = [];
-            for (const file of files) {
-                const synced = await syncModelToRoom(file);
-                if (synced) {
-                    syncedAny = true;
-                } else {
-                    const key = getModelFileKey(file);
-                    if (!key || !nonRetryableModelSyncKeys.has(key)) {
-                        failed.push(file);
+            isSyncingLocalModels = true;
+            try {
+                while (pendingLocalModelFiles.length && isCurrent() && !isRemoteModelLoad) {
+                    if (onlyIfRoomEmpty && collabRoomModelsPresent()) break;
+                    const files = pendingLocalModelFiles.slice();
+                    pendingLocalModelFiles.length = 0;
+                    pendingLocalModelKeys.clear();
+                    const failed = [];
+                    for (const file of files) {
+                        if (!isCurrent() || isRemoteModelLoad) {
+                            failed.length = 0;
+                            break;
+                        }
+                        const synced = await syncModelToRoom(file, {
+                            controller,
+                            roomId,
+                            projectId,
+                            generation,
+                        });
+                        if (synced) {
+                            syncedAny = true;
+                        } else if (isCurrent()) {
+                            const key = getModelFileKey(file);
+                            if (!key || !nonRetryableModelSyncKeys.has(key)) {
+                                failed.push(file);
+                            }
+                        }
+                    }
+                    if (failed.length) {
+                        for (const file of failed) {
+                            const key = getModelFileKey(file);
+                            if (!key || pendingLocalModelKeys.has(key)) continue;
+                            pendingLocalModelKeys.add(key);
+                            pendingLocalModelFiles.push(file);
+                        }
+                        break;
                     }
                 }
-            }
-            if (failed.length) {
-                for (const file of failed) {
-                    const key = getModelFileKey(file);
-                    if (!key || pendingLocalModelKeys.has(key)) continue;
-                    pendingLocalModelKeys.add(key);
-                    pendingLocalModelFiles.push(file);
-                }
+            } finally {
+                isSyncingLocalModels = false;
             }
             return syncedAny;
         }
@@ -4609,6 +4758,8 @@ class ViewerApp {
 
                             const row = payload.new;
                             if (!row?.model_id) return;
+                            const alreadyLoaded = loadedRoomModelIds.has(row.model_id);
+                            if (alreadyLoaded) return;
                             roomModelCount += 1;
                             const { data: modelRow, error: modelError } = await collabController.supabase
                                 .from('project_models')
@@ -5047,7 +5198,7 @@ class ViewerApp {
 	        // =====================
 	        const fileInput = dom.fileInput;
 	        const openBtn = dom.openBtn;
-        const fileFlowUI = createFileFlowUIController({
+        fileFlowUI = createFileFlowUIController({
             statusEl,
             fileInput,
             openBtn,
@@ -5171,6 +5322,8 @@ class ViewerApp {
 	            try { annotations3d?.dispose?.(); } catch (_) {}
 	            try { cameraPresets?.dispose?.(); } catch (_) {}
 	            try { cameraPickController?.dispose?.(); } catch (_) {}
+	            try { fileFlowUI?.dispose?.(); } catch (_) {}
+	            try { inspectorPanels?.dispose?.(); } catch (_) {}
 	            try { shadingController?.disposeUI?.(); } catch (_) {}
 	            try { environmentWiring?.dispose?.(); } catch (_) {}
 	            try { layoutController?.dispose?.(); } catch (_) {}

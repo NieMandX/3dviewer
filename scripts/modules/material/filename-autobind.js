@@ -165,13 +165,7 @@ export function createFilenameBinder(options = {}) {
             cacheOriginalMaterialFor(target.obj, true);
 
             const currentTexture = m[slot] || null;
-            const t = textureLoader.load(tex.url);
             const humanName = basename(tex.full || tex.short);
-            t.name = humanName;
-            (t.userData ||= {}).origName = humanName;
-            t.colorSpace = (slot === 'map' || slot === 'emissiveMap') ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;
-            t.userData.autoBound = true;
-
             const existingName = currentTexture && (currentTexture.userData?.origName || currentTexture.name || '').toLowerCase();
             const newName = humanName.toLowerCase();
             const sameTexture = currentTexture && existingName && existingName === newName;
@@ -184,6 +178,12 @@ export function createFilenameBinder(options = {}) {
                 logBind(`ℹ️ ${tex.short} — слот ${slot} уже содержит эту карту`, 'info');
                 return;
             }
+
+            const t = textureLoader.load(tex.url);
+            t.name = humanName;
+            (t.userData ||= {}).origName = humanName;
+            t.colorSpace = (slot === 'map' || slot === 'emissiveMap') ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;
+            t.userData.autoBound = true;
 
             copyTextureSettings(currentTexture, t);
 
@@ -220,4 +220,3 @@ export function createFilenameBinder(options = {}) {
 
     return { autoBindByNamesForModel };
 }
-
