@@ -48,7 +48,8 @@ async function createStaticServer() {
                     {
                         "imports": {
                             "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
-                            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+                            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
+                            "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.4/build/index.module.js"
                         }
                     }
                     </script>`);
@@ -216,7 +217,10 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     await page.addInitScript(() => {
         const nativeAdd = EventTarget.prototype.addEventListener;
         const nativeRemove = EventTarget.prototype.removeEventListener;
+        const nativeSetTimeout = window.setTimeout.bind(window);
+        const nativeClearTimeout = window.clearTimeout.bind(window);
         const registry = new WeakMap();
+        const activeTimeouts = new Set();
 
         function captureFlag(options) {
             if (options === true) return true;
@@ -261,6 +265,24 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
             return nativeRemove.call(this, type, listener, options);
         };
 
+        window.setTimeout = function patchedSetTimeout(handler, delay = 0, ...args) {
+            const token = nativeSetTimeout((...cbArgs) => {
+                activeTimeouts.delete(token);
+                if (typeof handler === 'function') {
+                    handler(...cbArgs);
+                } else {
+                    (0, eval)(String(handler || ''));
+                }
+            }, delay, ...args);
+            activeTimeouts.add(token);
+            return token;
+        };
+
+        window.clearTimeout = function patchedClearTimeout(token) {
+            activeTimeouts.delete(token);
+            return nativeClearTimeout(token);
+        };
+
         globalThis.__lpmSmokeListenerCount = (targetRef, type) => {
             let target = null;
             if (targetRef === 'window') target = window;
@@ -270,6 +292,7 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
             if (!target) return 0;
             return getTargetEntries(target, String(type || ''), false)?.length || 0;
         };
+        globalThis.__lpmSmokeActiveTimeoutCount = () => activeTimeouts.size;
     });
 
     const diagnostics = attachPageDiagnostics(page);
@@ -406,6 +429,7 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
                 total + dragTypes.reduce((sum, type) => sum + count(target, type), 0)
             ), 0),
             canvasCount: document.querySelectorAll('canvas').length,
+            activeTimeoutCount: globalThis.__lpmSmokeActiveTimeoutCount?.() || 0,
         };
     });
 
@@ -585,6 +609,7 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(afterFirstDispose.annoVisibleClick, 0, 'Dispose smoke: annotation visibility listener leaked after dispose');
     assert.equal(afterFirstDispose.annoDrawClick, 0, 'Dispose smoke: annotation draw listener leaked after dispose');
     assert.equal(afterFirstDispose.dragListeners, 0, 'Dispose smoke: file drop listeners leaked after dispose');
+    assert.equal(afterFirstDispose.activeTimeoutCount, 0, 'Dispose smoke: app timeout leaked after dispose');
     assertNoLifecycleListeners(afterFirstDispose, 'after dispose');
 
     await page.evaluate(async () => {
@@ -634,7 +659,477 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     await page.evaluate(async () => {
         await globalThis.viewerApp.dispose();
     });
+    const afterSecondDispose = await readCounts();
+    assert.equal(afterSecondDispose.activeTimeoutCount, 0, 'Dispose smoke: app timeout leaked after second dispose');
     diagnostics.assertNoErrors('Dispose/reinit smoke');
+    await page.close();
+}
+
+async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createRenderer } = await import('/scripts/modules/render/renderer-init.js');
+
+        class FakeWebGLRenderer {
+            constructor() {
+                this.domElement = document.createElement('canvas');
+                this.info = { autoReset: true };
+                this.shadowMap = { type: null };
+                this.calls = [];
+            }
+            setAnimationLoop(callback) {
+                this.calls.push(callback === null ? 'loop:null' : 'loop:set');
+            }
+            dispose() {
+                this.calls.push('dispose');
+            }
+            forceContextLoss() {
+                this.calls.push('forceContextLoss');
+            }
+            setPixelRatio(value) {
+                this.calls.push(`pixel:${value}`);
+            }
+        }
+
+        const THREE = {
+            WebGLRenderer: FakeWebGLRenderer,
+            PCFSoftShadowMap: 'pcf-soft',
+            SRGBColorSpace: 'srgb',
+            NoToneMapping: 'none',
+        };
+
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        const webgl = createRenderer({ THREE, rootEl: root });
+        const webglRenderer = webgl.renderer;
+        const appendedBeforeDispose = root.contains(webglRenderer.domElement);
+        webgl.dispose();
+        webgl.dispose();
+
+        let resolveInit = null;
+        class FakeWebGPURenderer extends FakeWebGLRenderer {
+            init() {
+                this.calls.push('init');
+                return new Promise((resolve) => {
+                    resolveInit = resolve;
+                });
+            }
+        }
+
+        const webgpuEvents = [];
+        const webgpuRoot = document.createElement('div');
+        document.body.appendChild(webgpuRoot);
+        const webgpu = createRenderer({
+            THREE,
+            rootEl: webgpuRoot,
+            useWebGPU: true,
+            WebGPURendererCtor: FakeWebGPURenderer,
+            requestRender: () => webgpuEvents.push('render'),
+            setStatusMessage: (message) => webgpuEvents.push(`status:${message}`),
+        });
+        const webgpuRenderer = webgpu.renderer;
+        const readyBeforeDispose = webgpu.getRendererReady();
+        webgpu.dispose();
+        resolveInit();
+        await webgpu.rendererInitPromise;
+
+        return {
+            appendedBeforeDispose,
+            webglRemoved: !root.contains(webglRenderer.domElement),
+            webglCalls: webglRenderer.calls,
+            webglAutoResetDisabled: webglRenderer.info.autoReset === false,
+            webglShadowType: webglRenderer.shadowMap.type,
+            webgpuReadyBeforeDispose: readyBeforeDispose,
+            webgpuReadyAfterLateInit: webgpu.getRendererReady(),
+            webgpuRemoved: !webgpuRoot.contains(webgpuRenderer.domElement),
+            webgpuCalls: webgpuRenderer.calls,
+            webgpuEvents,
+        };
+    });
+
+    assert.equal(result.appendedBeforeDispose, true, 'Renderer dispose smoke: canvas was not appended');
+    assert.equal(result.webglRemoved, true, 'Renderer dispose smoke: canvas stayed in DOM after dispose');
+    assert.equal(result.webglAutoResetDisabled, true, 'Renderer dispose smoke: renderer info autoReset was not disabled');
+    assert.equal(result.webglShadowType, 'pcf-soft', 'Renderer dispose smoke: WebGL shadow map type was not configured');
+    assert.deepEqual(
+        result.webglCalls.filter((entry) => entry === 'loop:null'),
+        ['loop:null'],
+        'Renderer dispose smoke: animation loop was not cleared exactly once',
+    );
+    assert.deepEqual(
+        result.webglCalls.filter((entry) => entry === 'dispose'),
+        ['dispose'],
+        'Renderer dispose smoke: renderer.dispose was not idempotent',
+    );
+    assert.deepEqual(
+        result.webglCalls.filter((entry) => entry === 'forceContextLoss'),
+        ['forceContextLoss'],
+        'Renderer dispose smoke: WebGL context was not released exactly once',
+    );
+    assert.equal(result.webgpuReadyBeforeDispose, false, 'Renderer dispose smoke: WebGPU renderer was ready before init');
+    assert.equal(result.webgpuReadyAfterLateInit, false, 'Renderer dispose smoke: disposed WebGPU renderer became ready after late init');
+    assert.equal(result.webgpuRemoved, true, 'Renderer dispose smoke: WebGPU canvas stayed in DOM after dispose');
+    assert.deepEqual(result.webgpuEvents, [], 'Renderer dispose smoke: disposed late WebGPU init fired callbacks');
+    assert.deepEqual(
+        result.webgpuCalls.filter((entry) => entry === 'dispose'),
+        ['dispose'],
+        'Renderer dispose smoke: WebGPU renderer dispose was not idempotent',
+    );
+    diagnostics.assertNoErrors('Renderer dispose lifecycle smoke');
+    await page.close();
+}
+
+async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createAnnotations3DController } = await import('/scripts/modules/annotations/annotations-3d.js');
+
+        const nativeRaf = globalThis.requestAnimationFrame;
+        const nativeGeometryDispose = THREE.BufferGeometry.prototype.dispose;
+        const nativeMaterialDispose = THREE.Material.prototype.dispose;
+        const rafCallbacks = [];
+        let geometryDisposed = 0;
+        let materialDisposed = 0;
+        let queueWaits = 0;
+        let renderCount = 0;
+
+        globalThis.requestAnimationFrame = (callback) => {
+            rafCallbacks.push(callback);
+            return rafCallbacks.length;
+        };
+        THREE.BufferGeometry.prototype.dispose = function patchedGeometryDispose(...args) {
+            geometryDisposed += 1;
+            return nativeGeometryDispose.apply(this, args);
+        };
+        THREE.Material.prototype.dispose = function patchedMaterialDispose(...args) {
+            materialDisposed += 1;
+            return nativeMaterialDispose.apply(this, args);
+        };
+
+        try {
+            const world = new THREE.Group();
+            const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+            camera.position.set(0, 0, 5);
+            const canvas = document.createElement('canvas');
+            document.body.appendChild(canvas);
+            const controls = { enabled: true };
+            const renderer = {
+                isWebGPURenderer: true,
+                info: { render: { frame: 100 } },
+                device: {
+                    queue: {
+                        onSubmittedWorkDone: () => {
+                            queueWaits += 1;
+                            return Promise.resolve();
+                        },
+                    },
+                },
+            };
+
+            const controller = createAnnotations3DController({
+                THREE,
+                world,
+                camera,
+                controls,
+                renderer,
+                annotateCanvasEl: canvas,
+                requestRender: () => {
+                    renderCount += 1;
+                },
+            });
+
+            const record = {
+                id: 'anno-1',
+                kind: 'path',
+                payload: {
+                    coordSpace: 'world',
+                    points: [[0, 0, 0], [1, 0, 0]],
+                    style: { color: '#ffcc00', width: 3, dash: 'solid' },
+                },
+                author_id: 'peer-1',
+                author_name: 'Peer',
+            };
+            const stroke = controller.addRemoteAnnotation(record);
+            const added = !!stroke && world.children[0]?.name === 'Annotations';
+            const removed = controller.removeRemoteAnnotation('anno-1');
+            const deferredBeforeDispose = removed
+                && geometryDisposed === 0
+                && materialDisposed === 0
+                && rafCallbacks.length > 0;
+
+            controller.setEnabled(true);
+            const canvasActiveBeforeDispose = canvas.classList.contains('active');
+            controller.dispose();
+            controller.dispose();
+            const renderCountAfterDispose = renderCount;
+            const geometryDisposedAfterDispose = geometryDisposed;
+            const materialDisposedAfterDispose = materialDisposed;
+
+            const lateRecord = {
+                ...record,
+                id: 'anno-late',
+                payload: {
+                    ...record.payload,
+                    points: [[0, 1, 0], [1, 1, 0]],
+                },
+            };
+            const lateAdd = controller.addRemoteAnnotation(lateRecord);
+            const lateRemove = controller.removeRemoteAnnotation('anno-late');
+            const lateSetEnabled = controller.setEnabled(true);
+            const lateSetVisible = controller.setVisible(true);
+            controller.setAuthorVisibility('peer-1', false);
+            controller.setPinVisibility('peer-1', false);
+            controller.refreshAuthorVisibility('peer-1');
+            controller.refreshPinVisibility('peer-1');
+            controller.applyWorldOffsetDelta(new THREE.Vector3(1, 0, 0));
+
+            const callbacks = rafCallbacks.slice();
+            callbacks.forEach((callback, index) => callback(1000 + index));
+            await Promise.resolve();
+            await Promise.resolve();
+
+            return {
+                added,
+                deferredBeforeDispose,
+                canvasActiveBeforeDispose,
+                rootRemoved: controller.getRoot().parent == null,
+                canvasInactiveAfterDispose: !canvas.classList.contains('active'),
+                controlsRestored: controls.enabled === true,
+                geometryDisposedAfterDispose,
+                materialDisposedAfterDispose,
+                geometryDisposedAfterLateCallbacks: geometryDisposed,
+                materialDisposedAfterLateCallbacks: materialDisposed,
+                queueWaits,
+                renderUnchangedAfterLateCalls: renderCount === renderCountAfterDispose,
+                lateAddIsNull: lateAdd == null,
+                lateRemove,
+                lateSetEnabled,
+                lateSetVisible,
+                worldChildCount: world.children.length,
+            };
+        } finally {
+            globalThis.requestAnimationFrame = nativeRaf;
+            THREE.BufferGeometry.prototype.dispose = nativeGeometryDispose;
+            THREE.Material.prototype.dispose = nativeMaterialDispose;
+        }
+    });
+
+    assert.equal(result.added, true, 'Annotations dispose smoke: remote annotation was not added');
+    assert.equal(result.deferredBeforeDispose, true, 'Annotations dispose smoke: WebGPU disposal was not deferred before dispose');
+    assert.equal(result.canvasActiveBeforeDispose, true, 'Annotations dispose smoke: draw mode did not activate canvas');
+    assert.equal(result.rootRemoved, true, 'Annotations dispose smoke: annotations root stayed attached after dispose');
+    assert.equal(result.canvasInactiveAfterDispose, true, 'Annotations dispose smoke: canvas stayed active after dispose');
+    assert.equal(result.controlsRestored, true, 'Annotations dispose smoke: controls were not restored on dispose');
+    assert.ok(result.geometryDisposedAfterDispose > 0, 'Annotations dispose smoke: deferred geometries were not flushed on dispose');
+    assert.ok(result.materialDisposedAfterDispose > 0, 'Annotations dispose smoke: deferred materials were not flushed on dispose');
+    assert.equal(result.geometryDisposedAfterLateCallbacks, result.geometryDisposedAfterDispose, 'Annotations dispose smoke: stale RAF disposed geometry twice');
+    assert.equal(result.materialDisposedAfterLateCallbacks, result.materialDisposedAfterDispose, 'Annotations dispose smoke: stale RAF disposed material twice');
+    assert.equal(result.queueWaits, 0, 'Annotations dispose smoke: stale RAF reached WebGPU queue after dispose');
+    assert.equal(result.renderUnchangedAfterLateCalls, true, 'Annotations dispose smoke: late calls requested render after dispose');
+    assert.equal(result.lateAddIsNull, true, 'Annotations dispose smoke: late remote annotation was accepted after dispose');
+    assert.equal(result.lateRemove, false, 'Annotations dispose smoke: late remove succeeded after dispose');
+    assert.equal(result.lateSetEnabled, false, 'Annotations dispose smoke: late setEnabled succeeded after dispose');
+    assert.equal(result.lateSetVisible, false, 'Annotations dispose smoke: late setVisible succeeded after dispose');
+    assert.equal(result.worldChildCount, 0, 'Annotations dispose smoke: disposed annotations left world children behind');
+    diagnostics.assertNoErrors('Annotations dispose lifecycle smoke');
+    await page.close();
+}
+
+async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createCameraPresetsController } = await import('/scripts/modules/ui/camera-presets.js');
+
+        const nativeRaf = globalThis.requestAnimationFrame;
+        const nativeCancelRaf = globalThis.cancelAnimationFrame;
+        const rafCallbacks = new Map();
+        let nextRafId = 1;
+
+        globalThis.requestAnimationFrame = (callback) => {
+            const id = nextRafId++;
+            rafCallbacks.set(id, callback);
+            return id;
+        };
+        globalThis.cancelAnimationFrame = (id) => {
+            rafCallbacks.delete(id);
+        };
+
+        function makeDom() {
+            const root = document.createElement('div');
+            const toggle = document.createElement('button');
+            const bar = document.createElement('div');
+            const barList = document.createElement('div');
+            const sideList = document.createElement('div');
+            const count = document.createElement('span');
+            root.append(toggle, bar, barList, sideList, count);
+            document.body.appendChild(root);
+            return { root, toggle, bar, barList, sideList, count };
+        }
+
+        function makeHarness(extra = {}) {
+            const dom = makeDom();
+            const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+            camera.position.set(0, 0, 5);
+            const events = [];
+            const controls = {
+                enabled: true,
+                enableDamping: true,
+                target: new THREE.Vector3(0, 0, 0),
+                update: () => events.push('controls:update'),
+            };
+            const controller = createCameraPresetsController({
+                THREE,
+                camera,
+                controls,
+                annotationsEnabled: false,
+                camsToggleBtn: dom.toggle,
+                camsBarEl: dom.bar,
+                camsBarListEl: dom.barList,
+                camsSideListEl: dom.sideList,
+                camsCountEl: dom.count,
+                requestRender: () => events.push('render'),
+                requestLayout: () => events.push('layout'),
+                ...extra,
+            });
+            return { ...dom, camera, controls, controller, events };
+        }
+
+        const presets = [
+            {
+                id: 'cam-a',
+                name: 'A',
+                isDefault: true,
+                position: [0, 0, 5],
+                target: [0, 0, 0],
+                up: [0, 1, 0],
+                fov: 60,
+                zoom: 1,
+                near: 0.1,
+                far: 1000,
+            },
+            {
+                id: 'cam-b',
+                name: 'B',
+                position: [5, 0, 5],
+                target: [1, 0, 0],
+                up: [0, 1, 0],
+                fov: 45,
+                zoom: 1,
+                near: 0.1,
+                far: 1000,
+            },
+        ];
+
+        try {
+            const play = makeHarness();
+            play.controller.loadState({
+                presets,
+                transitions: [{
+                    fromId: 'cam-a',
+                    toId: 'cam-b',
+                    seconds: 1,
+                    type: 'linear',
+                    trajectory: 'linear',
+                }],
+                activeId: 'cam-a',
+                lastCreatedId: 'cam-a',
+            });
+
+            const playButton = play.barList.querySelector('[data-action="play"]');
+            playButton?.click?.();
+            await Promise.resolve();
+            const controlsDisabledDuringPlay = play.controls.enabled === false && play.controls.enableDamping === false;
+            const pendingRafBeforeDispose = rafCallbacks.size;
+            const staleCallbacks = Array.from(rafCallbacks.values());
+            play.controller.dispose();
+            await Promise.resolve();
+            await Promise.resolve();
+            const controlsRestoredAfterDispose = play.controls.enabled === true && play.controls.enableDamping === true;
+            const pendingRafAfterDispose = rafCallbacks.size;
+            const eventsAfterDispose = play.events.length;
+            staleCallbacks.forEach((callback, index) => callback(1000 + index));
+            await Promise.resolve();
+
+            const lateApply = play.controller.applyPreset(presets[1]);
+            const lateAdd = play.controller.addFromSnapshot({
+                position: [9, 9, 9],
+                target: [0, 0, 0],
+                up: [0, 1, 0],
+                fov: 35,
+                zoom: 1,
+                near: 0.1,
+                far: 1000,
+            }, 'Late');
+            const lateLoad = play.controller.loadState({
+                presets: [presets[1]],
+                transitions: [],
+                activeId: 'cam-b',
+            });
+            const lateUpdate = play.controller.updateLastCreatedFromCurrentView();
+            const lateMutationEvents = play.events.length === eventsAfterDispose;
+
+            let resolvePrompt = null;
+            const promptHarness = makeHarness({
+                promptCameraName: () => new Promise((resolve) => {
+                    resolvePrompt = resolve;
+                }),
+            });
+            const promptStartCount = promptHarness.controller.getPresets().length;
+            const addPromise = promptHarness.controller.addFromCurrentView();
+            await Promise.resolve();
+            promptHarness.controller.dispose();
+            resolvePrompt?.('Late Camera');
+            const promptAddResult = await addPromise;
+            await Promise.resolve();
+            const promptEndCount = promptHarness.controller.getPresets().length;
+
+            return {
+                controlsDisabledDuringPlay,
+                pendingRafBeforeDispose,
+                controlsRestoredAfterDispose,
+                pendingRafAfterDispose,
+                staleCallbacksDidNotRender: play.events.length === eventsAfterDispose,
+                lateApply,
+                lateAddIsNull: lateAdd == null,
+                lateLoad,
+                lateUpdate,
+                lateMutationEvents,
+                presetCountAfterLateCalls: play.controller.getPresets().length,
+                promptStartCount,
+                promptAddIsNull: promptAddResult == null,
+                promptEndCount,
+            };
+        } finally {
+            globalThis.requestAnimationFrame = nativeRaf;
+            globalThis.cancelAnimationFrame = nativeCancelRaf;
+        }
+    });
+
+    assert.equal(result.controlsDisabledDuringPlay, true, 'Camera presets smoke: controls were not disabled during transition playback');
+    assert.ok(result.pendingRafBeforeDispose > 0, 'Camera presets smoke: transition did not schedule RAF');
+    assert.equal(result.controlsRestoredAfterDispose, true, 'Camera presets smoke: controls were not restored after dispose during playback');
+    assert.equal(result.pendingRafAfterDispose, 0, 'Camera presets smoke: transition RAF was not cancelled on dispose');
+    assert.equal(result.staleCallbacksDidNotRender, true, 'Camera presets smoke: stale transition callback rendered after dispose');
+    assert.equal(result.lateApply, false, 'Camera presets smoke: applyPreset mutated after dispose');
+    assert.equal(result.lateAddIsNull, true, 'Camera presets smoke: addFromSnapshot succeeded after dispose');
+    assert.equal(result.lateLoad, false, 'Camera presets smoke: loadState succeeded after dispose');
+    assert.equal(result.lateUpdate, false, 'Camera presets smoke: updateLastCreatedFromCurrentView succeeded after dispose');
+    assert.equal(result.lateMutationEvents, true, 'Camera presets smoke: late public calls emitted events after dispose');
+    assert.equal(result.presetCountAfterLateCalls, 2, 'Camera presets smoke: late public calls changed preset state after dispose');
+    assert.equal(result.promptAddIsNull, true, 'Camera presets smoke: pending add prompt resolved into a preset after dispose');
+    assert.equal(result.promptEndCount, result.promptStartCount, 'Camera presets smoke: pending add prompt changed preset count after dispose');
+    diagnostics.assertNoErrors('Camera presets lifecycle smoke');
     await page.close();
 }
 
@@ -716,6 +1211,238 @@ async function runFileFlowFailureSmoke(browser, baseUrl) {
     assert.equal(result.fileInputValue, '', 'File-flow smoke: file input value was not reset');
     assert.equal(result.dropVisible, false, 'File-flow smoke: drop overlay stayed visible after dispose');
     diagnostics.assertNoErrors('File-flow failure smoke');
+    await page.close();
+}
+
+async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createSampleLoader } = await import('/scripts/modules/io/sample-loader.js');
+        const { createFileFlowController } = await import('/scripts/modules/io/file-flow.js');
+
+        const makeAbortError = (message = 'aborted') => {
+            try {
+                return new DOMException(message, 'AbortError');
+            } catch (_) {
+                const err = new Error(message);
+                err.name = 'AbortError';
+                return err;
+            }
+        };
+
+        const nativeFetch = globalThis.fetch;
+        const sampleEvents = [];
+        let sampleFetchSignal = null;
+        globalThis.fetch = (_url, options = {}) => new Promise((_resolve, reject) => {
+            sampleFetchSignal = options.signal || null;
+            sampleFetchSignal?.addEventListener?.('abort', () => {
+                reject(sampleFetchSignal.reason || makeAbortError('sample aborted'));
+            }, { once: true });
+        });
+
+        try {
+            const statusEl = document.createElement('div');
+            const sampleSelect = document.createElement('select');
+            sampleSelect.appendChild(new Option('Sample', '/slow.zip'));
+            document.body.append(statusEl, sampleSelect);
+
+            const sampleLoader = createSampleLoader({
+                statusEl,
+                sampleSelect,
+                setStatusMessage: (message) => sampleEvents.push(`status:${message}`),
+                setEmptyHintVisible: (visible) => sampleEvents.push(`hint:${!!visible}`),
+                hideSidePanel: () => sampleEvents.push('hide'),
+                handleZIPFile: async () => sampleEvents.push('zip'),
+                finalizeBatchAfterAllFiles: async () => sampleEvents.push('finalize'),
+                getLoadedModelCount: () => 0,
+            });
+
+            const samplePromise = sampleLoader.loadSampleModel({
+                label: 'Sample',
+                files: ['/slow.zip'],
+            });
+            for (let i = 0; i < 20 && !sampleFetchSignal; i += 1) {
+                await Promise.resolve();
+            }
+            const sampleDisabledDuringLoad = sampleSelect.disabled;
+            sampleLoader.dispose();
+            const sampleSignalAborted = !!sampleFetchSignal?.aborted;
+            const sampleResult = await samplePromise;
+            const sampleAfterDisposeResult = await sampleLoader.loadSampleModel({
+                label: 'Late',
+                files: ['/late.zip'],
+            });
+
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            const openBtn = document.createElement('button');
+            const emptyHint = document.createElement('button');
+            const root = document.createElement('div');
+            const drop = document.createElement('div');
+            document.body.append(fileInput, openBtn, emptyHint, root, drop);
+
+            const flowEvents = [];
+            let flowSignal = null;
+            const fileFlow = createFileFlowController({
+                fileInput,
+                openBtn,
+                emptyHintEl: emptyHint,
+                rootEl: root,
+                dropEl: drop,
+                sampleSelect: null,
+                sampleModels: [],
+                handleFBXFile: async () => flowEvents.push('fbx'),
+                handleZIPFile: async (_file, options = {}) => {
+                    flowEvents.push('zip:start');
+                    flowSignal = options?.signal || null;
+                    await new Promise((_resolve, reject) => {
+                        flowSignal?.addEventListener?.('abort', () => {
+                            flowEvents.push('zip:abort');
+                            reject(flowSignal.reason || makeAbortError('batch aborted'));
+                        }, { once: true });
+                    });
+                },
+                finalizeBatchAfterAllFiles: async () => flowEvents.push('finalize'),
+                setEmptyHintVisible: (visible) => flowEvents.push(`hint:${!!visible}`),
+                getLoadedModelCount: () => 0,
+            });
+
+            Object.defineProperty(fileInput, 'files', {
+                configurable: true,
+                value: [new File([new Uint8Array([1])], 'model.zip', { type: 'application/zip' })],
+            });
+            fileInput.dispatchEvent(new Event('change'));
+            for (let i = 0; i < 20 && !flowSignal; i += 1) {
+                await Promise.resolve();
+            }
+            drop.classList.add('show');
+            fileFlow.dispose();
+            await Promise.resolve();
+            await Promise.resolve();
+            const flowSignalAborted = !!flowSignal?.aborted;
+            const flowDropCleared = !drop.classList.contains('show');
+            const flowEventsAfterDispose = flowEvents.slice();
+
+            Object.defineProperty(fileInput, 'files', {
+                configurable: true,
+                value: [new File([new Uint8Array([2])], 'late.zip', { type: 'application/zip' })],
+            });
+            fileInput.dispatchEvent(new Event('change'));
+            await Promise.resolve();
+
+            return {
+                sampleDisabledDuringLoad,
+                sampleSignalAborted,
+                sampleResult,
+                sampleAfterDisposeResult,
+                sampleSelectReenabled: sampleSelect.disabled === false,
+                sampleSelectReset: sampleSelect.value === '',
+                sampleZipCalled: sampleEvents.includes('zip'),
+                sampleFinalizeCalled: sampleEvents.includes('finalize'),
+                sampleAbortShowedError: sampleEvents.some((entry) => entry.includes('Ошибка загрузки примера')),
+                flowSignalAborted,
+                flowDropCleared,
+                flowEventsAfterDispose,
+                flowEvents,
+                flowFinalizeCalled: flowEvents.includes('finalize'),
+            };
+        } finally {
+            globalThis.fetch = nativeFetch;
+        }
+    });
+
+    assert.equal(result.sampleDisabledDuringLoad, true, 'File-flow dispose smoke: sample select was not disabled during load');
+    assert.equal(result.sampleSignalAborted, true, 'File-flow dispose smoke: sample fetch was not aborted on dispose');
+    assert.equal(result.sampleResult, false, 'File-flow dispose smoke: disposed sample load did not resolve false');
+    assert.equal(result.sampleAfterDisposeResult, false, 'File-flow dispose smoke: sample loader accepted load after dispose');
+    assert.equal(result.sampleSelectReenabled, true, 'File-flow dispose smoke: sample select stayed disabled after dispose');
+    assert.equal(result.sampleSelectReset, true, 'File-flow dispose smoke: sample select value was not reset after dispose');
+    assert.equal(result.sampleZipCalled, false, 'File-flow dispose smoke: sample ZIP handler ran after dispose');
+    assert.equal(result.sampleFinalizeCalled, false, 'File-flow dispose smoke: sample finalize ran after dispose');
+    assert.equal(result.sampleAbortShowedError, false, 'File-flow dispose smoke: sample abort showed an error status');
+    assert.equal(result.flowSignalAborted, true, 'File-flow dispose smoke: active file batch was not aborted on dispose');
+    assert.equal(result.flowDropCleared, true, 'File-flow dispose smoke: drop overlay stayed visible after dispose');
+    assert.deepEqual(result.flowEventsAfterDispose, ['hint:false', 'zip:start', 'zip:abort'], 'File-flow dispose smoke: unexpected active batch events after dispose');
+    assert.deepEqual(result.flowEvents, result.flowEventsAfterDispose, 'File-flow dispose smoke: disposed file input still handled changes');
+    assert.equal(result.flowFinalizeCalled, false, 'File-flow dispose smoke: file batch finalize ran after dispose');
+    diagnostics.assertNoErrors('File-flow dispose lifecycle smoke');
+    await page.close();
+}
+
+async function runTextureModalStaleEntrySmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createTextureModalController } = await import('/scripts/modules/ui/texture-modal.js');
+
+        const modal = document.createElement('div');
+        const closeBtn = document.createElement('button');
+        const img = document.createElement('img');
+        const title = document.createElement('div');
+        const file = document.createElement('div');
+        const kind = document.createElement('div');
+        const mime = document.createElement('div');
+        const dl = document.createElement('a');
+        const bind = document.createElement('button');
+        const slot = document.createElement('select');
+        const mat = document.createElement('select');
+        modal.append(closeBtn, img, title, file, kind, mime, dl, bind, slot, mat);
+        document.body.appendChild(modal);
+
+        const controller = createTextureModalController({
+            texModalEl: modal,
+            closeBtnEl: closeBtn,
+            imgEl: img,
+            titleEl: title,
+            fileEl: file,
+            kindEl: kind,
+            mimeEl: mime,
+            downloadLinkEl: dl,
+            bindBtnEl: bind,
+            slotSelectEl: slot,
+            matSelectEl: mat,
+            basename: (value) => String(value || '').split('/').pop(),
+            guessKindFromName: () => 'base',
+        });
+
+        const staleEntry = {
+            short: 'old_base.png',
+            full: 'textures/old_base.png',
+            url: 'blob:old-texture',
+            mime: 'image/png',
+        };
+        controller.open(staleEntry);
+        const opened = modal.classList.contains('show') && controller.getEntry() === staleEntry;
+
+        controller.reconcileEntries([{ short: 'other.png', full: 'textures/other.png', url: 'blob:other' }]);
+        const cleared = !modal.classList.contains('show')
+            && controller.getEntry() == null
+            && !img.hasAttribute('src')
+            && !dl.hasAttribute('href');
+
+        const liveEntry = {
+            short: 'live_base.png',
+            full: 'textures/live_base.png',
+            url: 'blob:live-texture',
+            mime: 'image/png',
+        };
+        controller.open(liveEntry);
+        controller.reconcileEntries([{ ...liveEntry }]);
+        const kept = modal.classList.contains('show') && controller.getEntry() === liveEntry;
+
+        controller.dispose();
+        return { opened, cleared, kept };
+    });
+
+    assert.equal(result.opened, true, 'Texture modal stale smoke: entry did not open');
+    assert.equal(result.cleared, true, 'Texture modal stale smoke: removed gallery entry stayed active');
+    assert.equal(result.kept, true, 'Texture modal stale smoke: live gallery entry was cleared');
+    diagnostics.assertNoErrors('Texture modal stale entry smoke');
     await page.close();
 }
 
@@ -1166,6 +1893,175 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
     assert.deepEqual(result.afterDisposeCalls, result.beforeDisposeCalls, 'Camera sync smoke: disposed controller still reacted to controls/remote state');
     assert.deepEqual(result.cameraPosition, [1, 2, 3], 'Camera sync smoke: disposed controller applied remote camera state');
     diagnostics.assertNoErrors('Camera sync lifecycle smoke');
+    await page.close();
+}
+
+async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createVRController } = await import('/scripts/modules/vr/vr-controller.js');
+
+        class FakeSession extends EventTarget {
+            constructor(label) {
+                super();
+                this.label = label;
+                this.inputSources = [];
+                this.ended = 0;
+                this.removedEndListeners = 0;
+            }
+            removeEventListener(type, handler, opts) {
+                if (type === 'end') this.removedEndListeners += 1;
+                return super.removeEventListener(type, handler, opts);
+            }
+            end() {
+                this.ended += 1;
+                this.dispatchEvent(new Event('end'));
+                return Promise.resolve();
+            }
+        }
+
+        function makeRenderer(ref, events) {
+            const xr = {
+                enabled: false,
+                isPresenting: false,
+                getSession: () => ref.current,
+                getController: () => null,
+                getControllerGrip: () => null,
+                setReferenceSpaceType: (type) => events.push(`reference:${type}`),
+                setSession: async (session) => {
+                    events.push(`setSession:${session?.label || 'null'}`);
+                    ref.current = session;
+                    xr.isPresenting = !!session;
+                },
+                updateCamera: () => {},
+            };
+            return { xr };
+        }
+
+        function makeHarness(label, xrApi) {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+            camera.position.set(0, 1.6, 4);
+            scene.add(camera);
+            const sessionRef = { current: null };
+            const events = [];
+            const controls = {
+                enabled: true,
+                target: new THREE.Vector3(0, 1.6, 0),
+                update: () => events.push(`${label}:controls:update`),
+            };
+            const button = document.createElement('button');
+            document.body.appendChild(button);
+            const controller = createVRController({
+                THREE,
+                scene,
+                renderer: makeRenderer(sessionRef, events),
+                camera,
+                controls,
+                vrToggleBtn: button,
+                window: { navigator: { xr: xrApi, userAgent: 'Smoke' } },
+                document,
+                requestRender: () => events.push(`${label}:render`),
+            });
+            return { scene, camera, controls, button, controller, sessionRef, events };
+        }
+
+        const activeSession = new FakeSession('active');
+        let activeRequestCount = 0;
+        const active = makeHarness('active', {
+            isSessionSupported: async () => true,
+            requestSession: async () => {
+                activeRequestCount += 1;
+                return activeSession;
+            },
+        });
+        const entered = await active.controller.enterVR();
+        const activeCameraInRig = active.camera.parent?.name === 'XRUserRig';
+        const activeControlsDisabled = active.controls.enabled === false;
+        const bodyClassDuringVR = document.body.classList.contains('vr-ui-active');
+        active.controller.dispose();
+        const activeRequestCountBeforeClick = activeRequestCount;
+        active.button.click();
+        await Promise.resolve();
+
+        let releasePendingSession = null;
+        let pendingRequestCount = 0;
+        const pendingSession = new FakeSession('pending');
+        const requestStarted = new Promise((resolve) => {
+            const pending = makeHarness('pending', {
+                isSessionSupported: async () => true,
+                requestSession: async () => {
+                    pendingRequestCount += 1;
+                    resolve(pending);
+                    return new Promise((sessionResolve) => {
+                        releasePendingSession = () => sessionResolve(pendingSession);
+                    });
+                },
+            });
+            globalThis.__vrPendingHarness = pending;
+            void pending.controller.enterVR().then((value) => {
+                pending.events.push(`enterResult:${value}`);
+            });
+        });
+        const pending = await requestStarted;
+        const pendingCameraInRigBeforeDispose = pending.camera.parent?.name === 'XRUserRig';
+        pending.controller.dispose();
+        releasePendingSession();
+        for (let i = 0; i < 10 && !pending.events.includes('enterResult:false'); i += 1) {
+            await Promise.resolve();
+        }
+        delete globalThis.__vrPendingHarness;
+
+        return {
+            entered,
+            activeCameraInRig,
+            activeControlsDisabled,
+            bodyClassDuringVR,
+            activeSessionEnded: activeSession.ended,
+            activeEndListenerRemoved: activeSession.removedEndListeners > 0,
+            activeCameraRestored: active.camera.parent === active.scene,
+            activeRigRemoved: active.scene.getObjectByName('XRUserRig') == null,
+            activeControlsRestored: active.controls.enabled === true,
+            activeBodyClassCleared: !document.body.classList.contains('vr-ui-active'),
+            activeRequestCountBeforeClick,
+            activeRequestCountAfterClick: activeRequestCount,
+            activeIsPresentingAfterDispose: active.controller.isPresenting(),
+            pendingRequestCount,
+            pendingCameraInRigBeforeDispose,
+            pendingSessionEnded: pendingSession.ended,
+            pendingSetSessionCalled: pending.events.some((entry) => entry.startsWith('setSession:')),
+            pendingCameraRestored: pending.camera.parent === pending.scene,
+            pendingRigRemoved: pending.scene.getObjectByName('XRUserRig') == null,
+            pendingEnterResolvedFalse: pending.events.includes('enterResult:false'),
+            pendingControlsRestored: pending.controls.enabled === true,
+        };
+    });
+
+    assert.equal(result.entered, true, 'VR dispose smoke: active session did not enter');
+    assert.equal(result.activeCameraInRig, true, 'VR dispose smoke: camera was not attached to XR rig');
+    assert.equal(result.activeControlsDisabled, true, 'VR dispose smoke: controls stayed enabled during VR');
+    assert.equal(result.bodyClassDuringVR, true, 'VR dispose smoke: body VR class was not set');
+    assert.equal(result.activeSessionEnded, 1, 'VR dispose smoke: active session was not ended on dispose');
+    assert.equal(result.activeEndListenerRemoved, true, 'VR dispose smoke: active end listener was not removed on dispose');
+    assert.equal(result.activeCameraRestored, true, 'VR dispose smoke: camera stayed attached to XR rig after dispose');
+    assert.equal(result.activeRigRemoved, true, 'VR dispose smoke: XR rig stayed in scene after dispose');
+    assert.equal(result.activeControlsRestored, true, 'VR dispose smoke: controls were not restored after dispose');
+    assert.equal(result.activeBodyClassCleared, true, 'VR dispose smoke: body VR class stayed after dispose');
+    assert.equal(result.activeRequestCountAfterClick, result.activeRequestCountBeforeClick, 'VR dispose smoke: disposed button listener started a new session');
+    assert.equal(result.activeIsPresentingAfterDispose, false, 'VR dispose smoke: disposed controller still reports presenting');
+    assert.equal(result.pendingRequestCount, 1, 'VR dispose smoke: pending session request did not start');
+    assert.equal(result.pendingCameraInRigBeforeDispose, true, 'VR dispose smoke: pending enter did not attach camera before request');
+    assert.equal(result.pendingSessionEnded, 1, 'VR dispose smoke: pending session was not ended after dispose');
+    assert.equal(result.pendingSetSessionCalled, false, 'VR dispose smoke: disposed pending session was still installed on renderer');
+    assert.equal(result.pendingCameraRestored, true, 'VR dispose smoke: pending dispose did not restore camera');
+    assert.equal(result.pendingRigRemoved, true, 'VR dispose smoke: pending dispose left XR rig in scene');
+    assert.equal(result.pendingEnterResolvedFalse, true, 'VR dispose smoke: pending enter did not resolve false after dispose');
+    assert.equal(result.pendingControlsRestored, true, 'VR dispose smoke: pending dispose did not restore controls');
+    diagnostics.assertNoErrors('VR dispose lifecycle smoke');
     await page.close();
 }
 
@@ -2170,14 +3066,26 @@ try {
     console.log('Room-entry smoke passed.');
     await runDisposeReinitSmoke(browser, smokeServer.baseUrl);
     console.log('Dispose/reinit smoke passed.');
+    await runRendererDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Renderer dispose lifecycle smoke passed.');
+    await runAnnotationsDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Annotations dispose lifecycle smoke passed.');
+    await runCameraPresetsLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Camera presets lifecycle smoke passed.');
     await runFileFlowFailureSmoke(browser, smokeServer.baseUrl);
     console.log('File-flow failure smoke passed.');
+    await runFileFlowDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('File-flow dispose lifecycle smoke passed.');
+    await runTextureModalStaleEntrySmoke(browser, smokeServer.baseUrl);
+    console.log('Texture modal stale entry smoke passed.');
     await runCollabRealtimeDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Collab realtime dispose smoke passed.');
     await runCollabInitFailureCleanupSmoke(browser, smokeServer.baseUrl);
     console.log('Collab init-failure cleanup smoke passed.');
     await runCameraSyncLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Camera sync lifecycle smoke passed.');
+    await runVRDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('VR dispose lifecycle smoke passed.');
     await runRoomModelLoadQueueSmoke(browser, smokeServer.baseUrl);
     console.log('Room model load queue smoke passed.');
     await runDeferredRealtimeReloadSmoke(browser, smokeServer.baseUrl);

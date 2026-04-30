@@ -106,6 +106,7 @@ export function createCameraPresetsController(options = {}) {
     let suppressChange = false;
     let disposed = false;
     let transitionRafToken = 0;
+    let transitionAbort = null;
     const cleanupFns = [];
 
     function addListener(target, type, handler, options) {
@@ -131,6 +132,23 @@ export function createCameraPresetsController(options = {}) {
         } else {
             clearTimeout(token);
         }
+    }
+
+    function cancelActiveTransition() {
+        if (transitionRafToken) {
+            cancelAnimationFrameSafe(transitionRafToken);
+            transitionRafToken = 0;
+        }
+        const abort = transitionAbort;
+        transitionAbort = null;
+        abort?.();
+    }
+
+    function stopPlayback({ updateUi = true } = {}) {
+        playToken += 1;
+        playing = false;
+        cancelActiveTransition();
+        if (updateUi && !disposed) render();
     }
 
     const tmpVec3 = THREE ? new THREE.Vector3() : null;
@@ -415,6 +433,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function loadState(state = {}) {
+        if (disposed) return false;
         const nextPresets = Array.isArray(state.presets) ? state.presets : null;
         if (!nextPresets) return false;
         suppressChange = true;
@@ -1044,6 +1063,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function applyPreset(preset) {
+        if (disposed) return false;
         if (!preset || !camera || !controls) return false;
 
         const pos = Array.isArray(preset.position) ? preset.position : null;
@@ -1108,6 +1128,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function setTransition(fromId, toId, { seconds, type, trajectory } = {}) {
+        if (disposed) return false;
         const key = transitionKey(fromId, toId);
         transitions.set(key, {
             seconds: Math.max(0, Number(seconds) || 0),
@@ -1115,9 +1136,11 @@ export function createCameraPresetsController(options = {}) {
             trajectory: normalizeTransitionTrajectory(trajectory),
         });
         scheduleChange();
+        return true;
     }
 
     async function editTransition(fromId, toId) {
+        if (disposed) return;
         const from = getPresetById(fromId);
         const to = getPresetById(toId);
         if (!from || !to) return;
@@ -1138,6 +1161,7 @@ export function createCameraPresetsController(options = {}) {
                 result = null;
             }
         }
+        if (disposed) return;
 
         if (result == null) {
             const secRaw = safePrompt(
@@ -1182,6 +1206,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function setActive(id) {
+        if (disposed) return;
         activeId = id || null;
         render();
         annotations.scheduleDraw();
@@ -1631,6 +1656,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function openPropsForPresetId(id) {
+        if (disposed) return;
         const preset = getPresetById(id);
         if (!preset) return;
         editingId = id;
@@ -1641,6 +1667,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function closePropsPanel() {
+        if (disposed) return;
         editingId = null;
         setPropsPanelVisible(false);
         setPropsTitle('—');
@@ -1755,6 +1782,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function render() {
+        if (disposed) return;
         updateCounts();
         renderBar();
         renderSide();
@@ -1763,6 +1791,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function setBarVisible(nextVisible) {
+        if (disposed) return;
         barVisible = !!nextVisible;
         if (camsBarEl) camsBarEl.hidden = !barVisible;
         if (camsToggleBtn) {
@@ -1777,6 +1806,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     async function addFromCurrentView() {
+        if (disposed) return null;
         const snap = snapshotCurrentView();
         if (!snap) return null;
 
@@ -1792,6 +1822,7 @@ export function createCameraPresetsController(options = {}) {
         if (nameRaw == null) {
             nameRaw = safePrompt(promptFn, 'Имя камеры', defaultName);
         }
+        if (disposed) return null;
         if (nameRaw == null) return null;
         const name = String(nameRaw).trim() || defaultName;
         snap.name = name;
@@ -1805,6 +1836,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function addFromSnapshot(snapshot, name, { activate = false } = {}) {
+        if (disposed) return null;
         if (!snapshot) return null;
         const snap = {
             id: makeId(),
@@ -1831,6 +1863,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     async function deletePreset(id) {
+        if (disposed) return false;
         const preset = getPresetById(id);
         if (!preset) return false;
         if (preset.isDefault) return false;
@@ -1845,6 +1878,7 @@ export function createCameraPresetsController(options = {}) {
         } else {
             ok = safeConfirm(confirmFn, `Вы точно хотите удалить камеру “${preset.name || 'Camera'}”?`);
         }
+        if (disposed) return false;
         if (!ok) return false;
 
         const idx = presets.findIndex((p) => p && p.id === id);
@@ -1869,6 +1903,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function updatePresetFromCurrentView(id) {
+        if (disposed) return false;
         const preset = getPresetById(id);
         if (!preset) return false;
         const snap = captureCurrentViewData();
@@ -1896,6 +1931,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function movePreset(fromId, toIndex) {
+        if (disposed) return false;
         const fromIndex = presets.findIndex((p) => p && p.id === fromId);
         if (fromIndex < 0) return false;
         if (!Number.isFinite(toIndex)) return false;
@@ -1935,6 +1971,7 @@ export function createCameraPresetsController(options = {}) {
         if (disposed) return Promise.resolve(false);
         const duration = Math.max(0, Number(seconds) || 0);
         if (duration <= 0) {
+            if (disposed || token !== playToken) return Promise.resolve(false);
             applyPreset(toPreset);
             return Promise.resolve(true);
         }
@@ -2001,11 +2038,23 @@ export function createCameraPresetsController(options = {}) {
         return new Promise((resolve) => {
             const start = performance.now();
             const durMs = duration * 1000;
+            let settled = false;
+
+            const finish = (result) => {
+                if (settled) return;
+                settled = true;
+                if (transitionAbort === abort) transitionAbort = null;
+                transitionRafToken = 0;
+                resolve(result);
+            };
+
+            const abort = () => finish(false);
+            transitionAbort = abort;
 
             const tick = (now) => {
                 transitionRafToken = 0;
                 if (disposed || token !== playToken) {
-                    resolve(false);
+                    finish(false);
                     return;
                 }
 
@@ -2043,7 +2092,7 @@ export function createCameraPresetsController(options = {}) {
                 requestRender();
 
                 if (t >= 1) {
-                    resolve(true);
+                    finish(true);
                     return;
                 }
                 transitionRafToken = requestAnimationFrameSafe(tick);
@@ -2100,6 +2149,7 @@ export function createCameraPresetsController(options = {}) {
     }
 
     function handleAction(action, payload) {
+        if (disposed) return;
         const id = payload?.id || null;
         const from = payload?.from || null;
         const to = payload?.to || null;
@@ -2130,9 +2180,7 @@ export function createCameraPresetsController(options = {}) {
         }
         if (action === 'play') {
             if (playing) {
-                playToken++;
-                playing = false;
-                render();
+                stopPlayback();
                 return;
             }
             void playSequence();
@@ -2266,15 +2314,10 @@ export function createCameraPresetsController(options = {}) {
     function dispose() {
         if (disposed) return;
         disposed = true;
-        playToken += 1;
-        playing = false;
+        stopPlayback({ updateUi: false });
         if (changeTimer) {
             clearTimeout(changeTimer);
             changeTimer = null;
-        }
-        if (transitionRafToken) {
-            cancelAnimationFrameSafe(transitionRafToken);
-            transitionRafToken = 0;
         }
         try { annotations.dispose?.(); } catch (_) {}
         cleanupFns.splice(0).reverse().forEach((cleanup) => {

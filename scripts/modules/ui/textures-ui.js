@@ -89,6 +89,7 @@ export function createTexturesUI(options = {}) {
 
     function renderGallery(listAll) {
         textureGallery.render(listAll);
+        textureModal.reconcileEntries?.(listAll);
         markGalleryRendered();
     }
 

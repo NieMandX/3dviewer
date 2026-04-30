@@ -155,6 +155,7 @@ export function createVRController(options = {}) {
         supportKnown: false,
         supported: false,
         supportPromise: null,
+        disposed: false,
         isQuest: false,
         autoStartArmed: false,
         autoStartTriggered: false,
@@ -424,7 +425,7 @@ export function createVRController(options = {}) {
     });
 
     function updateButtonUi() {
-        if (!vrToggleBtn) return;
+        if (state.disposed || !vrToggleBtn) return;
         vrToggleBtn.classList.toggle('is-active', !!state.sessionActive);
         vrToggleBtn.classList.toggle('is-supported', !!state.supported);
         vrToggleBtn.classList.toggle('is-unsupported', state.supportKnown && !state.supported);
@@ -460,6 +461,15 @@ export function createVRController(options = {}) {
         vrToggleBtn.disabled = true;
     }
 
+    function resetButtonUiOnDispose() {
+        if (!vrToggleBtn) return;
+        vrToggleBtn.classList.remove('is-active', 'is-supported', 'is-unsupported');
+        vrToggleBtn.setAttribute('aria-pressed', 'false');
+        vrToggleBtn.disabled = false;
+        vrToggleBtn.textContent = state.isQuest ? 'VR Q3' : 'VR';
+        vrToggleBtn.title = 'VR выключен';
+    }
+
     function clearAutoStartListeners() {
         while (state.autoStartListeners.length) {
             const [target, type, handler, opts] = state.autoStartListeners.pop();
@@ -470,12 +480,14 @@ export function createVRController(options = {}) {
     }
 
     function addAutoStartListener(target, type, handler, opts) {
+        if (state.disposed) return;
         if (!target?.addEventListener) return;
         target.addEventListener(type, handler, opts);
         state.autoStartListeners.push([target, type, handler, opts]);
     }
 
     function armQuestAutoStart() {
+        if (state.disposed) return;
         if (!state.isQuest || !state.supported || state.autoStartArmed || state.autoStartTriggered) return;
         if (!doc) return;
 
@@ -483,6 +495,7 @@ export function createVRController(options = {}) {
         const opts = { passive: true, once: true };
 
         const run = async () => {
+            if (state.disposed) return;
             state.autoStartTriggered = true;
             clearAutoStartListeners();
             try {
@@ -513,8 +526,10 @@ export function createVRController(options = {}) {
                 state.supported = false;
             } finally {
                 state.supportKnown = true;
-                updateButtonUi();
-                if (state.supported) {
+                if (!state.disposed) {
+                    updateButtonUi();
+                }
+                if (!state.disposed && state.supported) {
                     armQuestAutoStart();
                 }
             }
@@ -522,6 +537,16 @@ export function createVRController(options = {}) {
         })();
 
         return state.supportPromise;
+    }
+
+    function isCameraAttachedToXrRig() {
+        if (!state.xrRig || !camera) return false;
+        let node = camera.parent || null;
+        while (node) {
+            if (node === state.xrRig) return true;
+            node = node.parent || null;
+        }
+        return false;
     }
 
     function ensureXrRig() {
@@ -635,6 +660,54 @@ export function createVRController(options = {}) {
 
         state.desktopCameraParent = null;
         syncDesktopControlsFromCamera();
+    }
+
+    function cleanupSessionState({ requestFrame = true, hideMenu = true, updateUi = true } = {}) {
+        const session = state.currentSession || null;
+        if (session?.removeEventListener) {
+            try {
+                session.removeEventListener('end', handleSessionEnded);
+            } catch (_) {}
+        }
+
+        state.currentSession = null;
+        state.sessionActive = false;
+        state.lastUpdateTime = 0;
+        state.pendingCalibration = false;
+        state.floorSnapSuppressed = false;
+        state.menuTogglePrev = false;
+        clearAutoStartListeners();
+        setVrUiActive(false);
+        if (hideMenu) vrMenu?.hide?.();
+
+        if (state.desktopCameraParent || isCameraAttachedToXrRig()) {
+            restoreDesktopCameraParent();
+        }
+
+        if (controls) controls.enabled = state.prevControlsEnabled;
+        if (flightControls?.setEnabled) flightControls.setEnabled(state.prevFlightEnabled);
+
+        if (updateUi) updateButtonUi();
+        if (requestFrame) requestRender();
+    }
+
+    function endSessionQuietly(session) {
+        if (!session?.end) return;
+        try {
+            const result = session.end();
+            if (result?.catch) {
+                void result.catch(() => {});
+            }
+        } catch (_) {}
+    }
+
+    function disposeXrRig() {
+        if (state.xrRig?.parent) {
+            state.xrRig.parent.remove(state.xrRig);
+        }
+        state.xrRig = null;
+        state.colliderMeshes.length = 0;
+        state.collidersSignature = '';
     }
 
     function readInputAxes(session) {
@@ -882,32 +955,17 @@ export function createVRController(options = {}) {
     }
 
     function handleSessionEnded() {
-        state.currentSession = null;
-        state.sessionActive = false;
-        state.lastUpdateTime = 0;
-        state.pendingCalibration = false;
-        state.floorSnapSuppressed = false;
-        state.menuTogglePrev = false;
-        clearAutoStartListeners();
-        setVrUiActive(false);
-        vrMenu?.hide?.();
-
-        restoreDesktopCameraParent();
-
-        if (controls) controls.enabled = state.prevControlsEnabled;
-        if (flightControls?.setEnabled) flightControls.setEnabled(state.prevFlightEnabled);
-
-        updateButtonUi();
-        requestRender();
+        cleanupSessionState();
     }
 
     async function enterVR({ source = 'manual' } = {}) {
+        if (state.disposed) return false;
         if (state.sessionActive) return true;
         const xr = win?.navigator?.xr;
         if (!xr || !renderer?.xr?.setSession) return false;
 
         const supported = await ensureSupportKnown();
-        if (!supported) return false;
+        if (state.disposed || !supported) return false;
 
         captureDesktopCameraPose();
 
@@ -931,21 +989,30 @@ export function createVRController(options = {}) {
             }
 
             session = await xr.requestSession('immersive-vr', sessionInit);
+            if (state.disposed) {
+                endSessionQuietly(session);
+                cleanupSessionState({ requestFrame: false, hideMenu: false, updateUi: false });
+                return false;
+            }
 
             if (renderer.xr?.setReferenceSpaceType) {
                 renderer.xr.setReferenceSpaceType('local-floor');
             }
 
             await renderer.xr.setSession(session);
+            if (state.disposed) {
+                endSessionQuietly(session);
+                cleanupSessionState({ requestFrame: false, hideMenu: false, updateUi: false });
+                return false;
+            }
             setVrUiActive(true);
         } catch (error) {
             if (session) {
-                try {
-                    await session.end();
-                } catch (_) {}
+                endSessionQuietly(session);
             }
             setVrUiActive(false);
             restoreDesktopCameraParent();
+            if (state.disposed) return false;
             throw error;
         }
 
@@ -982,6 +1049,7 @@ export function createVRController(options = {}) {
     }
 
     async function exitVR() {
+        if (state.disposed) return false;
         const session = state.currentSession || renderer?.xr?.getSession?.();
         if (!session) return false;
         try {
@@ -993,6 +1061,7 @@ export function createVRController(options = {}) {
     }
 
     function toggleVR() {
+        if (state.disposed) return;
         if (state.sessionActive) {
             void exitVR();
             return;
@@ -1003,6 +1072,7 @@ export function createVRController(options = {}) {
     }
 
     function update() {
+        if (state.disposed) return false;
         if (!state.sessionActive) return false;
         const session = state.currentSession || renderer?.xr?.getSession?.();
         if (!session) return false;
@@ -1066,9 +1136,21 @@ export function createVRController(options = {}) {
     }
 
     function dispose() {
+        if (state.disposed) return;
+        const session = state.currentSession || renderer?.xr?.getSession?.();
+        if (session?.removeEventListener) {
+            try {
+                session.removeEventListener('end', handleSessionEnded);
+            } catch (_) {}
+        }
+        cleanupSessionState({ requestFrame: false, hideMenu: false, updateUi: false });
+        endSessionQuietly(session);
+        disposeXrRig();
+        state.disposed = true;
         clearAutoStartListeners();
         setVrUiActive(false);
         vrMenu?.dispose?.();
+        resetButtonUiOnDispose();
         if (vrToggleBtn?.removeEventListener) {
             vrToggleBtn.removeEventListener('click', toggleVR);
         }

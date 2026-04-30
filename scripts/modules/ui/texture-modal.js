@@ -37,6 +37,19 @@ export function createTextureModalController(options = {}) {
 
     let modalTex = null;
 
+    function clearModalEntry() {
+        modalTex = null;
+        if (imgEl) imgEl.removeAttribute('src');
+        if (titleEl) titleEl.textContent = '';
+        if (fileEl) fileEl.textContent = '';
+        if (kindEl) kindEl.textContent = '';
+        if (mimeEl) mimeEl.textContent = '';
+        if (downloadLinkEl) {
+            downloadLinkEl.removeAttribute('href');
+            downloadLinkEl.removeAttribute('download');
+        }
+    }
+
     function close() {
         texModalEl?.classList?.remove?.('show');
     }
@@ -81,6 +94,10 @@ export function createTextureModalController(options = {}) {
 
     function bindSelected() {
         if (!modalTex) return;
+        if (!modalTex.url) {
+            notify?.('Текстура больше недоступна');
+            return;
+        }
 
         const link = getSelectedMaterialLink();
         if (!link || !link.mat) {
@@ -145,6 +162,27 @@ export function createTextureModalController(options = {}) {
         logBind(`${modalTex.short} → ${std.name || 'материал'}.${slot}`, 'ok');
     }
 
+    function isSameTextureEntry(left, right) {
+        if (!left || !right) return false;
+        if (left === right) return true;
+        const leftUrl = String(left.url || '');
+        const rightUrl = String(right.url || '');
+        if (leftUrl && rightUrl && leftUrl === rightUrl) return true;
+        const leftFull = String(left.full || '');
+        const rightFull = String(right.full || '');
+        const leftShort = String(left.short || '');
+        const rightShort = String(right.short || '');
+        return !!leftFull && leftFull === rightFull && leftShort === rightShort;
+    }
+
+    function reconcileEntries(entries = []) {
+        if (!modalTex) return;
+        const list = Array.isArray(entries) ? entries : [];
+        if (list.some((entry) => isSameTextureEntry(modalTex, entry))) return;
+        close();
+        clearModalEntry();
+    }
+
     const handleModalClick = (e) => {
         if (e.target === texModalEl) close();
     };
@@ -159,13 +197,14 @@ export function createTextureModalController(options = {}) {
         if (closeBtnEl) closeBtnEl.removeEventListener('click', close);
         if (texModalEl) texModalEl.removeEventListener('click', handleModalClick);
         if (bindBtnEl) bindBtnEl.removeEventListener('click', bindSelected);
-        modalTex = null;
+        clearModalEntry();
     }
 
     return Object.freeze({
         open,
         close,
         bindSelected,
+        reconcileEntries,
         dispose,
         getEntry: () => modalTex,
     });

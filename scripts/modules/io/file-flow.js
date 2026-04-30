@@ -18,6 +18,39 @@ export function createFileFlowController(options = {}) {
     const getLoadedModelCount = typeof options.getLoadedModelCount === 'function' ? options.getLoadedModelCount : () => 0;
 
     const cleanupFns = [];
+    const activeBatchControllers = new Set();
+    let disposed = false;
+
+    function makeAbortError(message = 'File import aborted') {
+        try {
+            return new DOMException(message, 'AbortError');
+        } catch (_) {
+            const err = new Error(message);
+            err.name = 'AbortError';
+            return err;
+        }
+    }
+
+    function isAbortError(error) {
+        return error?.name === 'AbortError';
+    }
+
+    function createBatchController() {
+        if (typeof AbortController !== 'function') return null;
+        const controller = new AbortController();
+        activeBatchControllers.add(controller);
+        return controller;
+    }
+
+    function abortActiveBatches() {
+        const reason = makeAbortError();
+        activeBatchControllers.forEach((controller) => {
+            try {
+                if (!controller.signal?.aborted) controller.abort(reason);
+            } catch (_) {}
+        });
+        activeBatchControllers.clear();
+    }
 
     function registerFileOpenTrigger(el) {
         if (!el || !fileInput) return;
@@ -26,16 +59,19 @@ export function createFileFlowController(options = {}) {
         cleanupFns.push(() => el.removeEventListener('click', handler));
     }
 
-    async function handleFiles(files) {
+    async function handleFiles(files, callOptions = null) {
         const errors = [];
+        const signal = callOptions?.signal || null;
         for (const f of files) {
+            if (disposed || signal?.aborted) break;
             try {
                 if (/\.fbx$/i.test(f.name)) {
-                    await handleFBXFile(f);
+                    await handleFBXFile(f, callOptions);
                 } else if (/\.zip$/i.test(f.name)) {
-                    await handleZIPFile(f);
+                    await handleZIPFile(f, callOptions);
                 }
             } catch (err) {
+                if (disposed || signal?.aborted || isAbortError(err)) break;
                 errors.push({ file: f, error: err });
                 console.error(`File import failed: ${f?.name || 'unknown'}`, err);
             }
@@ -44,11 +80,16 @@ export function createFileFlowController(options = {}) {
     }
 
     async function runFileBatch(files, { resetInput = false } = {}) {
-        if (!files.length) return [];
+        if (disposed || !files.length) return [];
+        const controller = createBatchController();
+        const signal = controller?.signal || null;
+        const callOptions = signal ? { signal } : null;
         setEmptyHintVisible(false);
         try {
-            return await handleFiles(files);
+            return await handleFiles(files, callOptions);
         } finally {
+            if (controller) activeBatchControllers.delete(controller);
+            if (disposed || signal?.aborted) return;
             if (resetInput && fileInput) fileInput.value = '';
             setEmptyHintVisible(getLoadedModelCount() === 0);
             await finalizeBatchAfterAllFiles();
@@ -56,6 +97,7 @@ export function createFileFlowController(options = {}) {
     }
 
     function populateSampleSelect() {
+        if (disposed) return;
         if (!sampleSelect) return;
         sampleSelect.innerHTML = '';
         sampleModels.forEach(sample => {
@@ -71,6 +113,7 @@ export function createFileFlowController(options = {}) {
 
     if (fileInput) {
         const handleFileInputChange = async (e) => {
+            if (disposed) return;
             const files = [...(e.target.files || [])];
             await runFileBatch(files, { resetInput: true });
         };
@@ -81,6 +124,7 @@ export function createFileFlowController(options = {}) {
     populateSampleSelect();
     if (sampleSelect) {
         const handleSampleChange = async () => {
+            if (disposed) return;
             const idx = sampleSelect.selectedIndex;
             const sample = sampleModels[idx];
             if (!sample || !sample.files || !sample.files.length) return;
@@ -114,6 +158,7 @@ export function createFileFlowController(options = {}) {
     };
 
     const handleDragEnter = (e) => {
+        if (disposed) return;
         if (!isFileDrag(e)) return;
         e.preventDefault();
         e.stopPropagation();
@@ -122,12 +167,14 @@ export function createFileFlowController(options = {}) {
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     };
     const handleDragOver = (e) => {
+        if (disposed) return;
         if (!isFileDrag(e) && dragHoverCount === 0) return;
         e.preventDefault();
         e.stopPropagation();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     };
     const handleDragLeave = (e) => {
+        if (disposed) return;
         if (dragHoverCount === 0) return;
         e.preventDefault();
         e.stopPropagation();
@@ -135,6 +182,7 @@ export function createFileFlowController(options = {}) {
         if (dragHoverCount === 0 && dropEl) dropEl.classList.remove('show');
     };
     const handleDrop = async (e) => {
+        if (disposed) return;
         const files = [...(e.dataTransfer?.files || [])];
         if (!files.length) return;
         e.preventDefault();
@@ -150,6 +198,9 @@ export function createFileFlowController(options = {}) {
     addDragListener('drop', handleDrop);
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
+        abortActiveBatches();
         cleanupFns.splice(0).forEach((cleanup) => {
             try {
                 cleanup();

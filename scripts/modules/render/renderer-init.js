@@ -66,6 +66,9 @@ export function createRenderer(options = {}) {
             renderer.dispose?.();
         } catch (_) {}
         try {
+            renderer.forceContextLoss?.();
+        } catch (_) {}
+        try {
             renderer.domElement?.parentNode?.removeChild?.(renderer.domElement);
         } catch (_) {}
     }

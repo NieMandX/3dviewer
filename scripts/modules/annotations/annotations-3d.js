@@ -134,6 +134,8 @@ export function createAnnotations3DController(options = {}) {
     const pinAuthorVisibility = new Map();
     const pendingDisposals = new Map();
     let disposeScheduled = false;
+    let disposed = false;
+    let disposalGeneration = 0;
     const raf =
         typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
             ? globalThis.requestAnimationFrame.bind(globalThis)
@@ -186,6 +188,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function setDrawEnabled(next) {
+        if (disposed) return;
         const nextEnabled = !!next;
         if (!nextEnabled && (draft || pointerId != null)) {
             cancelStroke();
@@ -199,6 +202,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function setVisible(next) {
+        if (disposed) return;
         visible = !!next;
         annotationsRoot.visible = visible;
         if (annoVisibleBtn) annoVisibleBtn.classList.toggle('active', visible);
@@ -1113,6 +1117,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function flushDisposals(force = false) {
+        if (disposed && !force) return;
         if (!pendingDisposals.size) return;
         if (!force && (pointerId != null || !!draft || rectModalOpen)) return;
         const now = Date.now();
@@ -1136,13 +1141,15 @@ export function createAnnotations3DController(options = {}) {
         });
     }
 
-    function waitFrames(count, cb) {
+    function waitFrames(count, cb, generation = disposalGeneration) {
+        if (disposed || generation !== disposalGeneration) return;
         if (!raf || count <= 0) {
             cb();
             return;
         }
         let remaining = count;
         const step = () => {
+            if (disposed || generation !== disposalGeneration) return;
             remaining -= 1;
             if (remaining <= 0) {
                 cb();
@@ -1154,33 +1161,42 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function scheduleDisposeFlush() {
+        if (disposed) return;
         if (disposeScheduled) return;
         disposeScheduled = true;
+        const generation = disposalGeneration;
         const finalize = () => {
+            if (disposed || generation !== disposalGeneration) return;
             disposeScheduled = false;
             flushDisposals();
             if (pendingDisposals.size) scheduleDisposeFlush();
         };
         waitFrames(6, () => {
+            if (disposed || generation !== disposalGeneration) return;
             const queue = getWebGPUQueue();
             if (queue?.onSubmittedWorkDone) {
                 queue
                     .onSubmittedWorkDone()
                     .then(() => waitFrames(2, () => {
+                        if (disposed || generation !== disposalGeneration) return;
                         queue
                             .onSubmittedWorkDone()
-                            .then(() => waitFrames(2, finalize))
-                            .catch(() => waitFrames(8, finalize));
-                    }))
-                    .catch(() => waitFrames(8, finalize));
+                            .then(() => waitFrames(2, finalize, generation))
+                            .catch(() => waitFrames(8, finalize, generation));
+                    }, generation))
+                    .catch(() => waitFrames(8, finalize, generation));
                 return;
             }
-            waitFrames(8, finalize);
-        });
+            waitFrames(8, finalize, generation);
+        }, generation);
     }
 
     function disposeObject(obj, reason = 'stroke') {
         if (!obj) return;
+        if (disposed) {
+            disposeObjectNow(obj);
+            return;
+        }
         if (reason === 'draft' && shouldDeferDispose()) {
             // Draft meshes churn every pointer move; explicit dispose in WebGPU can race with queued submits.
             // For drafts we prefer dropping references and letting GC reclaim them.
@@ -1301,6 +1317,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function refreshAuthorVisibility(authorId) {
+        if (disposed) return;
         if (!authorId) return;
         if (!authorVisibility.has(authorId)) return;
         layers.forEach((layer) => {
@@ -1315,6 +1332,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function refreshPinVisibility(authorId) {
+        if (disposed) return;
         if (!authorId) return;
         if (!pinAuthorVisibility.has(authorId)) return;
         layers.forEach((layer) => {
@@ -1329,6 +1347,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function removeStroke(stroke, options = {}) {
+        if (disposed) return false;
         if (!stroke) return;
         const root = getStrokeRoot(stroke) || stroke;
         if (!options.force && canRemoveStroke && !canRemoveStroke(root)) {
@@ -2002,6 +2021,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function undo() {
+        if (disposed) return false;
         while (undoStack.length) {
             const entry = undoStack.pop();
             if (entry?.stroke && entry.stroke.parent) {
@@ -2013,6 +2033,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function clear() {
+        if (disposed) return false;
         const layer = getActiveLayer();
         if (!layer) return false;
         const strokes = [...layer.strokes];
@@ -2021,6 +2042,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function addRemoteAnnotation(record) {
+        if (disposed) return null;
         if (!record || !record.id) return null;
         if (strokesById.has(record.id)) return strokesById.get(record.id);
         const payload = record.payload || {};
@@ -2039,6 +2061,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function removeRemoteAnnotation(annotationId) {
+        if (disposed) return false;
         if (!annotationId) return false;
         const stroke = strokesById.get(annotationId);
         if (!stroke) return false;
@@ -2047,6 +2070,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function setAuthorVisibility(authorId, visible) {
+        if (disposed) return;
         if (!authorId) return;
         authorVisibility.set(authorId, !!visible);
         layers.forEach((layer) => {
@@ -2061,6 +2085,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function setPinVisibility(authorId, visible) {
+        if (disposed) return;
         if (!authorId) return;
         pinAuthorVisibility.set(authorId, !!visible);
         layers.forEach((layer) => {
@@ -2075,12 +2100,14 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function registerAnnotationId(stroke, annotationId) {
+        if (disposed) return false;
         if (!stroke || !annotationId) return false;
         registerStrokeAnnotation(stroke, annotationId);
         return true;
     }
 
     function applyWorldOffsetDelta(delta) {
+        if (disposed) return;
         if (!delta || !Number.isFinite(delta.x) || !Number.isFinite(delta.y) || !Number.isFinite(delta.z)) return;
         if (delta.lengthSq() < 1e-12) return;
         layers.forEach((layer) => {
@@ -2383,6 +2410,15 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
+        disposalGeneration += 1;
+        disposeScheduled = false;
+        drawEnabled = false;
+        draft = null;
+        pointerId = null;
+        rectModalOpen = false;
+        setControlsEnabled(true);
         detachEvents();
         if (onKeyDownBound && typeof window !== 'undefined') {
             window.removeEventListener('keydown', onKeyDownBound);
@@ -2396,6 +2432,11 @@ export function createAnnotations3DController(options = {}) {
         });
         flushDisposals(true);
         strokesById.clear();
+        authorVisibility.clear();
+        pinAuthorVisibility.clear();
+        pendingDisposals.clear();
+        undoStack.length = 0;
+        setCanvasActive(false);
         annotationsRoot.removeFromParent();
     }
 
@@ -2409,10 +2450,15 @@ export function createAnnotations3DController(options = {}) {
 
     return Object.freeze({
         setEnabled: (enabled) => {
+            if (disposed) return false;
             setDrawEnabled(enabled);
             return drawEnabled;
         },
-        setVisible: (next) => setVisible(next),
+        setVisible: (next) => {
+            if (disposed) return false;
+            setVisible(next);
+            return visible;
+        },
         getDrawEnabled: () => drawEnabled,
         isPointerDown: () => pointerId != null,
         getRoot: () => annotationsRoot,

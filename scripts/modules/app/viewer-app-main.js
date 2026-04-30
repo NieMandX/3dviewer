@@ -1012,6 +1012,7 @@ export class ViewerApp {
         const seenChatMessageIds = new Set();
         const collabContributors = new Map();
         let contributorsRenderQueued = false;
+        let contributorsRenderTimer = null;
         let voiceController = null;
         let voiceConnected = false;
         let voiceConnecting = false;
@@ -1187,7 +1188,7 @@ export class ViewerApp {
 
         function clearCollabAutoResumeTimer() {
             if (!collabAutoResumeTimer) return;
-            clearTimeout(collabAutoResumeTimer);
+            clearAppTimeout(collabAutoResumeTimer);
             collabAutoResumeTimer = null;
         }
 
@@ -1314,6 +1315,7 @@ export class ViewerApp {
         }
 
         async function resumeCollabSession(trigger = '') {
+            if (appDisposed) return;
             if (collabAutoResumeInFlight || !collabAutoResumeEnabled) return;
             if (!hasCollabReconnectContext()) return;
             if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
@@ -1337,13 +1339,15 @@ export class ViewerApp {
         }
 
         function scheduleCollabAutoResume(trigger = '') {
+            if (appDisposed) return;
             if (!hasCollabReconnectContext()) return;
             if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
             if (collabAutoResumeInFlight) return;
             clearCollabAutoResumeTimer();
             const delay = Math.min(15000, 1000 * (2 ** Math.min(collabAutoResumeAttempt, 4)));
-            collabAutoResumeTimer = setTimeout(() => {
+            collabAutoResumeTimer = setAppTimeout(() => {
                 collabAutoResumeTimer = null;
+                if (appDisposed) return;
                 void resumeCollabSession(trigger);
             }, delay);
         }
@@ -1382,6 +1386,7 @@ export class ViewerApp {
         }
 
         function recordContributor(id, name) {
+            if (appDisposed) return;
             if (!id) return;
             const safeName = String(name || '').trim() || 'Guest';
             const entry = collabContributors.get(id) || { id, name: safeName, hidden: false, hiddenPins: false };
@@ -1390,17 +1395,24 @@ export class ViewerApp {
             scheduleContributorsRender();
         }
 
+        function cancelContributorsRender() {
+            if (contributorsRenderTimer) {
+                clearAppTimeout(contributorsRenderTimer);
+                contributorsRenderTimer = null;
+            }
+            contributorsRenderQueued = false;
+        }
+
         function scheduleContributorsRender() {
+            if (appDisposed) return;
             if (contributorsRenderQueued) return;
             contributorsRenderQueued = true;
-            const raf =
-                typeof requestAnimationFrame === 'function'
-                    ? requestAnimationFrame
-                    : (fn) => setTimeout(fn, 0);
-            raf(() => {
+            contributorsRenderTimer = setAppTimeout(() => {
+                contributorsRenderTimer = null;
                 contributorsRenderQueued = false;
+                if (appDisposed) return;
                 renderChatContributors();
-            });
+            }, 0);
         }
 
         function startPresenceRefresh() {
@@ -1422,6 +1434,7 @@ export class ViewerApp {
         }
 
         function renderChatContributors() {
+            if (appDisposed) return;
             if (!collabChatParticipantsEl) return;
             const now = Date.now();
             const onlineIds = new Set();
@@ -1727,6 +1740,7 @@ export class ViewerApp {
             bumpRoomLoadGeneration();
             await disconnectVoiceRoom({ preserveIntent: preserveAutoResume && voiceAutoJoinRequested });
             stopPresenceRefresh();
+            cancelContributorsRender();
             cameraSync?.dispose?.();
             cameraSync = null;
             clearCameraSyncMute();
@@ -4316,13 +4330,15 @@ export class ViewerApp {
             pendingLocalModelFiles.push(file);
         }
 
-        async function handleFBXFile(file) {
-            await runImportWithScope({ kind: 'local' }, () => rawHandleFBXFile(file));
+        async function handleFBXFile(file, callOptions = null) {
+            await runImportWithScope({ kind: 'local' }, () => (
+                rawHandleFBXFile(file, null, null, null, callOptions)
+            ));
             queueLocalModelFile(file);
         }
 
-        async function handleZIPFile(file) {
-            await runImportWithScope({ kind: 'local' }, () => rawHandleZIPFile(file));
+        async function handleZIPFile(file, callOptions = null) {
+            await runImportWithScope({ kind: 'local' }, () => rawHandleZIPFile(file, callOptions));
             queueLocalModelFile(file);
         }
 
