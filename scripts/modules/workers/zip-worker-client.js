@@ -11,6 +11,7 @@ export function createZIPWorkerClient(options = {}) {
     let supported = typeof Worker !== 'undefined' && !!workerUrl;
     let workerInstance = null;
     let reqId = 0;
+    let disposed = false;
     const pending = new Map();
 
     function makeAbortError(message = 'ZIP worker job aborted') {
@@ -48,6 +49,7 @@ export function createZIPWorkerClient(options = {}) {
     }
 
     function disable(reason = null) {
+        if (disposed) return;
         supported = false;
         const err = reason instanceof Error ? reason : reason ? new Error(String(reason)) : new Error('ZIP worker disabled');
         rejectPending(err);
@@ -55,11 +57,13 @@ export function createZIPWorkerClient(options = {}) {
     }
 
     function ensureZIPWorker() {
+        if (disposed) return null;
         if (!supported) return null;
         if (workerInstance) return workerInstance;
         try {
             workerInstance = new Worker(workerUrl, { type: 'module' });
             workerInstance.onmessage = (event) => {
+                if (disposed) return;
                 const msg = event.data || {};
                 const job = pending.get(msg.id);
                 if (!job) return;
@@ -72,6 +76,7 @@ export function createZIPWorkerClient(options = {}) {
                     });
             };
             workerInstance.onerror = (event) => {
+                if (disposed) return;
                 event.preventDefault?.();
                 const err = event?.error || (event?.message ? new Error(event.message) : new Error('ZIP worker error'));
                 disable(err);
@@ -84,6 +89,7 @@ export function createZIPWorkerClient(options = {}) {
     }
 
     function unpackZIPInWorker(file, handlers = {}, options = {}) {
+        if (disposed) return Promise.reject(makeAbortError('ZIP worker client disposed'));
         const worker = ensureZIPWorker();
         if (!worker) return null;
         const signal = options?.signal || null;
@@ -182,7 +188,15 @@ export function createZIPWorkerClient(options = {}) {
     }
 
     function isSupported() {
-        return supported;
+        return !disposed && supported;
+    }
+
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        supported = false;
+        rejectPending(makeAbortError('ZIP worker client disposed'));
+        terminateWorker();
     }
 
     return Object.freeze({
@@ -190,5 +204,6 @@ export function createZIPWorkerClient(options = {}) {
         unpackZIPInWorker,
         isSupported,
         disable,
+        dispose,
     });
 }

@@ -13,6 +13,7 @@ export function createFBXWorkerClient(options = {}) {
     let supported = typeof Worker !== 'undefined' && !!workerUrl;
     let workerInstance = null;
     let reqId = 0;
+    let disposed = false;
     const pending = new Map();
 
     function makeAbortError(message = 'FBX worker job aborted') {
@@ -74,6 +75,7 @@ export function createFBXWorkerClient(options = {}) {
     }
 
     function disable(reason = null) {
+        if (disposed) return;
         supported = false;
         const err = reason instanceof Error ? reason : reason ? new Error(String(reason)) : new Error('FBX worker disabled');
         rejectPending(err);
@@ -81,11 +83,13 @@ export function createFBXWorkerClient(options = {}) {
     }
 
     function ensureFBXWorker() {
+        if (disposed) return null;
         if (!supported) return null;
         if (workerInstance) return workerInstance;
         try {
             workerInstance = new Worker(workerUrl, { type: 'module' });
             workerInstance.onmessage = (event) => {
+                if (disposed) return;
                 const { id, ok, json, error, duration, embedded, orientation } = event.data || {};
                 const job = pending.get(id);
                 if (!job) return;
@@ -95,6 +99,7 @@ export function createFBXWorkerClient(options = {}) {
                 else job.reject(new Error(error || 'FBX worker error'));
             };
             workerInstance.onerror = (event) => {
+                if (disposed) return;
                 event.preventDefault?.();
                 const err = event?.error || (event?.message ? new Error(event.message) : new Error('FBX worker error'));
                 disable(err);
@@ -107,6 +112,7 @@ export function createFBXWorkerClient(options = {}) {
     }
 
     async function parseFBXInWorker(buffer, features = null, options = {}) {
+        if (disposed) throw makeAbortError('FBX worker client disposed');
         const worker = ensureFBXWorker();
         if (!worker) throw new Error('worker not available');
         const signal = options?.signal || null;
@@ -152,7 +158,15 @@ export function createFBXWorkerClient(options = {}) {
     }
 
     function isSupported() {
-        return supported;
+        return !disposed && supported;
+    }
+
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        supported = false;
+        rejectPending(makeAbortError('FBX worker client disposed'));
+        terminateWorker();
     }
 
     return Object.freeze({
@@ -160,5 +174,6 @@ export function createFBXWorkerClient(options = {}) {
         parseFBXInWorker,
         isSupported,
         disable,
+        dispose,
     });
 }

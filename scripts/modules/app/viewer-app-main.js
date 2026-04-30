@@ -548,11 +548,12 @@ export class ViewerApp {
 	        let lastFinalizedModelIndex = 0;
 	        let appDisposed = false;
 		        let renderLoop = null;
-		        let glassController = null;
-		        let materialsPanel = null;
-		        let appbarVisibilityToggles = null;
-		        let fileFlowUI = null;
-		        let inspectorPanels = null;
+	        let glassController = null;
+	        let materialsPanel = null;
+	        let appbarVisibilityToggles = null;
+	        let fileFlowUI = null;
+	        let assetLoaders = null;
+	        let inspectorPanels = null;
 		        let schedulePanelRefreshImpl = () => {};
 		        let syncCollisionButtonsImpl = () => {
 		            appbarVisibilityToggles?.enforceSuppressionIfNeeded?.();
@@ -3414,7 +3415,8 @@ export class ViewerApp {
 	        // =====================
 	        // Loaders & caches
 	        // =====================
-		        const {
+	        assetLoaders = createAssetLoaders({ THREE });
+	        const {
 		            fbxLoader,
 		            textureLoader,
 	            texLd,
@@ -3424,7 +3426,7 @@ export class ViewerApp {
 	            setWorkerSupported: setFBXWorkerSupported,
 	            disableWorker: disableFBXWorker,
 		            unpackZIPInWorker,
-		        } = createAssetLoaders({ THREE });
+		        } = assetLoaders;
                 const environmentWiring = createEnvironmentWiring({
                     renderer,
                     scene,
@@ -5514,6 +5516,7 @@ export class ViewerApp {
 	            try { cameraPresets?.dispose?.(); } catch (_) {}
 	            try { cameraPickController?.dispose?.(); } catch (_) {}
 	            try { fileFlowUI?.dispose?.(); } catch (_) {}
+	            try { assetLoaders?.dispose?.(); } catch (_) {}
 	            try { inspectorPanels?.dispose?.(); } catch (_) {}
 	            try { shadingController?.disposeUI?.(); } catch (_) {}
 	            try { importedLightsController?.dispose?.(); } catch (_) {}

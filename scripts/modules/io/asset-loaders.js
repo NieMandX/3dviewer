@@ -41,6 +41,15 @@ export function createAssetLoaders(options = {}) {
     const zipWorkerClient = createZIPWorkerClient();
     const unpackZIPInWorker = zipWorkerClient.unpackZIPInWorker;
 
+    function dispose() {
+        try {
+            fbxWorkerClient.dispose?.();
+        } catch (_) {}
+        try {
+            zipWorkerClient.dispose?.();
+        } catch (_) {}
+    }
+
     return {
         fbxLoader,
         textureLoader,
@@ -51,5 +60,6 @@ export function createAssetLoaders(options = {}) {
         setWorkerSupported,
         disableWorker,
         unpackZIPInWorker,
+        dispose,
     };
 }

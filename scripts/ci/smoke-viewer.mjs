@@ -2545,6 +2545,163 @@ async function runWorkerLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runWorkerClientDisposeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const nativeWorker = globalThis.Worker;
+        const workers = [];
+
+        class FakeWorker {
+            constructor(url, options) {
+                this.url = url;
+                this.options = options;
+                this.messages = [];
+                this.terminated = 0;
+                this.onmessage = null;
+                this.onerror = null;
+                workers.push(this);
+            }
+            postMessage(message) {
+                this.messages.push(message);
+            }
+            terminate() {
+                this.terminated += 1;
+            }
+            emit(message) {
+                this.onmessage?.({ data: message });
+            }
+        }
+
+        globalThis.Worker = FakeWorker;
+        try {
+            const { createFBXWorkerClient } = await import('/scripts/modules/workers/fbx-worker-client.js');
+            const { createZIPWorkerClient } = await import('/scripts/modules/workers/zip-worker-client.js');
+            const { createAssetLoaders } = await import('/scripts/modules/io/asset-loaders.js');
+            const THREE = await import('three');
+
+            async function waitForWorkerMessage(index, count = 1) {
+                for (let i = 0; i < 50; i += 1) {
+                    const worker = workers[index] || null;
+                    if ((worker?.messages?.length || 0) >= count) return worker;
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                }
+                return workers[index] || null;
+            }
+
+            const fbxClient = createFBXWorkerClient({ workerUrl: '/fake-fbx-worker.js' });
+            const fbxPromise = fbxClient.parseFBXInWorker(
+                new ArrayBuffer(4),
+                { embedded: true, orientation: true }
+            ).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            await Promise.resolve();
+            const fbxWorker = workers[0] || null;
+            const fbxPostedBeforeDispose = fbxWorker?.messages?.length || 0;
+            const fbxSupportedBeforeDispose = fbxClient.isSupported();
+            fbxClient.dispose();
+            fbxClient.dispose();
+            const fbxResult = await fbxPromise;
+            fbxWorker?.emit?.({ id: 1, ok: true, json: { metadata: { version: 4.5, type: 'Object' } } });
+            const fbxAfterDispose = await fbxClient.parseFBXInWorker(new ArrayBuffer(1)).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+
+            const zipClient = createZIPWorkerClient({ workerUrl: '/fake-zip-worker.js' });
+            const zipFile = new File([new Uint8Array([1, 2, 3])], 'model.zip', { type: 'application/zip' });
+            const zipEvents = [];
+            const zipPromise = zipClient.unpackZIPInWorker(zipFile, {
+                onProgress: () => zipEvents.push('progress'),
+                onFBX: () => zipEvents.push('fbx'),
+                onImage: () => zipEvents.push('image'),
+            }).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            const zipWorker = await waitForWorkerMessage(1, 1);
+            const zipPostedBeforeDispose = zipWorker?.messages?.length || 0;
+            const zipSupportedBeforeDispose = zipClient.isSupported();
+            zipClient.dispose();
+            zipClient.dispose();
+            const zipResult = await zipPromise;
+            zipWorker?.emit?.({ id: 1, type: 'progress' });
+            zipWorker?.emit?.({ id: 1, type: 'fbx', seq: 1, blob: new Blob([new Uint8Array([1])]) });
+            await Promise.resolve();
+            await Promise.resolve();
+            const zipAfterDispose = await zipClient.unpackZIPInWorker(zipFile).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+
+            workers.length = 0;
+            const assetLoaders = createAssetLoaders({ THREE });
+            const assetFbxPromise = assetLoaders.parseFBXInWorker(new ArrayBuffer(2)).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            const assetZipPromise = assetLoaders.unpackZIPInWorker(zipFile).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            await waitForWorkerMessage(0, 1);
+            await waitForWorkerMessage(1, 1);
+            const assetWorkerCount = workers.length;
+            assetLoaders.dispose();
+            assetLoaders.dispose();
+            const assetResults = await Promise.all([assetFbxPromise, assetZipPromise]);
+            const assetTerminated = workers.map((worker) => worker.terminated);
+
+            return {
+                fbxPostedBeforeDispose,
+                fbxSupportedBeforeDispose,
+                fbxResult,
+                fbxTerminated: fbxWorker?.terminated || 0,
+                fbxSupportedAfterDispose: fbxClient.isSupported(),
+                fbxAfterDispose,
+                zipPostedBeforeDispose,
+                zipSupportedBeforeDispose,
+                zipResult,
+                zipTerminated: zipWorker?.terminated || 0,
+                zipSupportedAfterDispose: zipClient.isSupported(),
+                zipAfterDispose,
+                zipEvents,
+                assetWorkerCount,
+                assetResults,
+                assetTerminated,
+            };
+        } finally {
+            globalThis.Worker = nativeWorker;
+        }
+    });
+
+    assert.equal(result.fbxSupportedBeforeDispose, true, 'Worker client dispose smoke: FBX worker was not supported before dispose');
+    assert.equal(result.fbxPostedBeforeDispose, 1, 'Worker client dispose smoke: FBX job was not posted');
+    assert.match(result.fbxResult, /^AbortError:/, 'Worker client dispose smoke: pending FBX job was not aborted on dispose');
+    assert.equal(result.fbxTerminated, 1, 'Worker client dispose smoke: FBX worker was not terminated exactly once');
+    assert.equal(result.fbxSupportedAfterDispose, false, 'Worker client dispose smoke: FBX client stayed supported after dispose');
+    assert.match(result.fbxAfterDispose, /^AbortError:/, 'Worker client dispose smoke: disposed FBX client accepted a new job');
+    assert.equal(result.zipSupportedBeforeDispose, true, 'Worker client dispose smoke: ZIP worker was not supported before dispose');
+    assert.equal(result.zipPostedBeforeDispose, 1, 'Worker client dispose smoke: ZIP job was not posted');
+    assert.match(result.zipResult, /^AbortError:/, 'Worker client dispose smoke: pending ZIP job was not aborted on dispose');
+    assert.equal(result.zipTerminated, 1, 'Worker client dispose smoke: ZIP worker was not terminated exactly once');
+    assert.equal(result.zipSupportedAfterDispose, false, 'Worker client dispose smoke: ZIP client stayed supported after dispose');
+    assert.match(result.zipAfterDispose, /^AbortError:/, 'Worker client dispose smoke: disposed ZIP client accepted a new job');
+    assert.deepEqual(result.zipEvents, [], 'Worker client dispose smoke: stale ZIP worker messages reached handlers after dispose');
+    assert.equal(result.assetWorkerCount, 2, 'Worker client dispose smoke: asset loaders did not create both workers');
+    assert.equal(result.assetResults.length, 2, 'Worker client dispose smoke: asset loader jobs did not settle');
+    result.assetResults.forEach((entry) => {
+        assert.match(entry, /^AbortError:/, 'Worker client dispose smoke: asset loader dispose did not abort a worker job');
+    });
+    assert.deepEqual(result.assetTerminated, [1, 1], 'Worker client dispose smoke: asset loader dispose did not terminate both workers');
+    diagnostics.assertNoErrors('Worker client dispose smoke');
+    await page.close();
+}
+
 async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -3094,6 +3251,8 @@ try {
     console.log('Abortable TUS upload smoke passed.');
     await runWorkerLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Worker lifecycle smoke passed.');
+    await runWorkerClientDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Worker client dispose smoke passed.');
     await runFBXCleanupLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('FBX cleanup lifecycle smoke passed.');
     await runVPMAutobindLifecycleSmoke(browser, smokeServer.baseUrl);
