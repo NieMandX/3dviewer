@@ -11,6 +11,7 @@ export function createZIPFileHandler(options = {}) {
     const setStatusMessage = typeof options.setStatusMessage === 'function' ? options.setStatusMessage : () => {};
     const schedulePanelRefresh = typeof options.schedulePanelRefresh === 'function' ? options.schedulePanelRefresh : () => {};
     const ensureZipCollisionsHidden = typeof options.ensureZipCollisionsHidden === 'function' ? options.ensureZipCollisionsHidden : () => {};
+    const cleanupImportedRange = typeof options.cleanupImportedRange === 'function' ? options.cleanupImportedRange : () => {};
 
     const setEmptyHintVisible = typeof options.setEmptyHintVisible === 'function' ? options.setEmptyHintVisible : () => {};
 
@@ -57,6 +58,8 @@ export function createZIPFileHandler(options = {}) {
         const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
         let zipGeoMeta = null;
         let lastNormalizeOrientationType = null;
+        const importModelStart = loadedModels.length;
+        const importEmbeddedStart = allEmbedded.length;
 
         const workerRun = unpackZIPInWorker?.(file, {
             onMeta: (msg) => {
@@ -151,6 +154,9 @@ export function createZIPFileHandler(options = {}) {
                 return;
             } catch (err) {
                 if (isAbortError(err)) throw err;
+                cleanupImportedRange({ modelStart: importModelStart, embeddedStart: importEmbeddedStart });
+                zipGeoMeta = null;
+                lastNormalizeOrientationType = null;
                 logBind(`ZIP worker: не удалось обработать «${file.name}» → fallback на main thread (${err?.message || err})`, 'warn');
             }
         }

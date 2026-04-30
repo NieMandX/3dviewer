@@ -2702,6 +2702,87 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runZIPFallbackCleanupSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createZIPFileHandler } = await import('/scripts/modules/io/zip-file.js');
+        const loadedModels = [];
+        const allEmbedded = [];
+        const cleanupCalls = [];
+        const fallbackLogs = [];
+
+        const handleZIPFile = createZIPFileHandler({
+            loadedModels,
+            allEmbedded,
+            basename: (path) => String(path || '').split(/[\\/]/).pop(),
+            unpackZIPInWorker: async (_file, handlers) => {
+                await handlers.onFBX?.({
+                    blob: new Blob([new Uint8Array([1, 2, 3])], { type: 'model/fbx' }),
+                    fileName: 'partial.fbx',
+                    name: 'partial.fbx',
+                });
+                await handlers.onImage?.({
+                    blob: new Blob([new Uint8Array([4, 5, 6])], { type: 'image/png' }),
+                    name: 'textures/partial.png',
+                    mime: 'image/png',
+                });
+                throw new Error('simulated ZIP worker failure');
+            },
+            handleFBXFile: async (file, groupName) => {
+                loadedModels.push({
+                    obj: { name: file.name },
+                    name: file.name,
+                    group: groupName || null,
+                });
+            },
+            cleanupImportedRange: ({ modelStart = 0, embeddedStart = 0 } = {}) => {
+                cleanupCalls.push({
+                    modelStart,
+                    embeddedStart,
+                    modelCountBefore: loadedModels.length,
+                    embeddedCountBefore: allEmbedded.length,
+                });
+                loadedModels.splice(modelStart);
+                allEmbedded.splice(embeddedStart).forEach((entry) => {
+                    const url = String(entry?.url || '');
+                    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+                });
+            },
+            JSZip: {
+                loadAsync: async () => ({ files: {} }),
+            },
+            logBind: (message, level) => {
+                fallbackLogs.push({ message: String(message || ''), level: String(level || '') });
+            },
+        });
+
+        await handleZIPFile(new File([new Uint8Array([1])], 'fallback.zip', { type: 'application/zip' }));
+
+        return {
+            cleanupCalls,
+            loadedCount: loadedModels.length,
+            embeddedCount: allEmbedded.length,
+            fallbackLogged: fallbackLogs.some((entry) => entry.level === 'warn' && entry.message.includes('fallback')),
+        };
+    });
+
+    assert.equal(result.cleanupCalls.length, 1, 'ZIP fallback cleanup smoke: worker partial import was not cleaned before fallback');
+    assert.deepEqual(result.cleanupCalls[0], {
+        modelStart: 0,
+        embeddedStart: 0,
+        modelCountBefore: 1,
+        embeddedCountBefore: 1,
+    }, 'ZIP fallback cleanup smoke: cleanup range did not match partial worker import');
+    assert.equal(result.loadedCount, 0, 'ZIP fallback cleanup smoke: partial worker model survived fallback cleanup');
+    assert.equal(result.embeddedCount, 0, 'ZIP fallback cleanup smoke: partial worker texture survived fallback cleanup');
+    assert.equal(result.fallbackLogged, true, 'ZIP fallback cleanup smoke: fallback path was not exercised');
+    diagnostics.assertNoErrors('ZIP fallback cleanup smoke');
+    await page.close();
+}
+
 async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -3253,6 +3334,8 @@ try {
     console.log('Worker lifecycle smoke passed.');
     await runWorkerClientDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Worker client dispose smoke passed.');
+    await runZIPFallbackCleanupSmoke(browser, smokeServer.baseUrl);
+    console.log('ZIP fallback cleanup smoke passed.');
     await runFBXCleanupLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('FBX cleanup lifecycle smoke passed.');
     await runVPMAutobindLifecycleSmoke(browser, smokeServer.baseUrl);

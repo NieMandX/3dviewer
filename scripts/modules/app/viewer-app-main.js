@@ -4304,6 +4304,7 @@ export class ViewerApp {
             unpackZIPInWorker,
             makeGeoJsonMeta,
             ensureZipCollisionsHidden,
+            cleanupImportedRange,
             JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
         });
         const rawHandleFBXFile = importHandlers.handleFBXFile;

@@ -13,6 +13,8 @@ export function createImportHandlers(options = {}) {
     const setStatusMessage = typeof options.setStatusMessage === 'function' ? options.setStatusMessage : () => {};
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const schedulePanelRefresh = typeof options.schedulePanelRefresh === 'function' ? options.schedulePanelRefresh : () => {};
+    const cleanupImportedRange =
+        typeof options.cleanupImportedRange === 'function' ? options.cleanupImportedRange : () => {};
 
     const parseFBXInWorker = typeof options.parseFBXInWorker === 'function' ? options.parseFBXInWorker : null;
     const parseFBXOnMainThread = typeof options.parseFBXOnMainThread === 'function' ? options.parseFBXOnMainThread : null;
@@ -137,6 +139,7 @@ export function createImportHandlers(options = {}) {
         setStatusMessage,
         schedulePanelRefresh,
         ensureZipCollisionsHidden,
+        cleanupImportedRange,
         setEmptyHintVisible,
         allEmbedded,
         markGalleryNeedsRefresh,
