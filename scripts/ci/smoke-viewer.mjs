@@ -5120,7 +5120,12 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
                 this.transparent = false;
             }
             clone() {
-                return new FakeMaterial(`${this.name}:clone`);
+                const clone = new FakeMaterial(`${this.name}:clone`);
+                clone.map = this.map || null;
+                clone.normalMap = this.normalMap || null;
+                clone.alphaMap = this.alphaMap || null;
+                clone.envMap = this.envMap || null;
+                return clone;
             }
             dispose() {
                 disposed.push(`material:${this.name}`);
@@ -5239,6 +5244,8 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
 	            labels.set(raceUrls[1], 'T_race_case_ERM_1.1001.png');
 	            labels.set(raceUrls[2], 'T_race_case_Diffuse_1.1001.png');
 	            const raceBaseMaterial = new FakeMaterial('race-base');
+	            raceBaseMaterial.normalMap = new FakeTexture('race-shared-normal');
+	            raceBaseMaterial.envMap = new FakeTexture('race-shared-env');
 	            const raceMesh = {
 	                isMesh: true,
 	                name: 'RaceMesh',
@@ -5274,6 +5281,8 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
 	                ...firstResult,
 	                raceMaterialPreserved: raceMesh.material === raceCurrentMaterial,
 	                raceShadowPreserved: raceMesh.customDepthMaterial === raceCurrentDepth && !raceCurrentDepth?.disposed,
+	                raceSharedNormalDisposed: disposed.includes('texture:race-shared-normal'),
+	                raceSharedEnvDisposed: disposed.includes('texture:race-shared-env'),
 	                raceRenderCountAfterCurrent,
 	                raceRenderCountAfterStale: disposed.filter((entry) => entry === 'requestRender').length,
 	            };
@@ -5295,6 +5304,8 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.disposed.includes('requestRender'), false, 'VPM smoke: stale async bind requested render after model removal');
 	    assert.equal(result.raceMaterialPreserved, true, 'VPM smoke: stale async bind overwrote a newer material');
 	    assert.equal(result.raceShadowPreserved, true, 'VPM smoke: stale async bind disposed or overwrote newer custom shadow material');
+	    assert.equal(result.raceSharedNormalDisposed, false, 'VPM smoke: stale async bind disposed a shared source normal map');
+	    assert.equal(result.raceSharedEnvDisposed, false, 'VPM smoke: stale async bind disposed a shared source env map');
 	    assert.equal(result.raceRenderCountAfterStale, result.raceRenderCountAfterCurrent, 'VPM smoke: stale async bind requested render after a newer bind');
     diagnostics.assertNoErrors('VPM autobind lifecycle smoke');
     await page.close();

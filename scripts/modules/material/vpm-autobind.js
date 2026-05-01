@@ -75,13 +75,26 @@ export function createVPMBinder(options = {}) {
         return loadedModels.some((model) => model?.obj === root);
     }
 
-    function disposeMaterialTree(material) {
-        if (!material) return;
-        const materials = Array.isArray(material) ? material.filter(Boolean) : [material];
+    function collectMaterialTextures(material) {
         const textures = new Set();
+        const materials = Array.isArray(material) ? material.filter(Boolean) : [material].filter(Boolean);
         materials.forEach((mat) => {
             Object.values(mat).forEach((value) => {
-                if (!value?.isTexture || textures.has(value)) return;
+                if (value?.isTexture) textures.add(value);
+            });
+        });
+        return textures;
+    }
+
+    function disposeMaterialTree(material, options = {}) {
+        if (!material) return;
+        const materials = Array.isArray(material) ? material.filter(Boolean) : [material];
+        const sharedTextures = new Set(Array.isArray(options.sharedTextures) ? options.sharedTextures.filter(Boolean) : []);
+        const skipTextureKeys = new Set(options.skipTextureKeys || ['envMap', 'matcap']);
+        const textures = new Set();
+        materials.forEach((mat) => {
+            Object.entries(mat).forEach(([key, value]) => {
+                if (skipTextureKeys.has(key) || !value?.isTexture || sharedTextures.has(value) || textures.has(value)) return;
                 textures.add(value);
                 value.dispose?.();
             });
@@ -356,7 +369,9 @@ export function createVPMBinder(options = {}) {
                     mat.needsUpdate = true;
 
                     if (!isBindCurrent()) {
-                        disposeMaterialTree(mat);
+                        disposeMaterialTree(mat, {
+                            sharedTextures: Array.from(collectMaterialTextures(previousMaterial)),
+                        });
                         disposePendingShadowMaterials(pendingDepthMaterial, pendingDistanceMaterial);
                         return;
                     }
