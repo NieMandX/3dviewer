@@ -359,6 +359,109 @@ async function runAuthAsyncDisposeSmoke(browser, baseUrl) {
     }
 }
 
+async function runBrowserSdkRetrySmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const nativeAppendChild = document.head.appendChild.bind(document.head);
+
+        async function smokeSupabaseRetry() {
+            delete window.supabase;
+            let scriptAttempts = 0;
+            document.head.appendChild = (node) => {
+                const src = String(node?.src || '');
+                if (node?.tagName === 'SCRIPT' && src.includes('@supabase/supabase-js')) {
+                    scriptAttempts += 1;
+                    queueMicrotask(() => {
+                        if (scriptAttempts === 1) {
+                            node.onerror?.(new Event('error'));
+                            return;
+                        }
+                        window.supabase = {
+                            createClient: (url, anonKey, options) => ({ url, anonKey, options }),
+                        };
+                        node.onload?.(new Event('load'));
+                    });
+                    return node;
+                }
+                return nativeAppendChild(node);
+            };
+
+            const { createSupabaseClient } = await import(`/scripts/modules/collab/supabase-client.js?retry=${Date.now()}-${Math.random()}`);
+            let firstError = '';
+            try {
+                await createSupabaseClient({ url: 'https://retry.supabase.co', anonKey: 'anon' });
+            } catch (err) {
+                firstError = err?.message || String(err);
+            }
+            const client = await createSupabaseClient({ url: 'https://retry.supabase.co', anonKey: 'anon' });
+            return {
+                firstError,
+                scriptAttempts,
+                secondUrl: client?.url || '',
+                secondAnonKey: client?.anonKey || '',
+            };
+        }
+
+        async function smokeLiveKitRetry() {
+            delete window.LivekitClient;
+            let scriptAttempts = 0;
+            document.head.appendChild = (node) => {
+                const src = String(node?.src || '');
+                if (node?.tagName === 'SCRIPT' && src.includes('livekit-client')) {
+                    scriptAttempts += 1;
+                    queueMicrotask(() => {
+                        if (scriptAttempts === 1) {
+                            node.onerror?.(new Event('error'));
+                            return;
+                        }
+                        window.LivekitClient = { Room: function RetryRoom() {} };
+                        node.onload?.(new Event('load'));
+                    });
+                    return node;
+                }
+                return nativeAppendChild(node);
+            };
+
+            const { loadLiveKitClient } = await import(`/scripts/modules/voice/livekit-browser.js?retry=${Date.now()}-${Math.random()}`);
+            let firstError = '';
+            try {
+                await loadLiveKitClient();
+            } catch (err) {
+                firstError = err?.message || String(err);
+            }
+            const sdk = await loadLiveKitClient();
+            return {
+                firstError,
+                scriptAttempts,
+                hasRoom: typeof sdk?.Room === 'function',
+            };
+        }
+
+        try {
+            const supabase = await smokeSupabaseRetry();
+            const livekit = await smokeLiveKitRetry();
+            return { supabase, livekit };
+        } finally {
+            document.head.appendChild = nativeAppendChild;
+            delete window.supabase;
+            delete window.LivekitClient;
+        }
+    });
+
+    assert.equal(result.supabase.firstError, 'Supabase UMD failed to load.', 'SDK retry smoke: expected first Supabase load to fail');
+    assert.equal(result.supabase.scriptAttempts, 2, 'SDK retry smoke: Supabase loader did not retry after failed script');
+    assert.equal(result.supabase.secondUrl, 'https://retry.supabase.co', 'SDK retry smoke: Supabase retry did not create client');
+    assert.equal(result.supabase.secondAnonKey, 'anon', 'SDK retry smoke: Supabase retry used wrong anon key');
+    assert.equal(result.livekit.firstError, 'LiveKit browser SDK failed to load.', 'SDK retry smoke: expected first LiveKit load to fail');
+    assert.equal(result.livekit.scriptAttempts, 2, 'SDK retry smoke: LiveKit loader did not retry after failed script');
+    assert.equal(result.livekit.hasRoom, true, 'SDK retry smoke: LiveKit retry did not resolve SDK');
+    diagnostics.assertNoErrors('Browser SDK retry smoke');
+    await page.close();
+}
+
 async function runCollabCrudStaleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -6161,6 +6264,8 @@ try {
     console.log('Room-entry smoke passed.');
     await runAuthAsyncDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Auth async dispose smoke passed.');
+    await runBrowserSdkRetrySmoke(browser, smokeServer.baseUrl);
+    console.log('Browser SDK retry smoke passed.');
     await runCollabCrudStaleSmoke(browser, smokeServer.baseUrl);
     console.log('Collab CRUD stale smoke passed.');
     await runDisposeReinitSmoke(browser, smokeServer.baseUrl);

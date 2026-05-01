@@ -30,6 +30,9 @@ export async function loadLiveKitClient() {
         };
         script.onerror = () => reject(new Error('LiveKit browser SDK failed to load.'));
         document.head.appendChild(script);
+    }).catch((err) => {
+        cachedPromise = null;
+        throw err;
     });
 
     return cachedPromise;

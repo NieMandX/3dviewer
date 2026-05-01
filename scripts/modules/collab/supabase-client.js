@@ -27,6 +27,9 @@ async function loadSupabaseModule() {
         };
         script.onerror = () => reject(new Error('Supabase UMD failed to load.'));
         document.head.appendChild(script);
+    }).catch((err) => {
+        cachedPromise = null;
+        throw err;
     });
     return cachedPromise;
 }
