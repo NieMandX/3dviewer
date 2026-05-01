@@ -4852,6 +4852,65 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
             const zipRaceResult = await zipRacePromise;
             const zipRacePostedAfterDispose = zipRaceWorker?.messages?.length || 0;
 
+            const zipHandlerErrorStartIndex = workers.length;
+            const zipHandlerErrorClient = createZIPWorkerClient({ workerUrl: '/fake-zip-worker-handler-error.js' });
+            const zipHandlerErrorEvents = [];
+            const zipHandlerErrorFile = new File([new Uint8Array([9, 8, 7])], 'handler-error.zip', { type: 'application/zip' });
+            const zipHandlerErrorPromise = zipHandlerErrorClient.unpackZIPInWorker(zipHandlerErrorFile, {
+                onFBX: async () => {
+                    zipHandlerErrorEvents.push('fbx');
+                    throw new Error('handler import failed');
+                },
+                onImage: () => zipHandlerErrorEvents.push('image'),
+                onMeta: () => zipHandlerErrorEvents.push('meta'),
+            }).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            const zipHandlerErrorWorker = await waitForWorkerMessage(zipHandlerErrorStartIndex, 1);
+            const zipHandlerErrorJobId = zipHandlerErrorWorker?.messages?.[0]?.id || 1;
+            zipHandlerErrorWorker?.emit?.({
+                id: zipHandlerErrorJobId,
+                type: 'fbx',
+                seq: 1,
+                name: 'bad.fbx',
+                fileName: 'bad.fbx',
+                blob: new Blob([new Uint8Array([1])], { type: 'model/fbx' }),
+            });
+            const zipHandlerErrorResult = await zipHandlerErrorPromise;
+            const zipHandlerErrorTerminated = zipHandlerErrorWorker?.terminated || 0;
+            zipHandlerErrorWorker?.emit?.({ id: zipHandlerErrorJobId, type: 'done' });
+            await Promise.resolve();
+            await Promise.resolve();
+            const zipHandlerErrorEventsAfterStale = zipHandlerErrorEvents.slice();
+
+            const zipHandlerRecoveryPreviousPostCount = zipHandlerErrorWorker?.messages?.length || 0;
+            const zipHandlerRecoveryMeta = [];
+            const zipHandlerRecoveryPromise = zipHandlerErrorClient.unpackZIPInWorker(zipHandlerErrorFile, {
+                onMeta: (msg) => zipHandlerRecoveryMeta.push(msg.counts?.fbx ?? -1),
+            }).then(
+                (msg) => msg?.type || 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            const zipHandlerRecoveryIndex = zipHandlerErrorTerminated
+                ? zipHandlerErrorStartIndex + 1
+                : zipHandlerErrorStartIndex;
+            const zipHandlerRecoveryPostCount = zipHandlerErrorTerminated
+                ? 1
+                : zipHandlerRecoveryPreviousPostCount + 1;
+            const zipHandlerRecoveryWorker = await waitForWorkerMessage(zipHandlerRecoveryIndex, zipHandlerRecoveryPostCount);
+            const zipHandlerRecoveryMessage = zipHandlerRecoveryWorker?.messages?.at?.(-1) || null;
+            const zipHandlerRecoveryJobId = zipHandlerRecoveryMessage?.id || (zipHandlerErrorJobId + 1);
+            zipHandlerRecoveryWorker?.emit?.({
+                id: zipHandlerRecoveryJobId,
+                type: 'meta',
+                counts: { fbx: 0, images: 0, geojson: 0 },
+            });
+            zipHandlerRecoveryWorker?.emit?.({ id: zipHandlerRecoveryJobId, type: 'done' });
+            const zipHandlerRecoveryResult = await zipHandlerRecoveryPromise;
+            const zipHandlerRecoveryWorkerCount = workers.length - zipHandlerErrorStartIndex;
+            const zipHandlerRecoveryReusedWorker = zipHandlerRecoveryWorker === zipHandlerErrorWorker;
+
             workers.length = 0;
             const assetLoaders = createAssetLoaders({ THREE });
             const assetFbxPromise = assetLoaders.parseFBXInWorker(new ArrayBuffer(2)).then(
@@ -4890,6 +4949,13 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 zipRacePostedAfterDispose,
                 zipRaceTerminated: zipRaceWorker?.terminated || 0,
                 zipRaceEvents,
+                zipHandlerErrorResult,
+                zipHandlerErrorTerminated,
+                zipHandlerErrorEventsAfterStale,
+                zipHandlerRecoveryResult,
+                zipHandlerRecoveryMeta,
+                zipHandlerRecoveryWorkerCount,
+                zipHandlerRecoveryReusedWorker,
                 assetWorkerCount,
                 assetResults,
                 assetTerminated,
@@ -4918,6 +4984,13 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
     assert.equal(result.zipRacePostedAfterDispose, 0, 'Worker client dispose smoke: ZIP posted to worker after dispose');
     assert.equal(result.zipRaceTerminated, 1, 'Worker client dispose smoke: ZIP arrayBuffer race worker was not terminated');
     assert.deepEqual(result.zipRaceEvents, [], 'Worker client dispose smoke: ZIP arrayBuffer race fired onError after dispose');
+    assert.equal(result.zipHandlerErrorResult, 'Error:handler import failed', 'Worker client dispose smoke: ZIP handler failure did not reject import');
+    assert.equal(result.zipHandlerErrorTerminated, 1, 'Worker client dispose smoke: ZIP handler failure left worker alive');
+    assert.deepEqual(result.zipHandlerErrorEventsAfterStale, ['fbx'], 'Worker client dispose smoke: stale ZIP messages reached handlers after handler failure');
+    assert.equal(result.zipHandlerRecoveryResult, 'done', 'Worker client dispose smoke: ZIP client did not recover after handler failure');
+    assert.deepEqual(result.zipHandlerRecoveryMeta, [0], 'Worker client dispose smoke: ZIP recovery job missed worker messages');
+    assert.equal(result.zipHandlerRecoveryWorkerCount, 2, 'Worker client dispose smoke: ZIP handler failure did not recreate worker');
+    assert.equal(result.zipHandlerRecoveryReusedWorker, false, 'Worker client dispose smoke: ZIP recovery reused failed worker');
     assert.equal(result.assetWorkerCount, 2, 'Worker client dispose smoke: asset loaders did not create both workers');
     assert.equal(result.assetResults.length, 2, 'Worker client dispose smoke: asset loader jobs did not settle');
     result.assetResults.forEach((entry) => {
