@@ -9,13 +9,13 @@ async function readProjectFile(path) {
     return readFile(join(projectRoot, path), 'utf8');
 }
 
-const [indexHtml, fbxWorker, zipWorker, supabaseClient, smokeViewer, viewerAppMain, livekitBrowser] = await Promise.all([
+const [indexHtml, fbxWorker, zipWorker, supabaseClient, smokeViewer, tusClient, livekitBrowser] = await Promise.all([
     readProjectFile('index.html'),
     readProjectFile('scripts/fbx-worker.js'),
     readProjectFile('scripts/zip-worker.js'),
     readProjectFile('scripts/modules/collab/supabase-client.js'),
     readProjectFile('scripts/ci/smoke-viewer.mjs'),
-    readProjectFile('scripts/modules/app/viewer-app-main.js'),
+    readProjectFile('scripts/modules/collab/tus-client.js'),
     readProjectFile('scripts/modules/voice/livekit-browser.js'),
 ]);
 
@@ -72,7 +72,7 @@ const uniqueJszipVersions = [...new Set(jszipVersions)];
 assert.equal(uniqueJszipVersions.length, 1, `JSZip CDN version drift: ${uniqueJszipVersions.join(', ')}`);
 assert.match(uniqueJszipVersions[0], /^\d+\.\d+\.\d+$/, 'JSZip CDN version must be exact semver, not a floating tag.');
 
-const tusVersions = [...viewerAppMain.matchAll(/tus-js-client@([^/]+)\//g)].map((match) => match[1]);
+const tusVersions = [...tusClient.matchAll(/tus-js-client@([^/]+)\//g)].map((match) => match[1]);
 assert.ok(tusVersions.length > 0, 'No tus-js-client CDN version found.');
 const uniqueTusVersions = [...new Set(tusVersions)];
 assert.equal(uniqueTusVersions.length, 1, `tus-js-client CDN version drift: ${uniqueTusVersions.join(', ')}`);

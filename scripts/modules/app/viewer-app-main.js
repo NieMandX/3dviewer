@@ -42,6 +42,7 @@ import { collectViewerDom } from '../ui/viewer-dom.js';
 import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
 import { runAbortableTusUpload } from '../collab/abortable-tus-upload.js';
+import { loadTusClient } from '../collab/tus-client.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
@@ -4586,7 +4587,6 @@ export class ViewerApp {
         let activeRoomModelId = '';
         const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 16 * 1024 * 1024;
         const RESUMABLE_UPLOAD_CHUNK_BYTES = 6 * 1024 * 1024;
-        let tusClientPromise = null;
 
         function getModelFileKey(file) {
             if (!file) return '';
@@ -4679,29 +4679,7 @@ export class ViewerApp {
         }
 
         async function ensureTusClient() {
-            const existing = globalThis?.tus;
-            if (existing?.Upload) return existing;
-            if (tusClientPromise) return tusClientPromise;
-            tusClientPromise = new Promise((resolve, reject) => {
-                if (typeof document === 'undefined') {
-                    reject(new Error('TUS loader is unavailable outside browser.'));
-                    return;
-                }
-                const script = document.createElement('script');
-                script.src = 'https://cdn.jsdelivr.net/npm/tus-js-client@3.1.3/dist/tus.min.js';
-                script.async = true;
-                script.onload = () => {
-                    const tus = globalThis?.tus;
-                    if (tus?.Upload) {
-                        resolve(tus);
-                    } else {
-                        reject(new Error('tus-js-client loaded without Upload API.'));
-                    }
-                };
-                script.onerror = () => reject(new Error('Failed to load tus-js-client from CDN.'));
-                document.head.appendChild(script);
-            });
-            return tusClientPromise;
+            return loadTusClient();
         }
 
         async function uploadModelToProjectResumable({ supabase, file, path, onProgress = null, signal = null }) {

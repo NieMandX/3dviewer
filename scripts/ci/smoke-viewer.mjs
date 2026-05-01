@@ -440,14 +440,51 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
             };
         }
 
+        async function smokeTusRetry() {
+            delete window.tus;
+            let scriptAttempts = 0;
+            document.head.appendChild = (node) => {
+                const src = String(node?.src || '');
+                if (node?.tagName === 'SCRIPT' && src.includes('tus-js-client')) {
+                    scriptAttempts += 1;
+                    queueMicrotask(() => {
+                        if (scriptAttempts === 1) {
+                            node.onerror?.(new Event('error'));
+                            return;
+                        }
+                        window.tus = { Upload: function RetryUpload() {} };
+                        node.onload?.(new Event('load'));
+                    });
+                    return node;
+                }
+                return nativeAppendChild(node);
+            };
+
+            const { loadTusClient } = await import(`/scripts/modules/collab/tus-client.js?retry=${Date.now()}-${Math.random()}`);
+            let firstError = '';
+            try {
+                await loadTusClient();
+            } catch (err) {
+                firstError = err?.message || String(err);
+            }
+            const tus = await loadTusClient();
+            return {
+                firstError,
+                scriptAttempts,
+                hasUpload: typeof tus?.Upload === 'function',
+            };
+        }
+
         try {
             const supabase = await smokeSupabaseRetry();
             const livekit = await smokeLiveKitRetry();
-            return { supabase, livekit };
+            const tus = await smokeTusRetry();
+            return { supabase, livekit, tus };
         } finally {
             document.head.appendChild = nativeAppendChild;
             delete window.supabase;
             delete window.LivekitClient;
+            delete window.tus;
         }
     });
 
@@ -458,6 +495,9 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
     assert.equal(result.livekit.firstError, 'LiveKit browser SDK failed to load.', 'SDK retry smoke: expected first LiveKit load to fail');
     assert.equal(result.livekit.scriptAttempts, 2, 'SDK retry smoke: LiveKit loader did not retry after failed script');
     assert.equal(result.livekit.hasRoom, true, 'SDK retry smoke: LiveKit retry did not resolve SDK');
+    assert.equal(result.tus.firstError, 'Failed to load tus-js-client from CDN.', 'SDK retry smoke: expected first TUS load to fail');
+    assert.equal(result.tus.scriptAttempts, 2, 'SDK retry smoke: TUS loader did not retry after failed script');
+    assert.equal(result.tus.hasUpload, true, 'SDK retry smoke: TUS retry did not resolve Upload API');
     diagnostics.assertNoErrors('Browser SDK retry smoke');
     await page.close();
 }
