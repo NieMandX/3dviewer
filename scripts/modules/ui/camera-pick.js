@@ -30,6 +30,7 @@ export function createCameraPickController(options = {}) {
     let active = false;
     let prevControlsEnabled = null;
     let prevCursor = '';
+    let disposed = false;
 
     function hasAncestorFlag(obj, flag) {
         let current = obj;
@@ -66,6 +67,7 @@ export function createCameraPickController(options = {}) {
     }
 
     function applyPick(hit) {
+        if (disposed) return;
         const point = hit?.point;
         if (!point) return;
         const minDistance =
@@ -81,6 +83,7 @@ export function createCameraPickController(options = {}) {
     }
 
     function setActive(next) {
+        if (disposed) return;
         const desired = !!next;
         if (desired === active) return;
         if (desired && isBlocked()) return;
@@ -105,6 +108,7 @@ export function createCameraPickController(options = {}) {
     }
 
     function handlePointerDown(event) {
+        if (disposed) return;
         if (!active) return;
         if (event.button !== 0) return;
         if (isBlocked()) return;
@@ -127,7 +131,9 @@ export function createCameraPickController(options = {}) {
     addListener(canvas, 'pointerdown', handlePointerDown, { passive: false });
 
     function dispose() {
+        if (disposed) return;
         setActive(false);
+        disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}
@@ -136,7 +142,7 @@ export function createCameraPickController(options = {}) {
 
     return Object.freeze({
         setActive,
-        isActive: () => active,
+        isActive: () => !disposed && active,
         dispose,
     });
 }

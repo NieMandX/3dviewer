@@ -1358,6 +1358,102 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runCameraPickLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createCameraPickController } = await import('/scripts/modules/ui/camera-pick.js');
+
+        const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+        camera.position.set(0, 0, 5);
+        const world = new THREE.Group();
+        const canvas = document.createElement('canvas');
+        canvas.style.cursor = 'grab';
+        canvas.getBoundingClientRect = () => ({
+            left: 0,
+            top: 0,
+            width: 100,
+            height: 100,
+            right: 100,
+            bottom: 100,
+            x: 0,
+            y: 0,
+            toJSON: () => {},
+        });
+        const pickBtn = document.createElement('button');
+        document.body.append(canvas, pickBtn);
+        const controls = {
+            enabled: true,
+            target: new THREE.Vector3(),
+            update: () => {},
+        };
+
+        const controller = createCameraPickController({
+            THREE,
+            camera,
+            controls,
+            world,
+            renderer: { domElement: canvas },
+            pickBtn,
+            requestRender: () => {},
+        });
+
+        controller.setActive(true);
+        const activeBeforeDispose = controller.isActive();
+        const controlsDisabledBeforeDispose = controls.enabled === false;
+        const cursorBeforeDispose = canvas.style.cursor;
+        const buttonActiveBeforeDispose = pickBtn.classList.contains('active');
+
+        controller.dispose();
+        controller.dispose();
+        const restoredAfterDispose =
+            controller.isActive() === false &&
+            controls.enabled === true &&
+            canvas.style.cursor === 'grab' &&
+            !pickBtn.classList.contains('active');
+
+        controls.enabled = true;
+        canvas.style.cursor = 'grab';
+        controller.setActive(true);
+        pickBtn.click();
+        canvas.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            pointerId: 1,
+            button: 0,
+            clientX: 50,
+            clientY: 50,
+        }));
+
+        return {
+            activeBeforeDispose,
+            controlsDisabledBeforeDispose,
+            cursorBeforeDispose,
+            buttonActiveBeforeDispose,
+            restoredAfterDispose,
+            activeAfterLateCalls: controller.isActive(),
+            controlsAfterLateCalls: controls.enabled,
+            cursorAfterLateCalls: canvas.style.cursor,
+            buttonActiveAfterLateCalls: pickBtn.classList.contains('active'),
+        };
+    });
+
+    assert.equal(result.activeBeforeDispose, true, 'Camera pick smoke: pick mode did not activate');
+    assert.equal(result.controlsDisabledBeforeDispose, true, 'Camera pick smoke: controls were not disabled while active');
+    assert.equal(result.cursorBeforeDispose, 'crosshair', 'Camera pick smoke: cursor was not changed while active');
+    assert.equal(result.buttonActiveBeforeDispose, true, 'Camera pick smoke: button was not marked active');
+    assert.equal(result.restoredAfterDispose, true, 'Camera pick smoke: dispose did not restore controls/cursor/button state');
+    assert.equal(result.activeAfterLateCalls, false, 'Camera pick smoke: disposed controller became active again');
+    assert.equal(result.controlsAfterLateCalls, true, 'Camera pick smoke: disposed controller disabled controls after dispose');
+    assert.equal(result.cursorAfterLateCalls, 'grab', 'Camera pick smoke: disposed controller changed cursor after dispose');
+    assert.equal(result.buttonActiveAfterLateCalls, false, 'Camera pick smoke: disposed controller changed button after dispose');
+    diagnostics.assertNoErrors('Camera pick lifecycle smoke');
+    await page.close();
+}
+
 async function runFileFlowFailureSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page, {
@@ -5130,6 +5226,8 @@ try {
     console.log('Annotations dispose lifecycle smoke passed.');
     await runCameraPresetsLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Camera presets lifecycle smoke passed.');
+    await runCameraPickLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Camera pick lifecycle smoke passed.');
     await runFileFlowFailureSmoke(browser, smokeServer.baseUrl);
     console.log('File-flow failure smoke passed.');
     await runFileFlowDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
