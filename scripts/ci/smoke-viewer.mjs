@@ -4567,6 +4567,106 @@ async function runModalControllersDisposeSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runCustomSelectLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createCustomSelectController } = await import('/scripts/modules/ui/custom-select.js');
+
+        const root = document.createElement('div');
+        const select = document.createElement('select');
+        select.append(new Option('One', '1'), new Option('Two', '2'));
+        root.appendChild(select);
+        document.body.appendChild(root);
+
+        const rootAdd = root.addEventListener.bind(root);
+        const rootRemove = root.removeEventListener.bind(root);
+        const winAdd = window.addEventListener.bind(window);
+        const winRemove = window.removeEventListener.bind(window);
+        const rootAdds = [];
+        const rootRemoves = [];
+        const winAdds = [];
+        const winRemoves = [];
+
+        root.addEventListener = (...args) => {
+            rootAdds.push(args[0]);
+            return rootAdd(...args);
+        };
+        root.removeEventListener = (...args) => {
+            rootRemoves.push(args[0]);
+            return rootRemove(...args);
+        };
+        window.addEventListener = (...args) => {
+            if (args[0] === 'scroll' || args[0] === 'resize') winAdds.push(args[0]);
+            return winAdd(...args);
+        };
+        window.removeEventListener = (...args) => {
+            if (args[0] === 'scroll' || args[0] === 'resize') winRemoves.push(args[0]);
+            return winRemove(...args);
+        };
+
+        try {
+            const controller = createCustomSelectController({ root });
+            const trigger = root.querySelector('.custom-select-trigger');
+            trigger?.click?.();
+            const openListsBeforeDispose = document.body.querySelectorAll('.custom-select-list.is-open').length;
+
+            controller.dispose();
+            controller.dispose();
+            select.append(new Option('Three', '3'));
+            controller.refresh();
+
+            const bodyListsAfterDispose = document.body.querySelectorAll('.custom-select-list').length;
+            const wrappersAfterDispose = root.querySelectorAll('.custom-select').length;
+            const selectRestored =
+                select.parentNode === root &&
+                !select.classList.contains('custom-select-native') &&
+                select.dataset.customSelectReady === 'false';
+
+            const second = createCustomSelectController({ root });
+            const secondTrigger = root.querySelector('.custom-select-trigger');
+            secondTrigger?.click?.();
+            const openListsAfterReinit = document.body.querySelectorAll('.custom-select-list.is-open').length;
+            window.dispatchEvent(new Event('scroll'));
+            const openListsAfterScroll = document.body.querySelectorAll('.custom-select-list.is-open').length;
+            second.dispose();
+
+            return {
+                openListsBeforeDispose,
+                bodyListsAfterDispose,
+                wrappersAfterDispose,
+                selectRestored,
+                openListsAfterReinit,
+                openListsAfterScroll,
+                rootAdds,
+                rootRemoves,
+                winAdds,
+                winRemoves,
+                bodyListsAfterSecondDispose: document.body.querySelectorAll('.custom-select-list').length,
+            };
+        } finally {
+            root.addEventListener = rootAdd;
+            root.removeEventListener = rootRemove;
+            window.addEventListener = winAdd;
+            window.removeEventListener = winRemove;
+        }
+    });
+
+    assert.equal(result.openListsBeforeDispose, 1, 'Custom select smoke: select did not open before dispose');
+    assert.equal(result.bodyListsAfterDispose, 0, 'Custom select smoke: disposed controller left dropdown list in body');
+    assert.equal(result.wrappersAfterDispose, 0, 'Custom select smoke: disposed controller left wrapper in root');
+    assert.equal(result.selectRestored, true, 'Custom select smoke: native select was not restored on dispose');
+    assert.equal(result.openListsAfterReinit, 1, 'Custom select smoke: select did not reinitialize after dispose');
+    assert.equal(result.openListsAfterScroll, 0, 'Custom select smoke: active dropdown did not close on outside scroll');
+    assert.deepEqual(result.rootRemoves, result.rootAdds, 'Custom select smoke: root listeners were not removed exactly once');
+    assert.deepEqual(result.winRemoves, result.winAdds, 'Custom select smoke: window listeners were not removed exactly once');
+    assert.equal(result.bodyListsAfterSecondDispose, 0, 'Custom select smoke: second dispose left dropdown list in body');
+    diagnostics.assertNoErrors('Custom select lifecycle smoke');
+    await page.close();
+}
+
 const smokeServer = await createStaticServer();
 const browser = await chromium.launch({
     headless: true,
@@ -4634,6 +4734,8 @@ try {
     console.log('Environment lifecycle smoke passed.');
     await runMaterialsPanelRemovalSmoke(browser, smokeServer.baseUrl);
     console.log('Materials panel removal smoke passed.');
+    await runCustomSelectLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Custom select lifecycle smoke passed.');
     await runModalControllersDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Modal controllers dispose smoke passed.');
     await runStatusUIDisposeSmoke(browser, smokeServer.baseUrl);

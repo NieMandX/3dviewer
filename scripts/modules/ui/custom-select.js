@@ -13,13 +13,16 @@ export function createCustomSelectController(options = {}) {
     const selector = options.selector || 'select';
     const selects = Array.from(root.querySelectorAll(selector));
     const controllers = selects.map((select) => createCustomSelect(select)).filter(Boolean);
+    let disposed = false;
 
     function closeActive() {
+        if (disposed) return;
         if (activeSelect?.close) activeSelect.close();
         activeSelect = null;
     }
 
     function onDocClick(event) {
+        if (disposed) return;
         if (!activeSelect) return;
         if (!event) return;
         const target = event.target;
@@ -28,6 +31,7 @@ export function createCustomSelectController(options = {}) {
     }
 
     function onKeyDown(event) {
+        if (disposed) return;
         if (!activeSelect || !event) return;
         if (isEditableElement(event.target) && !activeSelect.wrapper?.contains(event.target)) return;
         if (event.key === 'Escape') {
@@ -37,9 +41,15 @@ export function createCustomSelectController(options = {}) {
     }
 
     function isScrollInsideActiveSelect(event) {
+        if (disposed) return false;
         if (!activeSelect || !event) return false;
         const target = event.target;
         if (!target) return false;
+        const isNode =
+            typeof Node !== 'undefined'
+                ? target instanceof Node
+                : typeof target.nodeType === 'number';
+        if (!isNode) return false;
         if (target === activeSelect.wrapper || target === activeSelect.list) return true;
         if (activeSelect.wrapper?.contains?.(target)) return true;
         if (activeSelect.list?.contains?.(target)) return true;
@@ -47,6 +57,7 @@ export function createCustomSelectController(options = {}) {
     }
 
     function onScroll(event) {
+        if (disposed) return;
         if (!activeSelect) return;
         if (isScrollInsideActiveSelect(event)) return;
         closeActive();
@@ -62,10 +73,13 @@ export function createCustomSelectController(options = {}) {
     }
 
     function refresh() {
+        if (disposed) return;
         controllers.forEach((ctrl) => ctrl.refresh());
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         if (root.removeEventListener) {
             root.removeEventListener('click', onDocClick);
             root.removeEventListener('keydown', onKeyDown);
@@ -74,6 +88,7 @@ export function createCustomSelectController(options = {}) {
             window.removeEventListener('scroll', onScroll, true);
             window.removeEventListener('resize', onScroll);
         }
+        if (controllers.includes(activeSelect)) activeSelect = null;
         controllers.forEach((ctrl) => ctrl.dispose());
     }
 
@@ -129,8 +144,10 @@ function createCustomSelect(select) {
     select.tabIndex = -1;
 
     let observer = null;
+    let disposed = false;
 
     function updateLabel() {
+        if (disposed) return;
         const selected = select.selectedOptions?.[0] || select.options[select.selectedIndex];
         label.textContent = selected ? selected.textContent : '';
         trigger.disabled = !!select.disabled;
@@ -138,6 +155,7 @@ function createCustomSelect(select) {
     }
 
     function buildOptions() {
+        if (disposed) return;
         list.innerHTML = '';
         Array.from(select.options).forEach((option, index) => {
             const item = document.createElement('button');
@@ -164,6 +182,7 @@ function createCustomSelect(select) {
                 deleteBtn.addEventListener('click', (event) => {
                     event.preventDefault?.();
                     event.stopPropagation?.();
+                    if (disposed) return;
                     const detail = {
                         value: option.value,
                         index,
@@ -176,6 +195,7 @@ function createCustomSelect(select) {
                     if (event.key !== 'Enter' && event.key !== ' ') return;
                     event.preventDefault?.();
                     event.stopPropagation?.();
+                    if (disposed) return;
                     const detail = {
                         value: option.value,
                         index,
@@ -190,6 +210,7 @@ function createCustomSelect(select) {
             if (option.selected) item.classList.add('is-selected');
             item.addEventListener('click', (event) => {
                 event.preventDefault?.();
+                if (disposed) return;
                 if (option.disabled) return;
                 select.selectedIndex = index;
                 select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -201,11 +222,13 @@ function createCustomSelect(select) {
     }
 
     function refresh() {
+        if (disposed) return;
         buildOptions();
         updateLabel();
     }
 
     function positionList() {
+        if (disposed) return;
         const rect = trigger.getBoundingClientRect();
         const margin = 6;
         const spaceBelow = window.innerHeight - rect.bottom - margin;
@@ -222,6 +245,7 @@ function createCustomSelect(select) {
     }
 
     function open() {
+        if (disposed) return;
         if (trigger.disabled) return;
         if (activeSelect && activeSelect !== api) activeSelect.close();
         activeSelect = api;
@@ -233,6 +257,7 @@ function createCustomSelect(select) {
     }
 
     function close() {
+        if (disposed) return;
         list.classList.remove('is-open');
         list.setAttribute('aria-hidden', 'true');
         trigger.setAttribute('aria-expanded', 'false');
@@ -240,6 +265,7 @@ function createCustomSelect(select) {
     }
 
     function onTriggerClick(event) {
+        if (disposed) return;
         event.preventDefault?.();
         if (list.classList.contains('is-open')) {
             close();
@@ -249,6 +275,7 @@ function createCustomSelect(select) {
     }
 
     function onTriggerKeyDown(event) {
+        if (disposed) return;
         if (!event || trigger.disabled) return;
         const key = event.key;
         if (key === 'Enter' || key === ' ') {
@@ -282,6 +309,10 @@ function createCustomSelect(select) {
         refresh,
         close,
         dispose: () => {
+            if (disposed) return;
+            close();
+            disposed = true;
+            if (activeSelect === api) activeSelect = null;
             trigger.removeEventListener('click', onTriggerClick);
             trigger.removeEventListener('keydown', onTriggerKeyDown);
             select.removeEventListener('change', refresh);
