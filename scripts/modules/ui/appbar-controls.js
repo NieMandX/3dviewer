@@ -18,6 +18,8 @@ export function createAppbarControlsController(options = {}) {
     const initialGridVisible = typeof options.initialGridVisible === 'boolean' ? options.initialGridVisible : true;
 
     const listeners = [];
+    let disposed = false;
+
     function addListener(target, type, handler, options) {
         if (!target?.addEventListener) return;
         target.addEventListener(type, handler, options);
@@ -25,6 +27,7 @@ export function createAppbarControlsController(options = {}) {
     }
 
     function toggleFullscreen() {
+        if (disposed) return;
         if (!documentRef) return;
         const elem = documentRef.documentElement;
         if (!elem) return;
@@ -41,6 +44,7 @@ export function createAppbarControlsController(options = {}) {
     }
 
     function resetViewer() {
+        if (disposed) return;
         if (typeof options.onReset === 'function') {
             options.onReset();
             return;
@@ -49,27 +53,43 @@ export function createAppbarControlsController(options = {}) {
     }
 
     function resetView() {
+        if (disposed) return;
         if (typeof options.onResetView === 'function') {
             options.onResetView();
         }
     }
 
-    addListener(statsBtn, 'click', () => setStatsVisible(!isStatsVisible()));
-    addListener(gridToggleBtn, 'click', () => setGridVisible(!isGridVisible()));
-    addListener(resetViewerBtn, 'click', resetViewer);
-    addListener(resetViewBtn, 'click', resetView);
-    addListener(fullscreenBtn, 'click', () => {
+    function toggleStats() {
+        if (disposed) return;
+        setStatsVisible(!isStatsVisible());
+    }
+
+    function toggleGrid() {
+        if (disposed) return;
+        setGridVisible(!isGridVisible());
+    }
+
+    function handleFullscreenClick() {
+        if (disposed) return;
         if (typeof options.onToggleFullscreen === 'function') {
             options.onToggleFullscreen();
             return;
         }
         toggleFullscreen();
-    });
+    }
+
+    addListener(statsBtn, 'click', toggleStats);
+    addListener(gridToggleBtn, 'click', toggleGrid);
+    addListener(resetViewerBtn, 'click', resetViewer);
+    addListener(resetViewBtn, 'click', resetView);
+    addListener(fullscreenBtn, 'click', handleFullscreenClick);
 
     setStatsVisible(initialStatsVisible);
     setGridVisible(initialGridVisible);
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}

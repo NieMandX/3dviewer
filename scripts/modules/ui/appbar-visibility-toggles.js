@@ -31,6 +31,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         : () => ({ hasAny: false, anyVisible: false });
     const toggleNPMModelsVisible = typeof api.toggleNPMModelsVisible === 'function' ? api.toggleNPMModelsVisible : () => {};
     const listeners = [];
+    let disposed = false;
 
     function addListener(target, type, handler, options) {
         if (!target?.addEventListener || typeof handler !== 'function') return;
@@ -39,12 +40,14 @@ export function createAppbarVisibilityTogglesController(options = {}) {
     }
 
     function enforceSuppressionIfNeeded() {
+        if (disposed) return false;
         if (!getNonGlassState().suppressed) return false;
         applyNonGlassSuppression({ captureNew: true });
         return true;
     }
 
     function updateSolidToggleBtnUI() {
+        if (disposed) return;
         if (!solidToggleBtn) return;
         const state = getNonGlassState();
         solidToggleBtn.disabled = !state.hasAny && !state.suppressed;
@@ -57,6 +60,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
     }
 
     function updateCollisionsToggleBtnUI() {
+        if (disposed) return;
         if (!collToggleBtn) return;
         const state = getCollisionsState();
         collToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
@@ -69,6 +73,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
     }
 
     function updateVPMToggleBtnUI() {
+        if (disposed) return;
         if (!vpmToggleBtn) return;
         const state = getVPMModelsState();
         vpmToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
@@ -81,6 +86,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
     }
 
     function updateNPMToggleBtnUI() {
+        if (disposed) return;
         if (!npmToggleBtn) return;
         const state = getNPMModelsState();
         npmToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
@@ -93,6 +99,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
     }
 
     function updateAll() {
+        if (disposed) return;
         updateSolidToggleBtnUI();
         updateCollisionsToggleBtnUI();
         updateVPMToggleBtnUI();
@@ -100,33 +107,48 @@ export function createAppbarVisibilityTogglesController(options = {}) {
     }
 
     function handleEyeToggle(el) {
+        if (disposed) return;
         handleEyeToggleRaw(el);
         enforceSuppressionIfNeeded();
         updateAll();
     }
 
-    addListener(solidToggleBtn, 'click', () => {
+    function handleSolidClick() {
+        if (disposed) return;
         toggleNonGlassSuppressed();
         schedulePanelRefresh(true);
         updateAll();
-    });
-    addListener(collToggleBtn, 'click', () => {
+    }
+
+    function handleCollisionsClick() {
+        if (disposed) return;
         toggleCollisionsVisible();
         enforceSuppressionIfNeeded();
         updateAll();
-    });
-    addListener(vpmToggleBtn, 'click', () => {
+    }
+
+    function handleVpmClick() {
+        if (disposed) return;
         toggleVPMModelsVisible();
         enforceSuppressionIfNeeded();
         updateAll();
-    });
-    addListener(npmToggleBtn, 'click', () => {
+    }
+
+    function handleNpmClick() {
+        if (disposed) return;
         toggleNPMModelsVisible();
         enforceSuppressionIfNeeded();
         updateAll();
-    });
+    }
+
+    addListener(solidToggleBtn, 'click', handleSolidClick);
+    addListener(collToggleBtn, 'click', handleCollisionsClick);
+    addListener(vpmToggleBtn, 'click', handleVpmClick);
+    addListener(npmToggleBtn, 'click', handleNpmClick);
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}

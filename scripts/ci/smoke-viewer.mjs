@@ -4667,6 +4667,210 @@ async function runCustomSelectLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runAppbarControllersDisposeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createAppbarControlsController } = await import('/scripts/modules/ui/appbar-controls.js');
+        const { createAppbarVisibilityTogglesController } = await import('/scripts/modules/ui/appbar-visibility-toggles.js');
+        const { createLayoutController } = await import('/scripts/modules/ui/layout.js');
+
+        const makeButton = () => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            document.body.appendChild(button);
+            return button;
+        };
+
+        const statsBtn = makeButton();
+        const gridBtn = makeButton();
+        const resetBtn = makeButton();
+        const resetViewBtn = makeButton();
+        const fullscreenBtn = makeButton();
+        const controlCalls = {
+            stats: 0,
+            grid: 0,
+            reset: 0,
+            resetView: 0,
+            fullscreen: 0,
+        };
+        let statsVisible = false;
+        let gridVisible = false;
+        const controls = createAppbarControlsController({
+            statsBtn,
+            gridToggleBtn: gridBtn,
+            resetViewerBtn: resetBtn,
+            resetViewBtn,
+            fullscreenBtn,
+            initialStatsVisible: true,
+            initialGridVisible: true,
+            setStatsVisible: (visible) => {
+                controlCalls.stats += 1;
+                statsVisible = !!visible;
+            },
+            isStatsVisible: () => statsVisible,
+            setGridVisible: (visible) => {
+                controlCalls.grid += 1;
+                gridVisible = !!visible;
+            },
+            isGridVisible: () => gridVisible,
+            onReset: () => { controlCalls.reset += 1; },
+            onResetView: () => { controlCalls.resetView += 1; },
+            onToggleFullscreen: () => { controlCalls.fullscreen += 1; },
+        });
+        statsBtn.click();
+        gridBtn.click();
+        resetBtn.click();
+        resetViewBtn.click();
+        fullscreenBtn.click();
+        const controlCallsBeforeDispose = { ...controlCalls };
+        controls.dispose();
+        controls.dispose();
+        statsBtn.click();
+        gridBtn.click();
+        resetBtn.click();
+        resetViewBtn.click();
+        fullscreenBtn.click();
+        controls.resetViewer();
+        controls.resetView();
+        controls.toggleFullscreen();
+
+        const solidBtn = makeButton();
+        const collBtn = makeButton();
+        const vpmBtn = makeButton();
+        const npmBtn = makeButton();
+        const visibilityCalls = {
+            panel: 0,
+            eye: 0,
+            nonGlass: 0,
+            apply: 0,
+            collisions: 0,
+            vpm: 0,
+            npm: 0,
+        };
+        const visibilityState = {
+            nonGlass: { hasAny: true, anyVisible: true, suppressed: false },
+            collisions: { hasAny: true, anyVisible: false },
+            vpm: { hasAny: true, anyVisible: false },
+            npm: { hasAny: true, anyVisible: false },
+        };
+        const visibility = createAppbarVisibilityTogglesController({
+            solidToggleBtn: solidBtn,
+            collToggleBtn: collBtn,
+            vpmToggleBtn: vpmBtn,
+            npmToggleBtn: npmBtn,
+            schedulePanelRefresh: () => { visibilityCalls.panel += 1; },
+            api: {
+                handleEyeToggleRaw: () => { visibilityCalls.eye += 1; },
+                getNonGlassState: () => visibilityState.nonGlass,
+                toggleNonGlassSuppressed: () => {
+                    visibilityCalls.nonGlass += 1;
+                    visibilityState.nonGlass.suppressed = !visibilityState.nonGlass.suppressed;
+                },
+                applyNonGlassSuppression: () => { visibilityCalls.apply += 1; },
+                getCollisionsState: () => visibilityState.collisions,
+                toggleCollisionsVisible: () => {
+                    visibilityCalls.collisions += 1;
+                    visibilityState.collisions.anyVisible = !visibilityState.collisions.anyVisible;
+                },
+                getVPMModelsState: () => visibilityState.vpm,
+                toggleVPMModelsVisible: () => {
+                    visibilityCalls.vpm += 1;
+                    visibilityState.vpm.anyVisible = !visibilityState.vpm.anyVisible;
+                },
+                getNPMModelsState: () => visibilityState.npm,
+                toggleNPMModelsVisible: () => {
+                    visibilityCalls.npm += 1;
+                    visibilityState.npm.anyVisible = !visibilityState.npm.anyVisible;
+                },
+            },
+        });
+        visibility.updateAll();
+        solidBtn.click();
+        collBtn.click();
+        vpmBtn.click();
+        npmBtn.click();
+        visibility.handleEyeToggle(document.createElement('button'));
+        const visibilityCallsBeforeDispose = { ...visibilityCalls };
+        visibility.dispose();
+        visibility.dispose();
+        solidBtn.textContent = 'sentinel';
+        visibilityState.nonGlass.suppressed = true;
+        solidBtn.click();
+        collBtn.click();
+        vpmBtn.click();
+        npmBtn.click();
+        visibility.handleEyeToggle(document.createElement('button'));
+        visibility.enforceSuppressionIfNeeded();
+        visibility.updateAll();
+
+        const appbar = document.createElement('div');
+        appbar.className = 'appbar';
+        const camsBar = document.createElement('div');
+        camsBar.id = 'camsBar';
+        document.body.append(appbar, camsBar);
+        const layoutWin = new EventTarget();
+        layoutWin.innerWidth = 800;
+        layoutWin.innerHeight = 600;
+        const layoutBtn = makeButton();
+        const layoutCalls = { setSize: 0, projection: 0, render: 0 };
+        const layout = createLayoutController({
+            root: document,
+            window: layoutWin,
+            renderer: {
+                setSize: () => { layoutCalls.setSize += 1; },
+            },
+            camera: {
+                aspect: 1,
+                updateProjectionMatrix: () => { layoutCalls.projection += 1; },
+            },
+            requestRender: () => { layoutCalls.render += 1; },
+            toggleSideBtn: layoutBtn,
+        });
+        layout.layout();
+        const layoutCallsBeforeDispose = { ...layoutCalls };
+        layout.dispose();
+        layout.dispose();
+        layoutWin.innerWidth = 1024;
+        layoutWin.innerHeight = 768;
+        layoutWin.dispatchEvent(new Event('resize'));
+        layoutBtn.click();
+        layout.layout();
+        layout.hideSidePanel();
+
+        return {
+            controlCallsBeforeDispose,
+            controlCallsAfterDispose: controlCalls,
+            visibilityCallsBeforeDispose,
+            visibilityCallsAfterDispose: visibilityCalls,
+            solidTextAfterLateUpdate: solidBtn.textContent,
+            layoutCallsBeforeDispose,
+            layoutCallsAfterDispose: layoutCalls,
+        };
+    });
+
+    assert.deepEqual(
+        result.controlCallsAfterDispose,
+        result.controlCallsBeforeDispose,
+        'Appbar controls smoke: disposed controls still handled clicks or public methods',
+    );
+    assert.deepEqual(
+        result.visibilityCallsAfterDispose,
+        result.visibilityCallsBeforeDispose,
+        'Appbar visibility smoke: disposed visibility controller still mutated API state',
+    );
+    assert.equal(result.solidTextAfterLateUpdate, 'sentinel', 'Appbar visibility smoke: disposed updateAll still changed button UI');
+    assert.deepEqual(
+        result.layoutCallsAfterDispose,
+        result.layoutCallsBeforeDispose,
+        'Layout smoke: disposed layout still handled resize/click/public calls',
+    );
+    diagnostics.assertNoErrors('Appbar/layout dispose smoke');
+    await page.close();
+}
+
 const smokeServer = await createStaticServer();
 const browser = await chromium.launch({
     headless: true,
@@ -4736,6 +4940,8 @@ try {
     console.log('Materials panel removal smoke passed.');
     await runCustomSelectLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Custom select lifecycle smoke passed.');
+    await runAppbarControllersDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Appbar/layout dispose smoke passed.');
     await runModalControllersDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Modal controllers dispose smoke passed.');
     await runStatusUIDisposeSmoke(browser, smokeServer.baseUrl);
