@@ -5564,6 +5564,7 @@ export class ViewerApp {
 	            try { fileFlowUI?.dispose?.(); } catch (_) {}
 	            try { assetLoaders?.dispose?.(); } catch (_) {}
 	            try { inspectorPanels?.dispose?.(); } catch (_) {}
+	            try { batchFinalizer?.dispose?.(); } catch (_) {}
 	            try { shadingController?.disposeUI?.(); } catch (_) {}
 	            try { importedLightsController?.dispose?.(); } catch (_) {}
 	            try { appbarVisibilityToggles?.dispose?.(); } catch (_) {}

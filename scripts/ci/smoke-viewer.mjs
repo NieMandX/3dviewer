@@ -1693,6 +1693,125 @@ async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createBatchFinalizer } = await import('/scripts/modules/io/batch-finalizer.js');
+
+        const calls = [];
+        const loadedModels = [{ obj: { name: 'model' }, zipKind: 'SM', group: 'grp' }];
+        const allEmbedded = [{ short: 'tex', url: 'blob:tex' }];
+        let lastFinalizedModelIndex = 0;
+        let galleryNeedsRefresh = true;
+        let didInitialRebase = false;
+        let resolveHdr = null;
+        const hdrStarted = new Promise((resolve) => {
+            resolveHdr = resolve;
+        });
+        let finishHdr = null;
+        const hdrBlocked = new Promise((resolve) => {
+            finishHdr = resolve;
+        });
+        const outEl = document.createElement('div');
+        outEl.innerHTML = '<details data-level="group" open></details>';
+
+        const finalizer = createBatchFinalizer({
+            loadedModels,
+            allEmbedded,
+            getLastFinalizedModelIndex: () => lastFinalizedModelIndex,
+            setLastFinalizedModelIndex: (next) => {
+                calls.push(`last:${next}`);
+                lastFinalizedModelIndex = next;
+            },
+            getGalleryNeedsRefresh: () => galleryNeedsRefresh,
+            setGalleryNeedsRefresh: (next) => {
+                calls.push(`galleryNeeds:${next}`);
+                galleryNeedsRefresh = next;
+            },
+            renderGallery: () => calls.push('renderGallery'),
+            getDidInitialRebase: () => didInitialRebase,
+            setDidInitialRebase: (next) => {
+                calls.push(`didRebase:${next}`);
+                didInitialRebase = next;
+            },
+            computeAutoOffsetHorizontalOnly: () => ({ x: 1, y: 0, z: 2 }),
+            setWorldOffset: () => calls.push('setWorldOffset'),
+            isIBLEnabled: () => true,
+            getIBLRotation: () => 30,
+            loadHDRBase: async () => {
+                calls.push('loadHDR:start');
+                resolveHdr();
+                await hdrBlocked;
+                calls.push('loadHDR:done');
+            },
+            buildAndApplyEnvFromRotation: async () => calls.push('buildEnv'),
+            syncBackgroundToEnvironment: () => calls.push('syncBg'),
+            applyGlassControlsToScene: () => calls.push('glass'),
+            fitSunShadowToScene: () => calls.push('shadow'),
+            updateSun: () => calls.push('sun'),
+            buildVPMIndex: () => {
+                calls.push('vpmIndex');
+                return {};
+            },
+            autoBindVPMForModel: async () => calls.push('autobind'),
+            logBind: (message) => calls.push(`log:${message}`),
+            ensureZipCollisionsHidden: () => calls.push('hideCollisions'),
+            fitAll: () => calls.push('fitAll'),
+            focusOn: () => calls.push('focusOn'),
+            onInitialFraming: () => calls.push('initialFraming'),
+            outEl,
+            imagesDetails: document.createElement('details'),
+            bindLogDetails: document.createElement('details'),
+            hideSMCollisions: () => {
+                calls.push('hideSM');
+                return true;
+            },
+            syncCollisionButtons: () => calls.push('syncCollisions'),
+            setStatusMessage: (message) => calls.push(`status:${message}`),
+            setEmptyHintVisible: (visible) => calls.push(`hint:${!!visible}`),
+            applyShading: (_mode, done) => {
+                calls.push('shading');
+                done?.();
+            },
+            getCurrentShadingMode: () => 'pbr',
+        });
+
+        const promise = finalizer.finalizeBatchAfterAllFiles();
+        await hdrStarted;
+        const callsBeforeDispose = calls.slice();
+        finalizer.dispose();
+        finalizer.dispose();
+        finishHdr();
+        const finalizeResult = await promise;
+        const callsAfterDispose = calls.slice();
+        const lateResult = await finalizer.finalizeBatchAfterAllFiles();
+
+        return {
+            callsBeforeDispose,
+            callsAfterDispose,
+            finalizeResult,
+            lateResult,
+            lastFinalizedModelIndex,
+            galleryNeedsRefresh,
+        };
+    });
+
+    assert.deepEqual(
+        result.callsAfterDispose,
+        [...result.callsBeforeDispose, 'loadHDR:done'],
+        'Batch finalizer smoke: disposed finalizer continued scene/UI finalization after await',
+    );
+    assert.equal(result.finalizeResult, false, 'Batch finalizer smoke: disposed in-flight finalizer did not return false');
+    assert.equal(result.lateResult, false, 'Batch finalizer smoke: disposed finalizer accepted a late finalize call');
+    assert.equal(result.lastFinalizedModelIndex, 0, 'Batch finalizer smoke: disposed finalizer advanced finalized index');
+    assert.equal(result.galleryNeedsRefresh, false, 'Batch finalizer smoke: pre-dispose gallery refresh state did not update as expected');
+    diagnostics.assertNoErrors('Batch finalizer dispose smoke');
+    await page.close();
+}
+
 async function runTextureModalStaleEntrySmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -5232,6 +5351,8 @@ try {
     console.log('File-flow failure smoke passed.');
     await runFileFlowDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('File-flow dispose lifecycle smoke passed.');
+    await runBatchFinalizerDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Batch finalizer dispose smoke passed.');
     await runTextureModalStaleEntrySmoke(browser, smokeServer.baseUrl);
     console.log('Texture modal stale entry smoke passed.');
     await runTextureReplacementLifecycleSmoke(browser, smokeServer.baseUrl);

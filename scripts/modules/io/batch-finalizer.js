@@ -58,21 +58,32 @@ export function createBatchFinalizer(options = {}) {
     const getCurrentShadingMode =
         typeof options.getCurrentShadingMode === 'function' ? options.getCurrentShadingMode : () => 'pbr';
 
+    let disposed = false;
+    let finalizeGeneration = 0;
+
+    function isCurrent(generation) {
+        return !disposed && generation === finalizeGeneration;
+    }
+
     async function finalizeBatchAfterAllFiles() {
-        if (!loadedModels.length) return;
+        if (disposed || !loadedModels.length) return false;
+        const generation = ++finalizeGeneration;
 
         const newModels = loadedModels.slice(getLastFinalizedModelIndex());
         const hasNewModels = newModels.length > 0;
         const needGalleryRefresh = getGalleryNeedsRefresh();
 
         if (!hasNewModels && !needGalleryRefresh) {
+            if (!isCurrent(generation)) return false;
             setStatusMessage('Готово');
             setEmptyHintVisible(loadedModels.length === 0);
-            return;
+            return true;
         }
 
         if (needGalleryRefresh) {
+            if (!isCurrent(generation)) return false;
             renderGallery(allEmbedded);
+            if (!isCurrent(generation)) return false;
             setGalleryNeedsRefresh(false);
         }
 
@@ -80,6 +91,7 @@ export function createBatchFinalizer(options = {}) {
         let firstTime = false;
         if (!getDidInitialRebase() && hasNewModels) {
             const off = computeAutoOffsetHorizontalOnly();
+            if (!isCurrent(generation)) return false;
             setWorldOffset(off);
             setDidInitialRebase(true);
             firstTime = true;
@@ -88,9 +100,12 @@ export function createBatchFinalizer(options = {}) {
         if (hasNewModels) {
             if (isIBLEnabled()) {
                 await loadHDRBase();
+                if (!isCurrent(generation)) return false;
                 await buildAndApplyEnvFromRotation(getIBLRotation());
+                if (!isCurrent(generation)) return false;
             }
 
+            if (!isCurrent(generation)) return false;
             syncBackgroundToEnvironment();
 
             applyGlassControlsToScene();
@@ -108,14 +123,18 @@ export function createBatchFinalizer(options = {}) {
             try {
                 const vpmIndex = buildVPMIndex(allEmbedded);
                 for (const m of modelsForBinding) {
+                    if (!isCurrent(generation)) return false;
                     await autoBindVPMForModel(m.obj, vpmIndex);
+                    if (!isCurrent(generation)) return false;
                 }
             } catch (e) {
+                if (!isCurrent(generation)) return false;
                 logBind(`⚠️ VPM: ошибка автопривязки — ${e?.message || e}`, 'warn');
             }
         }
 
         if (hasNewModels) {
+            if (!isCurrent(generation)) return false;
             const smGroups = new Set();
             newModels.forEach(model => {
                 if ((model.zipKind || '').toUpperCase() !== 'SM') return;
@@ -131,6 +150,7 @@ export function createBatchFinalizer(options = {}) {
         }
 
         const finalizeUI = () => {
+            if (!isCurrent(generation)) return;
             outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
             if (firstTime) {
                 if (imagesDetails) imagesDetails.open = false;
@@ -147,15 +167,24 @@ export function createBatchFinalizer(options = {}) {
         };
 
         if (hasNewModels) {
+            if (!isCurrent(generation)) return false;
             applyShading(getCurrentShadingMode(), finalizeUI);
         } else {
             finalizeUI();
         }
 
         if (hasNewModels) {
+            if (!isCurrent(generation)) return false;
             setLastFinalizedModelIndex(loadedModels.length);
         }
+        return true;
     }
 
-    return { finalizeBatchAfterAllFiles };
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        finalizeGeneration += 1;
+    }
+
+    return { finalizeBatchAfterAllFiles, dispose };
 }
