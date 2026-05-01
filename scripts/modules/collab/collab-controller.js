@@ -1,4 +1,5 @@
 import { createSupabaseClient } from './supabase-client.js';
+import { createRealtimeChannelStatusHandler } from './realtime-channel-status.js';
 
 function makeSlug(length = 8) {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -260,6 +261,49 @@ export async function createCollabController(options = {}) {
         throw err;
     }
 
+    function subscribeTrackedChannel(channel, label) {
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const finishResolve = () => {
+                if (settled) return;
+                settled = true;
+                resolve();
+            };
+            const finishReject = (err, reason) => {
+                if (settled) return;
+                settled = true;
+                reject(err || new Error(`${label} realtime subscribe ${reason || 'failed'}`));
+            };
+            const handleStatus = createRealtimeChannelStatusHandler({
+                label,
+                isCurrent: () => !disposed,
+                onSubscribed: finishResolve,
+                onFailure: ({ error, reason }) => {
+                    emitConnectionState(false, reason);
+                    finishReject(error, reason);
+                },
+            });
+
+            let result = null;
+            try {
+                result = channel.subscribe(handleStatus);
+            } catch (err) {
+                emitConnectionState(false, `${label}:SUBSCRIBE_ERROR`);
+                finishReject(err, 'SUBSCRIBE_ERROR');
+                return;
+            }
+
+            if (result && typeof result.then === 'function') {
+                result.then((statusValue) => {
+                    if (statusValue) handleStatus(statusValue);
+                }).catch((err) => {
+                    emitConnectionState(false, `${label}:SUBSCRIBE_ERROR`);
+                    finishReject(err, 'SUBSCRIBE_ERROR');
+                });
+            }
+        });
+    }
+
     const roomChannel = supabase.channel(`room:${room.id}`, {
         config: { presence: { key: user.id } },
     });
@@ -378,7 +422,7 @@ export async function createCollabController(options = {}) {
             }
         );
         channels.push(roomUpdates);
-        await roomUpdates.subscribe();
+        await subscribeTrackedChannel(roomUpdates, 'room_updates');
 
         const annotationsChannel = supabase.channel(`room:${room.id}:annotations`);
         annotationsChannel.on(
@@ -398,7 +442,7 @@ export async function createCollabController(options = {}) {
             }
         );
         channels.push(annotationsChannel);
-        await annotationsChannel.subscribe();
+        await subscribeTrackedChannel(annotationsChannel, 'annotations');
 
         const messagesChannel = supabase.channel(`room:${room.id}:messages`);
         messagesChannel.on(
@@ -410,7 +454,7 @@ export async function createCollabController(options = {}) {
             }
         );
         channels.push(messagesChannel);
-        await messagesChannel.subscribe();
+        await subscribeTrackedChannel(messagesChannel, 'messages');
 
         const historyAnnotations = await supabase
             .from('annotations')

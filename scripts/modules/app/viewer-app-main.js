@@ -45,6 +45,7 @@ import { runAbortableTusUpload } from '../collab/abortable-tus-upload.js';
 import { loadTusClient } from '../collab/tus-client.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
+import { createRealtimeChannelStatusHandler } from '../collab/realtime-channel-status.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
 import { promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
@@ -1354,6 +1355,24 @@ export class ViewerApp {
 
         function flushRoomCameraRealtimeReload(context) {
             roomCameraRealtimeReload?.flush?.(context);
+        }
+
+        function createRoomAuxRealtimeStatusHandler(label, { controller, roomId, generation } = {}) {
+            const isCurrent = () => (
+                !!controller
+                && controller === collabController
+                && isActiveRoomLoad(generation, roomId)
+            );
+            return createRealtimeChannelStatusHandler({
+                label,
+                isCurrent,
+                onFailure: ({ reason }) => {
+                    if (!isCurrent()) return;
+                    setCollabConnectionState(false, reason);
+                    setCollabStatus('offline');
+                    scheduleCollabAutoResume(reason);
+                },
+            });
         }
 
         function setCollabConnectionState(connected, reason = '') {
@@ -5190,6 +5209,7 @@ export class ViewerApp {
                 }
                 if (!roomModelsChannel && collabController) {
                     roomModelsChannel = collabController.supabase.channel(`room:${roomId}:models`);
+                    const channelController = collabController;
                     roomModelsChannel.on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'room_models', filter: `room_id=eq.${roomId}` },
@@ -5224,7 +5244,11 @@ export class ViewerApp {
                             if (modelRow) await loadProjectModel(modelRow, { roomId, generation });
                         }
                     );
-                    roomModelsChannel.subscribe();
+                    roomModelsChannel.subscribe(createRoomAuxRealtimeStatusHandler('room_models', {
+                        controller: channelController,
+                        roomId,
+                        generation,
+                    }));
                 }
             } catch (err) {
                 console.error('Room models load failed', err);
@@ -5604,7 +5628,11 @@ export class ViewerApp {
                         if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
                     }
                 );
-                roomCamerasChannel.subscribe();
+                roomCamerasChannel.subscribe(createRoomAuxRealtimeStatusHandler('room_cameras', {
+                    controller,
+                    roomId,
+                    generation,
+                }));
             }
             if (!roomTransitionsChannel) {
                 roomTransitionsChannel = controller.supabase.channel(`room:${roomId}:transitions`);
@@ -5615,7 +5643,11 @@ export class ViewerApp {
                         if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
                     }
                 );
-                roomTransitionsChannel.subscribe();
+                roomTransitionsChannel.subscribe(createRoomAuxRealtimeStatusHandler('room_transitions', {
+                    controller,
+                    roomId,
+                    generation,
+                }));
             }
         }
 

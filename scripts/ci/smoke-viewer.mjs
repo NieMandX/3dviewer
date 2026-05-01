@@ -2715,6 +2715,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             constructor(name) {
                 this.name = name;
                 this.handlers = [];
+                this.statusCallback = null;
                 this.state = 'joined';
                 this.socket = { isConnected: () => true };
                 this.tracked = [];
@@ -2724,6 +2725,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
                 return this;
             }
             subscribe(callback) {
+                this.statusCallback = typeof callback === 'function' ? callback : null;
                 if (typeof callback === 'function') {
                     Promise.resolve().then(() => callback('SUBSCRIBED'));
                 }
@@ -2748,6 +2750,9 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
                 this.handlers
                     .filter((handler) => handler.type === type && handler.filter?.event === event)
                     .forEach((handler) => handler.callback(payload));
+            }
+            emitStatus(status, err = null) {
+                this.statusCallback?.(status, err);
             }
         }
 
@@ -2803,6 +2808,9 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         messagesChannel.emit('postgres_changes', 'INSERT', { new: { id: 'message-row' } });
 
         await Promise.resolve();
+        annotationsChannel.emitStatus('CHANNEL_ERROR');
+        await Promise.resolve();
+        const afterChannelFailure = calls.slice();
         const beforeDispose = calls.slice();
         await controller.dispose();
         const afterDispose = calls.slice();
@@ -2819,10 +2827,12 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         annotationsChannel.emit('postgres_changes', 'INSERT', { new: { id: 'late-annotation-row' } });
         annotationsChannel.emit('postgres_changes', 'DELETE', { old: { id: 'late-annotation-old' } });
         messagesChannel.emit('postgres_changes', 'INSERT', { new: { id: 'late-message-row' } });
+        annotationsChannel.emitStatus('CLOSED');
 
         await Promise.resolve();
         return {
             beforeDispose,
+            afterChannelFailure,
             afterDispose,
             afterLateEvents: calls.slice(),
             removedChannels,
@@ -2839,6 +2849,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     assert.ok(result.beforeDispose.includes('message:broadcast:broadcast-message'), 'Collab smoke: broadcast message did not fire before dispose');
     assert.ok(result.beforeDispose.includes('annotation:realtime:annotation-row'), 'Collab smoke: realtime annotation did not fire before dispose');
     assert.ok(result.beforeDispose.includes('room:room-1'), 'Collab smoke: room update did not fire before dispose');
+    assert.ok(result.afterChannelFailure.includes('connection:off:annotations:CHANNEL_ERROR'), 'Collab smoke: auxiliary channel failure did not emit offline state');
     assert.ok(result.afterDispose.includes('connection:off:DISPOSED'), 'Collab smoke: dispose did not emit connection close');
     assert.deepEqual(result.removedChannels, result.channelNames, 'Collab smoke: dispose did not remove all realtime channels');
     assert.deepEqual(result.afterLateEvents, result.afterDispose, 'Collab smoke: stale realtime callbacks fired after dispose');
