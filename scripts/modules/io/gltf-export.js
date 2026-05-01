@@ -241,7 +241,7 @@ async function exportAsGLB(exporter, root) {
 }
 
 function prepareMaterialsForExport(root) {
-    if (!root || typeof root.traverse !== 'function') return;
+    if (!root || typeof root.traverse !== 'function') return [];
 
     const cache = new Map();
 
@@ -268,6 +268,19 @@ function prepareMaterialsForExport(root) {
         } else {
             obj.material = getPrepared(mat);
         }
+    });
+
+    return Array.from(cache.values());
+}
+
+function disposePreparedExportMaterials(materials) {
+    const seen = new Set();
+    (Array.isArray(materials) ? materials : []).forEach((material) => {
+        if (!material || seen.has(material)) return;
+        seen.add(material);
+        try {
+            material.dispose?.();
+        } catch (_) {}
     });
 }
 
@@ -478,12 +491,14 @@ export async function exportWorldAsGLTF(options = {}) {
     let glbArrayBuffer;
     if (exportRoot) {
         sanitizeObject3DTree(exportRoot);
-        prepareMaterialsForExport(exportRoot);
+        const preparedMaterials = prepareMaterialsForExport(exportRoot);
         bakeLightTargetsForExport(exportRoot);
         try {
             glbArrayBuffer = await exportAsGLB(exporter, exportRoot);
         } catch (err) {
             console.warn('GLTF export: cloned root export failed, retrying with live world', err);
+        } finally {
+            disposePreparedExportMaterials(preparedMaterials);
         }
     }
 

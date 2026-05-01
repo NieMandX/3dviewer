@@ -4189,6 +4189,73 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runGLTFExportCleanupSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { exportWorldAsGLTF } = await import('/scripts/modules/io/gltf-export.js');
+
+        const disposedMaterials = [];
+        const nativeMaterialDispose = THREE.Material.prototype.dispose;
+        THREE.Material.prototype.dispose = function patchedMaterialDispose(...args) {
+            disposedMaterials.push({
+                name: this.name || '',
+                isOriginal: !!this.userData?.smokeOriginalMaterial,
+            });
+            return nativeMaterialDispose.apply(this, args);
+        };
+
+        const world = new THREE.Group();
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshStandardMaterial({ name: 'export-material' });
+        material.userData.smokeOriginalMaterial = true;
+        material.userData.viewerTransient = { shouldNotExport: true };
+        const mesh = new THREE.Mesh(geometry, material);
+        world.add(mesh);
+
+        try {
+            const exportResult = await exportWorldAsGLTF({
+                world,
+                format: 'glb',
+                coords: 'rebased',
+                returnBlob: true,
+            });
+
+            return {
+                disposedMaterials,
+                materialStillAttached: mesh.material === material,
+                originalUserDataPreserved: material.userData.viewerTransient?.shouldNotExport === true,
+                blobType: exportResult?.blob?.type || '',
+                format: exportResult?.format || '',
+            };
+        } finally {
+            THREE.Material.prototype.dispose = nativeMaterialDispose;
+            geometry.dispose();
+            material.dispose();
+        }
+    });
+
+    assert.equal(result.format, 'glb', 'GLTF export cleanup smoke: export did not return GLB metadata');
+    assert.equal(result.blobType, 'model/gltf-binary', 'GLTF export cleanup smoke: export did not produce a GLB blob');
+    assert.equal(result.materialStillAttached, true, 'GLTF export cleanup smoke: export detached original material');
+    assert.equal(result.originalUserDataPreserved, true, 'GLTF export cleanup smoke: export mutated original material userData');
+    assert.equal(
+        result.disposedMaterials.some((entry) => entry.name === 'export-material' && !entry.isOriginal),
+        true,
+        'GLTF export cleanup smoke: prepared clone material was not disposed',
+    );
+    assert.equal(
+        result.disposedMaterials.some((entry) => entry.isOriginal),
+        false,
+        'GLTF export cleanup smoke: export disposed the original scene material',
+    );
+    diagnostics.assertNoErrors('GLTF export cleanup smoke');
+    await page.close();
+}
+
 async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -5469,6 +5536,8 @@ try {
     console.log('GeoJSON meta lifecycle smoke passed.');
     await runFBXCleanupLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('FBX cleanup lifecycle smoke passed.');
+    await runGLTFExportCleanupSmoke(browser, smokeServer.baseUrl);
+    console.log('GLTF export cleanup smoke passed.');
     await runVPMAutobindLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('VPM autobind lifecycle smoke passed.');
     await runEnvironmentLifecycleSmoke(browser, smokeServer.baseUrl);
