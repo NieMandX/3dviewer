@@ -23,6 +23,7 @@ export function createWASDFlightController(options = {}) {
     const lookBoostMultiplier = Number.isFinite(options.lookBoostMultiplier) ? options.lookBoostMultiplier : 2.0;
 
     let enabled = options.enabled !== false;
+    let disposed = false;
 
     const keys = Object.seal({
         forward: false,
@@ -104,6 +105,7 @@ export function createWASDFlightController(options = {}) {
     }
 
     function onKeyDown(event) {
+        if (disposed) return;
         if (shouldIgnoreKeyDown(event)) return;
         const key = codeToKey[event.code];
         if (!key) return;
@@ -112,6 +114,7 @@ export function createWASDFlightController(options = {}) {
     }
 
     function onKeyUp(event) {
+        if (disposed) return;
         if (!event) return;
         const key = codeToKey[event.code];
         if (!key) return;
@@ -120,11 +123,13 @@ export function createWASDFlightController(options = {}) {
     }
 
     function setEnabled(nextEnabled) {
+        if (disposed) return;
         enabled = !!nextEnabled;
         if (!enabled) resetKeys();
     }
 
     function update() {
+        if (disposed) return false;
         const now = timeNow();
         const dt = lastNow ? (now - lastNow) / 1000 : 0;
         lastNow = now;
@@ -213,6 +218,9 @@ export function createWASDFlightController(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
+        enabled = false;
         resetKeys();
         if (win?.removeEventListener) {
             win.removeEventListener('keydown', onKeyDown);

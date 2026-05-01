@@ -1499,6 +1499,112 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runWASDFlightLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createWASDFlightController } = await import('/scripts/modules/render/wasd-flight.js');
+
+        const win = new EventTarget();
+        const listenerCounts = { keydown: 0, keyup: 0, blur: 0 };
+        const nativeAddEventListener = win.addEventListener.bind(win);
+        const nativeRemoveEventListener = win.removeEventListener.bind(win);
+        win.addEventListener = (type, listener, options) => {
+            if (Object.prototype.hasOwnProperty.call(listenerCounts, type)) {
+                listenerCounts[type] += 1;
+            }
+            return nativeAddEventListener(type, listener, options);
+        };
+        win.removeEventListener = (type, listener, options) => {
+            if (Object.prototype.hasOwnProperty.call(listenerCounts, type)) {
+                listenerCounts[type] = Math.max(0, listenerCounts[type] - 1);
+            }
+            return nativeRemoveEventListener(type, listener, options);
+        };
+
+        const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+        camera.position.set(0, 0, 0);
+        camera.lookAt(0, 0, -1);
+        const controls = {
+            target: new THREE.Vector3(0, 0, -10),
+        };
+        const doc = { activeElement: document.body };
+        let renderRequests = 0;
+        const controller = createWASDFlightController({
+            THREE,
+            camera,
+            controls,
+            window: win,
+            document: doc,
+            requestRender: () => {
+                renderRequests += 1;
+            },
+        });
+
+        const listenersAfterCreate = { ...listenerCounts };
+        const keyDown = new KeyboardEvent('keydown', { code: 'KeyW', cancelable: true });
+        win.dispatchEvent(keyDown);
+        const firstUpdate = controller.update();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const moved = controller.update();
+        const positionAfterMove = camera.position.clone();
+        const targetAfterMove = controls.target.clone();
+        const renderRequestsAfterMove = renderRequests;
+
+        win.dispatchEvent(new Event('blur'));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const movedAfterBlur = controller.update();
+
+        controller.dispose();
+        controller.dispose();
+        const listenersAfterDispose = { ...listenerCounts };
+        const enabledAfterDispose = controller.isEnabled();
+        const positionBeforeLateCalls = camera.position.clone();
+        const targetBeforeLateCalls = controls.target.clone();
+        controller.setEnabled(true);
+        win.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', cancelable: true }));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const lateMoved = controller.update();
+
+        return {
+            listenersAfterCreate,
+            keyDownPrevented: keyDown.defaultPrevented,
+            firstUpdate,
+            moved,
+            positionMoved: positionAfterMove.distanceTo(new THREE.Vector3(0, 0, 0)) > 0,
+            targetMoved: targetAfterMove.distanceTo(new THREE.Vector3(0, 0, -10)) > 0,
+            renderRequestsAfterMove,
+            movedAfterBlur,
+            listenersAfterDispose,
+            enabledAfterDispose,
+            enabledAfterLateSet: controller.isEnabled(),
+            lateMoved,
+            positionStableAfterDispose: camera.position.distanceTo(positionBeforeLateCalls) < 1e-9,
+            targetStableAfterDispose: controls.target.distanceTo(targetBeforeLateCalls) < 1e-9,
+        };
+    });
+
+    assert.deepEqual(result.listenersAfterCreate, { keydown: 1, keyup: 1, blur: 1 }, 'WASD smoke: listeners were not registered');
+    assert.equal(result.keyDownPrevented, true, 'WASD smoke: handled movement key did not prevent default');
+    assert.equal(result.firstUpdate, false, 'WASD smoke: first zero-delta update moved camera');
+    assert.equal(result.moved, true, 'WASD smoke: held movement key did not move camera');
+    assert.equal(result.positionMoved, true, 'WASD smoke: camera position did not change');
+    assert.equal(result.targetMoved, true, 'WASD smoke: controls target did not move with camera');
+    assert.equal(result.renderRequestsAfterMove, 1, 'WASD smoke: movement did not request render once');
+    assert.equal(result.movedAfterBlur, false, 'WASD smoke: blur did not clear held keys');
+    assert.deepEqual(result.listenersAfterDispose, { keydown: 0, keyup: 0, blur: 0 }, 'WASD smoke: listeners leaked after dispose');
+    assert.equal(result.enabledAfterDispose, false, 'WASD smoke: disposed controller stayed enabled');
+    assert.equal(result.enabledAfterLateSet, false, 'WASD smoke: disposed controller was re-enabled by late setEnabled');
+    assert.equal(result.lateMoved, false, 'WASD smoke: disposed controller moved camera');
+    assert.equal(result.positionStableAfterDispose, true, 'WASD smoke: disposed controller changed camera position');
+    assert.equal(result.targetStableAfterDispose, true, 'WASD smoke: disposed controller changed controls target');
+    diagnostics.assertNoErrors('WASD flight lifecycle smoke');
+    await page.close();
+}
+
 async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -6663,6 +6769,8 @@ try {
     console.log('Renderer dispose lifecycle smoke passed.');
     await runRenderLoopLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Render loop lifecycle smoke passed.');
+    await runWASDFlightLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('WASD flight lifecycle smoke passed.');
     await runAnnotationsDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Annotations dispose lifecycle smoke passed.');
     await runCameraPresetsLifecycleSmoke(browser, smokeServer.baseUrl);
