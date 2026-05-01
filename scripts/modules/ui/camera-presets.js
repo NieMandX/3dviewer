@@ -433,6 +433,12 @@ export function createCameraPresetsController(options = {}) {
         }, 200);
     }
 
+    function cancelScheduledChange() {
+        if (!changeTimer) return;
+        clearTimeout(changeTimer);
+        changeTimer = null;
+    }
+
     function markStateDirty() {
         stateVersion += 1;
         scheduleChange();
@@ -442,6 +448,7 @@ export function createCameraPresetsController(options = {}) {
         if (disposed) return false;
         const nextPresets = Array.isArray(state.presets) ? state.presets : null;
         if (!nextPresets) return false;
+        cancelScheduledChange();
         suppressChange = true;
         presets.length = 0;
         nextPresets.forEach((preset) => {
@@ -2368,10 +2375,7 @@ export function createCameraPresetsController(options = {}) {
         if (disposed) return;
         disposed = true;
         stopPlayback({ updateUi: false });
-        if (changeTimer) {
-            clearTimeout(changeTimer);
-            changeTimer = null;
-        }
+        cancelScheduledChange();
         try { annotations.dispose?.(); } catch (_) {}
         cleanupFns.splice(0).reverse().forEach((cleanup) => {
             try { cleanup(); } catch (_) {}

@@ -1310,6 +1310,38 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
             const persistedDrawState = drawChanges[drawChanges.length - 1] || null;
             const persistedDrawPreset = persistedDrawState?.presets?.[0] || {};
 
+            const staleChangeEvents = [];
+            const staleChangeHarness = makeHarness({
+                onChange: (state) => staleChangeEvents.push(state),
+            });
+            staleChangeHarness.controller.loadState({
+                presets: [presets[0]],
+                transitions: [],
+                activeId: 'cam-a',
+                lastCreatedId: 'cam-a',
+            });
+            staleChangeEvents.length = 0;
+            const addedBeforeReload = staleChangeHarness.controller.addFromSnapshot({
+                position: [7, 7, 7],
+                target: [0, 0, 0],
+                up: [0, 1, 0],
+                fov: 55,
+                zoom: 1,
+                near: 0.1,
+                far: 1000,
+            }, 'Local Pending');
+            const countBeforeRealtimeLoad = staleChangeHarness.controller.getPresets().length;
+            staleChangeHarness.controller.loadState({
+                presets: [presets[1]],
+                transitions: [],
+                activeId: 'cam-b',
+                lastCreatedId: 'cam-b',
+            });
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            const staleChangeCountAfterRealtimeLoad = staleChangeEvents.length;
+            const countAfterRealtimeLoad = staleChangeHarness.controller.getPresets().length;
+            staleChangeHarness.controller.dispose();
+
             return {
                 controlsDisabledDuringPlay,
                 pendingRafBeforeDispose,
@@ -1330,6 +1362,10 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
                 staleTextPromptChanges: annotationChanges.length,
                 localDrawAnnotationCount: drawPreset.annotations?.length || 0,
                 persistedDrawAnnotationCount: persistedDrawPreset.annotations?.length || 0,
+                staleChangeAdded: !!addedBeforeReload,
+                countBeforeRealtimeLoad,
+                countAfterRealtimeLoad,
+                staleChangeCountAfterRealtimeLoad,
             };
         } finally {
             globalThis.requestAnimationFrame = nativeRaf;
@@ -1354,6 +1390,10 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.staleTextPromptChanges, 0, 'Camera presets smoke: pending text prompt emitted onChange after dispose');
     assert.equal(result.localDrawAnnotationCount, 1, 'Camera presets smoke: drawn 2D annotation was not stored locally');
     assert.equal(result.persistedDrawAnnotationCount, 1, 'Camera presets smoke: drawn 2D annotation was not included in onChange state');
+    assert.equal(result.staleChangeAdded, true, 'Camera presets smoke: pending local camera was not created');
+    assert.equal(result.countBeforeRealtimeLoad, 2, 'Camera presets smoke: pending local camera setup failed');
+    assert.equal(result.countAfterRealtimeLoad, 1, 'Camera presets smoke: realtime load did not replace pending local camera state');
+    assert.equal(result.staleChangeCountAfterRealtimeLoad, 0, 'Camera presets smoke: realtime load did not cancel pending onChange debounce');
     diagnostics.assertNoErrors('Camera presets lifecycle smoke');
     await page.close();
 }
