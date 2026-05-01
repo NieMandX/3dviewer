@@ -7,6 +7,8 @@ export function createRoomModelLoadQueue(options = {}) {
     let activeKey = '';
     let activeContext = null;
     let draining = false;
+    let queueGeneration = 0;
+    let activeRunId = 0;
 
     function normalizeContext(model, context = {}) {
         const modelId = String(context.modelId || model?.id || '').trim();
@@ -43,22 +45,37 @@ export function createRoomModelLoadQueue(options = {}) {
         pending.clear();
     }
 
+    function reset() {
+        queueGeneration += 1;
+        pending.clear();
+        activeKey = '';
+        activeContext = null;
+        draining = false;
+    }
+
     async function runNow(model, context) {
+        const runGeneration = queueGeneration;
+        const runId = activeRunId + 1;
+        activeRunId = runId;
         activeKey = context.key;
         activeContext = context;
         pending.delete(context.key);
         try {
             if (!loadModelNow || !isContextCurrent(context)) return false;
-            return !!await loadModelNow(model, context);
+            const loaded = !!await loadModelNow(model, context);
+            if (activeRunId !== runId || queueGeneration !== runGeneration || !isContextCurrent(context)) return false;
+            return loaded;
         } catch (err) {
             if (onError) onError(err, { model, context });
             else console.error('Room model queued load failed', err);
             return false;
         } finally {
-            activeKey = '';
-            activeContext = null;
-            if (!draining) {
-                await drain();
+            if (activeRunId === runId && queueGeneration === runGeneration) {
+                activeKey = '';
+                activeContext = null;
+                if (!draining) {
+                    await drain();
+                }
             }
         }
     }
@@ -77,10 +94,11 @@ export function createRoomModelLoadQueue(options = {}) {
 
     async function drain() {
         if (draining || activeKey) return false;
+        const drainGeneration = queueGeneration;
         draining = true;
         let loadedAny = false;
         try {
-            while (!activeKey) {
+            while (!activeKey && queueGeneration === drainGeneration) {
                 const entry = shiftNextPending();
                 if (!entry) break;
                 loadedAny = true;
@@ -111,6 +129,7 @@ export function createRoomModelLoadQueue(options = {}) {
         enqueue,
         delete: deletePending,
         clear,
+        reset,
         drain,
         isActive: () => !!activeKey,
         getActiveContext: () => (activeContext ? { ...activeContext } : null),

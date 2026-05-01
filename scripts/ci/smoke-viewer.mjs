@@ -3023,7 +3023,7 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
             return { xr };
         }
 
-        function makeHarness(label, xrApi) {
+        function makeHarness(label, xrApi, options = {}) {
             const scene = new THREE.Scene();
             const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
             camera.position.set(0, 1.6, 4);
@@ -3031,7 +3031,7 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
             const sessionRef = { current: null };
             const events = [];
             const controls = {
-                enabled: true,
+                enabled: options.controlsEnabled !== false,
                 target: new THREE.Vector3(0, 1.6, 0),
                 update: () => events.push(`${label}:controls:update`),
             };
@@ -3082,7 +3082,7 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
                         releasePendingSession = () => sessionResolve(pendingSession);
                     });
                 },
-            });
+            }, { controlsEnabled: false });
             globalThis.__vrPendingHarness = pending;
             void pending.controller.enterVR().then((value) => {
                 pending.events.push(`enterResult:${value}`);
@@ -3118,7 +3118,7 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
             pendingCameraRestored: pending.camera.parent === pending.scene,
             pendingRigRemoved: pending.scene.getObjectByName('XRUserRig') == null,
             pendingEnterResolvedFalse: pending.events.includes('enterResult:false'),
-            pendingControlsRestored: pending.controls.enabled === true,
+            pendingControlsRestored: pending.controls.enabled === false,
         };
     });
 
@@ -3141,7 +3141,7 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.pendingCameraRestored, true, 'VR dispose smoke: pending dispose did not restore camera');
     assert.equal(result.pendingRigRemoved, true, 'VR dispose smoke: pending dispose left XR rig in scene');
     assert.equal(result.pendingEnterResolvedFalse, true, 'VR dispose smoke: pending enter did not resolve false after dispose');
-    assert.equal(result.pendingControlsRestored, true, 'VR dispose smoke: pending dispose did not restore controls');
+    assert.equal(result.pendingControlsRestored, true, 'VR dispose smoke: pending dispose did not restore pre-existing disabled controls');
     diagnostics.assertNoErrors('VR dispose lifecycle smoke');
     await page.close();
 }
@@ -3180,7 +3180,7 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
                 const id = String(model?.id || '');
                 events.push(`start:${id}`);
                 markStart(id);
-                if (id === 'A' || id === 'C') {
+                if (id === 'A' || id === 'C' || id === 'BLOCKED' || id === 'AFTER_RESET') {
                     await new Promise((resolve) => {
                         releases.set(id, resolve);
                     });
@@ -3208,6 +3208,21 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
         const thirdLoadResult = await thirdLoad;
         const removedLoadResult = await removedBeforeDrain;
 
+        currentGeneration = 3;
+        const blockedLoad = queue.load({ id: 'BLOCKED' }, { roomId: 'room-1', generation: 3 });
+        await waitForStart('BLOCKED');
+        const queuedBeforeResetResult = await queue.load({ id: 'BEFORE_RESET' }, { roomId: 'room-1', generation: 3 });
+        currentGeneration = 4;
+        queue.reset();
+        const afterResetLoad = queue.load({ id: 'AFTER_RESET' }, { roomId: 'room-1', generation: 4 });
+        await waitForStart('AFTER_RESET');
+        const afterResetStartedBeforeBlockedDone = events.includes('start:AFTER_RESET')
+            && !events.includes('done:BLOCKED');
+        releases.get('BLOCKED')();
+        releases.get('AFTER_RESET')();
+        const blockedLoadResult = await blockedLoad;
+        const afterResetLoadResult = await afterResetLoad;
+
         return {
             events,
             firstLoadResult,
@@ -3215,6 +3230,10 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             staleLoadResult,
             thirdLoadResult,
             removedLoadResult,
+            queuedBeforeResetResult,
+            blockedLoadResult,
+            afterResetLoadResult,
+            afterResetStartedBeforeBlockedDone,
             pendingDuringActive,
             deletedPending,
             pendingAfter: queue.getPendingModelIds(),
@@ -3227,13 +3246,21 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
     assert.equal(result.staleLoadResult, false, 'Room model queue smoke: stale load should be ignored');
     assert.equal(result.thirdLoadResult, true, 'Room model queue smoke: next generation load did not complete');
     assert.equal(result.removedLoadResult, false, 'Room model queue smoke: queued load should resolve false immediately');
+    assert.equal(result.queuedBeforeResetResult, false, 'Room model queue smoke: pre-reset queued load should resolve false immediately');
+    assert.equal(result.blockedLoadResult, false, 'Room model queue smoke: reset active load still reported success');
+    assert.equal(result.afterResetLoadResult, true, 'Room model queue smoke: reset generation load did not finish');
+    assert.equal(result.afterResetStartedBeforeBlockedDone, true, 'Room model queue smoke: reset did not release active stale load slot');
     assert.deepEqual(result.pendingDuringActive, ['B'], 'Room model queue smoke: concurrent model was not queued');
     assert.equal(result.deletedPending, true, 'Room model queue smoke: pending delete did not remove queued model');
     assert.deepEqual(result.pendingAfter, [], 'Room model queue smoke: pending queue did not drain');
     assert.equal(result.activeAfter, false, 'Room model queue smoke: queue stayed active after drain');
     assert.deepEqual(
         result.events,
-        ['start:A', 'done:A', 'start:B', 'done:B', 'start:C', 'done:C'],
+        [
+            'start:A', 'done:A', 'start:B', 'done:B',
+            'start:C', 'done:C',
+            'start:BLOCKED', 'start:AFTER_RESET', 'done:BLOCKED', 'done:AFTER_RESET',
+        ],
         'Room model queue smoke: queued/stale/deleted model order is wrong',
     );
     diagnostics.assertNoErrors('Room model load queue smoke');

@@ -971,6 +971,8 @@ export function createVRController(options = {}) {
 
         const rig = ensureXrRig();
         state.desktopCameraParent = camera.parent || scene;
+        state.prevControlsEnabled = controls ? controls.enabled !== false : true;
+        state.prevFlightEnabled = flightControls?.isEnabled ? !!flightControls.isEnabled() : true;
         rig.position.set(0, 0, 0);
         rig.quaternion.identity();
         rig.scale.set(1, 1, 1);
@@ -1022,8 +1024,6 @@ export function createVRController(options = {}) {
         state.pendingCalibration = true;
         state.floorSnapSuppressed = false;
         state.menuTogglePrev = false;
-        state.prevControlsEnabled = controls ? controls.enabled !== false : true;
-        state.prevFlightEnabled = flightControls?.isEnabled ? !!flightControls.isEnabled() : true;
 
         if (controls) controls.enabled = false;
         if (flightControls?.setEnabled) flightControls.setEnabled(false);

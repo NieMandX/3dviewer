@@ -1238,7 +1238,8 @@ export class ViewerApp {
 
         function bumpRoomLoadGeneration() {
             roomLoadGeneration += 1;
-            roomModelLoadQueue?.clear?.();
+            if (roomModelLoadQueue?.reset) roomModelLoadQueue.reset();
+            else roomModelLoadQueue?.clear?.();
             abortActiveRoomImports();
             return roomLoadGeneration;
         }
