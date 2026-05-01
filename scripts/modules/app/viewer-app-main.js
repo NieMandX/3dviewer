@@ -1021,6 +1021,8 @@ export class ViewerApp {
         let collabAutoResumeTimer = null;
         let collabAutoResumeInFlight = false;
         let collabAutoResumeAttempt = 0;
+        let collabExitInFlight = false;
+        let collabExitGeneration = 0;
         let collabAnnotatePointerHooksBound = false;
         const isMobileUi = () => {
             if (typeof window === 'undefined') return false;
@@ -1302,6 +1304,15 @@ export class ViewerApp {
             return !appDisposed && generation === collabCrudGeneration;
         }
 
+        function bumpCollabExitGeneration() {
+            collabExitGeneration += 1;
+            return collabExitGeneration;
+        }
+
+        function isActiveCollabExit(generation) {
+            return !appDisposed && generation === collabExitGeneration;
+        }
+
         function beginCameraSyncMute() {
             cameraSyncMuted = true;
             cameraSyncMuteToken += 1;
@@ -1372,15 +1383,18 @@ export class ViewerApp {
                 const displayName = String(collabController?.getDisplayName?.() || collabNameEl?.value || '').trim() || 'Guest';
                 if (collabController) {
                     await teardownCollabSession({ preserveAutoResume: true });
+                    if (appDisposed || !collabAutoResumeEnabled) return;
                 }
                 await connectToRoom(displayName, { isAutoReconnect: true, throwOnError: true });
+                if (appDisposed || !collabAutoResumeEnabled) return;
                 collabAutoResumeAttempt = 0;
             } catch (err) {
+                if (appDisposed || !collabAutoResumeEnabled) return;
                 console.error('Collab auto-resume failed', err);
                 setCollabConnectionState(false, `resume-failed:${String(trigger || '')}`);
                 scheduleCollabAutoResume('retry');
             } finally {
-                collabAutoResumeInFlight = false;
+                if (!appDisposed) collabAutoResumeInFlight = false;
             }
         }
 
@@ -2772,7 +2786,7 @@ export class ViewerApp {
         }
 
         async function connectToRoom(name, options = {}) {
-            if (!collabSupabase || !collabUser || !collabProject || !collabRoom) return;
+            if (appDisposed || !collabSupabase || !collabUser || !collabProject || !collabRoom) return;
             const isAutoReconnect = !!options?.isAutoReconnect;
             const throwOnError = !!options?.throwOnError;
             const requestedProject = collabProject;
@@ -2780,7 +2794,7 @@ export class ViewerApp {
             const requestedProjectId = String(requestedProject?.id || '');
             const requestedRoomId = String(requestedRoom?.id || '');
             const sessionGeneration = bumpCollabSessionGeneration();
-            const isCurrentSession = () => isActiveCollabSession(sessionGeneration);
+            const isCurrentSession = () => !appDisposed && isActiveCollabSession(sessionGeneration);
             const isCurrentRoomRequest = () => (
                 isCurrentSession()
                 && String(collabProject?.id || '') === requestedProjectId
@@ -3267,32 +3281,44 @@ export class ViewerApp {
         if (collabStatusBtn) {
             collabStatusBtn.disabled = !collabReady;
             addAppEventListener(collabStatusBtn, 'click', async () => {
-                if (!collabReady) return;
+                if (!collabReady || appDisposed || collabExitInFlight) return;
                 if (!collabController) {
                     setCollabDrawerOpen(true);
                     return;
                 }
+                const exitGeneration = bumpCollabExitGeneration();
+                const isCurrentExit = () => isActiveCollabExit(exitGeneration);
+                collabExitInFlight = true;
+                collabStatusBtn.disabled = true;
                 const exitAsRegistered = !!collabIsRegistered;
                 const exitProjectSlug = getProjectSlugFromUrl();
                 const exitRoomSlug = getRoomSlugFromUrl();
                 const exitInviteToken = getInviteTokenFromUrl();
-                const confirmed = await confirmModal.open({
-                    title: 'Выйти из совместной работы',
-                    message: 'Вы точно хотите выйти из режима совместной работы?',
-                    okText: 'Выйти',
-                    cancelText: 'Отмена',
-                });
-                if (!confirmed) return;
-                await teardownCollabSession();
-                if (exitAsRegistered) {
-                    setRoomSlugInUrl('', '');
-                    if (typeof window !== 'undefined') {
-                        window.location.reload();
+                try {
+                    const confirmed = await confirmModal.open({
+                        title: 'Выйти из совместной работы',
+                        message: 'Вы точно хотите выйти из режима совместной работы?',
+                        okText: 'Выйти',
+                        cancelText: 'Отмена',
+                    });
+                    if (!confirmed || !isCurrentExit()) return;
+                    await teardownCollabSession();
+                    if (!isCurrentExit()) return;
+                    if (exitAsRegistered) {
+                        setRoomSlugInUrl('', '');
+                        if (typeof window !== 'undefined' && isCurrentExit()) {
+                            window.location.reload();
+                        }
+                    } else if (exitInviteToken || (exitProjectSlug && exitRoomSlug)) {
+                        setRoomSlugInUrl(exitProjectSlug, exitRoomSlug, exitInviteToken);
+                        if (typeof window !== 'undefined' && isCurrentExit()) {
+                            window.location.reload();
+                        }
                     }
-                } else if (exitInviteToken || (exitProjectSlug && exitRoomSlug)) {
-                    setRoomSlugInUrl(exitProjectSlug, exitRoomSlug, exitInviteToken);
-                    if (typeof window !== 'undefined') {
-                        window.location.reload();
+                } finally {
+                    if (isCurrentExit()) {
+                        collabExitInFlight = false;
+                        collabStatusBtn.disabled = !collabReady;
                     }
                 }
             });
