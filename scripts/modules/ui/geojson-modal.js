@@ -2,6 +2,7 @@ export function createGeoJsonModalController(options = {}) {
     const documentRef =
         options.document || (typeof document !== 'undefined' ? document : null);
     const listeners = [];
+    let disposed = false;
 
     function addListener(target, type, handler, options) {
         if (!target?.addEventListener || typeof handler !== 'function') return;
@@ -10,6 +11,7 @@ export function createGeoJsonModalController(options = {}) {
     }
 
     function ensureModal() {
+        if (disposed) return null;
         if (!documentRef) return null;
         let geoModal = documentRef.getElementById('geoModal');
         if (!geoModal) {
@@ -48,6 +50,7 @@ export function createGeoJsonModalController(options = {}) {
     }
 
     function open(meta, title = 'GeoJSON') {
+        if (disposed) return;
         const geoModal = ensureModal();
         if (!geoModal) return;
 
@@ -77,6 +80,8 @@ export function createGeoJsonModalController(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}

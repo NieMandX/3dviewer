@@ -7,6 +7,8 @@ export function createConfirmModalController(options = {}) {
     const closeBtn = options.closeBtn || null;
 
     let resolver = null;
+    let disposed = false;
+    let openToken = 0;
     const listeners = [];
 
     function addListener(target, type, handler, options) {
@@ -16,12 +18,12 @@ export function createConfirmModalController(options = {}) {
     }
 
     function isOpen() {
-        return !!modalEl?.classList?.contains?.('show');
+        return !disposed && !!modalEl?.classList?.contains?.('show');
     }
 
     function close(value = false) {
-        if (!modalEl) return;
-        modalEl.classList.remove('show');
+        openToken += 1;
+        modalEl?.classList?.remove?.('show');
         const resolve = resolver;
         resolver = null;
         resolve?.(!!value);
@@ -41,8 +43,9 @@ export function createConfirmModalController(options = {}) {
         okText = 'OK',
         cancelText = 'Отмена',
     } = {}) {
-        if (!modalEl || !messageEl || !okBtn || !cancelBtn) return Promise.resolve(false);
+        if (disposed || !modalEl || !messageEl || !okBtn || !cancelBtn) return Promise.resolve(false);
         if (resolver) close(false);
+        const token = ++openToken;
 
         if (titleEl) titleEl.textContent = String(title || '');
         messageEl.textContent = String(message || '');
@@ -52,6 +55,7 @@ export function createConfirmModalController(options = {}) {
         modalEl.classList.add('show');
 
         queueMicrotask(() => {
+            if (disposed || token !== openToken || !isOpen()) return;
             try {
                 okBtn.focus();
             } catch (_) {}
@@ -81,6 +85,8 @@ export function createConfirmModalController(options = {}) {
     });
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         close(false);
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();

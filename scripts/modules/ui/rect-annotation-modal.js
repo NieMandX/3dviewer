@@ -15,6 +15,8 @@ export function createRectAnnotationModalController(options = {}) {
 
     let resolver = null;
     let currentArea = null;
+    let disposed = false;
+    let openToken = 0;
     const listeners = [];
 
     function addListener(target, type, handler, options) {
@@ -24,7 +26,7 @@ export function createRectAnnotationModalController(options = {}) {
     }
 
     function isOpen() {
-        return !!modalEl?.classList?.contains?.('show');
+        return !disposed && !!modalEl?.classList?.contains?.('show');
     }
 
     function formatArea(area) {
@@ -49,8 +51,8 @@ export function createRectAnnotationModalController(options = {}) {
     }
 
     function close(value = null) {
-        if (!modalEl) return;
-        modalEl.classList.remove('show');
+        openToken += 1;
+        modalEl?.classList?.remove?.('show');
         const resolve = resolver;
         resolver = null;
         resolve?.(value);
@@ -65,8 +67,9 @@ export function createRectAnnotationModalController(options = {}) {
         text = '',
         mode = 'rect',
     } = {}) {
-        if (!modalEl || !colorEl || !fillEl || !infoEl) return Promise.resolve(null);
+        if (disposed || !modalEl || !colorEl || !fillEl || !infoEl) return Promise.resolve(null);
         if (resolver) close(null);
+        const token = ++openToken;
 
         if (titleEl) titleEl.textContent = title;
         colorEl.value = String(color || '#ffcc00');
@@ -90,6 +93,7 @@ export function createRectAnnotationModalController(options = {}) {
         modalEl.classList.add('show');
 
         queueMicrotask(() => {
+            if (disposed || token !== openToken || !isOpen()) return;
             try {
                 if (infoEl.value === 'text') {
                     textEl?.focus?.();
@@ -140,6 +144,8 @@ export function createRectAnnotationModalController(options = {}) {
     });
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         close(null);
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();

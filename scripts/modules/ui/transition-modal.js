@@ -9,6 +9,8 @@ export function createTransitionModalController(options = {}) {
     const closeBtn = options.closeBtn || null;
 
     let resolver = null;
+    let disposed = false;
+    let openToken = 0;
     const listeners = [];
 
     function addListener(target, type, handler, options) {
@@ -18,8 +20,8 @@ export function createTransitionModalController(options = {}) {
     }
 
     function close(value = null) {
-        if (!modalEl) return;
-        modalEl.classList.remove('show');
+        openToken += 1;
+        modalEl?.classList?.remove?.('show');
         const resolve = resolver;
         resolver = null;
         resolve?.(value);
@@ -39,8 +41,9 @@ export function createTransitionModalController(options = {}) {
     }
 
     function open({ title = 'Переход камеры', seconds = 0, type = 'ease-in-out', trajectory = 'linear' } = {}) {
-        if (!modalEl || !secondsEl || !typeEl || !trajectoryEl) return Promise.resolve(null);
+        if (disposed || !modalEl || !secondsEl || !typeEl || !trajectoryEl) return Promise.resolve(null);
         if (resolver) close(null);
+        const token = ++openToken;
 
         if (titleEl) titleEl.textContent = title;
         secondsEl.value = String(Number.isFinite(seconds) ? Math.max(0, seconds) : 0);
@@ -50,6 +53,7 @@ export function createTransitionModalController(options = {}) {
         modalEl.classList.add('show');
 
         queueMicrotask(() => {
+            if (disposed || token !== openToken || !modalEl.classList.contains('show')) return;
             try {
                 secondsEl.focus();
                 secondsEl.select?.();
@@ -83,6 +87,8 @@ export function createTransitionModalController(options = {}) {
     addListener(trajectoryEl, 'keydown', onKey);
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         close(null);
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();

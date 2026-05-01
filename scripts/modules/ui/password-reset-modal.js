@@ -10,6 +10,8 @@ export function createPasswordResetModalController(options = {}) {
 
     let resolver = null;
     let baseMessage = '';
+    let disposed = false;
+    let openToken = 0;
     const listeners = [];
 
     function addListener(target, type, handler, options) {
@@ -19,10 +21,11 @@ export function createPasswordResetModalController(options = {}) {
     }
 
     function isOpen() {
-        return !!modalEl?.classList?.contains?.('show');
+        return !disposed && !!modalEl?.classList?.contains?.('show');
     }
 
     function setMessage(text) {
+        if (disposed) return;
         if (messageEl) messageEl.textContent = String(text || '');
     }
 
@@ -32,8 +35,8 @@ export function createPasswordResetModalController(options = {}) {
     }
 
     function close(value = null) {
-        if (!modalEl) return;
-        modalEl.classList.remove('show');
+        openToken += 1;
+        modalEl?.classList?.remove?.('show');
         const resolve = resolver;
         resolver = null;
         resolve?.(value);
@@ -65,10 +68,11 @@ export function createPasswordResetModalController(options = {}) {
         okText = 'Сохранить',
         cancelText = 'Отмена',
     } = {}) {
-        if (!modalEl || !passwordEl || !repeatEl || !okBtn || !cancelBtn) {
+        if (disposed || !modalEl || !passwordEl || !repeatEl || !okBtn || !cancelBtn) {
             return Promise.resolve(null);
         }
         if (resolver) close(null);
+        const token = ++openToken;
 
         if (titleEl) titleEl.textContent = String(title || '');
         baseMessage = String(message || '');
@@ -80,6 +84,7 @@ export function createPasswordResetModalController(options = {}) {
         modalEl.classList.add('show');
 
         queueMicrotask(() => {
+            if (disposed || token !== openToken || !isOpen()) return;
             try {
                 passwordEl.focus();
             } catch (_) {}
@@ -109,6 +114,8 @@ export function createPasswordResetModalController(options = {}) {
     });
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         close(null);
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();

@@ -7,6 +7,8 @@ export function createPromptModalController(options = {}) {
     const closeBtn = options.closeBtn || null;
 
     let resolver = null;
+    let disposed = false;
+    let openToken = 0;
     const listeners = [];
 
     function addListener(target, type, handler, options) {
@@ -16,20 +18,21 @@ export function createPromptModalController(options = {}) {
     }
 
     function isOpen() {
-        return !!modalEl?.classList?.contains?.('show');
+        return !disposed && !!modalEl?.classList?.contains?.('show');
     }
 
     function close(value = null) {
-        if (!modalEl) return;
-        modalEl.classList.remove('show');
+        openToken += 1;
+        modalEl?.classList?.remove?.('show');
         const resolve = resolver;
         resolver = null;
         resolve?.(value);
     }
 
     function open({ title = 'Имя камеры', value = '', placeholder = '', type = 'text', step = null, min = null, max = null } = {}) {
-        if (!modalEl || !inputEl) return Promise.resolve(null);
+        if (disposed || !modalEl || !inputEl) return Promise.resolve(null);
         if (resolver) close(null);
+        const token = ++openToken;
 
         if (titleEl) titleEl.textContent = title;
         try {
@@ -49,6 +52,7 @@ export function createPromptModalController(options = {}) {
         modalEl.classList.add('show');
 
         queueMicrotask(() => {
+            if (disposed || token !== openToken || !isOpen()) return;
             try {
                 inputEl.focus();
                 inputEl.select?.();
@@ -88,6 +92,8 @@ export function createPromptModalController(options = {}) {
     });
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         close(null);
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();

@@ -8,6 +8,8 @@ export function createExportModalController(options = {}) {
     const closeBtn = options.closeBtn || null;
 
     let resolver = null;
+    let disposed = false;
+    let openToken = 0;
     const listeners = [];
 
     function addListener(target, type, handler, options) {
@@ -17,8 +19,8 @@ export function createExportModalController(options = {}) {
     }
 
     function close(value = null) {
-        if (!modalEl) return;
-        modalEl.classList.remove('show');
+        openToken += 1;
+        modalEl?.classList?.remove?.('show');
         const resolve = resolver;
         resolver = null;
         resolve?.(value);
@@ -38,8 +40,9 @@ export function createExportModalController(options = {}) {
     }
 
     function open({ title = 'Экспорт', format = 'glb', coords = 'rebased' } = {}) {
-        if (!modalEl || !formatEl || !coordsEl) return Promise.resolve(null);
+        if (disposed || !modalEl || !formatEl || !coordsEl) return Promise.resolve(null);
         if (resolver) close(null);
+        const token = ++openToken;
 
         if (titleEl) titleEl.textContent = String(title || 'Экспорт');
         formatEl.value = format === 'gltf' ? 'gltf' : 'glb';
@@ -48,6 +51,7 @@ export function createExportModalController(options = {}) {
         modalEl.classList.add('show');
 
         queueMicrotask(() => {
+            if (disposed || token !== openToken || !modalEl.classList.contains('show')) return;
             try {
                 formatEl.focus();
             } catch (_) {}
@@ -81,6 +85,8 @@ export function createExportModalController(options = {}) {
     addListener(modalEl, 'keydown', onKey);
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         close(null);
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();

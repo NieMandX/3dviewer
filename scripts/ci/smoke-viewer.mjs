@@ -4349,6 +4349,224 @@ async function runStatusUIDisposeSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runModalControllersDisposeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createPromptModalController } = await import('/scripts/modules/ui/prompt-modal.js');
+        const { createConfirmModalController } = await import('/scripts/modules/ui/confirm-modal.js');
+        const { createTransitionModalController } = await import('/scripts/modules/ui/transition-modal.js');
+        const { createExportModalController } = await import('/scripts/modules/ui/export-modal.js');
+        const { createRectAnnotationModalController } = await import('/scripts/modules/ui/rect-annotation-modal.js');
+        const { createPasswordResetModalController } = await import('/scripts/modules/ui/password-reset-modal.js');
+        const { createGeoJsonModalController } = await import('/scripts/modules/ui/geojson-modal.js');
+
+        const focusCalls = {
+            prompt: 0,
+            confirm: 0,
+            transition: 0,
+            export: 0,
+            rectColor: 0,
+            rectText: 0,
+            reset: 0,
+        };
+
+        const makeButton = () => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            return btn;
+        };
+
+        const makeModal = () => {
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            document.body.appendChild(modal);
+            return modal;
+        };
+
+        const promptModal = makeModal();
+        const promptInput = document.createElement('input');
+        promptInput.focus = () => { focusCalls.prompt += 1; };
+        const promptController = createPromptModalController({
+            modalEl: promptModal,
+            titleEl: document.createElement('b'),
+            inputEl: promptInput,
+            okBtn: makeButton(),
+            cancelBtn: makeButton(),
+            closeBtn: makeButton(),
+        });
+        const promptPending = promptController.open({ value: 'old' });
+        const promptShownBeforeDispose = promptModal.classList.contains('show');
+        promptController.dispose();
+        const promptResult = await promptPending;
+        const promptLate = await promptController.open({ value: 'late' });
+
+        const confirmModal = makeModal();
+        const confirmOk = makeButton();
+        confirmOk.focus = () => { focusCalls.confirm += 1; };
+        const confirmController = createConfirmModalController({
+            modalEl: confirmModal,
+            titleEl: document.createElement('b'),
+            messageEl: document.createElement('p'),
+            okBtn: confirmOk,
+            cancelBtn: makeButton(),
+            closeBtn: makeButton(),
+        });
+        const confirmPending = confirmController.open();
+        const confirmShownBeforeDispose = confirmModal.classList.contains('show');
+        confirmController.dispose();
+        const confirmResult = await confirmPending;
+        const confirmLate = await confirmController.open();
+
+        const transitionModal = makeModal();
+        const transitionSeconds = document.createElement('input');
+        transitionSeconds.focus = () => { focusCalls.transition += 1; };
+        const transitionController = createTransitionModalController({
+            modalEl: transitionModal,
+            titleEl: document.createElement('b'),
+            secondsEl: transitionSeconds,
+            typeEl: document.createElement('select'),
+            trajectoryEl: document.createElement('select'),
+            okBtn: makeButton(),
+            cancelBtn: makeButton(),
+            closeBtn: makeButton(),
+        });
+        const transitionPending = transitionController.open({ seconds: 1 });
+        transitionController.dispose();
+        const transitionResult = await transitionPending;
+        const transitionLate = await transitionController.open({ seconds: 2 });
+
+        const exportModal = makeModal();
+        const exportFormat = document.createElement('select');
+        exportFormat.focus = () => { focusCalls.export += 1; };
+        const exportController = createExportModalController({
+            modalEl: exportModal,
+            titleEl: document.createElement('b'),
+            formatEl: exportFormat,
+            coordsEl: document.createElement('select'),
+            okBtn: makeButton(),
+            cancelBtn: makeButton(),
+            closeBtn: makeButton(),
+        });
+        const exportPending = exportController.open();
+        exportController.dispose();
+        const exportResult = await exportPending;
+        const exportLate = await exportController.open();
+
+        const rectModal = makeModal();
+        const rectColor = document.createElement('input');
+        rectColor.focus = () => { focusCalls.rectColor += 1; };
+        const rectText = document.createElement('textarea');
+        rectText.focus = () => { focusCalls.rectText += 1; };
+        const rectController = createRectAnnotationModalController({
+            modalEl: rectModal,
+            titleEl: document.createElement('b'),
+            colorEl: rectColor,
+            fillRowEl: document.createElement('div'),
+            fillEl: document.createElement('select'),
+            infoRowEl: document.createElement('div'),
+            infoEl: document.createElement('select'),
+            areaEl: document.createElement('div'),
+            textEl: rectText,
+            textRowEl: document.createElement('div'),
+            okBtn: makeButton(),
+            cancelBtn: makeButton(),
+            closeBtn: makeButton(),
+        });
+        const rectPending = rectController.open({ mode: 'pin', info: 'text' });
+        rectController.dispose();
+        const rectResult = await rectPending;
+        const rectLate = await rectController.open();
+
+        const resetModal = makeModal();
+        const resetPassword = document.createElement('input');
+        resetPassword.focus = () => { focusCalls.reset += 1; };
+        const resetController = createPasswordResetModalController({
+            modalEl: resetModal,
+            titleEl: document.createElement('b'),
+            messageEl: document.createElement('p'),
+            passwordEl: resetPassword,
+            repeatEl: document.createElement('input'),
+            okBtn: makeButton(),
+            cancelBtn: makeButton(),
+            closeBtn: makeButton(),
+        });
+        const resetPending = resetController.open();
+        resetController.dispose();
+        resetController.setMessage('late message');
+        const resetResult = await resetPending;
+        const resetLate = await resetController.open();
+
+        const geoController = createGeoJsonModalController({ document });
+        geoController.open({ text: '{"a":1}' }, 'Before dispose');
+        const geoCreatedBeforeDispose = !!document.getElementById('geoModal');
+        geoController.dispose();
+        geoController.open({ text: '{"b":2}' }, 'After dispose');
+
+        await Promise.resolve();
+        await Promise.resolve();
+
+        return {
+            promptShownBeforeDispose,
+            promptResult,
+            promptLate,
+            promptShownAfterLateOpen: promptModal.classList.contains('show'),
+            confirmShownBeforeDispose,
+            confirmResult,
+            confirmLate,
+            confirmShownAfterLateOpen: confirmModal.classList.contains('show'),
+            transitionResult,
+            transitionLate,
+            transitionShownAfterLateOpen: transitionModal.classList.contains('show'),
+            exportResult,
+            exportLate,
+            exportShownAfterLateOpen: exportModal.classList.contains('show'),
+            rectResult,
+            rectLate,
+            rectShownAfterLateOpen: rectModal.classList.contains('show'),
+            resetResult,
+            resetLate,
+            resetShownAfterLateOpen: resetModal.classList.contains('show'),
+            resetMessageAfterDispose: resetController.isOpen() ? 'open' : '',
+            geoCreatedBeforeDispose,
+            geoExistsAfterLateOpen: !!document.getElementById('geoModal'),
+            focusCalls,
+        };
+    });
+
+    assert.equal(result.promptShownBeforeDispose, true, 'Modal dispose smoke: prompt did not open before dispose');
+    assert.equal(result.promptResult, null, 'Modal dispose smoke: prompt pending promise did not cancel on dispose');
+    assert.equal(result.promptLate, null, 'Modal dispose smoke: disposed prompt open did not return null');
+    assert.equal(result.promptShownAfterLateOpen, false, 'Modal dispose smoke: disposed prompt reopened DOM');
+    assert.equal(result.confirmShownBeforeDispose, true, 'Modal dispose smoke: confirm did not open before dispose');
+    assert.equal(result.confirmResult, false, 'Modal dispose smoke: confirm pending promise did not cancel false on dispose');
+    assert.equal(result.confirmLate, false, 'Modal dispose smoke: disposed confirm open did not return false');
+    assert.equal(result.confirmShownAfterLateOpen, false, 'Modal dispose smoke: disposed confirm reopened DOM');
+    assert.equal(result.transitionResult, null, 'Modal dispose smoke: transition pending promise did not cancel on dispose');
+    assert.equal(result.transitionLate, null, 'Modal dispose smoke: disposed transition open did not return null');
+    assert.equal(result.transitionShownAfterLateOpen, false, 'Modal dispose smoke: disposed transition reopened DOM');
+    assert.equal(result.exportResult, null, 'Modal dispose smoke: export pending promise did not cancel on dispose');
+    assert.equal(result.exportLate, null, 'Modal dispose smoke: disposed export open did not return null');
+    assert.equal(result.exportShownAfterLateOpen, false, 'Modal dispose smoke: disposed export reopened DOM');
+    assert.equal(result.rectResult, null, 'Modal dispose smoke: rect pending promise did not cancel on dispose');
+    assert.equal(result.rectLate, null, 'Modal dispose smoke: disposed rect open did not return null');
+    assert.equal(result.rectShownAfterLateOpen, false, 'Modal dispose smoke: disposed rect reopened DOM');
+    assert.equal(result.resetResult, null, 'Modal dispose smoke: reset pending promise did not cancel on dispose');
+    assert.equal(result.resetLate, null, 'Modal dispose smoke: disposed reset open did not return null');
+    assert.equal(result.resetShownAfterLateOpen, false, 'Modal dispose smoke: disposed reset reopened DOM');
+    assert.equal(result.geoCreatedBeforeDispose, true, 'Modal dispose smoke: geo modal was not created before dispose');
+    assert.equal(result.geoExistsAfterLateOpen, false, 'Modal dispose smoke: disposed geo modal recreated DOM');
+    assert.deepEqual(
+        result.focusCalls,
+        { prompt: 0, confirm: 0, transition: 0, export: 0, rectColor: 0, rectText: 0, reset: 0 },
+        'Modal dispose smoke: queued focus ran after dispose',
+    );
+    diagnostics.assertNoErrors('Modal controllers dispose smoke');
+    await page.close();
+}
+
 const smokeServer = await createStaticServer();
 const browser = await chromium.launch({
     headless: true,
@@ -4416,6 +4634,8 @@ try {
     console.log('Environment lifecycle smoke passed.');
     await runMaterialsPanelRemovalSmoke(browser, smokeServer.baseUrl);
     console.log('Materials panel removal smoke passed.');
+    await runModalControllersDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Modal controllers dispose smoke passed.');
     await runStatusUIDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Status UI dispose smoke passed.');
 } finally {
