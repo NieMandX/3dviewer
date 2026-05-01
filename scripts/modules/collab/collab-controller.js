@@ -221,6 +221,7 @@ export async function createCollabController(options = {}) {
     let onlineWaitHandler = null;
     let onlineWaitPromise = null;
     let onlineWaitResolve = null;
+    const delayWaits = new Set();
 
     const DELETE_RETRY_LIMIT = 6;
     const DELETE_RETRY_BASE_MS = 300;
@@ -589,7 +590,31 @@ export async function createCollabController(options = {}) {
     }
 
     function delay(ms) {
-        return new Promise((resolve) => setTimeout(resolve, ms));
+        if (disposed) return Promise.resolve();
+        let entry = null;
+        return new Promise((resolve) => {
+            entry = {
+                timer: null,
+                resolve: () => {
+                    if (entry) delayWaits.delete(entry);
+                    resolve();
+                },
+            };
+            entry.timer = setTimeout(entry.resolve, ms);
+            delayWaits.add(entry);
+        });
+    }
+
+    function clearDelayWaits() {
+        delayWaits.forEach((entry) => {
+            try {
+                clearTimeout(entry.timer);
+            } catch (_) {}
+            try {
+                entry.resolve?.();
+            } catch (_) {}
+        });
+        delayWaits.clear();
     }
 
     function isRetriableDeleteError(err) {
@@ -765,6 +790,7 @@ export async function createCollabController(options = {}) {
             } catch (_) {}
         });
         deletePending.clear();
+        clearDelayWaits();
         clearOnlineWait();
         stopPresenceHeartbeat();
         await removeRealtimeChannels();

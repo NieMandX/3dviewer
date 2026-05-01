@@ -3077,6 +3077,8 @@ async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
 
         const nativeAddEventListener = window.addEventListener.bind(window);
         const nativeRemoveEventListener = window.removeEventListener.bind(window);
+        const nativeSetTimeout = window.setTimeout.bind(window);
+        const nativeClearTimeout = window.clearTimeout.bind(window);
         const onlineOwner = Object.prototype.hasOwnProperty.call(navigator, 'onLine')
             ? navigator
             : Object.getPrototypeOf(navigator);
@@ -3085,7 +3087,11 @@ async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
         let capturedOnlineHandler = null;
         let onlineListenerCount = 0;
         let deleteCalls = 0;
+        let deleteFailuresRemaining = 0;
         const deletedIds = [];
+        const backoffTimerIds = new Set();
+        let backoffTimers = 0;
+        let clearedBackoffTimers = 0;
 
         window.addEventListener = (type, listener, options) => {
             if (type === 'online') {
@@ -3099,6 +3105,21 @@ async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
                 onlineListenerCount = Math.max(0, onlineListenerCount - 1);
             }
             return nativeRemoveEventListener(type, listener, options);
+        };
+        window.setTimeout = (callback, ms, ...args) => {
+            const id = nativeSetTimeout(callback, ms, ...args);
+            if (ms === 300) {
+                backoffTimers += 1;
+                backoffTimerIds.add(id);
+            }
+            return id;
+        };
+        window.clearTimeout = (id) => {
+            if (backoffTimerIds.has(id)) {
+                clearedBackoffTimers += 1;
+                backoffTimerIds.delete(id);
+            }
+            return nativeClearTimeout(id);
         };
         Object.defineProperty(onlineOwner, 'onLine', {
             configurable: true,
@@ -3124,6 +3145,10 @@ async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
                 if (this.isDelete) {
                     deleteCalls += 1;
                     deletedIds.push(String(value || ''));
+                    if (deleteFailuresRemaining > 0) {
+                        deleteFailuresRemaining -= 1;
+                        return Promise.resolve({ data: null, error: new Error('network timeout') });
+                    }
                     return Promise.resolve({ data: null, error: null });
                 }
                 return this;
@@ -3181,6 +3206,8 @@ async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
         };
 
         let deleteResult = '';
+        let retryResult = '';
+        let retryDeleteCalls = 0;
         try {
             const controller = await createCollabController({
                 supabase,
@@ -3201,8 +3228,33 @@ async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
             capturedOnlineHandler?.(new Event('online'));
             await new Promise((resolve) => setTimeout(resolve, 0));
 
+            online = true;
+            deleteFailuresRemaining = 1;
+            const retryController = await createCollabController({
+                supabase,
+                user: { id: 'local-user' },
+                project: { id: 'project-1', slug: 'project' },
+                room: { id: 'room-1', slug: 'room', camera_owner_id: null, camera_state: null },
+                displayName: 'Local',
+            });
+            const deleteCallsBeforeRetry = deleteCalls;
+            const retryDelete = retryController
+                .deleteAnnotation('annotation-retry')
+                .then(() => 'resolved', (err) => `rejected:${err?.message || String(err)}`);
+            for (let i = 0; i < 20 && backoffTimers < 1; i += 1) {
+                await new Promise((resolve) => nativeSetTimeout(resolve, 0));
+            }
+            await retryController.dispose();
+            retryResult = await retryDelete;
+            await new Promise((resolve) => nativeSetTimeout(resolve, 0));
+            retryDeleteCalls = deleteCalls - deleteCallsBeforeRetry;
+
             return {
                 deleteResult,
+                retryResult,
+                retryDeleteCalls,
+                backoffTimers,
+                clearedBackoffTimers,
                 deleteCalls,
                 deletedIds,
                 listenersBeforeDispose,
@@ -3213,6 +3265,8 @@ async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
         } finally {
             window.addEventListener = nativeAddEventListener;
             window.removeEventListener = nativeRemoveEventListener;
+            window.setTimeout = nativeSetTimeout;
+            window.clearTimeout = nativeClearTimeout;
             if (onlineDescriptor) {
                 Object.defineProperty(onlineOwner, 'onLine', onlineDescriptor);
             } else {
@@ -3224,8 +3278,12 @@ async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
     assert.equal(result.listenersBeforeDispose, 1, 'Collab delete queue smoke: offline wait listener was not installed');
     assert.equal(result.onlineListenerCount, 0, 'Collab delete queue smoke: offline wait listener leaked after dispose');
     assert.equal(result.deleteResult, 'rejected:Collab controller disposed', 'Collab delete queue smoke: pending delete was not rejected on dispose');
-    assert.equal(result.deleteCalls, 0, 'Collab delete queue smoke: disposed controller performed a stale delete');
-    assert.deepEqual(result.deletedIds, [], 'Collab delete queue smoke: stale delete used an annotation id');
+    assert.equal(result.retryResult, 'rejected:Collab controller disposed', 'Collab delete queue smoke: retrying delete was not rejected on dispose');
+    assert.equal(result.retryDeleteCalls, 1, 'Collab delete queue smoke: retrying delete should stop after the first failed attempt');
+    assert.equal(result.backoffTimers, 1, 'Collab delete queue smoke: retry backoff timer was not scheduled');
+    assert.equal(result.clearedBackoffTimers, 1, 'Collab delete queue smoke: retry backoff timer was not cleared on dispose');
+    assert.equal(result.deleteCalls, 1, 'Collab delete queue smoke: disposed controller performed a stale delete');
+    assert.deepEqual(result.deletedIds, ['annotation-retry'], 'Collab delete queue smoke: stale delete used an annotation id');
     assert.deepEqual(result.removedChannels, result.channelNames, 'Collab delete queue smoke: dispose did not remove all realtime channels');
     diagnostics.assertNoErrors('Collab delete queue dispose smoke');
     await page.close();
