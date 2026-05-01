@@ -23,3 +23,14 @@ export function makeGeoJsonMeta(zipName, entryName, text) {
     };
 }
 
+export function revokeGeoJsonMetaUrl(meta) {
+    const url = String(meta?.url || '');
+    if (!url.startsWith('blob:')) return false;
+    try {
+        URL.revokeObjectURL(url);
+    } catch (_) {}
+    try {
+        meta.url = '';
+    } catch (_) {}
+    return true;
+}

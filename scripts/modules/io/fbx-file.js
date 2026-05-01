@@ -224,9 +224,11 @@ export function createFBXFileHandler(options = {}) {
             }
         }
 
+        let embeddedPushed = false;
         throwIfAborted(parsedObj, embedded);
         if (embedded.length) {
             allEmbedded.push(...embedded);
+            embeddedPushed = true;
             markGalleryNeedsRefresh();
         }
 
@@ -237,6 +239,9 @@ export function createFBXFileHandler(options = {}) {
             throw new Error(`FBX parser returned empty object for ${file.name}`);
         }
 
+        let modelRecord = null;
+        let addedToWorld = false;
+        try {
         throwIfAborted(obj);
         setStatusMessage('Обработка сцены…');
 
@@ -354,73 +359,95 @@ export function createFBXFileHandler(options = {}) {
             logBind(`VPM: смещение для ${file.name} из GeoJSON → Δx=${x} Δy=${y} Δz=${z}`, 'ok');
         }
 
-        throwIfAborted(obj);
-        world?.add?.(obj);
+            throwIfAborted(obj);
+            world?.add?.(obj);
+            addedToWorld = true;
 
-        const modelRecord = {
-            obj,
-            name: file.name,
-            group: groupName || null,
-            zipKind: zipKind || null,
-            geojson: zipMeta || null,
-            orientation: orientationInfo || null,
-            orientationType,
-            normalizedOrientationType,
-        };
-        loadedModels.push(modelRecord);
+            modelRecord = {
+                obj,
+                name: file.name,
+                group: groupName || null,
+                zipKind: zipKind || null,
+                geojson: zipMeta || null,
+                orientation: orientationInfo || null,
+                orientationType,
+                normalizedOrientationType,
+            };
+            loadedModels.push(modelRecord);
 
-        restoreLightTargetsFromOrientation(obj);
-        disableShadowsOnImportedLights(obj);
-        ensureLightHelpers(obj);
+            restoreLightTargetsFromOrientation(obj);
+            disableShadowsOnImportedLights(obj);
+            ensureLightHelpers(obj);
 
-        renameMaterialsByFBXObject(obj);
+            renameMaterialsByFBXObject(obj);
 
-        obj.traverse(o => {
-            if (!o.isMesh) return;
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            obj.traverse(o => {
+                if (!o.isMesh) return;
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
 
-            let willCast = false;
-            mats.forEach(m => {
-                if (m.side === THREE?.DoubleSide) m.shadowSide = THREE.FrontSide;
+                let willCast = false;
+                mats.forEach(m => {
+                    if (m.side === THREE?.DoubleSide) m.shadowSide = THREE.FrontSide;
 
-                const hasMask = !!m.alphaMap || (m.alphaTest > 0);
-                const trulyTransparent = m.transparent && !hasMask;
+                    const hasMask = !!m.alphaMap || (m.alphaTest > 0);
+                    const trulyTransparent = m.transparent && !hasMask;
 
-                if (hasMask) {
-                    m.transparent = false;
-                    m.alphaTest = Math.max(0.001, m.alphaTest || 0.5);
-                    m.depthWrite = true;
-                    willCast = true;
-                } else if (!trulyTransparent) {
-                    willCast = true;
-                }
+                    if (hasMask) {
+                        m.transparent = false;
+                        m.alphaTest = Math.max(0.001, m.alphaTest || 0.5);
+                        m.depthWrite = true;
+                        willCast = true;
+                    } else if (!trulyTransparent) {
+                        willCast = true;
+                    }
+                });
+
+                o.castShadow = willCast;
+                o.receiveShadow = true;
             });
 
-            o.castShadow = willCast;
-            o.receiveShadow = true;
-        });
+            markCollisionMeshes(obj);
 
-        markCollisionMeshes(obj);
+            if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
+                splitAllMeshesByUDIM_SM(obj);
+            }
+            optimizeGlassMeshes(obj);
+            obj.userData.zipGroup = groupName || null;
+            obj.userData.zipKind = zipKind || null;
 
-        if ((zipKind || '').toUpperCase() === 'SM' || (obj.userData?.zipKind || '').toUpperCase() === 'SM') {
-            splitAllMeshesByUDIM_SM(obj);
+            if ((zipKind || '').toUpperCase() === 'SM' || /^SM_/i.test(file.name)) {
+                logBind(`VPM: отложенная автопривязка для ${file.name}`, 'info');
+            } else {
+                autoBindByNamesForModel(obj, file.name, embedded);
+            }
+            setImportedLightsEnabled(getImportedLightsEnabled(), obj, { silent: true });
+            applyGlassControlsToScene();
+            setEmptyHintVisible(false);
+            markSceneStatsDirty();
+
+            schedulePanelRefresh();
+            requestRender();
+            setStatusMessage('');
+        } catch (err) {
+            if (modelRecord) {
+                const index = loadedModels.indexOf(modelRecord);
+                if (index >= 0) loadedModels.splice(index, 1);
+            }
+            if (embeddedPushed) {
+                embedded.forEach((entry) => {
+                    const index = allEmbedded.indexOf(entry);
+                    if (index >= 0) allEmbedded.splice(index, 1);
+                });
+                revokeEmbeddedUrls(embedded);
+                markGalleryNeedsRefresh();
+            }
+            if (addedToWorld && obj?.parent?.remove) {
+                try {
+                    obj.parent.remove(obj);
+                } catch (_) {}
+            }
+            disposeObjectResources(obj);
+            throw err;
         }
-        optimizeGlassMeshes(obj);
-        obj.userData.zipGroup = groupName || null;
-        obj.userData.zipKind = zipKind || null;
-
-        if ((zipKind || '').toUpperCase() === 'SM' || /^SM_/i.test(file.name)) {
-            logBind(`VPM: отложенная автопривязка для ${file.name}`, 'info');
-        } else {
-            autoBindByNamesForModel(obj, file.name, embedded);
-        }
-        setImportedLightsEnabled(getImportedLightsEnabled(), obj, { silent: true });
-        applyGlassControlsToScene();
-        setEmptyHintVisible(false);
-        markSceneStatsDirty();
-
-        schedulePanelRefresh();
-        requestRender();
-        setStatusMessage('');
     };
 }

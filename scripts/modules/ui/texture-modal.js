@@ -1,3 +1,9 @@
+import {
+    disposeUnusedMaterialTree,
+    loadedModelsUseTexture,
+    objectTreeUsesTexture,
+} from '../material/texture-utils.js';
+
 export function createTextureModalController(options = {}) {
     const texModalEl = options.texModalEl || null;
     const closeBtnEl = options.closeBtnEl || null;
@@ -15,6 +21,8 @@ export function createTextureModalController(options = {}) {
     const guessKindFromName = typeof options.guessKindFromName === 'function' ? options.guessKindFromName : () => 'other';
 
     const getSelectedMaterialLink = typeof options.getSelectedMaterialLink === 'function' ? options.getSelectedMaterialLink : () => null;
+    const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : null;
+    const world = options.world || null;
     const textureLoader = options.textureLoader || null;
     const toStandard = typeof options.toStandard === 'function' ? options.toStandard : (m) => m;
     const copyTextureSettings = typeof options.copyTextureSettings === 'function' ? options.copyTextureSettings : () => {};
@@ -36,6 +44,12 @@ export function createTextureModalController(options = {}) {
     const srgbColorSpace = colorSpaces?.srgb;
 
     let modalTex = null;
+
+    function isTextureStillUsed(texture) {
+        if (!texture?.isTexture) return false;
+        if (loadedModels && loadedModelsUseTexture(loadedModels, texture)) return true;
+        return objectTreeUsesTexture(world, texture);
+    }
 
     function clearModalEntry() {
         modalTex = null;
@@ -111,7 +125,8 @@ export function createTextureModalController(options = {}) {
         const humanName = basename(modalTex.full || modalTex.short);
 
         // делаем PBR-эквивалент и назначаем карту на НОВЫЙ материал
-        let std = toStandard(link.mat);
+        const previousMaterial = link.mat;
+        let std = toStandard(previousMaterial);
 
         let prevTex = null;
         if (slot === 'roughnessMap') prevTex = std.roughnessMap || null;
@@ -122,6 +137,9 @@ export function createTextureModalController(options = {}) {
         const existingName = prevTex && (prevTex.userData?.origName || prevTex.name || '').toLowerCase();
         const newName = humanName.toLowerCase();
         if (existingName && existingName === newName) {
+            if (std !== previousMaterial) {
+                disposeUnusedMaterialTree(std, { world, loadedModels });
+            }
             logBind(`${modalTex.short} → ${std.name || 'материал'}.${slot} уже назначена`, 'info');
             return;
         }
@@ -139,7 +157,6 @@ export function createTextureModalController(options = {}) {
         else { std[slot] = t; }
 
         copyTextureSettings(prevTex, t);
-        if (prevTex) prevTex.dispose?.();
 
         const env = getEnvironment();
         if (env) {
@@ -156,6 +173,18 @@ export function createTextureModalController(options = {}) {
             obj.material = std;
         }
         cacheOriginalMaterialFor(obj, true);
+        let disposedPrevTex = false;
+        if (prevTex && !isTextureStillUsed(prevTex)) {
+            prevTex.dispose?.();
+            disposedPrevTex = true;
+        }
+        if (std !== previousMaterial) {
+            disposeUnusedMaterialTree(previousMaterial, {
+                world,
+                loadedModels,
+                sharedTextures: disposedPrevTex ? [prevTex] : [],
+            });
+        }
 
         applyGlassControlsToScene();  // опционально
         schedulePanelRefresh();

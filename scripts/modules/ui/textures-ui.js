@@ -6,6 +6,8 @@ export function createTexturesUI(options = {}) {
     if (!THREE) throw new Error('createTexturesUI: THREE is required');
 
     const dom = options.dom || {};
+    const world = options.world || null;
+    const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : null;
 
     const matSelectEl = options.matSelectEl || null;
 
@@ -64,6 +66,8 @@ export function createTexturesUI(options = {}) {
         basename,
         guessKindFromName,
         getSelectedMaterialLink,
+        world,
+        loadedModels,
         textureLoader,
         toStandard,
         copyTextureSettings,

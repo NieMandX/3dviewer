@@ -1,3 +1,5 @@
+import { revokeGeoJsonMetaUrl } from '../geo/geojson-meta.js';
+
 export function createZIPFileHandler(options = {}) {
     const basename = typeof options.basename === 'function' ? options.basename : (p) => (p || '').split(/[\\/]/).pop();
 
@@ -144,19 +146,21 @@ export function createZIPFileHandler(options = {}) {
                     if (attached) {
                         logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount != null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
                         schedulePanelRefresh();
-                    } else {
-                        logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
-                    }
-                }
+	                    } else {
+	                        logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
+	                        revokeGeoJsonMetaUrl(zipGeoMeta);
+	                    }
+	                }
 
                 ensureZipCollisionsHidden(file.name);
                 setStatusMessage(`Готово: ${file.name}`);
                 return;
             } catch (err) {
-                if (isAbortError(err)) throw err;
-                cleanupImportedRange({ modelStart: importModelStart, embeddedStart: importEmbeddedStart });
-                zipGeoMeta = null;
-                lastNormalizeOrientationType = null;
+	                if (isAbortError(err)) throw err;
+	                revokeGeoJsonMetaUrl(zipGeoMeta);
+	                cleanupImportedRange({ modelStart: importModelStart, embeddedStart: importEmbeddedStart });
+	                zipGeoMeta = null;
+	                lastNormalizeOrientationType = null;
                 logBind(`ZIP worker: не удалось обработать «${file.name}» → fallback на main thread (${err?.message || err})`, 'warn');
             }
         }
@@ -245,10 +249,11 @@ export function createZIPFileHandler(options = {}) {
             if (attached) {
                 logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount != null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
                 schedulePanelRefresh(); // перерисуем, чтобы появилась 📄
-            } else {
-                logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
-            }
-        }
+	            } else {
+	                logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
+	                revokeGeoJsonMetaUrl(zipGeoMeta);
+	            }
+	        }
 
         ensureZipCollisionsHidden(file.name);
 

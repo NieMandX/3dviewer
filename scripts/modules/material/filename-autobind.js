@@ -1,3 +1,5 @@
+import { disposeUnusedMaterialTree, objectTreeUsesTexture } from './texture-utils.js';
+
 export function createFilenameBinder(options = {}) {
     const THREE = options.THREE || null;
 
@@ -158,8 +160,8 @@ export function createFilenameBinder(options = {}) {
             }
 
             const mats = Array.isArray(target.obj.material) ? target.obj.material : [target.obj.material];
-            let m = mats[target.slotIndex];
-            m = toStandard(m);
+            const previousMaterial = mats[target.slotIndex];
+            let m = toStandard(previousMaterial);
             mats[target.slotIndex] = m;
             target.obj.material = Array.isArray(target.obj.material) ? mats : m;
             cacheOriginalMaterialFor(target.obj, true);
@@ -175,6 +177,9 @@ export function createFilenameBinder(options = {}) {
             }
 
             if (currentTexture && sameTexture) {
+                if (m !== previousMaterial) {
+                    disposeUnusedMaterialTree(previousMaterial, { root });
+                }
                 logBind(`ℹ️ ${tex.short} — слот ${slot} уже содержит эту карту`, 'info');
                 return;
             }
@@ -186,10 +191,6 @@ export function createFilenameBinder(options = {}) {
             t.userData.autoBound = true;
 
             copyTextureSettings(currentTexture, t);
-
-            if (currentTexture && !sameTexture) {
-                currentTexture.dispose?.();
-            }
 
             if (slot === 'roughnessMap') {
                 m.roughnessMap = t;
@@ -204,6 +205,18 @@ export function createFilenameBinder(options = {}) {
                 m.depthWrite = true;
             } else {
                 m[slot] = t;
+            }
+
+            let disposedCurrentTexture = false;
+            if (currentTexture && !sameTexture && !objectTreeUsesTexture(root, currentTexture)) {
+                currentTexture.dispose?.();
+                disposedCurrentTexture = true;
+            }
+            if (m !== previousMaterial) {
+                disposeUnusedMaterialTree(previousMaterial, {
+                    root,
+                    sharedTextures: disposedCurrentTexture ? [currentTexture] : [],
+                });
             }
 
             const env = getEnvironment();

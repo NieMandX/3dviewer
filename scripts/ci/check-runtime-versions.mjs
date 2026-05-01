@@ -9,12 +9,14 @@ async function readProjectFile(path) {
     return readFile(join(projectRoot, path), 'utf8');
 }
 
-const [indexHtml, fbxWorker, supabaseClient, smokeViewer, viewerAppMain] = await Promise.all([
+const [indexHtml, fbxWorker, zipWorker, supabaseClient, smokeViewer, viewerAppMain, livekitBrowser] = await Promise.all([
     readProjectFile('index.html'),
     readProjectFile('scripts/fbx-worker.js'),
+    readProjectFile('scripts/zip-worker.js'),
     readProjectFile('scripts/modules/collab/supabase-client.js'),
     readProjectFile('scripts/ci/smoke-viewer.mjs'),
     readProjectFile('scripts/modules/app/viewer-app-main.js'),
+    readProjectFile('scripts/modules/voice/livekit-browser.js'),
 ]);
 
 const importMapThreeVersion = indexHtml.match(/"three"\s*:\s*"https:\/\/cdn\.jsdelivr\.net\/npm\/three@([^/]+)\/build\/three\.module\.js"/)?.[1] || '';
@@ -26,6 +28,7 @@ const expectedThreeImportMapEntries = new Map([
     ['three/webgpu', `https://cdn.jsdelivr.net/npm/three@${importMapThreeVersion}/build/three.webgpu.js`],
     ['three/tsl', `https://cdn.jsdelivr.net/npm/three@${importMapThreeVersion}/build/three.tsl.js`],
     ['three/addons/', `https://cdn.jsdelivr.net/npm/three@${importMapThreeVersion}/examples/jsm/`],
+    ['three/examples/', `https://cdn.jsdelivr.net/npm/three@${importMapThreeVersion}/examples/`],
 ]);
 
 for (const [specifier, url] of expectedThreeImportMapEntries.entries()) {
@@ -35,7 +38,7 @@ for (const [specifier, url] of expectedThreeImportMapEntries.entries()) {
     );
 }
 
-for (const specifier of ['three', 'three/addons/']) {
+for (const specifier of expectedThreeImportMapEntries.keys()) {
     const url = expectedThreeImportMapEntries.get(specifier);
     assert.ok(
         smokeViewer.includes(`"${specifier}": "${url}"`),
@@ -60,10 +63,22 @@ assert.deepEqual(
 const supabaseVersion = supabaseClient.match(/@supabase\/supabase-js@([^/]+)\//)?.[1] || '';
 assert.match(supabaseVersion, /^\d+\.\d+\.\d+$/, 'Supabase CDN version must be exact semver, not a floating tag.');
 
+const jszipVersions = [
+    indexHtml.match(/cdnjs\.cloudflare\.com\/ajax\/libs\/jszip\/([^/]+)\/jszip\.min\.js/)?.[1] || '',
+    zipWorker.match(/jszip@([^/]+)\/\+esm/)?.[1] || '',
+].filter(Boolean);
+assert.equal(jszipVersions.length, 2, 'JSZip CDN versions must be present in index.html and zip-worker.js.');
+const uniqueJszipVersions = [...new Set(jszipVersions)];
+assert.equal(uniqueJszipVersions.length, 1, `JSZip CDN version drift: ${uniqueJszipVersions.join(', ')}`);
+assert.match(uniqueJszipVersions[0], /^\d+\.\d+\.\d+$/, 'JSZip CDN version must be exact semver, not a floating tag.');
+
 const tusVersions = [...viewerAppMain.matchAll(/tus-js-client@([^/]+)\//g)].map((match) => match[1]);
 assert.ok(tusVersions.length > 0, 'No tus-js-client CDN version found.');
 const uniqueTusVersions = [...new Set(tusVersions)];
 assert.equal(uniqueTusVersions.length, 1, `tus-js-client CDN version drift: ${uniqueTusVersions.join(', ')}`);
 assert.match(uniqueTusVersions[0], /^\d+\.\d+\.\d+$/, 'tus-js-client CDN version must be exact semver, not a floating tag.');
 
-console.log(`Runtime CDN versions OK: three@${importMapThreeVersion}, @supabase/supabase-js@${supabaseVersion}, tus-js-client@${uniqueTusVersions[0]}`);
+const livekitVersion = livekitBrowser.match(/livekit-client@([^/]+)\//)?.[1] || '';
+assert.match(livekitVersion, /^\d+\.\d+\.\d+$/, 'livekit-client CDN version must be exact semver, not a floating tag.');
+
+console.log(`Runtime CDN versions OK: three@${importMapThreeVersion}, @supabase/supabase-js@${supabaseVersion}, jszip@${uniqueJszipVersions[0]}, tus-js-client@${uniqueTusVersions[0]}, livekit-client@${livekitVersion}`);

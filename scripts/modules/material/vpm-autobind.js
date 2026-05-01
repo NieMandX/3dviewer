@@ -1,3 +1,5 @@
+import { disposeUnusedMaterialTree } from './texture-utils.js';
+
 export function createVPMBinder(options = {}) {
     const THREE = options.THREE || null;
 
@@ -60,6 +62,11 @@ export function createVPMBinder(options = {}) {
             obj.customDepthMaterial = undefined;
             obj.customDistanceMaterial = undefined;
         }
+    }
+
+    function disposePendingShadowMaterials(depthMaterial, distanceMaterial) {
+        depthMaterial?.dispose?.();
+        distanceMaterial?.dispose?.();
     }
 
     function isRootLive(root) {
@@ -205,7 +212,8 @@ export function createVPMBinder(options = {}) {
             return;
         }
 
-        const bindOps = []; // промисы (для ERM)
+	        const bindOps = []; // промисы (для ERM)
+	        let appliedCount = 0;
 
         root.traverse(o => {
             if (!isRootLive(root)) return;
@@ -245,11 +253,34 @@ export function createVPMBinder(options = {}) {
             }
 
             // 4) Базовый материал → Standard-клон
-            const base = toStandard(Array.isArray(o.material) ? o.material[0] : o.material);
+            const previousMaterial = o.material;
+            const sourceMaterial = Array.isArray(previousMaterial) ? previousMaterial[0] : previousMaterial;
+            const bindGeneration = (Number(o.userData?._vpmBindGeneration) || 0) + 1;
+            (o.userData ||= {})._vpmBindGeneration = bindGeneration;
+            const isBindCurrent = () => (
+                isRootLive(root) &&
+                o.userData?._vpmBindGeneration === bindGeneration &&
+                o.material === previousMaterial
+            );
+            const base = toStandard(sourceMaterial);
             const mat = base.clone();
+            if (base !== sourceMaterial) {
+                base.dispose?.();
+            }
             const fallbackName = base.name || `M · UDIM ${udim}`;
             mat.name = base.name ? base.name : fallbackName;
             (mat.userData ||= {}).vpm = { key, slot, udim };
+            let pendingDepthMaterial = null;
+            let pendingDistanceMaterial = null;
+
+            function applyPendingShadowMaterials() {
+                if (!pendingDepthMaterial && !pendingDistanceMaterial) return;
+                disposeCustomShadowMaterials(o);
+                o.customDepthMaterial = pendingDepthMaterial || undefined;
+                o.customDistanceMaterial = pendingDistanceMaterial || undefined;
+                pendingDepthMaterial = null;
+                pendingDistanceMaterial = null;
+            }
 
             // Diffuse
             if (set.Diffuse && textureLoader) {
@@ -270,15 +301,14 @@ export function createVPMBinder(options = {}) {
                 if (!isGlass) {
                     mat.transparent = false; // маска, не блендинг
                     mat.depthWrite = true;
-                    mat.alphaTest = Math.max(0.001, mat.alphaTest || 0.4);
-                    if (isWebGL2()) mat.alphaToCoverage = true;
+	                    mat.alphaTest = Math.max(0.001, mat.alphaTest || 0.4);
+	                    if (isWebGL2()) mat.alphaToCoverage = true;
 
-                    const common = { map: mat.map, alphaTest: mat.alphaTest, side: THREE.FrontSide };
-                    disposeCustomShadowMaterials(o);
-                    o.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, ...common });
-                    o.customDistanceMaterial = new THREE.MeshDistanceMaterial(common);
-                }
-            }
+	                    const common = { map: mat.map, alphaTest: mat.alphaTest, side: THREE.FrontSide };
+	                    pendingDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, ...common });
+	                    pendingDistanceMaterial = new THREE.MeshDistanceMaterial(common);
+	                }
+	            }
 
             // Normal
             if (set.Normal && textureLoader) {
@@ -325,9 +355,9 @@ export function createVPMBinder(options = {}) {
                     mat.metalness = 1.0; // карта задаёт финальное значение
                     mat.needsUpdate = true;
 
-                    if (!isRootLive(root)) {
+                    if (!isBindCurrent()) {
                         disposeMaterialTree(mat);
-                        disposeCustomShadowMaterials(o);
+                        disposePendingShadowMaterials(pendingDepthMaterial, pendingDistanceMaterial);
                         return;
                     }
 
@@ -335,8 +365,11 @@ export function createVPMBinder(options = {}) {
                         mat.envMap = env;
                         mat.envMapIntensity = envInt;
                     }
+                    applyPendingShadowMaterials();
                     o.material = mat;
                     cacheOriginalMaterialFor(o, true);
+                    disposeUnusedMaterialTree(previousMaterial, { root });
+                    appliedCount += 1;
                     logBind(`VPM: Slot ${slot}, UDIM ${udim} → ${mat.name}`, 'ok');
                 })();
                 bindOps.push(p);
@@ -345,15 +378,19 @@ export function createVPMBinder(options = {}) {
                     mat.envMap = env;
                     mat.envMapIntensity = envInt;
                 }
+                applyPendingShadowMaterials();
                 o.material = mat;
                 cacheOriginalMaterialFor(o, true);
+                disposeUnusedMaterialTree(previousMaterial, { root });
+                appliedCount += 1;
                 logBind(`VPM: Slot ${slot}, UDIM ${udim} (без ERM) → ${mat.name}`, 'ok');
             }
         });
 
-        await Promise.all(bindOps);
-        if (!isRootLive(root)) return;
-        requestRender();
+	        await Promise.all(bindOps);
+	        if (!isRootLive(root)) return;
+	        if (!appliedCount) return;
+	        requestRender();
         materialsPanel?.markNeedsFullRefresh?.();
         schedulePanelRefresh();
     }

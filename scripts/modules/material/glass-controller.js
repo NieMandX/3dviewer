@@ -2,6 +2,7 @@ import { clamp01 } from '../utils/math.js';
 import { geoColorToHex, normalizeHexColor } from '../utils/color.js';
 import { findGeoGlassParams } from '../geo/glass-params.js';
 import { findGeomSuffix, isGlassByName, isGlassGeomSuffix } from './naming.js';
+import { disposeUnusedMaterialTree } from './texture-utils.js';
 
 export function createGlassController(options = {}) {
     const THREE = options.THREE || null;
@@ -160,7 +161,8 @@ export function createGlassController(options = {}) {
                 const glass = isGlassByName(nameStr) || isGlassGeomSuffix(geomSuffix);
                 if (!glass) return;
 
-                const std = toStandard(m);
+                const previousMaterial = m;
+                const std = toStandard(previousMaterial);
                 std.transparent = true;
                 std.envMap = scene?.environment || std.envMap;
                 std.userData ||= {};
@@ -357,6 +359,12 @@ export function createGlassController(options = {}) {
 
                 if (Array.isArray(o.material)) { o.material[i] = std; } else { o.material = std; }
                 cacheOriginalMaterialFor(o, true);
+                if (std !== previousMaterial) {
+                    disposeUnusedMaterialTree(previousMaterial, {
+                        root: world,
+                        sharedTextures: [scene?.environment, scene?.background],
+                    });
+                }
             });
         });
         requestRender();
@@ -376,7 +384,8 @@ export function createGlassController(options = {}) {
                 const glass = isGlassByName(nameStr) || isGlassGeomSuffix(geomSuffix);
                 if (!glass) return;
 
-                const std = toStandard(m);
+                const previousMaterial = m;
+                const std = toStandard(previousMaterial);
                 std.userData ||= {};
 
                 const original = std.userData.glassOriginal;
@@ -419,6 +428,12 @@ export function createGlassController(options = {}) {
                 std.needsUpdate = true;
 
                 if (Array.isArray(o.material)) { o.material[i] = std; } else { o.material = std; }
+                if (std !== previousMaterial) {
+                    disposeUnusedMaterialTree(previousMaterial, {
+                        root: world,
+                        sharedTextures: [scene?.environment, scene?.background],
+                    });
+                }
             });
         });
 

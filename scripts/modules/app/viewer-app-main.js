@@ -4,7 +4,7 @@ import {
     setVPMReferenceHeight,
 } from '../parcels.js';
 import { basename } from '../utils/path.js';
-import { makeGeoJsonMeta } from '../geo/geojson-meta.js';
+import { makeGeoJsonMeta, revokeGeoJsonMetaUrl } from '../geo/geojson-meta.js';
 import { getSMOffset } from '../geo/sm-offset.js';
 import { extractImagesFromFBX, sniffImage } from '../fbx/embedded-images.js';
 import { createNorthGridController } from '../scene/north-grid.js';
@@ -45,6 +45,7 @@ import { runAbortableTusUpload } from '../collab/abortable-tus-upload.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
+import { promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
 import { createVoiceController } from '../voice/voice-controller.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
@@ -1824,9 +1825,16 @@ export class ViewerApp {
             });
             if (!confirmed) return;
             try {
-                await cleanupProjectStorageObjects(projectId);
+                const storagePaths = await listProjectStorageObjectPaths(projectId);
                 const { error } = await collabSupabase.from('projects').delete().eq('id', projectId);
                 if (error) throw error;
+                if (storagePaths.length) {
+                    try {
+                        await removeModelStorageObjects(storagePaths, collabSupabase);
+                    } catch (storageError) {
+                        console.error('Project storage cleanup failed', storageError);
+                    }
+                }
                 if (collabController?.project?.id === projectId) {
                     await teardownCollabSession();
                 }
@@ -2606,8 +2614,17 @@ export class ViewerApp {
             if (!collabSupabase || !collabUser || !collabProject || !collabRoom) return;
             const isAutoReconnect = !!options?.isAutoReconnect;
             const throwOnError = !!options?.throwOnError;
+            const requestedProject = collabProject;
+            const requestedRoom = collabRoom;
+            const requestedProjectId = String(requestedProject?.id || '');
+            const requestedRoomId = String(requestedRoom?.id || '');
             const sessionGeneration = bumpCollabSessionGeneration();
             const isCurrentSession = () => isActiveCollabSession(sessionGeneration);
+            const isCurrentRoomRequest = () => (
+                isCurrentSession()
+                && String(collabProject?.id || '') === requestedProjectId
+                && String(collabRoom?.id || '') === requestedRoomId
+            );
             bumpRoomLoadGeneration();
             collabJoinBtn.disabled = true;
             setCollabStatus('connecting');
@@ -2617,13 +2634,13 @@ export class ViewerApp {
                     supabaseAnonKey,
                     supabase: collabSupabase,
                     user: collabUser,
-                    project: collabProject,
-                    room: collabRoom,
-                    projectSlug: collabProject.slug,
-                    roomSlug: collabRoom.slug,
+                    project: requestedProject,
+                    room: requestedRoom,
+                    projectSlug: requestedProject.slug,
+                    roomSlug: requestedRoom.slug,
                     displayName: name,
                     onStatus: (text) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         const label = String(text || '').trim();
                         if (!label) {
                             setCollabStatus(collabConnectionOnline ? 'on' : 'offline');
@@ -2632,7 +2649,7 @@ export class ViewerApp {
                         setCollabStatus(label);
                     },
                     onConnectionState: ({ connected, reason }) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         setCollabConnectionState(connected, reason);
                         if (connected) {
                             collabAutoResumeAttempt = 0;
@@ -2645,51 +2662,51 @@ export class ViewerApp {
                         scheduleCollabAutoResume(reason || 'channel-disconnected');
                     },
                     onProjectReady: (project) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         collabProject = project;
                         updateCollabFooter();
                     },
                     onRoomReady: ({ project, room }) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         collabProject = project || collabProject;
                         collabRoom = room || collabRoom;
                         void refreshRoomShareLink({ updateHistory: true });
                         updateCollabFooter();
                     },
                     onParticipants: (list) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         renderParticipants(list);
                         updateOwnerLabel();
                     },
                     onMessage: (message, meta) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         appendChatMessage(message, { scroll: meta?.source !== 'history' });
                     },
                     onAnnotation: (record) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         if (record?.author_id) {
                             recordContributor(record.author_id, record.author_name);
                         }
                         annotations3d?.addRemoteAnnotation?.(record);
                     },
                     onAnnotationDelete: (record) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         annotations3d?.removeRemoteAnnotation?.(record?.id);
                     },
                     onCameraState: (state) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         cameraSync?.handleRemoteState?.(state);
                     },
                     onCameraOwner: (ownerId) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         setCollabOwner(ownerId);
                     },
                     onRoomUpdate: (room) => {
-                        if (!isCurrentSession()) return;
+                        if (!isCurrentRoomRequest()) return;
                         roomUpdateHandler?.(room);
                     },
                 });
-                if (!isCurrentSession()) {
+                if (!isCurrentRoomRequest()) {
                     await nextController.dispose?.();
                     return;
                 }
@@ -2753,7 +2770,7 @@ export class ViewerApp {
                     void joinVoiceRoom({ preserveIntent: true });
                 }
             } catch (err) {
-                if (!isCurrentSession()) return;
+                if (!isCurrentRoomRequest()) return;
                 console.error('Collab init failed', err);
                 setCollabConnectionState(false, 'connect-error');
                 if (!isAutoReconnect) {
@@ -3527,6 +3544,7 @@ export class ViewerApp {
 
             removedModels.forEach((record) => {
                 const obj = record?.obj || null;
+                revokeImportedModelRecordUrls(record);
                 try { obj?.parent?.remove?.(obj); } catch (_) {}
                 disposeImportedObjectTree(obj);
             });
@@ -3576,6 +3594,13 @@ export class ViewerApp {
             } catch (_) {}
         }
 
+        function revokeImportedModelRecordUrls(record) {
+            if (!record) return;
+            revokeGeoJsonMetaUrl(record.geojson);
+            revokeGeoJsonMetaUrl(record.obj?.userData?._geojsonMeta);
+            revokeGeoJsonMetaUrl(record.obj?.userData?.geojson);
+        }
+
         function disposeImportedObjectTree(root) {
             if (!root) return;
             const disposedGeometries = new Set();
@@ -3620,7 +3645,6 @@ export class ViewerApp {
                     ...asMaterialArray(child?.userData?._origMaterial),
                     ...asMaterialArray(child?.userData?._removedMaterials),
                 ];
-                const originalSet = new Set(originalMaterials);
                 originalMaterials.forEach((material) => disposeMaterial(material, { disposeTextures: true }));
 
                 const generatedMaterialKeys = [
@@ -3631,11 +3655,18 @@ export class ViewerApp {
                     '_removedCustomDepthMaterial',
                     '_removedCustomDistanceMaterial',
                 ];
+                const generatedMaterialSet = new Set();
                 generatedMaterialKeys.forEach((key) => {
                     asMaterialArray(child?.userData?.[key]).forEach((material) => {
+                        generatedMaterialSet.add(material);
                         disposeMaterial(material, { disposeTextures: false });
                     });
                 });
+
+                const isGeneratedDisplayMaterial = (material) => (
+                    generatedMaterialSet.has(material) ||
+                    material?.userData?.viewerGeneratedMaterial === 'shading-variant'
+                );
 
                 asMaterialArray(child?.customDepthMaterial).forEach((material) => {
                     disposeMaterial(material, { disposeTextures: false });
@@ -3645,8 +3676,8 @@ export class ViewerApp {
                 });
 
                 asMaterialArray(child?.material).forEach((material) => {
-                    const isOriginal = originalSet.has(material) || originalMaterials.length === 0;
-                    disposeMaterial(material, { disposeTextures: isOriginal });
+                    const disposeOwnTextures = !isGeneratedDisplayMaterial(material);
+                    disposeMaterial(material, { disposeTextures: disposeOwnTextures });
                 });
 
                 const generatedChildKeys = ['_bfChild', '_wireOverlay', '_beautyWire'];
@@ -3681,16 +3712,20 @@ export class ViewerApp {
             const roomTextureEntries = allEmbedded.filter((entry) => (
                 scopeMatchesRoomModel(entry?.scope, targetRoomId, targetModelId)
             ));
+            const prunedState = pruneLoadedRoomModelIds({
+                loadedRoomModelIds,
+                records: roomModelRecords,
+                modelId: targetModelId,
+                activeRoomModelId,
+            });
+            activeRoomModelId = prunedState.activeRoomModelId;
             if (!roomModelRecords.length && !roomTextureEntries.length) {
-                if (targetModelId) {
-                    loadedRoomModelIds.delete(targetModelId);
-                    if (activeRoomModelId === targetModelId) activeRoomModelId = '';
-                }
                 return false;
             }
 
             roomModelRecords.forEach((record) => {
                 const obj = record?.obj || null;
+                revokeImportedModelRecordUrls(record);
                 if (obj?.parent?.remove) {
                     try {
                         obj.parent.remove(obj);
@@ -3712,11 +3747,6 @@ export class ViewerApp {
                 allEmbedded.splice(0, allEmbedded.length, ...keptEntries);
                 galleryNeedsRefresh = false;
                 renderGallery(allEmbedded);
-            }
-
-            if (targetModelId) {
-                loadedRoomModelIds.delete(targetModelId);
-                if (activeRoomModelId === targetModelId) activeRoomModelId = '';
             }
 
             markSceneStatsDirty();
@@ -4334,14 +4364,22 @@ export class ViewerApp {
         }
 
         async function handleFBXFile(file, callOptions = null) {
-            await runImportWithScope({ kind: 'local' }, () => (
+            await runImportWithScope({
+                kind: 'local',
+                fileKey: getModelFileKey(file),
+                fileName: file?.name || '',
+            }, () => (
                 rawHandleFBXFile(file, null, null, null, callOptions)
             ));
             queueLocalModelFile(file);
         }
 
         async function handleZIPFile(file, callOptions = null) {
-            await runImportWithScope({ kind: 'local' }, () => rawHandleZIPFile(file, callOptions));
+            await runImportWithScope({
+                kind: 'local',
+                fileKey: getModelFileKey(file),
+                fileName: file?.name || '',
+            }, () => rawHandleZIPFile(file, callOptions));
             queueLocalModelFile(file);
         }
 
@@ -4495,7 +4533,6 @@ export class ViewerApp {
                     upsert: true,
                     contentType: file.type || 'application/octet-stream',
                 });
-                if (options.signal?.aborted) throw makeRoomLoadAbortError();
                 if (uploadError) throw uploadError;
             }
             return {
@@ -4531,18 +4568,16 @@ export class ViewerApp {
             }
         }
 
-        async function cleanupProjectStorageObjects(projectId) {
+        async function listProjectStorageObjectPaths(projectId) {
             if (!collabSupabase || !projectId) return;
             const { data: models, error } = await collabSupabase
                 .from('project_models')
                 .select('url, meta')
                 .eq('project_id', projectId);
             if (error) throw error;
-            const paths = (Array.isArray(models) ? models : [])
+            return (Array.isArray(models) ? models : [])
                 .map((model) => getProjectModelStoragePath(model))
                 .filter(Boolean);
-            if (!paths.length) return;
-            await removeModelStorageObjects(paths, collabSupabase);
         }
 
         async function cleanupSyncedModelArtifacts({ modelRowId = '', uploadedPath = '', supabaseClient = null, roomId = '' } = {}) {
@@ -4687,6 +4722,13 @@ export class ViewerApp {
                     throw new Error('Room active model was not updated.');
                 }
 
+                promoteLocalImportScopeToRoom({
+                    loadedModels,
+                    allEmbedded,
+                    fileKey: getModelFileKey(file),
+                    roomId,
+                    modelId: modelRow.id,
+                });
                 roomModelCount += 1;
                 setStatusMessage('готово: модель синхронизирована');
                 shouldKeepStatusMessage = true;
@@ -5362,13 +5404,16 @@ export class ViewerApp {
         }
 
         async function loadModelFromRoom(room) {
-            const activeModelId = String(room?.active_model_id || '').trim();
-            if (!room || !activeModelId) return;
-            if (activeModelId === activeRoomModelId && loadedRoomModelIds.has(activeModelId)) return;
-            if (!collabController) return;
+            if (!room || !collabController) return;
             const roomId = String(room.id || collabController.room?.id || '');
             const generation = roomLoadGeneration;
             if (!isActiveRoomLoad(generation, roomId)) return;
+            const activeModelId = String(room?.active_model_id || '').trim();
+            if (!activeModelId) {
+                activeRoomModelId = '';
+                return;
+            }
+            if (activeModelId === activeRoomModelId && loadedRoomModelIds.has(activeModelId)) return;
             const { data: modelRow, error } = await collabController.supabase
                 .from('project_models')
                 .select('*')
@@ -5547,6 +5592,7 @@ export class ViewerApp {
 
 	            loadedModels.forEach((record) => {
 	                const obj = record?.obj || null;
+	                revokeImportedModelRecordUrls(record);
 	                try { obj?.parent?.remove?.(obj); } catch (_) {}
 	                disposeImportedObjectTree(obj);
 	            });

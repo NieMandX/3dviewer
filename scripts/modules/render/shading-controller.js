@@ -66,6 +66,13 @@ export function createShadingController(options = {}) {
      * Возвращает материал-вариант для режима отображения.
      * В режиме PBR возвращаем исходный материал, в остальных — создаём clone подходящего типа.
      */
+    function markGeneratedShadingVariant(material) {
+        if (material?.userData) {
+            material.userData.viewerGeneratedMaterial = 'shading-variant';
+        }
+        return material;
+    }
+
     function makeVariantFrom(orig, mode) {
         if (!THREE) return orig;
 
@@ -88,66 +95,66 @@ export function createShadingController(options = {}) {
         switch (mode) {
             case 'normal':
                 // у NormalMaterial нет alphaMap, но можно сохранить прозрачность
-                return new THREE.MeshNormalMaterial({
+                return markGeneratedShadingVariant(new THREE.MeshNormalMaterial({
                     side: common.side,
                     transparent: common.transparent,
                     opacity: common.opacity,
                     flatShading: false,
-                });
+                }));
 
             case 'basic':
-                return new THREE.MeshBasicMaterial({
+                return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({
                     ...common,
                     color: map ? 0xffffff : color,
                     map,
-                });
+                }));
 
             case 'wire':
-                return new THREE.MeshBasicMaterial({
+                return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({
                     ...common,
                     color: 0x666666,
                     wireframe: true,
                     transparent: true,
                     opacity: 0.3,
-                });
+                }));
 
             case 'matcap':
-                return new THREE.MeshMatcapMaterial({
+                return markGeneratedShadingVariant(new THREE.MeshMatcapMaterial({
                     ...common,
                     color: 0xffffff,
                     matcap: getMatcap(),
-                });
+                }));
 
             case 'xray':
-                return new THREE.MeshBasicMaterial({
+                return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({
                     ...common,
                     color: 0x8844ff,
                     transparent: true,
                     opacity: 0.5,
                     depthWrite: false,
-                });
+                }));
 
             case 'uv':
-                return new THREE.MeshBasicMaterial({
+                return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({
                     ...common,
                     color: 0xffffff,
                     map: getChecker(),
-                });
+                }));
 
             case 'roughOnly': {
                 const tex = orig.roughnessMap || null;
-                if (tex) return new THREE.MeshBasicMaterial({ ...common, color: 0xffffff, map: tex });
+                if (tex) return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({ ...common, color: 0xffffff, map: tex }));
                 const v = Math.max(0, Math.min(1, Number(orig.roughness ?? 0.5)));
                 const c = new THREE.Color().setScalar(v);
-                return new THREE.MeshBasicMaterial({ ...common, color: c });
+                return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({ ...common, color: c }));
             }
 
             case 'metalOnly': {
                 const tex = orig.metalnessMap || null;
-                if (tex) return new THREE.MeshBasicMaterial({ ...common, color: 0xffffff, map: tex });
+                if (tex) return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({ ...common, color: 0xffffff, map: tex }));
                 const v = Math.max(0, Math.min(1, Number(orig.metalness ?? 0.0)));
                 const c = new THREE.Color().setScalar(v);
-                return new THREE.MeshBasicMaterial({ ...common, color: c });
+                return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({ ...common, color: c }));
             }
 
             default:

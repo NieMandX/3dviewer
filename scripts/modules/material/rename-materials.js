@@ -1,3 +1,5 @@
+import { disposeUnusedMaterialTree } from './texture-utils.js';
+
 export function createMaterialRenamer(options = {}) {
     const logBind = typeof options.logBind === 'function' ? options.logBind : null;
     const cacheOriginalMaterialFor =
@@ -40,6 +42,7 @@ export function createMaterialRenamer(options = {}) {
 
                 if (Array.isArray(mesh.material)) mesh.material[i] = cloned;
                 else mesh.material = cloned;
+                disposeUnusedMaterialTree(mat, { root });
 
                 renamed++;
                 changed = true;
@@ -53,4 +56,3 @@ export function createMaterialRenamer(options = {}) {
         }
     };
 }
-

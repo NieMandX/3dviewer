@@ -139,20 +139,20 @@ export function createFBXWorkerClient(options = {}) {
             throw err;
         }
         const { json, duration, embedded, orientation } = await promise;
-        if (signal?.aborted) throw makeAbortError();
+        if (disposed || signal?.aborted) throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
         const loader = new THREE.ObjectLoader();
         const parsed = loader.parse(json);
-        if (signal?.aborted) {
+        if (disposed || signal?.aborted) {
             disposeParsedObject(parsed);
-            throw makeAbortError();
+            throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
         }
         if (json.animations?.length) {
             const clips = json.animations.map(THREE.AnimationClip.parse).filter(Boolean);
             if (clips.length) parsed.animations = clips;
         }
-        if (signal?.aborted) {
+        if (disposed || signal?.aborted) {
             disposeParsedObject(parsed);
-            throw makeAbortError();
+            throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
         }
         return { obj: parsed, duration: duration || 0, embedded: embedded || [], orientationInfo: orientation || null };
     }

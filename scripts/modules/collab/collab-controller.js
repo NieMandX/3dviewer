@@ -219,6 +219,7 @@ export async function createCollabController(options = {}) {
     let deleteProcessing = false;
     let onlineWaitHandler = null;
     let onlineWaitPromise = null;
+    let onlineWaitResolve = null;
 
     const DELETE_RETRY_LIMIT = 6;
     const DELETE_RETRY_BASE_MS = 300;
@@ -554,15 +555,27 @@ export async function createCollabController(options = {}) {
         if (navigator.onLine !== false) return Promise.resolve();
         if (onlineWaitPromise) return onlineWaitPromise;
         onlineWaitPromise = new Promise((resolve) => {
+            onlineWaitResolve = resolve;
             onlineWaitHandler = () => {
-                window.removeEventListener('online', onlineWaitHandler);
-                onlineWaitHandler = null;
-                onlineWaitPromise = null;
-                resolve();
+                clearOnlineWait();
             };
             window.addEventListener('online', onlineWaitHandler, { once: true });
         });
         return onlineWaitPromise;
+    }
+
+    function clearOnlineWait() {
+        const handler = onlineWaitHandler;
+        if (handler && typeof window !== 'undefined') {
+            window.removeEventListener('online', handler);
+        }
+        const resolve = onlineWaitResolve;
+        onlineWaitHandler = null;
+        onlineWaitPromise = null;
+        onlineWaitResolve = null;
+        try {
+            resolve?.();
+        } catch (_) {}
     }
 
     async function processDeleteQueue() {
@@ -574,6 +587,7 @@ export async function createCollabController(options = {}) {
             let done = false;
             while (!done) {
                 await waitForOnline();
+                if (disposed) break;
                 try {
                     const { error } = await supabase.from('annotations').delete().eq('id', entry.id);
                     if (error) throw error;
@@ -592,8 +606,10 @@ export async function createCollabController(options = {}) {
                     }
                     const backoff = Math.min(10000, DELETE_RETRY_BASE_MS * (2 ** (entry.attempts - 1)));
                     await delay(backoff);
+                    if (disposed) break;
                 }
             }
+            if (disposed) break;
             if (DELETE_BETWEEN_MS > 0) {
                 await delay(DELETE_BETWEEN_MS);
             }
@@ -695,11 +711,7 @@ export async function createCollabController(options = {}) {
             } catch (_) {}
         });
         deletePending.clear();
-        if (onlineWaitHandler && typeof window !== 'undefined') {
-            window.removeEventListener('online', onlineWaitHandler);
-            onlineWaitHandler = null;
-            onlineWaitPromise = null;
-        }
+        clearOnlineWait();
         stopPresenceHeartbeat();
         await removeRealtimeChannels();
     }

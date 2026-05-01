@@ -30,6 +30,8 @@ export function createInspectorPanels(options = {}) {
     const texturesUi = createTexturesUI({
         THREE: options.THREE,
         dom: options.dom,
+        world: options.world,
+        loadedModels: options.loadedModels,
         matSelectEl: options.matSelect,
         basename: options.basename,
         guessKindFromName: options.guessKindFromName,

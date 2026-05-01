@@ -48,7 +48,10 @@ async function createStaticServer() {
                     {
                         "imports": {
                             "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+                            "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.webgpu.js",
+                            "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.tsl.js",
                             "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
+                            "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/",
                             "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.4/build/index.module.js"
                         }
                     }
@@ -573,9 +576,40 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assertLifecycleListeners(firstInit, 'after first init');
 
     await page.evaluate(async () => {
+        const THREE = await import('three');
+        const disposeCounts = {
+            originalTexture: 0,
+            replacementTexture: 0,
+            originalMaterial: 0,
+            replacementMaterial: 0,
+        };
+        const track = (resource, key) => {
+            resource.addEventListener?.('dispose', () => {
+                disposeCounts[key] += 1;
+            });
+            return resource;
+        };
+        const originalTexture = track(new THREE.Texture(), 'originalTexture');
+        const replacementTexture = track(new THREE.Texture(), 'replacementTexture');
+        const originalMaterial = track(new THREE.MeshStandardMaterial({ map: originalTexture }), 'originalMaterial');
+        const replacementMaterial = track(new THREE.MeshStandardMaterial({ map: replacementTexture }), 'replacementMaterial');
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), replacementMaterial);
+        mesh.userData._origMaterial = originalMaterial;
+        const root = new THREE.Group();
+        root.add(mesh);
+        globalThis.__lpmDisposeMaterialTextureCounts = disposeCounts;
+        globalThis.viewerApp.loadedModels.push({ obj: root, name: 'dispose-replacement-texture.fbx' });
+    });
+
+    await page.evaluate(async () => {
         await globalThis.viewerApp.dispose();
     });
     const afterFirstDispose = await readCounts();
+    const disposeResourceCounts = await page.evaluate(() => globalThis.__lpmDisposeMaterialTextureCounts || {});
+    assert.equal(disposeResourceCounts.originalTexture, 1, 'Dispose smoke: original material texture was not disposed');
+    assert.equal(disposeResourceCounts.replacementTexture, 1, 'Dispose smoke: replacement material texture leaked when _origMaterial exists');
+    assert.equal(disposeResourceCounts.originalMaterial, 1, 'Dispose smoke: original material was not disposed');
+    assert.equal(disposeResourceCounts.replacementMaterial, 1, 'Dispose smoke: replacement material was not disposed');
     assert.equal(afterFirstDispose.fileInputChange, 0, 'Dispose smoke: file input listener leaked after dispose');
     assert.equal(afterFirstDispose.emptyHintClick, 0, 'Dispose smoke: empty hint listener leaked after dispose');
     assert.equal(afterFirstDispose.sampleChange, 0, 'Dispose smoke: sample select listener leaked after dispose');
@@ -1446,6 +1480,224 @@ async function runTextureModalStaleEntrySmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+	    const result = await page.evaluate(async () => {
+	        const THREE = await import('three');
+	        const { createFilenameBinder } = await import('/scripts/modules/material/filename-autobind.js');
+	        const { createToStandard } = await import('/scripts/modules/material/to-standard.js');
+	        const { createTextureModalController } = await import('/scripts/modules/ui/texture-modal.js');
+	        const { createVPMBinder } = await import('/scripts/modules/material/vpm-autobind.js');
+	        const toStandard = createToStandard();
+
+        const trackDispose = (texture) => {
+            let count = 0;
+            texture.addEventListener('dispose', () => {
+                count += 1;
+            });
+            return () => count;
+        };
+
+        const filenameShared = new THREE.Texture();
+        filenameShared.name = 'filename-shared';
+        const filenameSharedDisposed = trackDispose(filenameShared);
+        const root = new THREE.Group();
+        const wall = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ name: 'wall material', map: filenameShared })
+        );
+        const ceiling = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ name: 'ceiling material', map: filenameShared })
+        );
+        wall.name = 'mesh_wall';
+        ceiling.name = 'mesh_ceiling';
+        root.add(wall, ceiling);
+
+        const binder = createFilenameBinder({
+            THREE,
+            geomSuffixes: ['wall', 'ceiling'],
+            guessKindFromName: () => 'base',
+            findGeomSuffix: (label) => {
+                const lower = String(label || '').toLowerCase();
+                if (lower.includes('wall')) return 'wall';
+                if (lower.includes('ceiling')) return 'ceiling';
+                return null;
+            },
+            textureLoader: { load: () => new THREE.Texture() },
+            toStandard: (material) => material,
+            copyTextureSettings: () => {},
+        });
+
+        binder.autoBindByNamesForModel(root, 'model.fbx', [
+            { short: 'T_wall_d_1.png', full: 'T_wall_d_1.png', url: 'blob:wall-new' },
+        ]);
+        const filenameAfterFirstBind = filenameSharedDisposed();
+	        binder.autoBindByNamesForModel(root, 'model.fbx', [
+	            { short: 'T_ceiling_d_1.png', full: 'T_ceiling_d_1.png', url: 'blob:ceiling-new' },
+	        ]);
+	        const filenameAfterSecondBind = filenameSharedDisposed();
+
+	        const filenameConvertedTexture = new THREE.Texture();
+	        filenameConvertedTexture.name = 'filename-converted';
+	        const filenameConvertedTextureDisposed = trackDispose(filenameConvertedTexture);
+	        const filenameConvertedMaterial = new THREE.MeshBasicMaterial({
+	            name: 'panel material',
+	            map: filenameConvertedTexture,
+	        });
+	        const filenameConvertedMaterialDisposed = trackDispose(filenameConvertedMaterial);
+	        const convertRoot = new THREE.Group();
+	        const panel = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), filenameConvertedMaterial);
+	        panel.name = 'mesh_panel';
+	        convertRoot.add(panel);
+	        const conversionBinder = createFilenameBinder({
+	            THREE,
+	            geomSuffixes: ['panel'],
+	            guessKindFromName: () => 'base',
+	            findGeomSuffix: (label) => (String(label || '').toLowerCase().includes('panel') ? 'panel' : null),
+	            textureLoader: { load: () => new THREE.Texture() },
+	            toStandard,
+	            copyTextureSettings: () => {},
+	        });
+	        conversionBinder.autoBindByNamesForModel(convertRoot, 'model.fbx', [
+	            { short: 'T_panel_d_1.png', full: 'T_panel_d_1.png', url: 'blob:panel-new' },
+	        ]);
+	        const filenameConvertedMaterialAfterBind = filenameConvertedMaterialDisposed();
+	        const filenameConvertedTextureAfterBind = filenameConvertedTextureDisposed();
+
+        const modalShared = new THREE.Texture();
+        modalShared.name = 'modal-shared';
+        const modalSharedDisposed = trackDispose(modalShared);
+        const modalRoot = new THREE.Group();
+        const modalA = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ name: 'modal-a', map: modalShared })
+        );
+        const modalB = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ name: 'modal-b', map: modalShared })
+        );
+        modalRoot.add(modalA, modalB);
+	        const loadedModels = [{ obj: modalRoot, name: 'modal.fbx' }];
+	        let selectedLink = { obj: modalA, mat: modalA.material, index: 0 };
+
+        const modal = document.createElement('div');
+        const closeBtn = document.createElement('button');
+        const img = document.createElement('img');
+        const title = document.createElement('div');
+        const file = document.createElement('div');
+        const kind = document.createElement('div');
+        const mime = document.createElement('div');
+        const dl = document.createElement('a');
+        const bind = document.createElement('button');
+        const slot = document.createElement('select');
+        slot.appendChild(new Option('map', 'map'));
+        document.body.append(modal, closeBtn, img, title, file, kind, mime, dl, bind, slot);
+
+        const controller = createTextureModalController({
+            texModalEl: modal,
+            closeBtnEl: closeBtn,
+            imgEl: img,
+            titleEl: title,
+            fileEl: file,
+            kindEl: kind,
+            mimeEl: mime,
+            downloadLinkEl: dl,
+            bindBtnEl: bind,
+            slotSelectEl: slot,
+            basename: (value) => String(value || '').split('/').pop(),
+            guessKindFromName: () => 'base',
+            getSelectedMaterialLink: () => selectedLink,
+            loadedModels,
+            textureLoader: { load: () => new THREE.Texture() },
+	            toStandard,
+	            copyTextureSettings: () => {},
+	        });
+
+        controller.open({ short: 'first.png', full: 'textures/first.png', url: 'blob:first', mime: 'image/png' });
+        controller.bindSelected();
+        const modalAfterFirstBind = modalSharedDisposed();
+        selectedLink = { obj: modalB, mat: modalB.material, index: 0 };
+        controller.open({ short: 'second.png', full: 'textures/second.png', url: 'blob:second', mime: 'image/png' });
+	        controller.bindSelected();
+	        const modalAfterSecondBind = modalSharedDisposed();
+
+	        const modalConvertedTexture = new THREE.Texture();
+	        modalConvertedTexture.name = 'modal-converted';
+	        const modalConvertedTextureDisposed = trackDispose(modalConvertedTexture);
+	        const modalConvertedMaterial = new THREE.MeshBasicMaterial({
+	            name: 'modal panel',
+	            map: modalConvertedTexture,
+	        });
+	        const modalConvertedMaterialDisposed = trackDispose(modalConvertedMaterial);
+	        const modalConvertedRoot = new THREE.Group();
+	        const modalConvertedMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), modalConvertedMaterial);
+	        modalConvertedRoot.add(modalConvertedMesh);
+	        loadedModels.push({ obj: modalConvertedRoot, name: 'modal-converted.fbx' });
+	        selectedLink = { obj: modalConvertedMesh, mat: modalConvertedMesh.material, index: 0 };
+	        controller.open({ short: 'converted.png', full: 'textures/converted.png', url: 'blob:converted', mime: 'image/png' });
+	        controller.bindSelected();
+	        const modalConvertedMaterialAfterBind = modalConvertedMaterialDisposed();
+	        const modalConvertedTextureAfterBind = modalConvertedTextureDisposed();
+	        controller.dispose();
+
+	        const vpmOldTexture = new THREE.Texture();
+	        vpmOldTexture.name = 'vpm-old';
+	        const vpmOldTextureDisposed = trackDispose(vpmOldTexture);
+	        const vpmOldMaterial = new THREE.MeshStandardMaterial({ name: 'vpm old', map: vpmOldTexture });
+	        const vpmOldMaterialDisposed = trackDispose(vpmOldMaterial);
+	        const vpmMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), vpmOldMaterial);
+	        vpmMesh.name = 'vpm_mesh';
+	        const vpmRoot = new THREE.Group();
+	        vpmRoot.userData._fbxFileName = 'SM_foo_bar.fbx';
+	        vpmRoot.add(vpmMesh);
+	        const vpmLoadedModels = [{ obj: vpmRoot, name: 'SM_foo_bar.fbx', zipKind: 'SM' }];
+	        const labels = new Map([['blob:vpm-diffuse', 'T_foo_bar_Diffuse_1.1001.png']]);
+	        const vpmBinder = createVPMBinder({
+	            THREE,
+	            loadedModels: vpmLoadedModels,
+	            labelFromURL: (url) => labels.get(url) || '',
+	            toStandard,
+	            textureLoader: { load: () => new THREE.Texture() },
+	            detectSlotFromMatOrObj: () => 1,
+	            copyTextureSettings: () => {},
+	        });
+	        const vpmIndex = vpmBinder.buildVPMIndex([{ url: 'blob:vpm-diffuse' }]);
+	        await vpmBinder.autoBindVPMForModel(vpmRoot, vpmIndex);
+	        const vpmOldMaterialAfterBind = vpmOldMaterialDisposed();
+	        const vpmOldTextureAfterBind = vpmOldTextureDisposed();
+
+	        return {
+	            filenameAfterFirstBind,
+	            filenameAfterSecondBind,
+	            filenameConvertedMaterialAfterBind,
+	            filenameConvertedTextureAfterBind,
+	            modalAfterFirstBind,
+	            modalAfterSecondBind,
+	            modalConvertedMaterialAfterBind,
+	            modalConvertedTextureAfterBind,
+	            vpmOldMaterialAfterBind,
+	            vpmOldTextureAfterBind,
+	        };
+	    });
+
+	    assert.equal(result.filenameAfterFirstBind, 0, 'Texture replacement smoke: filename binder disposed texture still used by another mesh');
+	    assert.equal(result.filenameAfterSecondBind, 1, 'Texture replacement smoke: filename binder did not dispose texture after last reference was replaced');
+	    assert.equal(result.filenameConvertedMaterialAfterBind, 1, 'Texture replacement smoke: filename binder leaked converted source material');
+	    assert.equal(result.filenameConvertedTextureAfterBind, 1, 'Texture replacement smoke: filename binder leaked converted source texture');
+	    assert.equal(result.modalAfterFirstBind, 0, 'Texture replacement smoke: texture modal disposed texture still used by another mesh');
+	    assert.equal(result.modalAfterSecondBind, 1, 'Texture replacement smoke: texture modal did not dispose texture after last reference was replaced');
+	    assert.equal(result.modalConvertedMaterialAfterBind, 1, 'Texture replacement smoke: texture modal leaked converted source material');
+	    assert.equal(result.modalConvertedTextureAfterBind, 1, 'Texture replacement smoke: texture modal leaked converted source texture');
+	    assert.equal(result.vpmOldMaterialAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source material');
+	    assert.equal(result.vpmOldTextureAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source texture');
+    diagnostics.assertNoErrors('Texture replacement lifecycle smoke');
+    await page.close();
+}
+
 async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -1792,6 +2044,170 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
     assert.equal(result.intervalCount, 1, 'Collab init-failure smoke: expected one presence heartbeat');
     assert.equal(result.heartbeatCleared, true, 'Collab init-failure smoke: presence heartbeat leaked after failed init');
     diagnostics.assertNoErrors('Collab init-failure cleanup smoke');
+    await page.close();
+}
+
+async function runCollabDeleteQueueDisposeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createCollabController } = await import('/scripts/modules/collab/collab-controller.js');
+
+        const nativeAddEventListener = window.addEventListener.bind(window);
+        const nativeRemoveEventListener = window.removeEventListener.bind(window);
+        const onlineOwner = Object.prototype.hasOwnProperty.call(navigator, 'onLine')
+            ? navigator
+            : Object.getPrototypeOf(navigator);
+        const onlineDescriptor = Object.getOwnPropertyDescriptor(onlineOwner, 'onLine');
+        let online = false;
+        let capturedOnlineHandler = null;
+        let onlineListenerCount = 0;
+        let deleteCalls = 0;
+        const deletedIds = [];
+
+        window.addEventListener = (type, listener, options) => {
+            if (type === 'online') {
+                capturedOnlineHandler = listener;
+                onlineListenerCount += 1;
+            }
+            return nativeAddEventListener(type, listener, options);
+        };
+        window.removeEventListener = (type, listener, options) => {
+            if (type === 'online' && listener === capturedOnlineHandler) {
+                onlineListenerCount = Math.max(0, onlineListenerCount - 1);
+            }
+            return nativeRemoveEventListener(type, listener, options);
+        };
+        Object.defineProperty(onlineOwner, 'onLine', {
+            configurable: true,
+            get: () => online,
+        });
+
+        class FakeQuery {
+            constructor(table) {
+                this.table = table;
+                this.isDelete = false;
+            }
+            upsert(payload) {
+                return Promise.resolve({ data: payload || null, error: null });
+            }
+            delete() {
+                this.isDelete = true;
+                return this;
+            }
+            select() {
+                return this;
+            }
+            eq(column, value) {
+                if (this.isDelete) {
+                    deleteCalls += 1;
+                    deletedIds.push(String(value || ''));
+                    return Promise.resolve({ data: null, error: null });
+                }
+                return this;
+            }
+            order() {
+                return Promise.resolve({ data: [], error: null });
+            }
+        }
+
+        class FakeChannel {
+            constructor(name) {
+                this.name = name;
+                this.handlers = [];
+                this.state = 'joined';
+                this.socket = { isConnected: () => true };
+            }
+            on(type, filter, callback) {
+                this.handlers.push({ type, filter: filter || {}, callback });
+                return this;
+            }
+            subscribe(callback) {
+                if (typeof callback === 'function') {
+                    Promise.resolve().then(() => callback('SUBSCRIBED'));
+                }
+                return Promise.resolve('SUBSCRIBED');
+            }
+            track() {
+                return Promise.resolve('ok');
+            }
+            presenceState() {
+                return {};
+            }
+            send() {
+                return Promise.resolve('ok');
+            }
+            httpSend() {
+                return Promise.resolve('ok');
+            }
+        }
+
+        const channels = [];
+        const removedChannels = [];
+        const supabase = {
+            from: (table) => new FakeQuery(table),
+            channel: (name) => {
+                const channel = new FakeChannel(name);
+                channels.push(channel);
+                return channel;
+            },
+            removeChannel: async (channel) => {
+                removedChannels.push(channel.name);
+                return 'ok';
+            },
+            rpc: async () => ({ data: null, error: null }),
+        };
+
+        let deleteResult = '';
+        try {
+            const controller = await createCollabController({
+                supabase,
+                user: { id: 'local-user' },
+                project: { id: 'project-1', slug: 'project' },
+                room: { id: 'room-1', slug: 'room', camera_owner_id: null, camera_state: null },
+                displayName: 'Local',
+            });
+
+            const pendingDelete = controller
+                .deleteAnnotation('annotation-offline')
+                .then(() => 'resolved', (err) => `rejected:${err?.message || String(err)}`);
+            await Promise.resolve();
+            const listenersBeforeDispose = onlineListenerCount;
+
+            await controller.dispose();
+            deleteResult = await pendingDelete;
+            capturedOnlineHandler?.(new Event('online'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            return {
+                deleteResult,
+                deleteCalls,
+                deletedIds,
+                listenersBeforeDispose,
+                onlineListenerCount,
+                removedChannels,
+                channelNames: channels.map((channel) => channel.name),
+            };
+        } finally {
+            window.addEventListener = nativeAddEventListener;
+            window.removeEventListener = nativeRemoveEventListener;
+            if (onlineDescriptor) {
+                Object.defineProperty(onlineOwner, 'onLine', onlineDescriptor);
+            } else {
+                delete onlineOwner.onLine;
+            }
+        }
+    });
+
+    assert.equal(result.listenersBeforeDispose, 1, 'Collab delete queue smoke: offline wait listener was not installed');
+    assert.equal(result.onlineListenerCount, 0, 'Collab delete queue smoke: offline wait listener leaked after dispose');
+    assert.equal(result.deleteResult, 'rejected:Collab controller disposed', 'Collab delete queue smoke: pending delete was not rejected on dispose');
+    assert.equal(result.deleteCalls, 0, 'Collab delete queue smoke: disposed controller performed a stale delete');
+    assert.deepEqual(result.deletedIds, [], 'Collab delete queue smoke: stale delete used an annotation id');
+    assert.deepEqual(result.removedChannels, result.channelNames, 'Collab delete queue smoke: dispose did not remove all realtime channels');
+    diagnostics.assertNoErrors('Collab delete queue dispose smoke');
     await page.close();
 }
 
@@ -2156,6 +2572,83 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
         'Room model queue smoke: queued/stale/deleted model order is wrong',
     );
     diagnostics.assertNoErrors('Room model load queue smoke');
+    await page.close();
+}
+
+async function runRoomModelStateSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const {
+            promoteLocalImportScopeToRoom,
+            pruneLoadedRoomModelIds,
+        } = await import('/scripts/modules/collab/room-model-state.js');
+        const loadedRoomModelIds = new Set(['A', 'B', 'C', 'D']);
+        const loadedModels = [
+            {
+                scope: { kind: 'local', fileKey: 'local.zip|10|1' },
+                obj: { userData: { importScope: { kind: 'local', fileKey: 'local.zip|10|1' } } },
+            },
+            {
+                scope: { kind: 'local', fileKey: 'other.zip|10|1' },
+                obj: { userData: { importScope: { kind: 'local', fileKey: 'other.zip|10|1' } } },
+            },
+        ];
+        const allEmbedded = [
+            { scope: { kind: 'local', fileKey: 'local.zip|10|1' } },
+            { scope: { kind: 'local', fileKey: 'other.zip|10|1' } },
+        ];
+        const promoted = promoteLocalImportScopeToRoom({
+            loadedModels,
+            allEmbedded,
+            fileKey: 'local.zip|10|1',
+            roomId: 'room-1',
+            modelId: 'model-1',
+        });
+        const roomPrune = pruneLoadedRoomModelIds({
+            loadedRoomModelIds,
+            activeRoomModelId: 'B',
+            records: [
+                { scope: { modelId: 'A' } },
+                { obj: { userData: { importScope: { modelId: 'B' } } } },
+            ],
+        });
+        const explicitPrune = pruneLoadedRoomModelIds({
+            loadedRoomModelIds,
+            activeRoomModelId: roomPrune.activeRoomModelId,
+            modelId: 'C',
+            records: [],
+        });
+
+        return {
+            roomRemoved: roomPrune.removedIds,
+            activeAfterRoomPrune: roomPrune.activeRoomModelId,
+            explicitRemoved: explicitPrune.removedIds,
+            activeAfterExplicitPrune: explicitPrune.activeRoomModelId,
+            remaining: Array.from(loadedRoomModelIds),
+            promoted,
+            promotedModelScope: loadedModels[0].scope,
+            promotedUserDataScope: loadedModels[0].obj.userData.importScope,
+            untouchedModelScope: loadedModels[1].scope,
+            promotedEmbeddedScope: allEmbedded[0].scope,
+            untouchedEmbeddedScope: allEmbedded[1].scope,
+        };
+    });
+
+    assert.deepEqual(result.roomRemoved, ['A', 'B'], 'Room model state smoke: room cleanup did not collect scoped model ids');
+    assert.equal(result.activeAfterRoomPrune, '', 'Room model state smoke: active room model id survived scoped cleanup');
+    assert.deepEqual(result.explicitRemoved, ['C'], 'Room model state smoke: explicit model cleanup did not remove id');
+    assert.equal(result.activeAfterExplicitPrune, '', 'Room model state smoke: inactive explicit cleanup changed active state');
+    assert.deepEqual(result.remaining, ['D'], 'Room model state smoke: stale loaded room model ids remained');
+    assert.deepEqual(result.promoted, { modelCount: 1, embeddedCount: 1 }, 'Room model state smoke: local import promotion touched wrong counts');
+    assert.deepEqual(result.promotedModelScope, { kind: 'room', roomId: 'room-1', modelId: 'model-1' }, 'Room model state smoke: model scope was not promoted to room');
+    assert.deepEqual(result.promotedUserDataScope, { kind: 'room', roomId: 'room-1', modelId: 'model-1' }, 'Room model state smoke: object userData scope was not promoted to room');
+    assert.equal(result.untouchedModelScope.kind, 'local', 'Room model state smoke: unrelated local model scope was changed');
+    assert.deepEqual(result.promotedEmbeddedScope, { kind: 'room', roomId: 'room-1', modelId: 'model-1' }, 'Room model state smoke: embedded scope was not promoted to room');
+    assert.equal(result.untouchedEmbeddedScope.kind, 'local', 'Room model state smoke: unrelated embedded scope was changed');
+    diagnostics.assertNoErrors('Room model state smoke');
     await page.close();
 }
 
@@ -2638,6 +3131,48 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 (err) => `${err?.name || 'Error'}:${err?.message || err}`,
             );
 
+            const lateFbxClient = createFBXWorkerClient({ workerUrl: '/fake-fbx-worker-late.js' });
+            const lateFbxPromise = lateFbxClient.parseFBXInWorker(
+                new ArrayBuffer(4),
+                { embedded: true, orientation: true }
+            ).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            await Promise.resolve();
+            const lateFbxWorker = workers[2] || null;
+            lateFbxWorker?.emit?.({
+                id: 1,
+                ok: true,
+                json: new THREE.Group().toJSON(),
+                duration: 1,
+            });
+            lateFbxClient.dispose();
+            const lateFbxResult = await lateFbxPromise;
+
+            let releaseZipArrayBuffer = null;
+            const delayedZipFile = {
+                name: 'delayed.zip',
+                arrayBuffer: () => new Promise((resolve) => {
+                    releaseZipArrayBuffer = () => resolve(new ArrayBuffer(8));
+                }),
+            };
+            const zipRaceEvents = [];
+            const zipRaceClient = createZIPWorkerClient({ workerUrl: '/fake-zip-worker-race.js' });
+            const zipRacePromise = zipRaceClient.unpackZIPInWorker(delayedZipFile, {
+                onError: (err) => zipRaceEvents.push(err?.message || String(err)),
+            }).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            await Promise.resolve();
+            const zipRaceWorker = workers[3] || null;
+            zipRaceClient.dispose();
+            releaseZipArrayBuffer?.();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            const zipRaceResult = await zipRacePromise;
+            const zipRacePostedAfterDispose = zipRaceWorker?.messages?.length || 0;
+
             workers.length = 0;
             const assetLoaders = createAssetLoaders({ THREE });
             const assetFbxPromise = assetLoaders.parseFBXInWorker(new ArrayBuffer(2)).then(
@@ -2670,6 +3205,12 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 zipSupportedAfterDispose: zipClient.isSupported(),
                 zipAfterDispose,
                 zipEvents,
+                lateFbxResult,
+                lateFbxTerminated: lateFbxWorker?.terminated || 0,
+                zipRaceResult,
+                zipRacePostedAfterDispose,
+                zipRaceTerminated: zipRaceWorker?.terminated || 0,
+                zipRaceEvents,
                 assetWorkerCount,
                 assetResults,
                 assetTerminated,
@@ -2692,6 +3233,12 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
     assert.equal(result.zipSupportedAfterDispose, false, 'Worker client dispose smoke: ZIP client stayed supported after dispose');
     assert.match(result.zipAfterDispose, /^AbortError:/, 'Worker client dispose smoke: disposed ZIP client accepted a new job');
     assert.deepEqual(result.zipEvents, [], 'Worker client dispose smoke: stale ZIP worker messages reached handlers after dispose');
+    assert.match(result.lateFbxResult, /^AbortError:/, 'Worker client dispose smoke: FBX resolved response survived dispose');
+    assert.equal(result.lateFbxTerminated, 1, 'Worker client dispose smoke: late FBX worker was not terminated');
+    assert.match(result.zipRaceResult, /^AbortError:/, 'Worker client dispose smoke: ZIP arrayBuffer race did not abort on dispose');
+    assert.equal(result.zipRacePostedAfterDispose, 0, 'Worker client dispose smoke: ZIP posted to worker after dispose');
+    assert.equal(result.zipRaceTerminated, 1, 'Worker client dispose smoke: ZIP arrayBuffer race worker was not terminated');
+    assert.deepEqual(result.zipRaceEvents, [], 'Worker client dispose smoke: ZIP arrayBuffer race fired onError after dispose');
     assert.equal(result.assetWorkerCount, 2, 'Worker client dispose smoke: asset loaders did not create both workers');
     assert.equal(result.assetResults.length, 2, 'Worker client dispose smoke: asset loader jobs did not settle');
     result.assetResults.forEach((entry) => {
@@ -2783,6 +3330,106 @@ async function runZIPFallbackCleanupSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runGeoJsonMetaLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { makeGeoJsonMeta, revokeGeoJsonMetaUrl } = await import('/scripts/modules/geo/geojson-meta.js');
+        const { createZIPFileHandler } = await import('/scripts/modules/io/zip-file.js');
+        const nativeCreateObjectURL = URL.createObjectURL;
+        const nativeRevokeObjectURL = URL.revokeObjectURL;
+        const revoked = [];
+        let nextUrlId = 0;
+
+        URL.createObjectURL = () => `blob:geo-${++nextUrlId}`;
+        URL.revokeObjectURL = (url) => {
+            revoked.push(String(url || ''));
+        };
+
+        try {
+            const directMeta = makeGeoJsonMeta('SM_direct.zip', 'direct.geojson', '{"type":"FeatureCollection","features":[]}');
+            const directUrl = directMeta.url;
+            const directFirst = revokeGeoJsonMetaUrl(directMeta);
+            const directSecond = revokeGeoJsonMetaUrl(directMeta);
+
+            const workerFallbackHandler = createZIPFileHandler({
+                basename: (path) => String(path || '').split(/[\\/]/).pop(),
+                makeGeoJsonMeta,
+                unpackZIPInWorker: async (_file, handlers) => {
+                    await handlers.onGeoJSON?.({
+                        name: 'worker.geojson',
+                        text: '{"type":"FeatureCollection","features":[]}',
+                    });
+                    throw new Error('simulated worker failure');
+                },
+                JSZip: {
+                    loadAsync: async () => {
+                        throw new Error('simulated fallback failure');
+                    },
+                },
+            });
+            const workerFallbackResult = await workerFallbackHandler(
+                new File([new Uint8Array([1])], 'SM_worker_fail.zip', { type: 'application/zip' })
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+
+            const emptyZipHandler = createZIPFileHandler({
+                basename: (path) => String(path || '').split(/[\\/]/).pop(),
+                makeGeoJsonMeta,
+                unpackZIPInWorker: null,
+                JSZip: {
+                    loadAsync: async () => ({
+                        files: {
+                            'meta.geojson': {
+                                dir: false,
+                                name: 'meta.geojson',
+                                async: async () => new TextEncoder().encode('{"type":"FeatureCollection","features":[]}'),
+                            },
+                        },
+                    }),
+                },
+            });
+            const emptyZipResult = await emptyZipHandler(
+                new File([new Uint8Array([2])], 'SM_empty.zip', { type: 'application/zip' })
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+
+            return {
+                directUrl,
+                directFirst,
+                directSecond,
+                directMetaUrlAfterRevoke: directMeta.url,
+                workerFallbackResult,
+                emptyZipResult,
+                revoked,
+            };
+        } finally {
+            URL.createObjectURL = nativeCreateObjectURL;
+            URL.revokeObjectURL = nativeRevokeObjectURL;
+        }
+    });
+
+    assert.equal(result.directUrl, 'blob:geo-1', 'GeoJSON meta smoke: direct meta did not receive a blob URL');
+    assert.equal(result.directFirst, true, 'GeoJSON meta smoke: direct meta URL was not revoked');
+    assert.equal(result.directSecond, false, 'GeoJSON meta smoke: direct revoke was not idempotent');
+    assert.equal(result.directMetaUrlAfterRevoke, '', 'GeoJSON meta smoke: revoked direct meta kept stale URL');
+    assert.equal(result.workerFallbackResult, 'simulated fallback failure', 'GeoJSON meta smoke: worker fallback path was not exercised');
+    assert.equal(result.emptyZipResult, 'resolved', 'GeoJSON meta smoke: empty ZIP fallback did not complete');
+    assert.deepEqual(
+        result.revoked,
+        ['blob:geo-1', 'blob:geo-2', 'blob:geo-3'],
+        'GeoJSON meta smoke: leaked or double-revoked GeoJSON blob URLs',
+    );
+    diagnostics.assertNoErrors('GeoJSON meta lifecycle smoke');
+    await page.close();
+}
+
 async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -2795,9 +3442,11 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
 
         const disposedGeometries = [];
         const disposedMaterials = [];
+        const revokedUrls = [];
         let skeletonDisposed = 0;
         const nativeDispose = THREE.BufferGeometry.prototype.dispose;
         const nativeMaterialDispose = THREE.Material.prototype.dispose;
+        const nativeRevokeObjectURL = URL.revokeObjectURL;
         THREE.BufferGeometry.prototype.dispose = function patchedDispose(...args) {
             disposedGeometries.push(this.name || this.uuid || 'geometry');
             return nativeDispose.apply(this, args);
@@ -2805,6 +3454,10 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
         THREE.Material.prototype.dispose = function patchedMaterialDispose(...args) {
             disposedMaterials.push(this.name || this.uuid || 'material');
             return nativeMaterialDispose.apply(this, args);
+        };
+        URL.revokeObjectURL = (url) => {
+            revokedUrls.push(String(url || ''));
+            return nativeRevokeObjectURL.call(URL, url);
         };
 
         function makeGeometry({ split = false } = {}) {
@@ -2905,6 +3558,72 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
             releaseParse();
             const abortResult = await abortPromise;
 
+            const normalizeWorld = new THREE.Group();
+            const normalizeLoadedModels = [];
+            const normalizeEmbedded = [];
+            const normalizeRoot = new THREE.Group();
+            const normalizeGeometry = makeGeometry();
+            normalizeGeometry.name = 'normalizeGeometry';
+            const normalizeMaterial = new THREE.MeshBasicMaterial({ name: 'normalizeMaterial' });
+            normalizeRoot.add(new THREE.Mesh(normalizeGeometry, normalizeMaterial));
+            const normalizeUrl = URL.createObjectURL(new Blob(['png'], { type: 'image/png' }));
+            const normalizeHandleFBXFile = createFBXFileHandler({
+                THREE,
+                world: normalizeWorld,
+                loadedModels: normalizeLoadedModels,
+                allEmbedded: normalizeEmbedded,
+                parseFBXOnMainThread: () => ({ obj: normalizeRoot, duration: 1 }),
+                extractImagesFromFBX: async () => [{
+                    short: 'normalize.png',
+                    full: 'normalize.png',
+                    url: normalizeUrl,
+                    mime: 'image/png',
+                    source: 'embedded',
+                }],
+                normalizeObjectOrientation: () => {
+                    throw new Error('normalize failure');
+                },
+            });
+            const normalizeResult = await normalizeHandleFBXFile(
+                new File([new Uint8Array([7, 8, 9])], 'normalize.fbx', { type: 'application/octet-stream' }),
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+
+            const rollbackWorld = new THREE.Group();
+            const rollbackLoadedModels = [];
+            const rollbackEmbedded = [];
+            const rollbackRoot = new THREE.Group();
+            const rollbackGeometry = makeGeometry();
+            rollbackGeometry.name = 'rollbackGeometry';
+            const rollbackMaterial = new THREE.MeshBasicMaterial({ name: 'rollbackMaterial' });
+            rollbackRoot.add(new THREE.Mesh(rollbackGeometry, rollbackMaterial));
+            const rollbackUrl = URL.createObjectURL(new Blob(['png'], { type: 'image/png' }));
+            const rollbackHandleFBXFile = createFBXFileHandler({
+                THREE,
+                world: rollbackWorld,
+                loadedModels: rollbackLoadedModels,
+                allEmbedded: rollbackEmbedded,
+                parseFBXOnMainThread: () => ({ obj: rollbackRoot, duration: 1 }),
+                extractImagesFromFBX: async () => [{
+                    short: 'rollback.png',
+                    full: 'rollback.png',
+                    url: rollbackUrl,
+                    mime: 'image/png',
+                    source: 'embedded',
+                }],
+                renameMaterialsByFBXObject: () => {
+                    throw new Error('post-add failure');
+                },
+            });
+            const rollbackResult = await rollbackHandleFBXFile(
+                new File([new Uint8Array([4, 5, 6])], 'rollback.fbx', { type: 'application/octet-stream' }),
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+
             return {
                 singleResult,
                 singleDisposed,
@@ -2924,10 +3643,25 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 abortGeometryDisposed: disposedGeometries.includes('abortGeometry'),
                 abortMaterialDisposed: disposedMaterials.includes('abortMaterial'),
                 skeletonDisposed,
+                normalizeResult,
+                normalizeWorldChildren: normalizeWorld.children.length,
+                normalizeLoadedCount: normalizeLoadedModels.length,
+                normalizeEmbeddedCount: normalizeEmbedded.length,
+                normalizeGeometryDisposed: disposedGeometries.includes('normalizeGeometry'),
+                normalizeMaterialDisposed: disposedMaterials.includes('normalizeMaterial'),
+                normalizeUrlRevoked: revokedUrls.includes(normalizeUrl),
+                rollbackResult,
+                rollbackWorldChildren: rollbackWorld.children.length,
+                rollbackLoadedCount: rollbackLoadedModels.length,
+                rollbackEmbeddedCount: rollbackEmbedded.length,
+                rollbackGeometryDisposed: disposedGeometries.includes('rollbackGeometry'),
+                rollbackMaterialDisposed: disposedMaterials.includes('rollbackMaterial'),
+                rollbackUrlRevoked: revokedUrls.includes(rollbackUrl),
             };
         } finally {
             THREE.BufferGeometry.prototype.dispose = nativeDispose;
             THREE.Material.prototype.dispose = nativeMaterialDispose;
+            URL.revokeObjectURL = nativeRevokeObjectURL;
         }
     });
 
@@ -2949,6 +3683,20 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.abortGeometryDisposed, true, 'FBX cleanup smoke: aborted post-parse geometry was not disposed');
     assert.equal(result.abortMaterialDisposed, true, 'FBX cleanup smoke: aborted post-parse material was not disposed');
     assert.equal(result.skeletonDisposed, 1, 'FBX cleanup smoke: aborted post-parse skeleton was not disposed exactly once');
+    assert.equal(result.normalizeResult, 'normalize failure', 'FBX cleanup smoke: normalize failure did not propagate');
+    assert.equal(result.normalizeWorldChildren, 0, 'FBX cleanup smoke: failed normalize FBX was added to world');
+    assert.equal(result.normalizeLoadedCount, 0, 'FBX cleanup smoke: failed normalize FBX was registered as loaded');
+    assert.equal(result.normalizeEmbeddedCount, 0, 'FBX cleanup smoke: failed normalize embedded entries leaked');
+    assert.equal(result.normalizeGeometryDisposed, true, 'FBX cleanup smoke: failed normalize geometry was not disposed');
+    assert.equal(result.normalizeMaterialDisposed, true, 'FBX cleanup smoke: failed normalize material was not disposed');
+    assert.equal(result.normalizeUrlRevoked, true, 'FBX cleanup smoke: failed normalize embedded blob URL was not revoked');
+    assert.equal(result.rollbackResult, 'post-add failure', 'FBX cleanup smoke: post-add failure did not propagate');
+    assert.equal(result.rollbackWorldChildren, 0, 'FBX cleanup smoke: failed post-add FBX stayed in world');
+    assert.equal(result.rollbackLoadedCount, 0, 'FBX cleanup smoke: failed post-add FBX stayed in loaded models');
+    assert.equal(result.rollbackEmbeddedCount, 0, 'FBX cleanup smoke: failed post-add embedded entries leaked');
+    assert.equal(result.rollbackGeometryDisposed, true, 'FBX cleanup smoke: failed post-add geometry was not disposed');
+    assert.equal(result.rollbackMaterialDisposed, true, 'FBX cleanup smoke: failed post-add material was not disposed');
+    assert.equal(result.rollbackUrlRevoked, true, 'FBX cleanup smoke: failed post-add embedded blob URL was not revoked');
     diagnostics.assertNoErrors('FBX cleanup lifecycle smoke');
     await page.close();
 }
@@ -3008,14 +3756,16 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
             }
         }
 
-        class FakeShadowMaterial {
-            constructor(params = {}) {
-                Object.assign(this, params);
-            }
-            dispose() {
-                disposed.push('shadow');
-            }
-        }
+	        class FakeShadowMaterial {
+	            constructor(params = {}) {
+	                Object.assign(this, params);
+	                this.disposed = false;
+	            }
+	            dispose() {
+	                this.disposed = true;
+	                disposed.push('shadow');
+	            }
+	        }
 
         const THREE = {
             CanvasTexture: class FakeCanvasTexture extends FakeTexture {
@@ -3051,10 +3801,11 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
         ctx.fillStyle = 'rgb(128, 64, 32)';
         ctx.fillRect(0, 0, 1, 1);
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-        const urls = [URL.createObjectURL(blob), URL.createObjectURL(blob), URL.createObjectURL(blob)];
-        labels.set(urls[0], 'T_foo_bar_Diffuse_1.1001.png');
-        labels.set(urls[1], 'T_foo_bar_Normal_1.1001.png');
-        labels.set(urls[2], 'T_foo_bar_ERM_1.1001.png');
+	        const urls = [URL.createObjectURL(blob), URL.createObjectURL(blob), URL.createObjectURL(blob)];
+	        const raceUrls = [];
+	        labels.set(urls[0], 'T_foo_bar_Diffuse_1.1001.png');
+	        labels.set(urls[1], 'T_foo_bar_Normal_1.1001.png');
+	        labels.set(urls[2], 'T_foo_bar_ERM_1.1001.png');
 
         const baseMaterial = new FakeMaterial('base');
         const mesh = {
@@ -3094,23 +3845,73 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
             }
             if (!releaseBitmap) throw new Error('VPM smoke: createImageBitmap was not reached');
 
-            loadedModels.length = 0;
-            releaseBitmap();
-            await bindPromise;
+	            loadedModels.length = 0;
+	            releaseBitmap();
+	            await bindPromise;
+	            const firstResult = {
+	                materialStillOriginal: mesh.material === baseMaterial,
+	                customDepthCleared: mesh.customDepthMaterial == null,
+	                customDistanceCleared: mesh.customDistanceMaterial == null,
+	                disposed: disposed.slice(),
+	                bitmapClosed,
+	            };
 
-            return {
-                materialStillOriginal: mesh.material === baseMaterial,
-                customDepthCleared: mesh.customDepthMaterial == null,
-                customDistanceCleared: mesh.customDistanceMaterial == null,
-                disposed,
-                bitmapClosed,
-            };
-        } finally {
-            globalThis.createImageBitmap = nativeCreateImageBitmap;
-            if (nativeClose) globalThis.ImageBitmap.prototype.close = nativeClose;
-            urls.forEach((url) => URL.revokeObjectURL(url));
-        }
-    });
+	            disposed.length = 0;
+	            releaseBitmap = null;
+
+	            raceUrls.push(
+	                URL.createObjectURL(blob),
+	                URL.createObjectURL(blob),
+	                URL.createObjectURL(blob),
+	            );
+	            labels.set(raceUrls[0], 'T_race_case_Diffuse_1.1001.png');
+	            labels.set(raceUrls[1], 'T_race_case_ERM_1.1001.png');
+	            labels.set(raceUrls[2], 'T_race_case_Diffuse_1.1001.png');
+	            const raceBaseMaterial = new FakeMaterial('race-base');
+	            const raceMesh = {
+	                isMesh: true,
+	                name: 'RaceMesh',
+	                userData: {},
+	                geometry: { getAttribute: () => null },
+	                material: raceBaseMaterial,
+	            };
+	            const raceRoot = {
+	                userData: { _fbxFileName: 'SM_race_case.fbx' },
+	                traverse: (callback) => callback(raceMesh),
+	            };
+	            loadedModels.push({ obj: raceRoot, name: 'SM_race_case.fbx', zipKind: 'SM' });
+	            const staleIndex = binder.buildVPMIndex([
+	                { url: raceUrls[0] },
+	                { url: raceUrls[1] },
+	            ]);
+	            const currentIndex = binder.buildVPMIndex([
+	                { url: raceUrls[2] },
+	            ]);
+	            const stalePromise = binder.autoBindVPMForModel(raceRoot, staleIndex);
+	            for (let i = 0; i < 50 && !releaseBitmap; i += 1) {
+	                await new Promise((resolve) => setTimeout(resolve, 0));
+	            }
+	            if (!releaseBitmap) throw new Error('VPM smoke: race createImageBitmap was not reached');
+	            await binder.autoBindVPMForModel(raceRoot, currentIndex);
+	            const raceCurrentMaterial = raceMesh.material;
+	            const raceCurrentDepth = raceMesh.customDepthMaterial;
+	            const raceRenderCountAfterCurrent = disposed.filter((entry) => entry === 'requestRender').length;
+	            releaseBitmap();
+	            await stalePromise;
+
+	            return {
+	                ...firstResult,
+	                raceMaterialPreserved: raceMesh.material === raceCurrentMaterial,
+	                raceShadowPreserved: raceMesh.customDepthMaterial === raceCurrentDepth && !raceCurrentDepth?.disposed,
+	                raceRenderCountAfterCurrent,
+	                raceRenderCountAfterStale: disposed.filter((entry) => entry === 'requestRender').length,
+	            };
+	        } finally {
+	            globalThis.createImageBitmap = nativeCreateImageBitmap;
+	            if (nativeClose) globalThis.ImageBitmap.prototype.close = nativeClose;
+	            [...urls, ...raceUrls].forEach((url) => URL.revokeObjectURL(url));
+	        }
+	    });
 
     assert.equal(result.materialStillOriginal, true, 'VPM smoke: stale async bind replaced material after model removal');
     assert.equal(result.customDepthCleared, true, 'VPM smoke: stale async bind leaked custom depth material');
@@ -3119,8 +3920,11 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
     assert.ok(result.disposed.includes('texture:T_foo_bar_Diffuse_1.1001.png'), 'VPM smoke: stale diffuse texture was not disposed');
     assert.ok(result.disposed.includes('texture:T_foo_bar_Normal_1.1001.png'), 'VPM smoke: stale normal texture was not disposed');
     assert.equal(result.disposed.filter((entry) => entry === 'texture:canvas').length, 3, 'VPM smoke: stale ERM channel textures were not disposed');
-    assert.equal(result.disposed.filter((entry) => entry === 'shadow').length, 2, 'VPM smoke: stale custom shadow materials were not disposed');
-    assert.equal(result.disposed.includes('requestRender'), false, 'VPM smoke: stale async bind requested render after model removal');
+	    assert.equal(result.disposed.filter((entry) => entry === 'shadow').length, 2, 'VPM smoke: stale custom shadow materials were not disposed');
+	    assert.equal(result.disposed.includes('requestRender'), false, 'VPM smoke: stale async bind requested render after model removal');
+	    assert.equal(result.raceMaterialPreserved, true, 'VPM smoke: stale async bind overwrote a newer material');
+	    assert.equal(result.raceShadowPreserved, true, 'VPM smoke: stale async bind disposed or overwrote newer custom shadow material');
+	    assert.equal(result.raceRenderCountAfterStale, result.raceRenderCountAfterCurrent, 'VPM smoke: stale async bind requested render after a newer bind');
     diagnostics.assertNoErrors('VPM autobind lifecycle smoke');
     await page.close();
 }
@@ -3316,16 +4120,22 @@ try {
     console.log('File-flow dispose lifecycle smoke passed.');
     await runTextureModalStaleEntrySmoke(browser, smokeServer.baseUrl);
     console.log('Texture modal stale entry smoke passed.');
+    await runTextureReplacementLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Texture replacement lifecycle smoke passed.');
     await runCollabRealtimeDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Collab realtime dispose smoke passed.');
     await runCollabInitFailureCleanupSmoke(browser, smokeServer.baseUrl);
     console.log('Collab init-failure cleanup smoke passed.');
+    await runCollabDeleteQueueDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Collab delete queue dispose smoke passed.');
     await runCameraSyncLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Camera sync lifecycle smoke passed.');
     await runVRDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('VR dispose lifecycle smoke passed.');
     await runRoomModelLoadQueueSmoke(browser, smokeServer.baseUrl);
     console.log('Room model load queue smoke passed.');
+    await runRoomModelStateSmoke(browser, smokeServer.baseUrl);
+    console.log('Room model state smoke passed.');
     await runDeferredRealtimeReloadSmoke(browser, smokeServer.baseUrl);
     console.log('Deferred realtime reload smoke passed.');
     await runAbortableTusUploadSmoke(browser, smokeServer.baseUrl);
@@ -3336,6 +4146,8 @@ try {
     console.log('Worker client dispose smoke passed.');
     await runZIPFallbackCleanupSmoke(browser, smokeServer.baseUrl);
     console.log('ZIP fallback cleanup smoke passed.');
+    await runGeoJsonMetaLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('GeoJSON meta lifecycle smoke passed.');
     await runFBXCleanupLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('FBX cleanup lifecycle smoke passed.');
     await runVPMAutobindLifecycleSmoke(browser, smokeServer.baseUrl);

@@ -105,6 +105,7 @@ export function createZIPWorkerClient(options = {}) {
                 abortHandler: null,
                 chain: Promise.resolve(),
                 async handleMessage(msg) {
+                    if (disposed || workerInstance !== worker) throw makeAbortError('ZIP worker client disposed');
                     if (signal?.aborted) throw makeAbortError();
                     if (msg.type === 'error') {
                         pending.delete(id);
@@ -171,16 +172,18 @@ export function createZIPWorkerClient(options = {}) {
 
         (async () => {
             try {
-                if (signal?.aborted) throw makeAbortError();
+                if (disposed || signal?.aborted) throw makeAbortError(disposed ? 'ZIP worker client disposed' : undefined);
                 const buffer = await file.arrayBuffer();
-                if (signal?.aborted) throw makeAbortError();
+                if (disposed || signal?.aborted || workerInstance !== worker) {
+                    throw makeAbortError(disposed ? 'ZIP worker client disposed' : undefined);
+                }
                 worker.postMessage({ id, zipName: file.name, buffer }, [buffer]);
             } catch (err) {
                 const job = pending.get(id);
                 pending.delete(id);
                 cleanupJob(job);
                 if (job) job.reject(err);
-                else if (!signal?.aborted) handlers.onError?.(err);
+                else if (!disposed && !signal?.aborted) handlers.onError?.(err);
             }
         })();
 
