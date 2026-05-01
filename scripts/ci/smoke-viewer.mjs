@@ -1249,6 +1249,256 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createRenderLoopController } = await import('/scripts/modules/render/render-loop.js');
+
+        function createRafHarness() {
+            let nextId = 1;
+            const callbacks = new Map();
+            const canceled = [];
+            return {
+                raf(callback) {
+                    const id = nextId;
+                    nextId += 1;
+                    callbacks.set(id, callback);
+                    return id;
+                },
+                cancel(id) {
+                    canceled.push(id);
+                    callbacks.delete(id);
+                },
+                flushOne(time = 16) {
+                    const entry = callbacks.entries().next().value;
+                    if (!entry) return false;
+                    const [id, callback] = entry;
+                    callbacks.delete(id);
+                    callback(time);
+                    return true;
+                },
+                flushAll(limit = 20) {
+                    let count = 0;
+                    while (callbacks.size && count < limit) {
+                        count += 1;
+                        this.flushOne(16 + count);
+                    }
+                    return count;
+                },
+                get pendingCount() {
+                    return callbacks.size;
+                },
+                canceled,
+            };
+        }
+
+        const rafHarness = createRafHarness();
+        let rafControlsUpdates = 0;
+        let rafFrames = 0;
+        let rafRenders = 0;
+        let rafStats = 0;
+        let rafInfoResets = 0;
+        const rafRenderer = {
+            info: {
+                autoReset: false,
+                render: { calls: 0 },
+                memory: { geometries: 2, textures: 3 },
+                programs: [{}, {}],
+                reset: () => {
+                    rafInfoResets += 1;
+                },
+            },
+            render: () => {
+                rafRenders += 1;
+                rafRenderer.info.render.calls = rafRenders;
+            },
+        };
+        const rafLoop = createRenderLoopController({
+            controls: {
+                update: () => {
+                    rafControlsUpdates += 1;
+                    return rafControlsUpdates === 1;
+                },
+            },
+            renderer: rafRenderer,
+            scene: { name: 'scene' },
+            camera: { name: 'camera' },
+            requestAnimationFrame: (callback) => rafHarness.raf(callback),
+            cancelAnimationFrame: (id) => rafHarness.cancel(id),
+            onFrame: () => {
+                rafFrames += 1;
+            },
+            updateStatsOverlay: () => {
+                rafStats += 1;
+            },
+        });
+        rafLoop.start();
+        const rafPendingAfterStart = rafHarness.pendingCount;
+        rafHarness.flushOne(16);
+        const rafAfterFirst = {
+            controls: rafControlsUpdates,
+            frames: rafFrames,
+            renders: rafRenders,
+            stats: rafStats,
+            resets: rafInfoResets,
+            pending: rafHarness.pendingCount,
+            lastStats: rafLoop.getLastRenderStats(),
+        };
+        rafLoop.dispose();
+        const rafCanceledOnDispose = rafHarness.canceled.length;
+        const rafPendingAfterDispose = rafHarness.pendingCount;
+        rafHarness.flushAll();
+        const rafRendersAfterLateFlush = rafRenders;
+
+        const renderErrorHarness = createRafHarness();
+        const renderErrors = [];
+        const renderErrorLoop = createRenderLoopController({
+            renderer: {
+                info: { render: {}, memory: {} },
+                render: () => {
+                    throw new Error('render failed');
+                },
+            },
+            requestAnimationFrame: (callback) => renderErrorHarness.raf(callback),
+            cancelAnimationFrame: (id) => renderErrorHarness.cancel(id),
+            onError: (err, meta) => renderErrors.push(`${meta?.phase || ''}:${err?.message || err}`),
+        });
+        renderErrorLoop.start();
+        renderErrorHarness.flushOne(16);
+
+        const controlsErrorHarness = createRafHarness();
+        const controlsErrors = [];
+        let controlsErrorRenders = 0;
+        const controlsErrorLoop = createRenderLoopController({
+            controls: {
+                update: () => {
+                    throw new Error('controls failed');
+                },
+            },
+            renderer: {
+                info: { render: {}, memory: {} },
+                render: () => {
+                    controlsErrorRenders += 1;
+                },
+            },
+            requestAnimationFrame: (callback) => controlsErrorHarness.raf(callback),
+            cancelAnimationFrame: (id) => controlsErrorHarness.cancel(id),
+            onError: (err, meta) => controlsErrors.push(`${meta?.phase || ''}:${err?.message || err}`),
+        });
+        controlsErrorLoop.start();
+        controlsErrorHarness.flushOne(16);
+
+        const webgpuHarness = createRafHarness();
+        let webgpuReady = false;
+        let webgpuRenders = 0;
+        let webgpuStats = 0;
+        const webgpuLoop = createRenderLoopController({
+            isWebGPU: true,
+            getRendererReady: () => webgpuReady,
+            renderer: {
+                info: { render: {}, memory: {} },
+                render: () => {
+                    webgpuRenders += 1;
+                },
+            },
+            requestAnimationFrame: (callback) => webgpuHarness.raf(callback),
+            cancelAnimationFrame: (id) => webgpuHarness.cancel(id),
+            updateStatsOverlay: () => {
+                webgpuStats += 1;
+            },
+        });
+        webgpuLoop.start();
+        webgpuHarness.flushOne(16);
+        const webgpuBeforeReady = { renders: webgpuRenders, stats: webgpuStats };
+        webgpuReady = true;
+        webgpuLoop.requestRender();
+        webgpuHarness.flushOne(32);
+        const webgpuAfterReady = { renders: webgpuRenders, stats: webgpuStats };
+        webgpuLoop.dispose();
+
+        let animationCallback = null;
+        const animationEvents = [];
+        let animationRenders = 0;
+        const animationRenderer = {
+            xr: { isPresenting: false },
+            info: { render: {}, memory: {} },
+            setAnimationLoop: (callback) => {
+                animationEvents.push(callback ? 'set' : 'clear');
+                animationCallback = callback || null;
+            },
+            render: () => {
+                animationRenders += 1;
+            },
+        };
+        const animationLoop = createRenderLoopController({
+            renderer: animationRenderer,
+            updateStatsOverlay: () => {},
+        });
+        animationLoop.start();
+        const firstAnimationCallback = animationCallback;
+        firstAnimationCallback?.(16);
+        const animationAfterFirst = animationRenders;
+        animationLoop.stop();
+        firstAnimationCallback?.(24);
+        const animationAfterStaleStopCallback = animationRenders;
+        animationLoop.start();
+        animationCallback?.(32);
+        const animationAfterRestart = animationRenders;
+        animationLoop.dispose();
+
+        return {
+            rafPendingAfterStart,
+            rafAfterFirst,
+            rafCanceledOnDispose,
+            rafPendingAfterDispose,
+            rafRendersAfterLateFlush,
+            renderErrors,
+            renderErrorPending: renderErrorHarness.pendingCount,
+            renderErrorCanceled: renderErrorHarness.canceled.length,
+            controlsErrors,
+            controlsErrorRenders,
+            controlsErrorPending: controlsErrorHarness.pendingCount,
+            controlsErrorCanceled: controlsErrorHarness.canceled.length,
+            webgpuBeforeReady,
+            webgpuAfterReady,
+            animationEvents,
+            animationAfterFirst,
+            animationAfterStaleStopCallback,
+            animationAfterRestart,
+        };
+    });
+
+    assert.equal(result.rafPendingAfterStart, 1, 'Render loop smoke: RAF frame was not scheduled on start');
+    assert.equal(result.rafAfterFirst.controls, 1, 'Render loop smoke: controls were not updated on frame');
+    assert.equal(result.rafAfterFirst.frames, 1, 'Render loop smoke: onFrame did not run');
+    assert.equal(result.rafAfterFirst.renders, 1, 'Render loop smoke: requested frame did not render');
+    assert.equal(result.rafAfterFirst.stats, 1, 'Render loop smoke: stats did not update after render');
+    assert.equal(result.rafAfterFirst.resets, 1, 'Render loop smoke: renderer.info.reset was not called');
+    assert.equal(result.rafAfterFirst.pending, 1, 'Render loop smoke: next RAF frame was not scheduled');
+    assert.equal(result.rafAfterFirst.lastStats.programs, 2, 'Render loop smoke: program count was not captured');
+    assert.equal(result.rafCanceledOnDispose, 1, 'Render loop smoke: pending RAF was not canceled on dispose');
+    assert.equal(result.rafPendingAfterDispose, 0, 'Render loop smoke: RAF callback stayed pending after dispose');
+    assert.equal(result.rafRendersAfterLateFlush, 1, 'Render loop smoke: disposed RAF callback rendered late');
+    assert.deepEqual(result.renderErrors, ['render:render failed'], 'Render loop smoke: render error was not reported');
+    assert.equal(result.renderErrorPending, 0, 'Render loop smoke: render error left pending RAF');
+    assert.equal(result.renderErrorCanceled, 1, 'Render loop smoke: render error did not cancel RAF');
+    assert.deepEqual(result.controlsErrors, ['controls:controls failed'], 'Render loop smoke: controls error was not reported');
+    assert.equal(result.controlsErrorRenders, 0, 'Render loop smoke: controls error still rendered');
+    assert.equal(result.controlsErrorPending, 0, 'Render loop smoke: controls error left pending RAF');
+    assert.equal(result.controlsErrorCanceled, 1, 'Render loop smoke: controls error did not cancel RAF');
+    assert.deepEqual(result.webgpuBeforeReady, { renders: 0, stats: 1 }, 'Render loop smoke: WebGPU rendered before ready');
+    assert.deepEqual(result.webgpuAfterReady, { renders: 1, stats: 2 }, 'Render loop smoke: WebGPU did not render after ready');
+    assert.deepEqual(result.animationEvents, ['set', 'clear', 'set', 'clear'], 'Render loop smoke: setAnimationLoop lifecycle is wrong');
+    assert.equal(result.animationAfterFirst, 1, 'Render loop smoke: setAnimationLoop first frame did not render');
+    assert.equal(result.animationAfterStaleStopCallback, 1, 'Render loop smoke: stale animation callback rendered after stop');
+    assert.equal(result.animationAfterRestart, 2, 'Render loop smoke: setAnimationLoop restart did not request a fresh render');
+    diagnostics.assertNoErrors('Render loop lifecycle smoke');
+    await page.close();
+}
+
 async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -6411,6 +6661,8 @@ try {
     console.log('Dispose/reinit smoke passed.');
     await runRendererDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Renderer dispose lifecycle smoke passed.');
+    await runRenderLoopLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Render loop lifecycle smoke passed.');
     await runAnnotationsDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Annotations dispose lifecycle smoke passed.');
     await runCameraPresetsLifecycleSmoke(browser, smokeServer.baseUrl);

@@ -149,12 +149,12 @@ export function createRenderLoopController(options = {}) {
     function start() {
         if (running) return;
         running = true;
+        needsRender = true;
         if (hasAnimationLoop) {
             renderer.setAnimationLoop(animate);
             return;
         }
         scheduleNextFrame();
-        needsRender = true;
     }
 
     function stop() {
