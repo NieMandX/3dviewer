@@ -3379,7 +3379,7 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
             reload: async ({ label }) => {
                 events.push(`start:${label}`);
                 mark(starts, label);
-                if (label === 'A' || label === 'B') {
+                if (label === 'A' || label === 'B' || label === 'D' || label === 'F') {
                     await new Promise((resolve) => {
                         releases.set(label, resolve);
                     });
@@ -3415,6 +3415,27 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
         const flushC = reloader.flush();
         await waitFor(dones, 'C');
 
+        currentGeneration = 3;
+        const requestD = reloader.request({ label: 'D', generation: 3 });
+        await waitFor(starts, 'D');
+        const requestE = reloader.request({ label: 'E', generation: 3 });
+        const queuedBeforeClear = reloader.isQueued();
+        reloader.clear();
+        const stateAfterClear = {
+            dirty: reloader.isDirty(),
+            queued: reloader.isQueued(),
+            inFlight: reloader.isInFlight(),
+            lastContext: reloader.getLastContext(),
+        };
+        const requestF = reloader.request({ label: 'F', generation: 3 });
+        await waitFor(starts, 'F');
+        const fStartedBeforeDDone = events.includes('start:F') && !events.includes('done:D');
+        releases.get('D')();
+        releases.get('F')();
+        await waitFor(dones, 'D');
+        await waitFor(dones, 'F');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
         return {
             requestMuted,
             dirtyAfterMuted,
@@ -3423,6 +3444,12 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
             staleIgnored,
             requestWhileMutedInFlight,
             flushC,
+            requestD,
+            requestE,
+            queuedBeforeClear,
+            stateAfterClear,
+            requestF,
+            fStartedBeforeDDone,
             beforeFlushEvents,
             events,
             dirtyAfterFlush: reloader.isDirty(),
@@ -3440,11 +3467,25 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
     assert.equal(result.requestWhileMutedInFlight, false, 'Deferred realtime smoke: muted in-flight request should be deferred');
     assert.deepEqual(result.beforeFlushEvents, ['start:A', 'done:A', 'start:B', 'done:B'], 'Deferred realtime smoke: dirty muted reload ran before unmute');
     assert.equal(result.flushC, true, 'Deferred realtime smoke: unmute flush did not replay dirty reload');
-    assert.deepEqual(result.events, ['start:A', 'done:A', 'start:B', 'done:B', 'start:C', 'done:C'], 'Deferred realtime smoke: reload order is wrong');
+    assert.equal(result.requestD, true, 'Deferred realtime smoke: reset scenario did not start in-flight reload');
+    assert.equal(result.requestE, false, 'Deferred realtime smoke: in-flight reset scenario request should be queued');
+    assert.equal(result.queuedBeforeClear, true, 'Deferred realtime smoke: queued reload was not recorded before clear');
+    assert.deepEqual(
+        result.stateAfterClear,
+        { dirty: false, queued: false, inFlight: false, lastContext: null },
+        'Deferred realtime smoke: clear did not reset dirty/queued/in-flight state',
+    );
+    assert.equal(result.requestF, true, 'Deferred realtime smoke: clear did not release in-flight slot for new reload');
+    assert.equal(result.fStartedBeforeDDone, true, 'Deferred realtime smoke: new reload waited for stale in-flight reload after clear');
+    assert.deepEqual(
+        result.events,
+        ['start:A', 'done:A', 'start:B', 'done:B', 'start:C', 'done:C', 'start:D', 'start:F', 'done:D', 'done:F'],
+        'Deferred realtime smoke: reload order is wrong',
+    );
     assert.equal(result.dirtyAfterFlush, false, 'Deferred realtime smoke: dirty flag stayed set');
     assert.equal(result.queuedAfterFlush, false, 'Deferred realtime smoke: queued flag stayed set');
     assert.equal(result.inFlightAfterFlush, false, 'Deferred realtime smoke: in-flight flag stayed set');
-    assert.equal(result.lastContext?.label, 'C', 'Deferred realtime smoke: stale context replaced latest valid context');
+    assert.equal(result.lastContext?.label, 'F', 'Deferred realtime smoke: stale context replaced latest valid context');
     diagnostics.assertNoErrors('Deferred realtime reload smoke');
     await page.close();
 }

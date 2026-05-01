@@ -8,6 +8,8 @@ export function createDeferredRealtimeReload(options = {}) {
     let inFlight = false;
     let queued = false;
     let lastContext = null;
+    let lifecycleGeneration = 0;
+    let activeRunId = 0;
 
     function normalizeContext(context = {}) {
         return { ...(context || {}) };
@@ -27,12 +29,17 @@ export function createDeferredRealtimeReload(options = {}) {
     }
 
     function clear() {
+        lifecycleGeneration += 1;
         dirty = false;
+        inFlight = false;
         queued = false;
         lastContext = null;
     }
 
     async function run(context) {
+        const runGeneration = lifecycleGeneration;
+        const runId = activeRunId + 1;
+        activeRunId = runId;
         inFlight = true;
         try {
             if (reload && isCurrent(context)) {
@@ -42,12 +49,14 @@ export function createDeferredRealtimeReload(options = {}) {
             if (onError) onError(err, context);
             else console.error('Deferred realtime reload failed', err);
         } finally {
-            inFlight = false;
-            if (queued || (dirty && !isMuted())) {
-                const nextContext = lastContext || context;
-                dirty = false;
-                queued = false;
-                request(nextContext);
+            if (activeRunId === runId && lifecycleGeneration === runGeneration) {
+                inFlight = false;
+                if (queued || (dirty && !isMuted())) {
+                    const nextContext = lastContext || context;
+                    dirty = false;
+                    queued = false;
+                    request(nextContext);
+                }
             }
         }
     }
