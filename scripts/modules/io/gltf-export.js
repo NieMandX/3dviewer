@@ -15,6 +15,25 @@ function downloadBlob(documentRef, blob, filename) {
     }, 1000);
 }
 
+function createExportAbortError(signal) {
+    const reason = signal?.reason;
+    if (reason instanceof Error) return reason;
+    if (typeof DOMException === 'function') {
+        return new DOMException(reason || 'Export aborted', 'AbortError');
+    }
+    const err = new Error(reason || 'Export aborted');
+    err.name = 'AbortError';
+    return err;
+}
+
+function isExportAbortError(err) {
+    return err?.name === 'AbortError';
+}
+
+function assertExportNotAborted(signal) {
+    if (signal?.aborted) throw createExportAbortError(signal);
+}
+
 function normalizeFormat(format) {
     const v = String(format || '').trim().toLowerCase();
     return v === 'gltf' ? 'gltf' : 'glb';
@@ -453,6 +472,7 @@ export async function exportWorldAsGLTF(options = {}) {
     const world = options.world || null;
     const documentRef = options.document || (typeof document !== 'undefined' ? document : null);
     const renderer = options.renderer || null;
+    const signal = options.signal || null;
     const JSZipCtor =
         options.JSZip ||
         (typeof globalThis !== 'undefined' ? globalThis.JSZip : null) ||
@@ -465,6 +485,7 @@ export async function exportWorldAsGLTF(options = {}) {
     const returnBlob = !!options.returnBlob;
 
     if (!world) throw new Error('exportWorldAsGLTF: world is required');
+    assertExportNotAborted(signal);
 
     let exportRoot = null;
     let cloneError = null;
@@ -478,6 +499,7 @@ export async function exportWorldAsGLTF(options = {}) {
     const [{ GLTFExporter }] = await Promise.all([
         import('three/addons/exporters/GLTFExporter.js'),
     ]);
+    assertExportNotAborted(signal);
 
     const exporter = new GLTFExporter();
     if (renderer?.textureUtils && typeof exporter.setTextureUtils === 'function') {
@@ -494,8 +516,11 @@ export async function exportWorldAsGLTF(options = {}) {
         const preparedMaterials = prepareMaterialsForExport(exportRoot);
         bakeLightTargetsForExport(exportRoot);
         try {
+            assertExportNotAborted(signal);
             glbArrayBuffer = await exportAsGLB(exporter, exportRoot);
+            assertExportNotAborted(signal);
         } catch (err) {
+            if (isExportAbortError(err)) throw err;
             console.warn('GLTF export: cloned root export failed, retrying with live world', err);
         } finally {
             disposePreparedExportMaterials(preparedMaterials);
@@ -503,6 +528,7 @@ export async function exportWorldAsGLTF(options = {}) {
     }
 
     if (!glbArrayBuffer) {
+        assertExportNotAborted(signal);
         if (cloneError) {
             console.warn('GLTF export: clone failed, exporting live world', cloneError);
         }
@@ -522,9 +548,11 @@ export async function exportWorldAsGLTF(options = {}) {
         const prevPos = world.position.clone();
         const changed = coords === 'msk';
         try {
+            assertExportNotAborted(signal);
             if (changed) world.position.set(0, 0, 0);
             world.updateMatrixWorld(true);
             glbArrayBuffer = await exportAsGLB(exporter, world);
+            assertExportNotAborted(signal);
         } finally {
             if (changed) world.position.copy(prevPos);
             restoreBakedLightTargets(bakedLights);
@@ -538,15 +566,19 @@ export async function exportWorldAsGLTF(options = {}) {
     if (!(glbArrayBuffer instanceof ArrayBuffer)) {
         throw new Error('GLTF export: expected ArrayBuffer result');
     }
+    assertExportNotAborted(signal);
 
     if (format === 'glb') {
         const blob = new Blob([glbArrayBuffer], { type: 'model/gltf-binary' });
+        assertExportNotAborted(signal);
         if (returnBlob) return { filename, format, coords, blob, arrayBuffer: glbArrayBuffer };
         downloadBlob(documentRef, blob, filename);
         return { filename, format, coords };
     }
 
+    assertExportNotAborted(signal);
     const zipBlob = await buildGLTFZip({ glbArrayBuffer, baseName, JSZipCtor });
+    assertExportNotAborted(signal);
     if (returnBlob) return { filename, format, coords, blob: zipBlob, arrayBuffer: glbArrayBuffer };
     downloadBlob(documentRef, zipBlob, filename);
     return { filename, format, coords };

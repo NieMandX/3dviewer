@@ -315,21 +315,31 @@ export async function createCollabController(options = {}) {
 
     try {
         await new Promise((resolve, reject) => {
+            let settled = false;
+            const rejectInitialSubscribe = (reason, fallbackMessage) => {
+                if (settled) return;
+                settled = true;
+                reject(reason || new Error(fallbackMessage));
+            };
             roomChannel.subscribe((statusValue, err) => {
                 const nextStatus = String(statusValue || '');
                 if (err) {
                     emitConnectionState(false, 'SUBSCRIBE_ERROR');
-                    reject(err);
+                    rejectInitialSubscribe(err, 'Room realtime subscribe failed');
                     return;
                 }
                 if (nextStatus === 'SUBSCRIBED') {
                     emitConnectionState(true, nextStatus);
                     roomChannel.track(presenceMeta);
-                    resolve();
+                    if (!settled) {
+                        settled = true;
+                        resolve();
+                    }
                     return;
                 }
                 if (nextStatus === 'CLOSED' || nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') {
                     emitConnectionState(false, nextStatus);
+                    rejectInitialSubscribe(null, `Room realtime subscribe ${nextStatus}`);
                 }
             });
         });

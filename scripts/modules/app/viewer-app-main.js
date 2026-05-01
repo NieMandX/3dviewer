@@ -548,6 +548,9 @@ export class ViewerApp {
 	        let layoutController = null;
 	        let lastFinalizedModelIndex = 0;
 	        let appDisposed = false;
+	        let exportRunId = 0;
+	        let exportInFlight = false;
+	        let activeExportAbortController = null;
 		        let renderLoop = null;
 	        let glassController = null;
 	        let materialsPanel = null;
@@ -568,6 +571,19 @@ export class ViewerApp {
         function requestRender() {
             if (appDisposed) return;
             renderLoop?.requestRender?.();
+        }
+
+        function isCurrentExportRun(runId) {
+            return !appDisposed && runId === exportRunId;
+        }
+
+        function cancelActiveExport() {
+            exportRunId += 1;
+            exportInFlight = false;
+            const controller = activeExportAbortController;
+            activeExportAbortController = null;
+            try { controller?.abort?.(); } catch (_) {}
+            if (!appDisposed && exportBtn) exportBtn.disabled = false;
         }
 
 	        // =====================
@@ -976,6 +992,9 @@ export class ViewerApp {
         let collabOwnerId = null;
         let collabParticipants = [];
         let collabSessionGeneration = 0;
+        let collabAuthGeneration = 0;
+        let collabAuthInFlight = false;
+        let collabCrudGeneration = 0;
         let presenceRefreshTimer = null;
         const PRESENCE_REFRESH_MS = 3000;
         const PRESENCE_STALE_MS = 15000;
@@ -1257,6 +1276,30 @@ export class ViewerApp {
 
         function isActiveCollabSession(generation) {
             return generation === collabSessionGeneration;
+        }
+
+        function bumpCollabAuthGeneration() {
+            collabAuthGeneration += 1;
+            return collabAuthGeneration;
+        }
+
+        function isActiveCollabAuth(generation) {
+            return !appDisposed && generation === collabAuthGeneration;
+        }
+
+        function setCollabAuthButtonsDisabled(disabled) {
+            if (collabJoinBtn) collabJoinBtn.disabled = !!disabled;
+            if (collabSignupBtn) collabSignupBtn.disabled = !!disabled;
+            if (collabGuestBtn) collabGuestBtn.disabled = !!disabled;
+        }
+
+        function bumpCollabCrudGeneration() {
+            collabCrudGeneration += 1;
+            return collabCrudGeneration;
+        }
+
+        function isActiveCollabCrud(generation) {
+            return !appDisposed && generation === collabCrudGeneration;
         }
 
         function beginCameraSyncMute() {
@@ -1814,9 +1857,12 @@ export class ViewerApp {
         }
 
         async function deleteProjectById(projectId) {
-            if (!collabSupabase || !projectId) return;
+            if (!collabSupabase || !projectId || appDisposed) return false;
+            const crudGeneration = bumpCollabCrudGeneration();
+            const supabase = collabSupabase;
+            const isCurrent = () => isActiveCollabCrud(crudGeneration) && collabSupabase === supabase;
             const project = collabProjects.find((p) => p.id === projectId) || collabProject;
-            if (!canDeleteProjectItem(project)) return;
+            if (!canDeleteProjectItem(project)) return false;
             const name = project?.name || project?.slug || 'проект';
             const confirmed = await confirmModal.open({
                 title: 'Удалить проект',
@@ -1824,20 +1870,24 @@ export class ViewerApp {
                 okText: 'Удалить',
                 cancelText: 'Отмена',
             });
-            if (!confirmed) return;
+            if (!confirmed || !isCurrent()) return false;
             try {
                 const storagePaths = await listProjectStorageObjectPaths(projectId);
-                const { error } = await collabSupabase.from('projects').delete().eq('id', projectId);
+                if (!isCurrent()) return false;
+                const { error } = await supabase.from('projects').delete().eq('id', projectId);
+                if (!isCurrent()) return false;
                 if (error) throw error;
                 if (storagePaths.length) {
                     try {
-                        await removeModelStorageObjects(storagePaths, collabSupabase);
+                        await removeModelStorageObjects(storagePaths, supabase);
                     } catch (storageError) {
-                        console.error('Project storage cleanup failed', storageError);
+                        if (isCurrent()) console.error('Project storage cleanup failed', storageError);
                     }
                 }
+                if (!isCurrent()) return false;
                 if (collabController?.project?.id === projectId) {
                     await teardownCollabSession();
+                    if (!isCurrent()) return false;
                 }
                 if (collabProject?.id === projectId) {
                     collabProject = null;
@@ -1845,20 +1895,28 @@ export class ViewerApp {
                     clearRoomInviteTokenState();
                     setRoomSlugInUrl('', '');
                 }
-                await loadProjects();
+                await loadProjects({ isCurrent });
+                if (!isCurrent()) return false;
                 renderRoomOptions([], '');
+                return true;
             } catch (err) {
-                console.error('Project delete failed', err);
-                setCollabStatus('error');
+                if (isCurrent()) {
+                    console.error('Project delete failed', err);
+                    setCollabStatus('error');
+                }
+                return false;
             } finally {
-                updateAdminControls();
+                if (isCurrent()) updateAdminControls();
             }
         }
 
         async function deleteRoomById(roomId) {
-            if (!collabSupabase || !roomId) return;
+            if (!collabSupabase || !roomId || appDisposed) return false;
+            const crudGeneration = bumpCollabCrudGeneration();
+            const supabase = collabSupabase;
+            const isCurrent = () => isActiveCollabCrud(crudGeneration) && collabSupabase === supabase;
             const room = collabRooms.find((r) => r.id === roomId) || collabRoom;
-            if (!canDeleteRoomItem(room)) return;
+            if (!canDeleteRoomItem(room)) return false;
             const name = room?.slug || 'комната';
             const confirmed = await confirmModal.open({
                 title: 'Удалить комнату',
@@ -1866,12 +1924,14 @@ export class ViewerApp {
                 okText: 'Удалить',
                 cancelText: 'Отмена',
             });
-            if (!confirmed) return;
+            if (!confirmed || !isCurrent()) return false;
             try {
-                const { error } = await collabSupabase.from('rooms').delete().eq('id', roomId);
+                const { error } = await supabase.from('rooms').delete().eq('id', roomId);
+                if (!isCurrent()) return false;
                 if (error) throw error;
                 if (collabController?.room?.id === roomId) {
                     await teardownCollabSession();
+                    if (!isCurrent()) return false;
                 }
                 if (collabRoom?.id === roomId) {
                     collabRoom = null;
@@ -1879,15 +1939,20 @@ export class ViewerApp {
                     setRoomSlugInUrl(collabProject?.slug || '', '');
                 }
                 if (collabProject) {
-                    await loadRooms(collabProject.id);
+                    await loadRooms(collabProject.id, { isCurrent });
+                    if (!isCurrent()) return false;
                 } else {
                     renderRoomOptions([], '');
                 }
+                return true;
             } catch (err) {
-                console.error('Room delete failed', err);
-                setCollabStatus('error');
+                if (isCurrent()) {
+                    console.error('Room delete failed', err);
+                    setCollabStatus('error');
+                }
+                return false;
             } finally {
-                updateAdminControls();
+                if (isCurrent()) updateAdminControls();
             }
         }
 
@@ -2054,12 +2119,14 @@ export class ViewerApp {
             return !!(user && user.email);
         }
 
-        async function refreshSuperuserFlag() {
+        async function refreshSuperuserFlag(options = {}) {
+            const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => !appDisposed;
             if (!collabSupabase) {
                 collabIsSuperuser = false;
                 return false;
             }
             const { data, error } = await collabSupabase.rpc('is_superuser');
+            if (!isCurrent()) return false;
             if (error) {
                 collabIsSuperuser = false;
                 return false;
@@ -2133,42 +2200,63 @@ export class ViewerApp {
         }
 
         let resetFlowActive = false;
+        let passwordResetGeneration = 0;
+        let passwordResetRequestInFlight = false;
         let clearedPersistedEmailSession = false;
 
+        function bumpPasswordResetGeneration() {
+            passwordResetGeneration += 1;
+            return passwordResetGeneration;
+        }
+
+        function isActivePasswordReset(generation) {
+            return !appDisposed && generation === passwordResetGeneration;
+        }
+
         async function openPasswordResetFlow() {
-            if (resetFlowActive || !resetModal) return;
+            if (resetFlowActive || !resetModal || appDisposed) return;
+            const resetGeneration = bumpPasswordResetGeneration();
+            const isCurrent = () => isActivePasswordReset(resetGeneration);
             resetFlowActive = true;
             try {
                 const supabase = await ensureSupabaseClient();
+                if (!isCurrent()) return;
                 if (!supabase) return;
                 try {
                     const url = new URL(window.location.href);
                     const code = url.searchParams.get('code');
                     if (code) {
                         await supabase.auth.exchangeCodeForSession(code);
+                        if (!isCurrent()) return;
                     }
                 } catch (_) {}
                 await supabase.auth.getSession();
+                if (!isCurrent()) return;
                 const newPassword = await resetModal.open({
                     title: 'Сброс пароля',
                     message: 'Введите новый пароль.',
                     okText: 'Сохранить',
                     cancelText: 'Отмена',
                 });
-                if (!newPassword) return;
+                if (!isCurrent() || !newPassword) return;
                 const { error } = await supabase.auth.updateUser({ password: newPassword });
+                if (!isCurrent()) return;
                 if (error) throw error;
                 clearRecoveryUrl();
                 alert('Пароль обновлён.');
             } catch (err) {
+                if (!isCurrent()) return;
                 console.error('Password reset failed', err);
                 alert('Не удалось обновить пароль.');
             } finally {
-                resetFlowActive = false;
+                if (resetGeneration === passwordResetGeneration) {
+                    resetFlowActive = false;
+                }
             }
         }
 
         async function requestPasswordReset() {
+            if (appDisposed || passwordResetRequestInFlight) return;
             const email = normalizeEmailInput(collabEmailEl?.value);
             if (collabEmailEl && email) {
                 collabEmailEl.value = email;
@@ -2177,20 +2265,33 @@ export class ViewerApp {
                 setFieldError(collabEmailErrorEl, 'Введите корректный email.');
                 return;
             }
+            const resetGeneration = bumpPasswordResetGeneration();
+            const isCurrent = () => isActivePasswordReset(resetGeneration);
+            passwordResetRequestInFlight = true;
+            if (collabResetBtn) collabResetBtn.disabled = true;
             try {
                 const supabase = await ensureSupabaseClient();
+                if (!isCurrent()) return;
                 if (!supabase) return;
                 const redirectTo = buildResetRedirectUrl();
                 const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+                if (!isCurrent()) return;
                 if (error) throw error;
                 setAuthError('Ссылка для сброса отправлена на email.');
             } catch (err) {
+                if (!isCurrent()) return;
                 console.error('Password reset email failed', err);
                 setAuthError('Не удалось отправить письмо для сброса.');
+            } finally {
+                if (resetGeneration === passwordResetGeneration) {
+                    passwordResetRequestInFlight = false;
+                    if (!appDisposed && collabResetBtn) collabResetBtn.disabled = !collabReady;
+                }
             }
         }
 
-        async function requestSignupConfirmation() {
+        async function requestSignupConfirmation(options = {}) {
+            const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => !appDisposed;
             const email = normalizeEmailInput(collabEmailEl?.value);
             if (collabEmailEl && email) {
                 collabEmailEl.value = email;
@@ -2201,6 +2302,7 @@ export class ViewerApp {
             }
             try {
                 const supabase = await ensureSupabaseClient();
+                if (!isCurrent()) return;
                 if (!supabase) return;
                 const redirectTo = buildResetRedirectUrl();
                 const { error } = await supabase.auth.resend({
@@ -2208,16 +2310,18 @@ export class ViewerApp {
                     email,
                     options: { emailRedirectTo: redirectTo },
                 });
+                if (!isCurrent()) return;
                 if (error) throw error;
                 setAuthError('Письмо подтверждения отправлено.');
             } catch (err) {
+                if (!isCurrent()) return;
                 console.error('Resend signup email failed', err);
                 setAuthError('Не удалось отправить письмо подтверждения.');
             }
         }
 
         async function maybeHandlePasswordRecovery() {
-            if (!isRecoveryUrl()) return;
+            if (appDisposed || !isRecoveryUrl()) return;
             await openPasswordResetFlow();
         }
 
@@ -2226,13 +2330,24 @@ export class ViewerApp {
             clearedPersistedEmailSession = true;
             if (!collabReady) return;
             if (isRecoveryUrl()) return;
+            const authGeneration = collabAuthGeneration;
+            const isCurrent = () => (
+                !appDisposed
+                && !collabAuthInFlight
+                && !collabController
+                && authGeneration === collabAuthGeneration
+            );
             try {
+                if (!isCurrent()) return;
                 const supabase = await ensureSupabaseClient();
+                if (!isCurrent()) return;
                 if (!supabase) return;
                 const { data } = await supabase.auth.getUser();
+                if (!isCurrent()) return;
                 const user = data?.user;
                 if (!user?.email) return;
                 await supabase.auth.signOut();
+                if (!isCurrent()) return;
                 collabUser = null;
                 collabAuthed = false;
                 collabIsRegistered = false;
@@ -2248,21 +2363,26 @@ export class ViewerApp {
                 updateAdminControls();
                 updateCollabFooter();
             } catch (err) {
+                if (!isCurrent()) return;
                 console.error('Session clear failed', err);
             }
         }
 
-        async function ensureCollabAuth({ mode, name, email, password } = {}) {
+        async function ensureCollabAuth({ mode, name, email, password, isCurrent: isCurrentOption } = {}) {
             if (!collabReady) return null;
+            const isCurrent = typeof isCurrentOption === 'function' ? isCurrentOption : () => !appDisposed;
             await ensureSupabaseClient(mode === 'guest' ? 'guest' : 'default');
+            if (!isCurrent()) return null;
 
             if (collabUser && (mode === 'login' || mode === 'signup') && !collabUser.email) {
                 await collabSupabase.auth.signOut();
+                if (!isCurrent()) return null;
                 collabUser = null;
             }
 
             if (!collabUser) {
                 const { data: userData } = await collabSupabase.auth.getUser();
+                if (!isCurrent()) return null;
                 if (userData?.user) {
                     collabUser = userData.user;
                 }
@@ -2275,6 +2395,7 @@ export class ViewerApp {
                         password: String(password || ''),
                     });
                     if (error) throw error;
+                    if (!isCurrent()) return null;
                     collabUser = data.user;
                 } else if (mode === 'signup') {
                     const redirectTo = buildResetRedirectUrl();
@@ -2284,6 +2405,7 @@ export class ViewerApp {
                         options: { emailRedirectTo: redirectTo },
                     });
                     if (error) throw error;
+                    if (!isCurrent()) return null;
                     if (!data?.session) {
                         setCollabStatus('confirm email');
                         throw new Error('Подтвердите email, чтобы войти.');
@@ -2292,6 +2414,7 @@ export class ViewerApp {
                 } else if (mode === 'guest') {
                     const { data, error } = await collabSupabase.auth.signInAnonymously();
                     if (error) throw error;
+                    if (!isCurrent()) return null;
                     collabUser = data.user;
                 }
             }
@@ -2299,6 +2422,7 @@ export class ViewerApp {
             if (!collabUser) {
                 throw new Error('Auth failed.');
             }
+            if (!isCurrent()) return null;
 
             collabAuthed = true;
             collabIsRegistered = isRegisteredUser(collabUser);
@@ -2320,6 +2444,7 @@ export class ViewerApp {
             let displayName = '';
             if (mode === 'login') {
                 displayName = await fetchProfileDisplayName(collabUser.id);
+                if (!isCurrent()) return null;
                 if (!displayName) {
                     const metaName = String(
                         collabUser?.user_metadata?.display_name ||
@@ -2341,6 +2466,7 @@ export class ViewerApp {
                     id: collabUser.id,
                     display_name: displayName,
                 });
+                if (!isCurrent()) return null;
             }
             if (collabNameEl && displayName) {
                 collabNameEl.value = displayName;
@@ -2405,25 +2531,29 @@ export class ViewerApp {
             updateCollabFooter();
         }
 
-        async function loadProjects() {
+        async function loadProjects(options = {}) {
+            const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => !appDisposed;
             if (!collabSupabase) return [];
             const { data, error } = await collabSupabase
                 .from('projects')
                 .select('id, name, slug, owner_id, created_at')
                 .order('created_at', { ascending: true });
+            if (!isCurrent()) return collabProjects;
             if (error) throw error;
             collabProjects = Array.isArray(data) ? data : [];
             renderProjectOptions(collabProjects, collabProject?.id || '');
             return collabProjects;
         }
 
-        async function loadRooms(projectId) {
+        async function loadRooms(projectId, options = {}) {
+            const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => !appDisposed;
             if (!collabSupabase || !projectId) return [];
             const { data, error } = await collabSupabase
                 .from('rooms')
                 .select('id, slug, owner_id, created_at')
                 .eq('project_id', projectId)
                 .order('created_at', { ascending: true });
+            if (!isCurrent()) return collabRooms;
             if (error) throw error;
             collabRooms = Array.isArray(data) ? data : [];
             renderRoomOptions(collabRooms, collabRoom?.id || '');
@@ -2431,75 +2561,103 @@ export class ViewerApp {
         }
 
         async function createProjectFlow(nameOverride) {
-            if (!collabSupabase || !collabUser) return;
-            if (!requireRegistered()) return;
+            if (!collabSupabase || !collabUser || appDisposed) return false;
+            if (!requireRegistered()) return false;
+            const crudGeneration = bumpCollabCrudGeneration();
+            const supabase = collabSupabase;
+            const userId = collabUser.id;
+            const isCurrent = () => (
+                isActiveCollabCrud(crudGeneration)
+                && collabSupabase === supabase
+                && collabUser?.id === userId
+            );
             let trimmed = String(nameOverride || '').trim();
-            if (!trimmed) return;
+            if (!trimmed) return false;
             const nameSlug = slugifyName(trimmed);
             const baseSlug = nameSlug ? `${nameSlug}-${makeSlug(10)}` : makeSlug(12);
             let nextSlug = baseSlug;
             let created = null;
             for (let i = 0; i < 3; i += 1) {
-                const { data, error } = await collabSupabase
+                if (!isCurrent()) return false;
+                const { data, error } = await supabase
                     .from('projects')
                     .insert({
                         name: trimmed,
                         slug: nextSlug,
-                        owner_id: collabUser.id,
+                        owner_id: userId,
                     })
                     .select('id, name, slug, owner_id, created_at')
                     .single();
+                if (!isCurrent()) return false;
                 if (!error) {
                     created = data;
                     break;
                 }
                 nextSlug = nameSlug ? `${nameSlug}-${makeSlug(12)}` : makeSlug(12);
             }
-            if (!created) return;
-            if (!created.owner_id) created.owner_id = collabUser.id;
+            if (!created || !isCurrent()) return false;
+            if (!created.owner_id) created.owner_id = userId;
             collabProject = created;
             collabRoom = null;
             clearRoomInviteTokenState();
-            await loadProjects();
-            await loadRooms(created.id);
+            await loadProjects({ isCurrent });
+            if (!isCurrent()) return false;
+            await loadRooms(created.id, { isCurrent });
+            if (!isCurrent()) return false;
             updateAdminControls();
             updateCollabFooter();
+            return true;
         }
 
         async function createRoomFlow(nameOverride) {
-            if (!collabSupabase || !collabUser || !collabProject) return;
-            if (!requireRegistered()) return;
+            if (!collabSupabase || !collabUser || !collabProject || appDisposed) return false;
+            if (!requireRegistered()) return false;
+            const crudGeneration = bumpCollabCrudGeneration();
+            const supabase = collabSupabase;
+            const userId = collabUser.id;
+            const projectId = collabProject.id;
+            const isCurrent = () => (
+                isActiveCollabCrud(crudGeneration)
+                && collabSupabase === supabase
+                && collabUser?.id === userId
+                && collabProject?.id === projectId
+            );
             let trimmed = String(nameOverride || '').trim();
-            if (!trimmed) return;
+            if (!trimmed) return false;
             const baseSlug = slugifyName(trimmed) || makeSlug(6);
             let nextSlug = baseSlug;
             let created = null;
             for (let i = 0; i < 3; i += 1) {
-                const { data, error } = await collabSupabase
+                if (!isCurrent()) return false;
+                const { data, error } = await supabase
                     .from('rooms')
                     .insert({
-                        project_id: collabProject.id,
+                        project_id: projectId,
                         slug: nextSlug,
-                        owner_id: collabUser.id,
+                        owner_id: userId,
                     })
                     .select('id, slug, owner_id, created_at')
                     .single();
+                if (!isCurrent()) return false;
                 if (!error) {
                     created = data;
                     break;
                 }
                 nextSlug = `${baseSlug}-${makeSlug(4)}`;
             }
-            if (!created) return;
-            if (!created.owner_id) created.owner_id = collabUser.id;
+            if (!created || !isCurrent()) return false;
+            if (!created.owner_id) created.owner_id = userId;
             collabRoom = created;
             clearRoomInviteTokenState();
-            await loadRooms(collabProject.id);
+            await loadRooms(projectId, { isCurrent });
+            if (!isCurrent()) return false;
             if (collabAuthed && !collabController) {
                 await connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
+                if (!isCurrent()) return false;
             }
             updateAdminControls();
             updateCollabFooter();
+            return true;
         }
 
         function toggleCreatePanel(panelEl, inputEl, forceOpen) {
@@ -2516,7 +2674,8 @@ export class ViewerApp {
             if (!collabProjectNameInputEl) return;
             const name = String(collabProjectNameInputEl.value || '').trim();
             if (!name) return;
-            await createProjectFlow(name);
+            const created = await createProjectFlow(name);
+            if (!created || appDisposed) return;
             collabProjectNameInputEl.value = '';
             toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, false);
         }
@@ -2525,7 +2684,8 @@ export class ViewerApp {
             if (!collabRoomNameInputEl) return;
             const name = String(collabRoomNameInputEl.value || '').trim();
             if (!name) return;
-            await createRoomFlow(name);
+            const created = await createRoomFlow(name);
+            if (!created || appDisposed) return;
             collabRoomNameInputEl.value = '';
             toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, false);
         }
@@ -2785,7 +2945,7 @@ export class ViewerApp {
         }
 
         async function connectCollab(mode) {
-            if (!collabReady || !collabJoinBtn) return;
+            if (!collabReady || !collabJoinBtn || appDisposed || collabAuthInFlight) return;
             const name = String(collabNameEl?.value || '').trim();
             const email = normalizeEmailInput(collabEmailEl?.value);
             const password = String(collabPasswordEl?.value || '');
@@ -2842,39 +3002,46 @@ export class ViewerApp {
                 }
             }
 
-            if (collabController) {
-                const displayName = resolveDisplayName(name);
-                await collabController.setDisplayName(displayName);
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem('lpmview.displayName', displayName);
-                }
-                if (voiceConnected) {
-                    await disconnectVoiceRoom({ preserveIntent: true });
-                    await joinVoiceRoom({ preserveIntent: true });
-                }
-                renderParticipants(collabParticipants);
-                updateOwnerLabel();
-                const localId = collabController.user?.id || null;
-                if (localId && collabContributors.has(localId)) {
-                    recordContributor(localId, displayName);
-                    annotations3d?.refreshAuthorVisibility?.(localId);
-                }
-                return;
-            }
-
-            collabJoinBtn.disabled = true;
-            if (collabSignupBtn) collabSignupBtn.disabled = true;
-            if (collabGuestBtn) collabGuestBtn.disabled = true;
-            setCollabStatus('auth');
+            const authGeneration = bumpCollabAuthGeneration();
+            const isCurrentAuthRequest = () => isActiveCollabAuth(authGeneration);
+            collabAuthInFlight = true;
+            setCollabAuthButtonsDisabled(true);
             try {
+                if (collabController) {
+                    const displayName = resolveDisplayName(name);
+                    await collabController.setDisplayName(displayName);
+                    if (!isCurrentAuthRequest()) return;
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.setItem('lpmview.displayName', displayName);
+                    }
+                    if (voiceConnected) {
+                        await disconnectVoiceRoom({ preserveIntent: true });
+                        if (!isCurrentAuthRequest()) return;
+                        await joinVoiceRoom({ preserveIntent: true });
+                        if (!isCurrentAuthRequest()) return;
+                    }
+                    renderParticipants(collabParticipants);
+                    updateOwnerLabel();
+                    const localId = collabController.user?.id || null;
+                    if (localId && collabContributors.has(localId)) {
+                        recordContributor(localId, displayName);
+                        annotations3d?.refreshAuthorVisibility?.(localId);
+                    }
+                    return;
+                }
+
+                setCollabStatus('auth');
                 const displayName = await ensureCollabAuth({
                     mode: authMode,
                     name,
                     email,
                     password,
+                    isCurrent: isCurrentAuthRequest,
                 });
+                if (!displayName || !isCurrentAuthRequest()) return;
                 setCollabDrawerOpen(false);
-                await refreshSuperuserFlag();
+                await refreshSuperuserFlag({ isCurrent: isCurrentAuthRequest });
+                if (!isCurrentAuthRequest()) return;
                 updateAdminControls();
                 setCollabControlsDisabled(false);
                 setCollabCreateEnabled(collabIsRegistered);
@@ -2894,6 +3061,7 @@ export class ViewerApp {
                     } else if (joinedRoom.error) {
                         throw joinedRoom.error;
                     }
+                    if (!isCurrentAuthRequest()) return;
                     if (!joinedRoom.error) {
                         const roomFromInvite = Array.isArray(joinedRoom.data) ? joinedRoom.data[0] : joinedRoom.data;
                         if (!roomFromInvite?.id) {
@@ -2904,14 +3072,18 @@ export class ViewerApp {
                         collabRoom = roomFromInvite;
                         setRoomInviteTokenState(inviteToken, roomFromInvite.id);
                         collabProject = await fetchProjectById(roomFromInvite.project_id);
+                        if (!isCurrentAuthRequest()) return;
                         if (!collabProject) {
                             setCollabStatus('project missing');
                             setAuthError('Проект по ссылке не найден.');
                             return;
                         }
-                        await loadProjects();
-                        await loadRooms(collabProject.id);
+                        await loadProjects({ isCurrent: isCurrentAuthRequest });
+                        if (!isCurrentAuthRequest()) return;
+                        await loadRooms(collabProject.id, { isCurrent: isCurrentAuthRequest });
+                        if (!isCurrentAuthRequest()) return;
                         const roomRecord = await fetchRoomById(roomFromInvite.id);
+                        if (!isCurrentAuthRequest()) return;
                         if (roomRecord) {
                             collabRoom = roomRecord;
                         }
@@ -2931,18 +3103,23 @@ export class ViewerApp {
                             project_slug: projectSlug,
                         });
                     }
+                    if (!isCurrentAuthRequest()) return;
                     if (joinedProject.error) throw joinedProject.error;
                     collabProject = joinedProject.data;
-                    await loadProjects();
-                    await loadRooms(collabProject.id);
+                    await loadProjects({ isCurrent: isCurrentAuthRequest });
+                    if (!isCurrentAuthRequest()) return;
+                    await loadRooms(collabProject.id, { isCurrent: isCurrentAuthRequest });
+                    if (!isCurrentAuthRequest()) return;
                     const room = await ensureRoomBySlug(collabProject.id, roomSlug);
+                    if (!isCurrentAuthRequest()) return;
                     if (!room) {
                         setCollabStatus('room missing');
                         setAuthError('Комната по ссылке не найдена.');
                         return;
                     }
                     collabRoom = room;
-                    await loadRooms(collabProject.id);
+                    await loadRooms(collabProject.id, { isCurrent: isCurrentAuthRequest });
+                    if (!isCurrentAuthRequest()) return;
                     updateAdminControls();
                     await connectToRoom(displayName || 'Guest');
                     return;
@@ -2951,11 +3128,13 @@ export class ViewerApp {
                     setAuthError('Для входа по ссылке нужна полная ссылка комнаты.');
                 }
 
-                await loadProjects();
+                await loadProjects({ isCurrent: isCurrentAuthRequest });
+                if (!isCurrentAuthRequest()) return;
                 if (collabProjects.length === 1) {
                     collabProject = collabProjects[0];
                     renderProjectOptions(collabProjects, collabProject.id);
-                    await loadRooms(collabProject.id);
+                    await loadRooms(collabProject.id, { isCurrent: isCurrentAuthRequest });
+                    if (!isCurrentAuthRequest()) return;
                 } else {
                     collabProject = null;
                     renderRoomOptions([], '');
@@ -2963,11 +3142,13 @@ export class ViewerApp {
 
                 setCollabStatus('ready');
             } catch (err) {
+                if (!isCurrentAuthRequest()) return;
                 console.error('Collab auth failed', err);
                 const message = String(err?.message || '');
                 if (authMode === 'signup' && isExistingSignupError(err)) {
                     setCollabStatus('confirm email');
-                    await requestSignupConfirmation();
+                    await requestSignupConfirmation({ isCurrent: isCurrentAuthRequest });
+                    if (!isCurrentAuthRequest()) return;
                     setAuthError('Аккаунт уже существует. Отправили письмо для подтверждения.');
                 } else if (message.includes('Подтвердите email')) {
                     setCollabStatus('confirm email');
@@ -2983,10 +3164,11 @@ export class ViewerApp {
                     setAuthError('Не удалось войти. Проверьте данные.');
                 }
             } finally {
-                collabJoinBtn.disabled = false;
-                if (collabSignupBtn) collabSignupBtn.disabled = false;
-                if (collabGuestBtn) collabGuestBtn.disabled = false;
-                updateCollabStatusButton();
+                if (isCurrentAuthRequest()) {
+                    collabAuthInFlight = false;
+                    setCollabAuthButtonsDisabled(false);
+                    updateCollabStatusButton();
+                }
             }
         }
 
@@ -3160,6 +3342,9 @@ export class ViewerApp {
 
         if (collabProjectSelectEl) {
             addAppEventListener(collabProjectSelectEl, 'change', async () => {
+                if (appDisposed) return;
+                const crudGeneration = bumpCollabCrudGeneration();
+                const isCurrent = () => isActiveCollabCrud(crudGeneration);
                 const id = collabProjectSelectEl.value;
                 if (id === collabCreateOptionValue) {
                     toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, true);
@@ -3168,6 +3353,7 @@ export class ViewerApp {
                 }
                 if (collabController && collabProject?.id && collabProject.id !== id) {
                     await teardownCollabSession();
+                    if (!isCurrent()) return;
                 }
                 collabProject = collabProjects.find((p) => p.id === id) || null;
                 collabRoom = null;
@@ -3177,7 +3363,8 @@ export class ViewerApp {
                     collabRoomLinkEl.value = '';
                 }
                 if (collabProject) {
-                    await loadRooms(collabProject.id);
+                    await loadRooms(collabProject.id, { isCurrent });
+                    if (!isCurrent()) return;
                 }
                 updateAdminControls();
             });
@@ -3190,6 +3377,9 @@ export class ViewerApp {
 
         if (collabRoomSelectEl) {
             addAppEventListener(collabRoomSelectEl, 'change', async () => {
+                if (appDisposed) return;
+                const crudGeneration = bumpCollabCrudGeneration();
+                const isCurrent = () => isActiveCollabCrud(crudGeneration);
                 const id = collabRoomSelectEl.value;
                 if (id === collabCreateOptionValue) {
                     toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, true);
@@ -3198,6 +3388,7 @@ export class ViewerApp {
                 }
                 if (collabController && collabRoom?.id && collabRoom.id !== id) {
                     await teardownCollabSession();
+                    if (!isCurrent()) return;
                 }
                 collabRoom = collabRooms.find((r) => r.id === id) || null;
                 clearRoomInviteTokenState();
@@ -3207,6 +3398,7 @@ export class ViewerApp {
                 if (collabRoom && collabAuthed && !collabController) {
                     void connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
                 }
+                if (!isCurrent()) return;
                 updateAdminControls();
             });
             addAppEventListener(collabRoomSelectEl, 'customselect:delete', (event) => {
@@ -3318,27 +3510,46 @@ export class ViewerApp {
         void clearPersistedEmailSession();
 
         addAppEventListener(exportBtn, 'click', () => {
-            void (async () => {
-                const selection = await exportModal.open({
-                    title: 'Экспорт сцены',
-                    format: 'glb',
-		                    coords: 'rebased',
-		                });
-		                if (!selection) return;
+            if (appDisposed || exportInFlight) return;
+            const runId = ++exportRunId;
+            const abortController =
+                typeof AbortController === 'function'
+                    ? new AbortController()
+                    : null;
+            activeExportAbortController = abortController;
+            exportInFlight = true;
+            if (exportBtn) exportBtn.disabled = true;
 
-		                try {
-		                    setStatusMessage('Экспорт…');
-		                    await exportWorldAsGLTF({
-		                        world,
-		                        renderer,
-		                        format: selection.format,
-		                        coords: selection.coords,
-		                        document,
-		                    });
-		                    setStatusMessage('');
-		                } catch (err) {
-		                    console.error(err);
-		                    setStatusMessage('Экспорт: ошибка — ' + (err?.message || err));
+            void (async () => {
+                try {
+                    const selection = await exportModal.open({
+                        title: 'Экспорт сцены',
+                        format: 'glb',
+                        coords: 'rebased',
+                    });
+                    if (!selection || !isCurrentExportRun(runId)) return;
+
+                    setStatusMessage('Экспорт…');
+                    await exportWorldAsGLTF({
+                        world,
+                        renderer,
+                        format: selection.format,
+                        coords: selection.coords,
+                        document,
+                        signal: abortController?.signal || null,
+                    });
+                    if (!isCurrentExportRun(runId)) return;
+                    setStatusMessage('');
+                } catch (err) {
+                    if (err?.name === 'AbortError' || !isCurrentExportRun(runId)) return;
+                    console.error(err);
+                    setStatusMessage('Экспорт: ошибка — ' + (err?.message || err));
+                } finally {
+                    if (runId === exportRunId) {
+                        activeExportAbortController = null;
+                        exportInFlight = false;
+                        if (!appDisposed && exportBtn) exportBtn.disabled = false;
+                    }
                 }
             })();
         });
@@ -5554,6 +5765,7 @@ export class ViewerApp {
 	            if (appDisposed) return;
 	            appDisposed = true;
 
+	            try { cancelActiveExport(); } catch (_) {}
 	            try { renderLoop?.dispose?.(); } catch (_) {}
 	            try { disposeAppTimers(); } catch (_) {}
 	            try { disposeAppEventListeners(); } catch (_) {}

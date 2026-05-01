@@ -215,6 +215,296 @@ async function runRoomEntrySmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runAuthAsyncDisposeSmoke(browser, baseUrl) {
+    {
+        const page = await browser.newPage();
+        const diagnostics = attachPageDiagnostics(page);
+        await page.addInitScript(() => {
+            window.__SUPABASE_URL = 'https://smoke.supabase.co';
+            window.__SUPABASE_ANON_KEY = 'smoke-key';
+
+            const calls = {
+                createClient: 0,
+                getUser: 0,
+                signOut: 0,
+            };
+            let resolveGetUser;
+            const getUserPromise = new Promise((resolve) => {
+                resolveGetUser = resolve;
+            });
+            window.__lpmAuthSmoke = calls;
+            window.__lpmResolveGetUser = (payload) => resolveGetUser(payload);
+            window.supabase = {
+                createClient() {
+                    calls.createClient += 1;
+                    return {
+                        auth: {
+                            getUser() {
+                                calls.getUser += 1;
+                                return getUserPromise;
+                            },
+                            signOut() {
+                                calls.signOut += 1;
+                                return Promise.resolve({ error: null });
+                            },
+                            getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+                            resetPasswordForEmail: () => Promise.resolve({ error: null }),
+                            resend: () => Promise.resolve({ error: null }),
+                        },
+                        from: () => ({
+                            select() { return this; },
+                            eq() { return this; },
+                            maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                        }),
+                        rpc: () => Promise.resolve({ data: false, error: null }),
+                    };
+                },
+            };
+        });
+        await page.goto(`${baseUrl}/?renderer=webgl`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await page.waitForFunction(() => (
+            !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+        ), null, { timeout: 45000 });
+        await page.waitForFunction(() => globalThis.__lpmAuthSmoke?.getUser >= 1, null, { timeout: 5000 });
+
+        const result = await page.evaluate(async () => {
+            await globalThis.viewerApp.dispose();
+            globalThis.__lpmResolveGetUser({ data: { user: { id: 'persisted-user', email: 'old@example.com' } }, error: null });
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            return { ...globalThis.__lpmAuthSmoke };
+        });
+
+        assert.equal(result.signOut, 0, 'Auth async dispose smoke: disposed persisted-session cleanup still signed out');
+        diagnostics.assertNoErrors('Auth async dispose smoke: persisted session');
+        await page.close();
+    }
+
+    {
+        const page = await browser.newPage();
+        const diagnostics = attachPageDiagnostics(page);
+        await page.addInitScript(() => {
+            window.__SUPABASE_URL = 'https://smoke.supabase.co';
+            window.__SUPABASE_ANON_KEY = 'smoke-key';
+
+            const calls = {
+                createClient: 0,
+                getUser: 0,
+                resetPassword: 0,
+                resetEmail: '',
+            };
+            let resolveReset;
+            const resetPromise = new Promise((resolve) => {
+                resolveReset = resolve;
+            });
+            window.__lpmAuthSmoke = calls;
+            window.__lpmResolveResetPassword = (payload) => resolveReset(payload);
+            window.supabase = {
+                createClient() {
+                    calls.createClient += 1;
+                    return {
+                        auth: {
+                            getUser() {
+                                calls.getUser += 1;
+                                return Promise.resolve({ data: { user: null }, error: null });
+                            },
+                            signOut: () => Promise.resolve({ error: null }),
+                            getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+                            resetPasswordForEmail(email) {
+                                calls.resetPassword += 1;
+                                calls.resetEmail = String(email || '');
+                                return resetPromise;
+                            },
+                            resend: () => Promise.resolve({ error: null }),
+                        },
+                        from: () => ({
+                            select() { return this; },
+                            eq() { return this; },
+                            maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                        }),
+                        rpc: () => Promise.resolve({ data: false, error: null }),
+                    };
+                },
+            };
+        });
+        await page.goto(`${baseUrl}/?renderer=webgl`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await page.waitForFunction(() => (
+            !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+        ), null, { timeout: 45000 });
+
+        const result = await page.evaluate(async () => {
+            const emailEl = document.querySelector('#collabEmail');
+            const resetBtn = document.querySelector('#collabResetBtn');
+            const errorEl = document.querySelector('#collabAuthError');
+            emailEl.value = 'reset@example.com';
+            resetBtn.click();
+            while ((globalThis.__lpmAuthSmoke?.resetPassword || 0) < 1) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+            await globalThis.viewerApp.dispose();
+            globalThis.__lpmResolveResetPassword({ error: null });
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            return {
+                ...globalThis.__lpmAuthSmoke,
+                authErrorText: errorEl?.textContent || '',
+                resetButtonDisabled: resetBtn?.disabled ?? null,
+            };
+        });
+
+        assert.equal(result.resetPassword, 1, 'Auth async dispose smoke: reset email request did not start');
+        assert.equal(result.resetEmail, 'reset@example.com', 'Auth async dispose smoke: reset email was not normalized');
+        assert.equal(result.authErrorText, '', 'Auth async dispose smoke: disposed reset request still wrote auth status');
+        assert.equal(result.resetButtonDisabled, true, 'Auth async dispose smoke: disposed reset flow re-enabled button');
+        diagnostics.assertNoErrors('Auth async dispose smoke: reset email');
+        await page.close();
+    }
+}
+
+async function runCollabCrudStaleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.addInitScript(() => {
+        window.__SUPABASE_URL = 'https://smoke.supabase.co';
+        window.__SUPABASE_ANON_KEY = 'smoke-key';
+
+        const calls = {
+            createClient: 0,
+            getUser: 0,
+            signIn: 0,
+            createProject: 0,
+            projectPayload: null,
+        };
+        let resolveCreateProject;
+        const createProjectPromise = new Promise((resolve) => {
+            resolveCreateProject = resolve;
+        });
+        window.__lpmCrudSmoke = calls;
+        window.__lpmResolveCreateProject = (payload) => resolveCreateProject(payload);
+
+        class FakeQuery {
+            constructor(table) {
+                this.table = table;
+                this.payload = null;
+            }
+            insert(payload) {
+                this.payload = payload;
+                return this;
+            }
+            select() {
+                return this;
+            }
+            eq() {
+                return this;
+            }
+            order() {
+                if (this.table === 'projects') return Promise.resolve({ data: [], error: null });
+                if (this.table === 'rooms') return Promise.resolve({ data: [], error: null });
+                return Promise.resolve({ data: [], error: null });
+            }
+            maybeSingle() {
+                if (this.table === 'profiles') {
+                    return Promise.resolve({ data: { display_name: 'Smoke User' }, error: null });
+                }
+                return Promise.resolve({ data: null, error: null });
+            }
+            single() {
+                if (this.table === 'projects') {
+                    calls.createProject += 1;
+                    calls.projectPayload = { ...(this.payload || {}) };
+                    return createProjectPromise;
+                }
+                return Promise.resolve({ data: { id: `${this.table}-row`, ...(this.payload || {}) }, error: null });
+            }
+        }
+
+        window.supabase = {
+            createClient() {
+                calls.createClient += 1;
+                return {
+                    auth: {
+                        getUser() {
+                            calls.getUser += 1;
+                            return Promise.resolve({ data: { user: null }, error: null });
+                        },
+                        signInWithPassword() {
+                            calls.signIn += 1;
+                            return Promise.resolve({
+                                data: {
+                                    user: {
+                                        id: 'registered-user',
+                                        email: 'crud@example.com',
+                                        user_metadata: { display_name: 'Smoke User' },
+                                    },
+                                },
+                                error: null,
+                            });
+                        },
+                        signOut: () => Promise.resolve({ error: null }),
+                        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+                        resetPasswordForEmail: () => Promise.resolve({ error: null }),
+                        resend: () => Promise.resolve({ error: null }),
+                    },
+                    from: (table) => new FakeQuery(table),
+                    rpc: () => Promise.resolve({ data: false, error: null }),
+                };
+            },
+        };
+    });
+    await page.goto(`${baseUrl}/?renderer=webgl`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+
+    const result = await page.evaluate(async () => {
+        document.querySelector('#collabName').value = 'Smoke User';
+        document.querySelector('#collabEmail').value = 'crud@example.com';
+        document.querySelector('#collabPassword').value = 'secret123';
+        document.querySelector('#collabJoinBtn').click();
+
+        while ((globalThis.__lpmCrudSmoke?.signIn || 0) < 1) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        while (!Array.from(document.querySelector('#collabProjectSelect')?.options || [])
+            .some((option) => option.value === '__create__')) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+
+        const input = document.querySelector('#collabProjectNameInput');
+        input.value = 'Late Project';
+        input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+        while ((globalThis.__lpmCrudSmoke?.createProject || 0) < 1) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+
+        await globalThis.viewerApp.dispose();
+        globalThis.__lpmResolveCreateProject({
+            data: {
+                id: 'created-project',
+                name: 'Late Project',
+                slug: 'late-project',
+                owner_id: 'registered-user',
+                created_at: '2026-01-01T00:00:00Z',
+            },
+            error: null,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        const projectOptions = Array.from(document.querySelector('#collabProjectSelect')?.options || [])
+            .map((option) => option.value);
+        return {
+            ...globalThis.__lpmCrudSmoke,
+            projectOptions,
+            inputValue: input.value,
+        };
+    });
+
+    assert.equal(result.createProject, 1, 'Collab CRUD stale smoke: project create did not start');
+    assert.equal(result.projectPayload?.name, 'Late Project', 'Collab CRUD stale smoke: project create payload mismatch');
+    assert.equal(result.projectOptions.includes('created-project'), false, 'Collab CRUD stale smoke: stale project create mutated select');
+    assert.equal(result.inputValue, 'Late Project', 'Collab CRUD stale smoke: stale project create cleared input');
+    diagnostics.assertNoErrors('Collab CRUD stale smoke');
+    await page.close();
+}
+
 async function runDisposeReinitSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     await page.addInitScript(() => {
@@ -2532,6 +2822,46 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
             thrown = err?.message || String(err);
         }
 
+        class TimeoutChannel extends FakeChannel {
+            subscribe(callback) {
+                if (typeof callback === 'function') {
+                    Promise.resolve().then(() => callback('TIMED_OUT'));
+                }
+                return Promise.resolve('TIMED_OUT');
+            }
+        }
+
+        const timeoutChannels = [];
+        const timeoutRemovedChannels = [];
+        const timeoutCalls = [];
+        const timeoutSupabase = {
+            from: (table) => new FakeQuery(table),
+            channel: (name) => {
+                const channel = new TimeoutChannel(name);
+                timeoutChannels.push(channel);
+                return channel;
+            },
+            removeChannel: async (channel) => {
+                timeoutRemovedChannels.push(channel.name);
+                return 'ok';
+            },
+            rpc: async () => ({ data: null, error: null }),
+        };
+        const timeoutThrown = await Promise.race([
+            createCollabController({
+                supabase: timeoutSupabase,
+                user: { id: 'timeout-user' },
+                project: { id: 'project-timeout', slug: 'project-timeout' },
+                room: { id: 'room-timeout', slug: 'room-timeout', camera_owner_id: null, camera_state: null },
+                displayName: 'Timeout',
+                onConnectionState: ({ connected, reason }) => timeoutCalls.push(`connection:${connected ? 'on' : 'off'}:${reason}`),
+            }).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            ),
+            new Promise((resolve) => setTimeout(() => resolve('hung'), 50)),
+        ]);
+
         const afterFailure = calls.slice();
         channels.forEach((channel) => {
             channel.emit('presence', 'sync', {});
@@ -2557,6 +2887,10 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
             intervalCount: intervalIds.length,
             clearedIntervalCount: clearedIntervals.length,
             heartbeatCleared: intervalIds.length === clearedIntervals.length,
+            timeoutThrown,
+            timeoutCalls,
+            timeoutChannelNames: timeoutChannels.map((channel) => channel.name),
+            timeoutRemovedChannels,
         };
     });
 
@@ -2571,6 +2905,10 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
     assert.deepEqual(result.afterLateEvents, result.afterFailure, 'Collab init-failure smoke: stale callbacks fired after failed init cleanup');
     assert.equal(result.intervalCount, 1, 'Collab init-failure smoke: expected one presence heartbeat');
     assert.equal(result.heartbeatCleared, true, 'Collab init-failure smoke: presence heartbeat leaked after failed init');
+    assert.equal(result.timeoutThrown, 'Room realtime subscribe TIMED_OUT', 'Collab init-failure smoke: initial subscribe timeout hung');
+    assert.ok(result.timeoutCalls.includes('connection:off:TIMED_OUT'), 'Collab init-failure smoke: timeout status was not emitted');
+    assert.deepEqual(result.timeoutChannelNames, ['room:room-timeout'], 'Collab init-failure smoke: timeout opened unexpected channels');
+    assert.deepEqual(result.timeoutRemovedChannels, result.timeoutChannelNames, 'Collab init-failure smoke: timeout channel was not removed');
     diagnostics.assertNoErrors('Collab init-failure cleanup smoke');
     await page.close();
 }
@@ -4482,6 +4820,7 @@ async function runGLTFExportCleanupSmoke(browser, baseUrl) {
     const result = await page.evaluate(async () => {
         const THREE = await import('three');
         const { exportWorldAsGLTF } = await import('/scripts/modules/io/gltf-export.js');
+        const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
 
         const disposedMaterials = [];
         const nativeMaterialDispose = THREE.Material.prototype.dispose;
@@ -4509,12 +4848,59 @@ async function runGLTFExportCleanupSmoke(browser, baseUrl) {
                 returnBlob: true,
             });
 
+            let lateAbortResult = 'not-run';
+            let lateAbortDownloadCount = 0;
+            const lateAbortController = new AbortController();
+            const nativeParse = GLTFExporter.prototype.parse;
+            const fakeDocument = {
+                body: {
+                    appendChild() {},
+                },
+                createElement() {
+                    return {
+                        style: {},
+                        click() {
+                            lateAbortDownloadCount += 1;
+                        },
+                        remove() {},
+                    };
+                },
+            };
+            GLTFExporter.prototype.parse = function patchedParse(rootArg, onDone, onError, options) {
+                return nativeParse.call(
+                    this,
+                    rootArg,
+                    (value) => {
+                        lateAbortController.abort();
+                        onDone(value);
+                    },
+                    onError,
+                    options,
+                );
+            };
+            try {
+                await exportWorldAsGLTF({
+                    world,
+                    format: 'glb',
+                    coords: 'rebased',
+                    document: fakeDocument,
+                    signal: lateAbortController.signal,
+                });
+                lateAbortResult = 'resolved';
+            } catch (err) {
+                lateAbortResult = err?.name || String(err);
+            } finally {
+                GLTFExporter.prototype.parse = nativeParse;
+            }
+
             return {
                 disposedMaterials,
                 materialStillAttached: mesh.material === material,
                 originalUserDataPreserved: material.userData.viewerTransient?.shouldNotExport === true,
                 blobType: exportResult?.blob?.type || '',
                 format: exportResult?.format || '',
+                lateAbortResult,
+                lateAbortDownloadCount,
             };
         } finally {
             THREE.Material.prototype.dispose = nativeMaterialDispose;
@@ -4537,6 +4923,8 @@ async function runGLTFExportCleanupSmoke(browser, baseUrl) {
         false,
         'GLTF export cleanup smoke: export disposed the original scene material',
     );
+    assert.equal(result.lateAbortResult, 'AbortError', 'GLTF export cleanup smoke: stale export did not abort');
+    assert.equal(result.lateAbortDownloadCount, 0, 'GLTF export cleanup smoke: stale export still triggered download');
     diagnostics.assertNoErrors('GLTF export cleanup smoke');
     await page.close();
 }
@@ -5771,6 +6159,10 @@ try {
     console.log('Boot smoke passed.');
     await runRoomEntrySmoke(browser, smokeServer.baseUrl);
     console.log('Room-entry smoke passed.');
+    await runAuthAsyncDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Auth async dispose smoke passed.');
+    await runCollabCrudStaleSmoke(browser, smokeServer.baseUrl);
+    console.log('Collab CRUD stale smoke passed.');
     await runDisposeReinitSmoke(browser, smokeServer.baseUrl);
     console.log('Dispose/reinit smoke passed.');
     await runRendererDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
