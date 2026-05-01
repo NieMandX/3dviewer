@@ -2,6 +2,7 @@ export function createSliderValueDisplayController(options = {}) {
     const root = options.root || (typeof document !== 'undefined' ? document : null);
     const entries = new Map();
     const listeners = [];
+    let disposed = false;
 
     function addListener(target, type, handler, options) {
         if (!target?.addEventListener || typeof handler !== 'function') return;
@@ -55,14 +56,17 @@ export function createSliderValueDisplayController(options = {}) {
     }
 
     function update(id) {
+        if (disposed) return;
         applyEntry(entries.get(id));
     }
 
     function updateAll() {
+        if (disposed) return;
         entries.forEach(applyEntry);
     }
 
     function register(id, slider) {
+        if (disposed) return;
         if (!id || !slider || !root) return;
         const display = root.querySelector?.(`[data-light-value-for="${id}"]`);
         if (!display || !(display instanceof HTMLInputElement)) return;
@@ -71,6 +75,7 @@ export function createSliderValueDisplayController(options = {}) {
     }
 
     function commitInput(id) {
+        if (disposed) return;
         const entry = entries.get(id);
         if (!entry) return;
         const { slider, display } = entry;
@@ -97,6 +102,7 @@ export function createSliderValueDisplayController(options = {}) {
     }
 
     function attachInputs() {
+        if (disposed) return;
         entries.forEach(({ display }, id) => {
             if (!(display instanceof HTMLInputElement)) return;
             const commit = () => commitInput(id);
@@ -116,6 +122,8 @@ export function createSliderValueDisplayController(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}

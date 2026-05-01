@@ -24,20 +24,24 @@ export function createSunToggleController(options = {}) {
         if (sunAnchor) sunControlsEl.parentNode.insertBefore(sunAnchor, sunControlsEl);
     }
     const listeners = [];
+    let disposed = false;
+
     function addListener(target, type, handler, options) {
         if (!target?.addEventListener || typeof handler !== 'function') return;
         target.addEventListener(type, handler, options);
         listeners.push({ target, type, handler, options });
     }
 
-    function mountControls() {
+    function mountControls({ force = false } = {}) {
+        if (disposed && !force) return;
         if (!sunControlsEl || !sunAnchor) return;
         if (sunControlsEl.isConnected) return;
         sunAnchor.replaceWith(sunControlsEl);
         try { layout(); } catch (_) {}
     }
 
-    function unmountControls() {
+    function unmountControls({ force = false } = {}) {
+        if (disposed && !force) return;
         if (!sunControlsEl || !sunControlsEl.isConnected) return;
         if (!sunAnchor) return;
         sunControlsEl.parentNode.insertBefore(sunAnchor, sunControlsEl);
@@ -46,6 +50,7 @@ export function createSunToggleController(options = {}) {
     }
 
     function setEnabled(on) {
+        if (disposed) return;
         enabled = !!on;
         if (sunEnabledEl && sunEnabledEl.checked !== enabled) {
             sunEnabledEl.checked = enabled;
@@ -78,19 +83,22 @@ export function createSunToggleController(options = {}) {
     }
 
     addListener(sunEnabledEl, 'change', (e) => {
+        if (disposed) return;
         setEnabled(!!e.target?.checked);
     });
 
     setEnabled(enabled);
 
     function dispose() {
+        if (disposed) return;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}
         }
-        mountControls();
+        mountControls({ force: true });
         sunAnchor?.parentNode?.removeChild?.(sunAnchor);
         sunAnchor = null;
+        disposed = true;
     }
 
     return {

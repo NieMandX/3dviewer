@@ -7,6 +7,7 @@ export function createHemiLightControlsController(options = {}) {
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const onLightsUpdated = typeof options.onLightsUpdated === 'function' ? options.onLightsUpdated : () => {};
     const listeners = [];
+    let disposed = false;
 
     function addListener(target, type, handler, options) {
         if (!target?.addEventListener || typeof handler !== 'function') return;
@@ -15,6 +16,7 @@ export function createHemiLightControlsController(options = {}) {
     }
 
     function applyFromInputs() {
+        if (disposed) return;
         if (!hemiLight) return;
 
         if (hemiIntEl) {
@@ -32,6 +34,7 @@ export function createHemiLightControlsController(options = {}) {
     }
 
     function syncAndRender() {
+        if (disposed) return;
         applyFromInputs();
         requestRender();
         onLightsUpdated();
@@ -45,6 +48,8 @@ export function createHemiLightControlsController(options = {}) {
     applyFromInputs();
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}

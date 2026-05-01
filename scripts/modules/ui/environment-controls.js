@@ -35,6 +35,7 @@ export function createEnvironmentControlsController(options = {}) {
     }
 
     function populateHdriPresets() {
+        if (disposed) return;
         if (!hdriPresetSel || !presets) return;
         if (typeof document === 'undefined') return;
 
@@ -111,6 +112,7 @@ export function createEnvironmentControlsController(options = {}) {
     bind();
 
     function dispose() {
+        if (disposed) return;
         disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();

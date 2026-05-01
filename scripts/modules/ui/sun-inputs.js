@@ -13,6 +13,7 @@ export function createSunInputsController(options = {}) {
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const onLightsUpdated = typeof options.onLightsUpdated === 'function' ? options.onLightsUpdated : () => {};
     const listeners = [];
+    let disposed = false;
 
     function addListener(target, type, handler, options) {
         if (!target?.addEventListener || typeof handler !== 'function') return;
@@ -49,6 +50,7 @@ export function createSunInputsController(options = {}) {
 
     [sunHourEl, sunDayEl, sunMonthEl, sunNorthEl].filter(Boolean).forEach(el => {
         addListener(el, 'input', () => {
+            if (disposed) return;
             updateSun();
             onLightsUpdated();
         });
@@ -58,9 +60,11 @@ export function createSunInputsController(options = {}) {
     if (sunHourEl && sunHourInputEl) {
         sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
         addListener(sunHourEl, 'input', () => {
+            if (disposed) return;
             sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
         });
         addListener(sunHourInputEl, 'change', () => {
+            if (disposed) return;
             const parsed = parseSunHour(sunHourInputEl.value);
             if (parsed == null) {
                 sunHourInputEl.value = formatSunHour(parseFloat(sunHourEl.value));
@@ -76,6 +80,7 @@ export function createSunInputsController(options = {}) {
         sunIntensityEl.value = String(dirLight.intensity);
         sunIntensityInputEl.value = formatSunIntensity(dirLight.intensity);
         addListener(sunIntensityEl, 'input', () => {
+            if (disposed) return;
             const value = clampNumericInput(
                 parseFloat(sunIntensityEl.value),
                 parseFloat(sunIntensityEl.min) || 0,
@@ -89,6 +94,7 @@ export function createSunInputsController(options = {}) {
             onLightsUpdated();
         });
         addListener(sunIntensityInputEl, 'change', () => {
+            if (disposed) return;
             let value = clampNumericInput(
                 parseFloat(sunIntensityInputEl.value),
                 parseFloat(sunIntensityInputEl.min) || 0,
@@ -107,6 +113,8 @@ export function createSunInputsController(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}

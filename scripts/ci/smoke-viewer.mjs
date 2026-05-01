@@ -4871,6 +4871,240 @@ async function runAppbarControllersDisposeSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runLightControlsDisposeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createEnvironmentControlsController } = await import('/scripts/modules/ui/environment-controls.js');
+        const { createHemiLightControlsController } = await import('/scripts/modules/ui/hemi-light-controls.js');
+        const { createSunInputsController } = await import('/scripts/modules/ui/sun-inputs.js');
+        const { createSunToggleController } = await import('/scripts/modules/ui/sun-toggle.js');
+        const { createSliderValueDisplayController } = await import('/scripts/modules/ui/slider-value-displays.js');
+
+        const envCalls = { enabled: 0, rotation: 0, apply: 0, rebuild: 0, sync: 0, preset: 0 };
+        const iblChk = document.createElement('input');
+        iblChk.type = 'checkbox';
+        iblChk.checked = true;
+        const hdriPresetSel = document.createElement('select');
+        hdriPresetSel.append(new Option('placeholder', ''));
+        const iblIntEl = document.createElement('input');
+        iblIntEl.value = '2';
+        const iblGammaEl = document.createElement('input');
+        const iblTintEl = document.createElement('input');
+        const iblRotEl = document.createElement('input');
+        iblRotEl.value = '45';
+        const hdriExposureEl = document.createElement('input');
+        const hdriSaturationEl = document.createElement('input');
+        const hdriBlurEl = document.createElement('input');
+        document.body.append(iblChk, hdriPresetSel, iblIntEl, iblGammaEl, iblTintEl, iblRotEl, hdriExposureEl, hdriSaturationEl, hdriBlurEl);
+        const envController = createEnvironmentControlsController({
+            scene: { environment: { id: 'env' } },
+            iblChk,
+            hdriPresetSel,
+            presets: [{ name: 'A' }, { name: 'B' }],
+            iblIntEl,
+            iblGammaEl,
+            iblTintEl,
+            iblRotEl,
+            hdriExposureEl,
+            hdriSaturationEl,
+            hdriBlurEl,
+            setEnvironmentEnabled: () => { envCalls.enabled += 1; },
+            setEnvironmentRotation: () => { envCalls.rotation += 1; },
+            applyEnvToMaterials: () => { envCalls.apply += 1; },
+            requestEnvironmentRebuild: () => { envCalls.rebuild += 1; },
+            syncEnvAdjustmentsState: () => { envCalls.sync += 1; },
+            selectPresetIndex: async () => { envCalls.preset += 1; },
+        });
+        const envOptionsBeforeDispose = hdriPresetSel.options.length;
+        envController.dispose();
+        envController.dispose();
+        hdriPresetSel.innerHTML = '<option value="sentinel">sentinel</option>';
+        envController.populateHdriPresets();
+        envController.scheduleEnvRebuildFromUI();
+        iblChk.dispatchEvent(new Event('change', { bubbles: true }));
+        iblIntEl.dispatchEvent(new Event('input', { bubbles: true }));
+        iblRotEl.dispatchEvent(new Event('input', { bubbles: true }));
+        hdriPresetSel.value = '1';
+        hdriPresetSel.dispatchEvent(new Event('change', { bubbles: true }));
+        await Promise.resolve();
+
+        const hemiCalls = { render: 0, lights: 0, sky: 0, ground: 0 };
+        const hemiIntEl = document.createElement('input');
+        hemiIntEl.value = '1';
+        const hemiSkyEl = document.createElement('input');
+        hemiSkyEl.value = '#ffffff';
+        const hemiGroundEl = document.createElement('input');
+        hemiGroundEl.value = '#000000';
+        const hemiLight = {
+            intensity: 0,
+            color: { set: () => { hemiCalls.sky += 1; } },
+            groundColor: { set: () => { hemiCalls.ground += 1; } },
+        };
+        const hemi = createHemiLightControlsController({
+            hemiLight,
+            hemiIntEl,
+            hemiSkyEl,
+            hemiGroundEl,
+            requestRender: () => { hemiCalls.render += 1; },
+            onLightsUpdated: () => { hemiCalls.lights += 1; },
+        });
+        const hemiBeforeDispose = { ...hemiCalls, intensity: hemiLight.intensity };
+        hemi.dispose();
+        hemi.dispose();
+        hemiIntEl.value = '7';
+        hemiIntEl.dispatchEvent(new Event('input', { bubbles: true }));
+        hemi.applyFromInputs();
+
+        const sunCalls = { update: 0, render: 0, lights: 0 };
+        const sunHourEl = document.createElement('input');
+        sunHourEl.value = '12';
+        const sunHourInputEl = document.createElement('input');
+        const sunDayEl = document.createElement('input');
+        const sunMonthEl = document.createElement('input');
+        const sunNorthEl = document.createElement('input');
+        const sunIntensityEl = document.createElement('input');
+        sunIntensityEl.min = '0';
+        sunIntensityEl.max = '20';
+        const sunIntensityInputEl = document.createElement('input');
+        sunIntensityInputEl.min = '0';
+        sunIntensityInputEl.max = '20';
+        const dirLight = { intensity: 3 };
+        const sunInputs = createSunInputsController({
+            sunHourEl,
+            sunHourInputEl,
+            sunDayEl,
+            sunMonthEl,
+            sunNorthEl,
+            sunIntensityEl,
+            sunIntensityInputEl,
+            dirLight,
+            updateSun: () => { sunCalls.update += 1; },
+            requestRender: () => { sunCalls.render += 1; },
+            onLightsUpdated: () => { sunCalls.lights += 1; },
+        });
+        const sunBeforeDispose = { ...sunCalls, intensity: dirLight.intensity };
+        sunInputs.dispose();
+        sunInputs.dispose();
+        sunHourEl.value = '15';
+        sunHourEl.dispatchEvent(new Event('input', { bubbles: true }));
+        sunIntensityInputEl.value = '9';
+        sunIntensityInputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const sunToggleCalls = { layout: 0, render: 0, enable: 0, disable: 0 };
+        const sunRoot = document;
+        const sunHost = document.createElement('div');
+        const sunControlsEl = document.createElement('div');
+        const sunEnabledEl = document.createElement('input');
+        sunEnabledEl.type = 'checkbox';
+        sunHost.appendChild(sunControlsEl);
+        document.body.append(sunEnabledEl, sunHost);
+        const app = { sun: { enabled: true } };
+        const renderer = { shadowMap: { enabled: true } };
+        const toggleDirLight = { visible: true, castShadow: true };
+        const sunToggle = createSunToggleController({
+            root: sunRoot,
+            app,
+            sunEnabledEl,
+            sunControlsEl,
+            renderer,
+            dirLight: toggleDirLight,
+            initialEnabled: false,
+            layout: () => { sunToggleCalls.layout += 1; },
+            requestRender: () => { sunToggleCalls.render += 1; },
+            onEnable: () => { sunToggleCalls.enable += 1; },
+            onDisable: () => { sunToggleCalls.disable += 1; },
+        });
+        const sunControlsUnmounted = !sunControlsEl.isConnected;
+        sunToggle.dispose();
+        sunToggle.dispose();
+        const sunControlsRestoredAfterDispose = sunControlsEl.isConnected;
+        const sunToggleBeforeLateCalls = {
+            ...sunToggleCalls,
+            enabled: app.sun.enabled,
+            visible: toggleDirLight.visible,
+            shadows: renderer.shadowMap.enabled,
+        };
+        sunToggle.setEnabled(true);
+        sunToggle.unmountControls();
+        sunEnabledEl.checked = true;
+        sunEnabledEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const sliderRoot = document.createElement('div');
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '0';
+        slider.max = '10';
+        slider.step = '0.5';
+        slider.value = '2';
+        const display = document.createElement('input');
+        display.dataset.lightValueFor = 'slider-a';
+        sliderRoot.append(slider, display);
+        document.body.appendChild(sliderRoot);
+        let sliderInputEvents = 0;
+        slider.addEventListener('input', () => { sliderInputEvents += 1; });
+        const sliderDisplay = createSliderValueDisplayController({ root: sliderRoot });
+        sliderDisplay.register('slider-a', slider);
+        sliderDisplay.updateAll();
+        sliderDisplay.attachInputs();
+        const displayBeforeDispose = display.value;
+        sliderDisplay.dispose();
+        sliderDisplay.dispose();
+        display.value = '8';
+        display.dispatchEvent(new Event('change', { bubbles: true }));
+        slider.value = '9';
+        sliderDisplay.updateAll();
+        sliderDisplay.register('late', slider);
+        sliderDisplay.attachInputs();
+
+        return {
+            envOptionsBeforeDispose,
+            envOptionsAfterLatePopulate: hdriPresetSel.options.length,
+            envFirstOptionAfterLatePopulate: hdriPresetSel.options[0]?.value || '',
+            envCalls,
+            hemiBeforeDispose,
+            hemiAfterDispose: { ...hemiCalls, intensity: hemiLight.intensity },
+            sunBeforeDispose,
+            sunAfterDispose: { ...sunCalls, intensity: dirLight.intensity },
+            sunControlsUnmounted,
+            sunControlsRestoredAfterDispose,
+            sunToggleBeforeLateCalls,
+            sunToggleAfterLateCalls: {
+                ...sunToggleCalls,
+                enabled: app.sun.enabled,
+                visible: toggleDirLight.visible,
+                shadows: renderer.shadowMap.enabled,
+                controlsConnected: sunControlsEl.isConnected,
+            },
+            displayBeforeDispose,
+            displayAfterLateCalls: display.value,
+            sliderValueAfterLateCalls: slider.value,
+            sliderInputEvents,
+        };
+    });
+
+    assert.equal(result.envOptionsBeforeDispose, 3, 'Light controls smoke: environment presets were not populated before dispose');
+    assert.equal(result.envOptionsAfterLatePopulate, 1, 'Light controls smoke: disposed environment repopulated preset options');
+    assert.equal(result.envFirstOptionAfterLatePopulate, 'sentinel', 'Light controls smoke: disposed environment changed preset option');
+    assert.deepEqual(result.envCalls, { enabled: 0, rotation: 0, apply: 0, rebuild: 0, sync: 1, preset: 0 }, 'Light controls smoke: disposed environment still handled UI updates');
+    assert.deepEqual(result.hemiAfterDispose, result.hemiBeforeDispose, 'Light controls smoke: disposed hemi controls still changed light state');
+    assert.deepEqual(result.sunAfterDispose, result.sunBeforeDispose, 'Light controls smoke: disposed sun inputs still changed light state');
+    assert.equal(result.sunControlsUnmounted, true, 'Light controls smoke: sun controls were not unmounted before dispose');
+    assert.equal(result.sunControlsRestoredAfterDispose, true, 'Light controls smoke: sun controls were not restored on dispose');
+    assert.deepEqual(result.sunToggleAfterLateCalls, {
+        ...result.sunToggleBeforeLateCalls,
+        controlsConnected: true,
+    }, 'Light controls smoke: disposed sun toggle still changed state');
+    assert.equal(result.displayBeforeDispose, '2.0', 'Light controls smoke: slider display was not initialized');
+    assert.equal(result.displayAfterLateCalls, '8', 'Light controls smoke: disposed slider display still updated display');
+    assert.equal(result.sliderValueAfterLateCalls, '9', 'Light controls smoke: disposed slider display still committed input');
+    assert.equal(result.sliderInputEvents, 0, 'Light controls smoke: disposed slider display dispatched input');
+    diagnostics.assertNoErrors('Light controls dispose smoke');
+    await page.close();
+}
+
 const smokeServer = await createStaticServer();
 const browser = await chromium.launch({
     headless: true,
@@ -4942,6 +5176,8 @@ try {
     console.log('Custom select lifecycle smoke passed.');
     await runAppbarControllersDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Appbar/layout dispose smoke passed.');
+    await runLightControlsDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Light controls dispose smoke passed.');
     await runModalControllersDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Modal controllers dispose smoke passed.');
     await runStatusUIDisposeSmoke(browser, smokeServer.baseUrl);
