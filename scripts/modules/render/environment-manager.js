@@ -25,6 +25,51 @@ export const HDRI_LIBRARY = [
     { name: "Studio Small",       url: "hdr/studio_small_09_1k.hdr" }
 ];
 
+export function flipHDRTextureVertically(srcTex) {
+    const { data, width, height } = srcTex.image;
+    const channels = 4; // RGBA/RGBE
+    const flipped = new (data.constructor)(data.length);
+
+    for (let y = 0; y < height; y++) {
+        const srcRow = y * width * channels;
+        const dstRow = (height - 1 - y) * width * channels;
+        flipped.set(data.subarray(srcRow, srcRow + width * channels), dstRow);
+    }
+
+    const tex = new THREE.DataTexture(flipped, width, height, srcTex.format, srcTex.type);
+    tex.encoding = srcTex.encoding;
+    if ('colorSpace' in srcTex && 'colorSpace' in tex) tex.colorSpace = srcTex.colorSpace;
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    tex.needsUpdate = true;
+    return tex;
+}
+
+export async function loadEnvironmentEquirectTexture(url, options = {}) {
+    const EXRLoaderCtor = options.EXRLoaderCtor || EXRLoader;
+    const HDRLoaderCtor = options.HDRLoaderCtor || HDRLoader;
+    const lower = String(url || '').toLowerCase();
+    let tex;
+    if (lower.endsWith('.exr')) {
+        tex = await new EXRLoaderCtor().loadAsync(url);
+    } else {
+        const sourceTex = await new HDRLoaderCtor().loadAsync(url);
+        try {
+            tex = flipHDRTextureVertically(sourceTex);
+        } finally {
+            if (sourceTex && sourceTex !== tex) sourceTex.dispose?.();
+        }
+    }
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.flipY = false;
+    if ('flipX' in tex) tex.flipX = false;
+    if ('flipZ' in tex) tex.flipZ = false;
+    if ('colorSpace' in tex) tex.colorSpace = THREE.LinearSRGBColorSpace;
+    tex.needsUpdate = true;
+    return tex;
+}
+
 export function createEnvironmentManager(options = {}) {
     const renderer = options.renderer || null;
     const scene = options.scene || null;
@@ -132,47 +177,9 @@ export function createEnvironmentManager(options = {}) {
         }
     }
 
-    function flipHDRTextureVertically(srcTex) {
-        const { data, width, height } = srcTex.image;
-        const channels = 4; // RGBA/RGBE
-        const flipped = new (data.constructor)(data.length);
-
-        for (let y = 0; y < height; y++) {
-            const srcRow = y * width * channels;
-            const dstRow = (height - 1 - y) * width * channels;
-            flipped.set(data.subarray(srcRow, srcRow + width * channels), dstRow);
-        }
-
-        const tex = new THREE.DataTexture(flipped, width, height, srcTex.format, srcTex.type);
-        tex.encoding = srcTex.encoding;
-        tex.mapping = THREE.EquirectangularReflectionMapping;
-        tex.needsUpdate = true;
-        return tex;
-    }
-
-    async function loadEquirectTexture(url) {
-        const lower = String(url || '').toLowerCase();
-        let tex;
-        if (lower.endsWith('.exr')) {
-            tex = await new EXRLoader().loadAsync(url);
-        } else {
-            tex = await new HDRLoader().loadAsync(url);
-            tex = flipHDRTextureVertically(tex);
-        }
-        tex.mapping = THREE.EquirectangularReflectionMapping;
-        tex.wrapS = THREE.RepeatWrapping;
-        tex.wrapT = THREE.ClampToEdgeWrapping;
-        tex.flipY = false;
-        if ('flipX' in tex) tex.flipX = false;
-        if ('flipZ' in tex) tex.flipZ = false;
-        if ('colorSpace' in tex) tex.colorSpace = THREE.LinearSRGBColorSpace;
-        tex.needsUpdate = true;
-        return tex;
-    }
-
     const loadEquirectTextureImpl = typeof options.loadEquirectTexture === 'function'
         ? options.loadEquirectTexture
-        : loadEquirectTexture;
+        : loadEnvironmentEquirectTexture;
 
     function isLifecycleCurrent(generation) {
         return !disposed && enabled && generation === lifecycleGeneration;

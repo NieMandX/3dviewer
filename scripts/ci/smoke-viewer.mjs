@@ -5318,7 +5318,7 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
 
     const result = await page.evaluate(async () => {
         const THREE = await import('three');
-        const { createEnvironmentManager } = await import('/scripts/modules/render/environment-manager.js');
+        const { createEnvironmentManager, loadEnvironmentEquirectTexture } = await import('/scripts/modules/render/environment-manager.js');
 
         const data = new Float32Array([1, 1, 1, 1]);
         const sourceTex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat, THREE.FloatType);
@@ -5363,6 +5363,21 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         releaseLoad();
         await rebuildPromise;
 
+        const hdrSourceTex = new THREE.DataTexture(new Float32Array([0.2, 0.3, 0.4, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
+        let hdrSourceDisposed = 0;
+        hdrSourceTex.addEventListener('dispose', () => {
+            hdrSourceDisposed += 1;
+        });
+        const hdrLoadedTex = await loadEnvironmentEquirectTexture('smoke.hdr', {
+            HDRLoaderCtor: class SmokeHDRLoader {
+                async loadAsync() {
+                    return hdrSourceTex;
+                }
+            },
+        });
+        const hdrLoadedIsCopy = hdrLoadedTex !== hdrSourceTex;
+        hdrLoadedTex.dispose();
+
         delete globalThis.__smokeLoadEnvironmentTexture;
         return {
             sceneEnvironmentCleared: scene.environment == null,
@@ -5372,12 +5387,16 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
             disabled: manager.isEnabled() === false,
             loadCount,
             sourceDisposed,
+            hdrSourceDisposed,
+            hdrLoadedIsCopy,
             events,
         };
     });
 
     assert.equal(result.loadCount, 1, 'Environment smoke: HDR loader was not exercised');
     assert.equal(result.sourceDisposed, 1, 'Environment smoke: late HDR texture was not disposed after manager dispose');
+    assert.equal(result.hdrSourceDisposed, 1, 'Environment smoke: source HDR texture was not disposed after vertical flip');
+    assert.equal(result.hdrLoadedIsCopy, true, 'Environment smoke: HDR loader did not return flipped texture copy');
     assert.equal(result.sceneEnvironmentCleared, true, 'Environment smoke: disposed manager restored scene.environment');
     assert.equal(result.currentEnvCleared, true, 'Environment smoke: disposed manager retained currentEnv');
     assert.equal(result.currentBgCleared, true, 'Environment smoke: disposed manager retained currentBg');
