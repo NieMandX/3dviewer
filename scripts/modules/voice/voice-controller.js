@@ -35,9 +35,14 @@ export function createVoiceController(options = {}) {
     let room = null;
     let connecting = false;
     let micEnabled = false;
+    let disposed = false;
+    let lifecycleGeneration = 0;
+    let nextFallbackTrackId = 0;
     const attachedAudio = new Map();
+    const fallbackTrackKeys = new WeakMap();
 
     function emitState(extra = {}) {
+        if (disposed) return;
         const activeSpeakerIds = new Set(
             Array.isArray(room?.activeSpeakers)
                 ? room.activeSpeakers
@@ -61,7 +66,7 @@ export function createVoiceController(options = {}) {
         });
 
         onState({
-            connected: !!room,
+            connected: !!room && !connecting,
             connecting,
             micEnabled,
             participants,
@@ -78,10 +83,26 @@ export function createVoiceController(options = {}) {
     }
 
     function trackKey(trackPublication, track) {
-        return String(trackPublication?.trackSid || track?.sid || Math.random()).trim();
+        const explicit = String(trackPublication?.trackSid || track?.sid || '').trim();
+        if (explicit) return explicit;
+        const target = (trackPublication && typeof trackPublication === 'object')
+            ? trackPublication
+            : ((track && typeof track === 'object') ? track : null);
+        if (!target) {
+            nextFallbackTrackId += 1;
+            return `fallback:${nextFallbackTrackId}`;
+        }
+        let key = fallbackTrackKeys.get(target);
+        if (!key) {
+            nextFallbackTrackId += 1;
+            key = `fallback:${nextFallbackTrackId}`;
+            fallbackTrackKeys.set(target, key);
+        }
+        return key;
     }
 
     function attachAudioTrack(trackPublication, track) {
+        if (disposed) return;
         if (!audioMountEl || !track?.attach) return;
         const key = trackKey(trackPublication, track);
         if (attachedAudio.has(key)) return;
@@ -103,11 +124,18 @@ export function createVoiceController(options = {}) {
         attachedAudio.delete(key);
     }
 
-    function bindRoomEvents(nextRoom) {
+    function isCurrentRoom(nextRoom, generation) {
+        return !disposed && generation === lifecycleGeneration && room === nextRoom;
+    }
+
+    function bindRoomEvents(nextRoom, generation) {
         const RoomEvent = sdk?.RoomEvent || {};
         const TrackKind = sdk?.Track?.Kind || {};
         const audioKind = TrackKind.Audio || 'audio';
-        const refresh = () => emitState();
+        const refresh = () => {
+            if (!isCurrentRoom(nextRoom, generation)) return;
+            emitState();
+        };
 
         nextRoom.on(RoomEvent.ParticipantConnected, refresh);
         nextRoom.on(RoomEvent.ParticipantDisconnected, refresh);
@@ -119,18 +147,21 @@ export function createVoiceController(options = {}) {
         nextRoom.on(RoomEvent.ConnectionStateChanged, refresh);
 
         nextRoom.on(RoomEvent.TrackSubscribed, (track, publication) => {
+            if (!isCurrentRoom(nextRoom, generation)) return;
             const kind = track?.kind || publication?.kind || '';
             if (kind === audioKind) attachAudioTrack(publication, track);
             refresh();
         });
 
         nextRoom.on(RoomEvent.TrackUnsubscribed, (track, publication) => {
+            if (!isCurrentRoom(nextRoom, generation)) return;
             const kind = track?.kind || publication?.kind || '';
             if (kind === audioKind) detachAudioTrack(publication, track);
             refresh();
         });
 
         nextRoom.on(RoomEvent.Disconnected, () => {
+            if (!isCurrentRoom(nextRoom, generation)) return;
             clearAudioTracks();
             room = null;
             connecting = false;
@@ -153,37 +184,62 @@ export function createVoiceController(options = {}) {
     }
 
     async function connect(session = {}) {
-        if (room || connecting) return;
+        if (disposed || room || connecting) return;
+        const generation = ++lifecycleGeneration;
         connecting = true;
         emitState();
+        let nextRoom = null;
         try {
             sdk = sdk || await loadLiveKitClient();
+            if (disposed || generation !== lifecycleGeneration) return;
             const tokenPayload = await requestToken(session);
-            const nextRoom = new sdk.Room();
-            bindRoomEvents(nextRoom);
-            await nextRoom.connect(tokenPayload.wsUrl, tokenPayload.token);
+            if (disposed || generation !== lifecycleGeneration) return;
+            nextRoom = new sdk.Room();
             room = nextRoom;
+            bindRoomEvents(nextRoom, generation);
+            await nextRoom.connect(tokenPayload.wsUrl, tokenPayload.token);
+            if (disposed || generation !== lifecycleGeneration || room !== nextRoom) {
+                try { await nextRoom.disconnect?.(); } catch (_) {}
+                return;
+            }
             if (typeof nextRoom.startAudio === 'function') {
                 try { await nextRoom.startAudio(); } catch (_) {}
             }
+            if (disposed || generation !== lifecycleGeneration || room !== nextRoom) {
+                try { await nextRoom.disconnect?.(); } catch (_) {}
+                return;
+            }
             await nextRoom.localParticipant.setMicrophoneEnabled(true);
+            if (disposed || generation !== lifecycleGeneration || room !== nextRoom) {
+                try { await nextRoom.localParticipant?.setMicrophoneEnabled?.(false); } catch (_) {}
+                try { await nextRoom.disconnect?.(); } catch (_) {}
+                return;
+            }
             micEnabled = true;
             connecting = false;
             emitState({ roomName: tokenPayload.room });
         } catch (error) {
-            connecting = false;
+            if (generation === lifecycleGeneration) connecting = false;
             clearAudioTracks();
-            if (room) {
-                try { room.disconnect?.(); } catch (_) {}
+            if (nextRoom) {
+                try { nextRoom.disconnect?.(); } catch (_) {}
             }
-            room = null;
-            micEnabled = false;
-            emitState({ error: error instanceof Error ? error.message : 'Voice connect failed' });
+            if (generation === lifecycleGeneration) {
+                room = null;
+                micEnabled = false;
+                emitState({ error: error instanceof Error ? error.message : 'Voice connect failed' });
+            }
             throw error;
+        } finally {
+            if (generation === lifecycleGeneration && connecting && room !== nextRoom) {
+                connecting = false;
+                emitState();
+            }
         }
     }
 
     async function disconnect() {
+        lifecycleGeneration += 1;
         connecting = false;
         const activeRoom = room;
         room = null;
@@ -198,9 +254,12 @@ export function createVoiceController(options = {}) {
     }
 
     async function setMuted(muted) {
-        if (!room?.localParticipant?.setMicrophoneEnabled) return;
+        const activeRoom = room;
+        const generation = lifecycleGeneration;
+        if (disposed || !activeRoom?.localParticipant?.setMicrophoneEnabled) return;
         const nextEnabled = !muted;
-        await room.localParticipant.setMicrophoneEnabled(nextEnabled);
+        await activeRoom.localParticipant.setMicrophoneEnabled(nextEnabled);
+        if (disposed || generation !== lifecycleGeneration || room !== activeRoom) return;
         micEnabled = nextEnabled;
         emitState();
     }
@@ -210,6 +269,8 @@ export function createVoiceController(options = {}) {
     }
 
     async function dispose() {
+        if (disposed) return;
+        disposed = true;
         await disconnect();
     }
 
@@ -219,6 +280,6 @@ export function createVoiceController(options = {}) {
         dispose,
         setMuted,
         toggleMute,
-        isConnected: () => !!room,
+        isConnected: () => !!room && !connecting,
     });
 }

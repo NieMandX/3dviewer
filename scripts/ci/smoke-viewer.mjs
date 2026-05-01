@@ -2800,6 +2800,183 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const nativeFetch = globalThis.fetch;
+        const roomInstances = [];
+        const connectPlans = [];
+
+        class FakeRoom {
+            constructor() {
+                this.handlers = new Map();
+                this.remoteParticipants = new Map();
+                this.activeSpeakers = [];
+                this.disconnectCalls = 0;
+                this.startAudioCalls = 0;
+                this.connectCalls = 0;
+                this.micCalls = [];
+                this.localParticipant = {
+                    identity: 'local-user',
+                    name: 'Local User',
+                    setMicrophoneEnabled: async (enabled) => {
+                        this.micCalls.push(!!enabled);
+                    },
+                };
+                roomInstances.push(this);
+            }
+
+            on(event, handler) {
+                if (!this.handlers.has(event)) this.handlers.set(event, []);
+                this.handlers.get(event).push(handler);
+            }
+
+            emit(event, ...args) {
+                (this.handlers.get(event) || []).forEach((handler) => handler(...args));
+            }
+
+            async connect() {
+                this.connectCalls += 1;
+                const plan = connectPlans.shift();
+                if (plan) {
+                    plan.started?.();
+                    await plan.promise;
+                }
+            }
+
+            async startAudio() {
+                this.startAudioCalls += 1;
+            }
+
+            async disconnect() {
+                this.disconnectCalls += 1;
+                this.emit('Disconnected');
+            }
+        }
+
+        window.LivekitClient = {
+            Room: FakeRoom,
+            RoomEvent: {
+                ParticipantConnected: 'ParticipantConnected',
+                ParticipantDisconnected: 'ParticipantDisconnected',
+                ActiveSpeakersChanged: 'ActiveSpeakersChanged',
+                LocalTrackPublished: 'LocalTrackPublished',
+                LocalTrackUnpublished: 'LocalTrackUnpublished',
+                TrackMuted: 'TrackMuted',
+                TrackUnmuted: 'TrackUnmuted',
+                ConnectionStateChanged: 'ConnectionStateChanged',
+                TrackSubscribed: 'TrackSubscribed',
+                TrackUnsubscribed: 'TrackUnsubscribed',
+                Disconnected: 'Disconnected',
+            },
+            Track: { Kind: { Audio: 'audio' } },
+        };
+
+        globalThis.fetch = async () => ({
+            ok: true,
+            json: async () => ({ token: 'token', wsUrl: 'wss://voice.example', room: 'voice-room' }),
+        });
+
+        try {
+            const { createVoiceController } = await import('/scripts/modules/voice/voice-controller.js');
+
+            let releaseConnect = null;
+            const connectStarted = new Promise((resolve) => {
+                connectPlans.push({
+                    started: resolve,
+                    promise: new Promise((connectResolve) => {
+                        releaseConnect = connectResolve;
+                    }),
+                });
+            });
+
+            const states = [];
+            const controller = createVoiceController({
+                voiceApiUrl: 'https://voice.example',
+                onState: (state) => states.push({
+                    connected: !!state.connected,
+                    connecting: !!state.connecting,
+                    micEnabled: !!state.micEnabled,
+                    reason: state.reason || '',
+                    error: state.error || '',
+                }),
+            });
+
+            const connectResultPromise = controller
+                .connect({ room: 'room:one', identity: 'local-user', name: 'Local User' })
+                .then(() => 'resolved', (err) => `rejected:${err?.message || String(err)}`);
+            await connectStarted;
+            const staleRoom = roomInstances[0];
+            await controller.disconnect();
+            releaseConnect();
+            const connectResult = await connectResultPromise;
+            const statesAfterRace = states.slice();
+
+            const audioMount = document.createElement('div');
+            document.body.appendChild(audioMount);
+            let detachCalls = 0;
+            let attachCalls = 0;
+            const controllerWithAudio = createVoiceController({
+                voiceApiUrl: 'https://voice.example',
+                audioMountEl: audioMount,
+                onState: () => {},
+            });
+            await controllerWithAudio.connect({ room: 'room:two', identity: 'local-user', name: 'Local User' });
+            const audioRoom = roomInstances[1];
+            const publicationWithoutSid = { kind: 'audio' };
+            const trackWithoutSid = {
+                kind: 'audio',
+                attach: () => {
+                    attachCalls += 1;
+                    return document.createElement('audio');
+                },
+                detach: () => {
+                    detachCalls += 1;
+                },
+            };
+            audioRoom.emit('TrackSubscribed', trackWithoutSid, publicationWithoutSid);
+            const audioChildrenAfterAttach = audioMount.children.length;
+            audioRoom.emit('TrackUnsubscribed', trackWithoutSid, publicationWithoutSid);
+            const audioChildrenAfterDetach = audioMount.children.length;
+            await controllerWithAudio.dispose();
+
+            return {
+                connectResult,
+                statesAfterRace,
+                staleDisconnectCalls: staleRoom?.disconnectCalls || 0,
+                staleMicCalls: staleRoom?.micCalls || [],
+                staleStartAudioCalls: staleRoom?.startAudioCalls || 0,
+                audioChildrenAfterAttach,
+                audioChildrenAfterDetach,
+                attachCalls,
+                detachCalls,
+            };
+        } finally {
+            globalThis.fetch = nativeFetch;
+            delete window.LivekitClient;
+        }
+    });
+
+    assert.equal(result.connectResult, 'resolved', 'Voice controller smoke: cancelled connect rejected');
+    assert.equal(result.staleDisconnectCalls >= 1, true, 'Voice controller smoke: stale connecting room was not disconnected');
+    assert.deepEqual(result.staleMicCalls, [], 'Voice controller smoke: stale connect enabled the microphone');
+    assert.equal(result.staleStartAudioCalls, 0, 'Voice controller smoke: stale connect started audio');
+    assert.equal(
+        result.statesAfterRace.some((state) => state.connected || state.micEnabled),
+        false,
+        'Voice controller smoke: stale connect reported connected state after disconnect',
+    );
+    assert.equal(result.audioChildrenAfterAttach, 1, 'Voice controller smoke: audio track was not attached');
+    assert.equal(result.audioChildrenAfterDetach, 0, 'Voice controller smoke: fallback track key leaked attached audio element');
+    assert.equal(result.attachCalls, 1, 'Voice controller smoke: audio track attach count mismatch');
+    assert.equal(result.detachCalls, 1, 'Voice controller smoke: audio track detach count mismatch');
+    diagnostics.assertNoErrors('Voice controller lifecycle smoke');
+    await page.close();
+}
+
 async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -5516,6 +5693,8 @@ try {
     console.log('Collab delete queue dispose smoke passed.');
     await runCameraSyncLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Camera sync lifecycle smoke passed.');
+    await runVoiceControllerLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Voice controller lifecycle smoke passed.');
     await runVRDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('VR dispose lifecycle smoke passed.');
     await runRoomModelLoadQueueSmoke(browser, smokeServer.baseUrl);
