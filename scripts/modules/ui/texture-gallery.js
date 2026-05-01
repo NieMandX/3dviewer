@@ -6,10 +6,23 @@ export function createTextureGalleryController(options = {}) {
     const onOpen = typeof options.onOpen === 'function' ? options.onOpen : () => {};
 
     let renderedCount = 0;
+    let renderedKeys = [];
+    let renderGeneration = 0;
     let spacerEl = null;
+    let disposed = false;
+
+    function entryKey(entry) {
+        return [
+            entry?.url || '',
+            entry?.short || '',
+            entry?.full || '',
+            entry?.fileName || '',
+            entry?.mime || '',
+        ].join('\u0001');
+    }
 
     function ensureSpacer() {
-        if (!galleryEl) return null;
+        if (!galleryEl || disposed) return null;
         if (!spacerEl || spacerEl.parentNode !== galleryEl) {
             spacerEl = document.createElement('div');
             spacerEl.className = 'gallery-spacer';
@@ -17,19 +30,29 @@ export function createTextureGalleryController(options = {}) {
         return spacerEl;
     }
 
-    function reset() {
+    function clearGallery({ keepSpacer = true } = {}) {
         renderedCount = 0;
-        if (!galleryEl) return;
-        galleryEl.innerHTML = '';
+        renderedKeys = [];
+        renderGeneration += 1;
         spacerEl = null;
-        ensureSpacer();
-        if (spacerEl) galleryEl.appendChild(spacerEl);
+        if (galleryEl) galleryEl.innerHTML = '';
+        if (keepSpacer) {
+            ensureSpacer();
+            if (spacerEl) galleryEl.appendChild(spacerEl);
+        }
         if (texCountEl) texCountEl.textContent = '0';
     }
 
+    function reset() {
+        if (disposed) return;
+        clearGallery();
+    }
+
     function render(listAll) {
-        if (!galleryEl) return;
-        const total = Array.isArray(listAll) ? listAll.length : 0;
+        if (!galleryEl || disposed) return;
+        const list = Array.isArray(listAll) ? listAll : [];
+        const total = list.length;
+        const nextKeys = list.map(entryKey);
 
         ensureSpacer();
 
@@ -38,15 +61,24 @@ export function createTextureGalleryController(options = {}) {
             return;
         }
 
-        if (total < renderedCount) {
-            galleryEl.innerHTML = '';
-            renderedCount = 0;
-            ensureSpacer();
+        let needsFullRender = total < renderedCount;
+        if (!needsFullRender) {
+            for (let i = 0; i < renderedCount; i += 1) {
+                if (renderedKeys[i] !== nextKeys[i]) {
+                    needsFullRender = true;
+                    break;
+                }
+            }
+        }
+
+        if (needsFullRender) {
+            clearGallery();
         }
 
         const fragment = document.createDocumentFragment();
+        const itemGeneration = renderGeneration;
         for (let i = renderedCount; i < total; i++) {
-            const entry = listAll[i];
+            const entry = list[i];
             const div = document.createElement('div');
             div.className = 'thumb';
 
@@ -58,6 +90,7 @@ export function createTextureGalleryController(options = {}) {
                 img.alt = entry.short || '';
                 img.src = entry.url;
                 img.onerror = () => {
+                    if (disposed || itemGeneration !== renderGeneration) return;
                     div.classList.add('broken');
                     img.replaceWith(makePlaceholder(entry));
                 };
@@ -79,7 +112,10 @@ export function createTextureGalleryController(options = {}) {
             div.appendChild(imgWrap);
             div.appendChild(nm);
             div.appendChild(pill);
-            div.addEventListener('click', () => onOpen(entry));
+            div.addEventListener('click', () => {
+                if (disposed || itemGeneration !== renderGeneration) return;
+                onOpen(entry);
+            });
 
             fragment.appendChild(div);
         }
@@ -100,6 +136,7 @@ export function createTextureGalleryController(options = {}) {
         }
 
         renderedCount = total;
+        renderedKeys = nextKeys;
         if (texCountEl) texCountEl.textContent = String(total);
 
         function makePlaceholder(entry) {
@@ -110,10 +147,16 @@ export function createTextureGalleryController(options = {}) {
         }
     }
 
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        clearGallery({ keepSpacer: false });
+    }
+
     return Object.freeze({
         render,
         reset,
+        dispose,
         getRenderedCount: () => renderedCount,
     });
 }
-

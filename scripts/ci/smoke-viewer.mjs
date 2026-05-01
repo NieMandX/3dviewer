@@ -1812,6 +1812,83 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runTextureGalleryLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createTextureGalleryController } = await import('/scripts/modules/ui/texture-gallery.js');
+
+        const gallery = document.createElement('div');
+        const count = document.createElement('span');
+        document.body.append(gallery, count);
+
+        const opened = [];
+        const controller = createTextureGalleryController({
+            galleryEl: gallery,
+            texCountEl: count,
+            basename: (value) => String(value || '').split('/').pop(),
+            guessKindFromName: () => 'base',
+            onOpen: (entry) => opened.push(entry?.short || ''),
+        });
+
+        const oldEntry = {
+            short: 'old_base.png',
+            full: 'textures/old_base.png',
+            url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
+            mime: 'image/png',
+        };
+        const newEntry = {
+            short: 'new_base.png',
+            full: 'textures/new_base.png',
+            url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
+            mime: 'image/png',
+        };
+
+        controller.render([oldEntry]);
+        const oldThumb = gallery.querySelector('.thumb');
+        const firstName = gallery.querySelector('.nm')?.textContent || '';
+        oldThumb?.click();
+
+        controller.render([newEntry]);
+        const newThumb = gallery.querySelector('.thumb');
+        const secondName = gallery.querySelector('.nm')?.textContent || '';
+        oldThumb?.click();
+        newThumb?.click();
+
+        controller.dispose();
+        const htmlAfterDispose = gallery.innerHTML;
+        const countAfterDispose = count.textContent;
+        newThumb?.click();
+        controller.render([oldEntry]);
+
+        return {
+            opened,
+            firstName,
+            secondName,
+            htmlAfterDispose,
+            countAfterDispose,
+            htmlAfterLateRender: gallery.innerHTML,
+            renderedCount: controller.getRenderedCount(),
+        };
+    });
+
+    assert.deepEqual(
+        result.opened,
+        ['old_base.png', 'new_base.png'],
+        'Texture gallery lifecycle smoke: stale/disposed thumbnail callback opened an entry',
+    );
+    assert.equal(result.firstName, 'old_base.png', 'Texture gallery lifecycle smoke: initial entry did not render');
+    assert.equal(result.secondName, 'new_base.png', 'Texture gallery lifecycle smoke: equal-length replacement did not rerender');
+    assert.equal(result.htmlAfterDispose, '', 'Texture gallery lifecycle smoke: dispose left thumbnail DOM behind');
+    assert.equal(result.htmlAfterLateRender, '', 'Texture gallery lifecycle smoke: disposed gallery accepted late render');
+    assert.equal(result.countAfterDispose, '0', 'Texture gallery lifecycle smoke: dispose did not reset count');
+    assert.equal(result.renderedCount, 0, 'Texture gallery lifecycle smoke: disposed gallery retained rendered count');
+    diagnostics.assertNoErrors('Texture gallery lifecycle smoke');
+    await page.close();
+}
+
 async function runTextureModalStaleEntrySmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -1876,12 +1953,17 @@ async function runTextureModalStaleEntrySmoke(browser, baseUrl) {
         const kept = modal.classList.contains('show') && controller.getEntry() === liveEntry;
 
         controller.dispose();
-        return { opened, cleared, kept };
+        controller.open(staleEntry);
+        const disposedOpenIgnored = !modal.classList.contains('show')
+            && controller.getEntry() == null
+            && !img.hasAttribute('src');
+        return { opened, cleared, kept, disposedOpenIgnored };
     });
 
     assert.equal(result.opened, true, 'Texture modal stale smoke: entry did not open');
     assert.equal(result.cleared, true, 'Texture modal stale smoke: removed gallery entry stayed active');
     assert.equal(result.kept, true, 'Texture modal stale smoke: live gallery entry was cleared');
+    assert.equal(result.disposedOpenIgnored, true, 'Texture modal stale smoke: disposed modal accepted a late open');
     diagnostics.assertNoErrors('Texture modal stale entry smoke');
     await page.close();
 }
@@ -5353,6 +5435,8 @@ try {
     console.log('File-flow dispose lifecycle smoke passed.');
     await runBatchFinalizerDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Batch finalizer dispose smoke passed.');
+    await runTextureGalleryLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Texture gallery lifecycle smoke passed.');
     await runTextureModalStaleEntrySmoke(browser, smokeServer.baseUrl);
     console.log('Texture modal stale entry smoke passed.');
     await runTextureReplacementLifecycleSmoke(browser, smokeServer.baseUrl);

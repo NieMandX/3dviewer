@@ -91,7 +91,10 @@ export function createTexturesUI(options = {}) {
         onOpen: textureModal.open,
     });
 
+    let disposed = false;
+
     function renderGallery(listAll) {
+        if (disposed) return;
         textureGallery.render(listAll);
         textureModal.reconcileEntries?.(listAll);
         markGalleryRendered();
@@ -101,6 +104,11 @@ export function createTexturesUI(options = {}) {
         textureModal,
         textureGallery,
         renderGallery,
-        dispose: () => textureModal?.dispose?.(),
+        dispose: () => {
+            if (disposed) return;
+            disposed = true;
+            textureGallery?.dispose?.();
+            textureModal?.dispose?.();
+        },
     };
 }

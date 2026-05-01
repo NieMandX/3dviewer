@@ -44,6 +44,7 @@ export function createTextureModalController(options = {}) {
     const srgbColorSpace = colorSpaces?.srgb;
 
     let modalTex = null;
+    let disposed = false;
 
     function isTextureStillUsed(texture) {
         if (!texture?.isTexture) return false;
@@ -69,6 +70,7 @@ export function createTextureModalController(options = {}) {
     }
 
     function open(entry) {
+        if (disposed) return;
         if (!entry) return;
         modalTex = entry;
 
@@ -107,6 +109,7 @@ export function createTextureModalController(options = {}) {
     }
 
     function bindSelected() {
+        if (disposed) return;
         if (!modalTex) return;
         if (!modalTex.url) {
             notify?.('Текстура больше недоступна');
@@ -205,6 +208,7 @@ export function createTextureModalController(options = {}) {
     }
 
     function reconcileEntries(entries = []) {
+        if (disposed) return;
         if (!modalTex) return;
         const list = Array.isArray(entries) ? entries : [];
         if (list.some((entry) => isSameTextureEntry(modalTex, entry))) return;
@@ -223,9 +227,12 @@ export function createTextureModalController(options = {}) {
     if (bindBtnEl) bindBtnEl.addEventListener('click', bindSelected);
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         if (closeBtnEl) closeBtnEl.removeEventListener('click', close);
         if (texModalEl) texModalEl.removeEventListener('click', handleModalClick);
         if (bindBtnEl) bindBtnEl.removeEventListener('click', bindSelected);
+        close();
         clearModalEntry();
     }
 
