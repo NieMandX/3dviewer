@@ -7,6 +7,7 @@ export function createStatusUIController(options = {}) {
     const readyClearDelayMs = Number.isFinite(options.readyClearDelayMs) ? options.readyClearDelayMs : 2000;
 
     let statusClearTimer = null;
+    let disposed = false;
 
     function clearTimer() {
         if (!statusClearTimer) return;
@@ -15,6 +16,7 @@ export function createStatusUIController(options = {}) {
     }
 
     function setStatusMessage(message = '') {
+        if (disposed) return;
         if (!statusEl) return;
 
         clearTimer();
@@ -41,13 +43,27 @@ export function createStatusUIController(options = {}) {
     }
 
     function setEmptyHintVisible(visible) {
+        if (disposed) return;
         if (!emptyHintEl) return;
         emptyHintEl.hidden = !visible;
         emptyHintEl.style.opacity = visible ? '1' : '0';
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         clearTimer();
+        if (statusEl) {
+            statusEl.textContent = '';
+            statusEl.hidden = true;
+        }
+        if (appbarStatusEl && appbarStatusEl !== statusEl) {
+            appbarStatusEl.textContent = '';
+        }
+        if (emptyHintEl) {
+            emptyHintEl.hidden = true;
+            emptyHintEl.style.opacity = '0';
+        }
     }
 
     return {
@@ -56,4 +72,3 @@ export function createStatusUIController(options = {}) {
         dispose,
     };
 }
-

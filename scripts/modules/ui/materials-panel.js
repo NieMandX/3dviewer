@@ -47,12 +47,21 @@ export function createMaterialsPanelController(options = {}) {
     let refreshPending = false;
     const refreshCallbacks = [];
     let needsFullRefresh = false;
+    let disposed = false;
 
     function markNeedsFullRefresh() {
+        if (disposed) return;
         needsFullRefresh = true;
     }
 
-    function resetState() {
+    function clearMaterialsDropdown() {
+        if (!matSelect) return;
+        matSelect.innerHTML = '<option value="">— выберите материал —</option>';
+        delete matSelect.dataset._map;
+    }
+
+    function resetState(options = {}) {
+        if (disposed && !options?.force) return;
         panelState.groups.forEach(entry => entry?.wrapper?.remove?.());
         panelState.groups.clear();
         panelState.renderedModels.clear();
@@ -62,15 +71,24 @@ export function createMaterialsPanelController(options = {}) {
         }
         panelState.ungroupedMarker = null;
         needsFullRefresh = false;
-        rebuildMaterialsDropdown();
+        if (options?.rebuildDropdown === false) {
+            clearMaterialsDropdown();
+        } else {
+            rebuildMaterialsDropdown();
+        }
     }
 
     function scheduleRefresh(afterRender) {
+        if (disposed) return;
         if (typeof afterRender === 'function') refreshCallbacks.push(afterRender);
         if (refreshPending) return;
         refreshPending = true;
         Promise.resolve().then(() => {
             refreshPending = false;
+            if (disposed) {
+                refreshCallbacks.length = 0;
+                return;
+            }
             if (needsFullRefresh) resetState();
             renderMaterialsPanel();
             const callbacks = refreshCallbacks.splice(0);
@@ -531,6 +549,7 @@ export function createMaterialsPanelController(options = {}) {
      * Обновляет выпадающий список, интерактивные элементы и синхронизацию коллизий.
      */
     function renderMaterialsPanel() {
+        if (disposed) return;
         const newModels = loadedModels.filter(m => !panelState.renderedModels.has(m.obj.uuid));
         if (!newModels.length) return;
 
@@ -618,6 +637,7 @@ export function createMaterialsPanelController(options = {}) {
      * Пересобирает выпадающий список материалов для ручной привязки текстур.
      */
     function rebuildMaterialsDropdown() {
+        if (disposed) return;
         if (!matSelect) return;
         const items = collectMaterialsFromWorld();
         matSelect.innerHTML = '<option value="">— выберите материал —</option>';
@@ -631,7 +651,16 @@ export function createMaterialsPanelController(options = {}) {
     }
 
     function markSceneChanged() {
+        if (disposed) return;
         requestRender();
+    }
+
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        refreshPending = false;
+        refreshCallbacks.length = 0;
+        resetState({ force: true, rebuildDropdown: false });
     }
 
     return Object.freeze({
@@ -644,5 +673,6 @@ export function createMaterialsPanelController(options = {}) {
         resolveGlassMaterial,
         syncCollisionButtons,
         markSceneChanged,
+        dispose,
     });
 }

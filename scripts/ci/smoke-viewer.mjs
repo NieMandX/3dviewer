@@ -4067,6 +4067,22 @@ async function runMaterialsPanelRemovalSmoke(browser, baseUrl) {
         const secondPanelText = outEl.textContent || '';
         const secondOptions = matSelect.options.length;
 
+        createModel('late');
+        let callbackCount = 0;
+        panel.scheduleRefresh(() => {
+            callbackCount += 1;
+        });
+        panel.dispose();
+        await Promise.resolve();
+        await Promise.resolve();
+        panel.scheduleRefresh(() => {
+            callbackCount += 1;
+        });
+        await Promise.resolve();
+        const disposedText = outEl.textContent || '';
+        const disposedOptions = matSelect.options.length;
+        const disposedMap = matSelect.dataset._map || '';
+
         return {
             firstRendered: firstPanelText.includes('first.fbx') && firstPanelText.includes('first-material'),
             firstOptions,
@@ -4075,6 +4091,10 @@ async function runMaterialsPanelRemovalSmoke(browser, baseUrl) {
             secondRendered: secondPanelText.includes('second.fbx') && secondPanelText.includes('second-material'),
             oldModelStillAbsent: !secondPanelText.includes('first.fbx') && !secondPanelText.includes('first-material'),
             secondOptions,
+            disposedPanelCleared: !disposedText.includes('second.fbx') && !disposedText.includes('late.fbx'),
+            disposedOptions,
+            disposedMap,
+            callbackCount,
         };
     });
 
@@ -4085,7 +4105,56 @@ async function runMaterialsPanelRemovalSmoke(browser, baseUrl) {
     assert.equal(result.secondRendered, true, 'Materials panel removal smoke: second model was not rendered');
     assert.equal(result.oldModelStillAbsent, true, 'Materials panel removal smoke: stale model was mixed with new model');
     assert.equal(result.secondOptions, 2, 'Materials panel removal smoke: second material dropdown not populated');
+    assert.equal(result.disposedPanelCleared, true, 'Materials panel removal smoke: dispose left stale panel DOM or rendered pending refresh');
+    assert.equal(result.disposedOptions, 1, 'Materials panel removal smoke: dispose did not clear material dropdown');
+    assert.equal(result.disposedMap, '', 'Materials panel removal smoke: dispose left stale material map');
+    assert.equal(result.callbackCount, 0, 'Materials panel removal smoke: pending refresh callbacks fired after dispose');
     diagnostics.assertNoErrors('Materials panel removal smoke');
+    await page.close();
+}
+
+async function runStatusUIDisposeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createStatusUIController } = await import('/scripts/modules/ui/status-ui.js');
+
+        const statusEl = document.createElement('div');
+        const appbarStatusEl = document.createElement('div');
+        const emptyHintEl = document.createElement('div');
+        document.body.append(statusEl, appbarStatusEl, emptyHintEl);
+
+        const status = createStatusUIController({
+            statusEl,
+            appbarStatusEl,
+            emptyHintEl,
+            readyClearDelayMs: 5,
+        });
+
+        status.setStatusMessage('готово: synced');
+        status.setEmptyHintVisible(true);
+        status.dispose();
+        status.setStatusMessage('late status');
+        status.setEmptyHintVisible(true);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        return {
+            statusText: statusEl.textContent,
+            statusHidden: statusEl.hidden,
+            appbarText: appbarStatusEl.textContent,
+            emptyHidden: emptyHintEl.hidden,
+            emptyOpacity: emptyHintEl.style.opacity,
+        };
+    });
+
+    assert.equal(result.statusText, '', 'Status UI smoke: disposed status accepted a late message');
+    assert.equal(result.statusHidden, true, 'Status UI smoke: disposed status was not hidden');
+    assert.equal(result.appbarText, '', 'Status UI smoke: disposed appbar status retained text');
+    assert.equal(result.emptyHidden, true, 'Status UI smoke: disposed empty hint accepted a late update');
+    assert.equal(result.emptyOpacity, '0', 'Status UI smoke: disposed empty hint opacity was not cleared');
+    diagnostics.assertNoErrors('Status UI dispose smoke');
     await page.close();
 }
 
@@ -4156,6 +4225,8 @@ try {
     console.log('Environment lifecycle smoke passed.');
     await runMaterialsPanelRemovalSmoke(browser, smokeServer.baseUrl);
     console.log('Materials panel removal smoke passed.');
+    await runStatusUIDisposeSmoke(browser, smokeServer.baseUrl);
+    console.log('Status UI dispose smoke passed.');
 } finally {
     await browser.close();
     await smokeServer.close();
