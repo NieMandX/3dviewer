@@ -852,7 +852,10 @@ async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
             const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
             camera.position.set(0, 0, 5);
             const canvas = document.createElement('canvas');
-            document.body.appendChild(canvas);
+            const toolbar = document.createElement('div');
+            const layerSelect = document.createElement('select');
+            const layerAdd = document.createElement('button');
+            document.body.append(canvas, toolbar, layerSelect, layerAdd);
             const controls = { enabled: true };
             const renderer = {
                 isWebGPURenderer: true,
@@ -866,6 +869,8 @@ async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
                     },
                 },
             };
+            let resolveLayerPrompt = null;
+            let layerPromptCalls = 0;
 
             const controller = createAnnotations3DController({
                 THREE,
@@ -874,10 +879,22 @@ async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
                 controls,
                 renderer,
                 annotateCanvasEl: canvas,
+                annotateToolbarEl: toolbar,
+                annoLayerSelectEl: layerSelect,
+                annoLayerAddBtn: layerAdd,
                 requestRender: () => {
                     renderCount += 1;
                 },
+                promptLayerName: () => {
+                    layerPromptCalls += 1;
+                    return new Promise((resolve) => {
+                        resolveLayerPrompt = resolve;
+                    });
+                },
             });
+            const layerOptionsBeforePrompt = layerSelect.options.length;
+            layerAdd.click();
+            await Promise.resolve();
 
             const record = {
                 id: 'anno-1',
@@ -902,6 +919,9 @@ async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
             const canvasActiveBeforeDispose = canvas.classList.contains('active');
             controller.dispose();
             controller.dispose();
+            resolveLayerPrompt?.('Late Layer');
+            await Promise.resolve();
+            await Promise.resolve();
             const renderCountAfterDispose = renderCount;
             const geometryDisposedAfterDispose = geometryDisposed;
             const materialDisposedAfterDispose = materialDisposed;
@@ -941,6 +961,9 @@ async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
                 geometryDisposedAfterLateCallbacks: geometryDisposed,
                 materialDisposedAfterLateCallbacks: materialDisposed,
                 queueWaits,
+                layerPromptCalls,
+                layerOptionsBeforePrompt,
+                layerOptionsAfterLatePrompt: layerSelect.options.length,
                 renderUnchangedAfterLateCalls: renderCount === renderCountAfterDispose,
                 lateAddIsNull: lateAdd == null,
                 lateRemove,
@@ -966,6 +989,8 @@ async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.geometryDisposedAfterLateCallbacks, result.geometryDisposedAfterDispose, 'Annotations dispose smoke: stale RAF disposed geometry twice');
     assert.equal(result.materialDisposedAfterLateCallbacks, result.materialDisposedAfterDispose, 'Annotations dispose smoke: stale RAF disposed material twice');
     assert.equal(result.queueWaits, 0, 'Annotations dispose smoke: stale RAF reached WebGPU queue after dispose');
+    assert.equal(result.layerPromptCalls, 1, 'Annotations dispose smoke: layer prompt was not opened');
+    assert.equal(result.layerOptionsAfterLatePrompt, result.layerOptionsBeforePrompt, 'Annotations dispose smoke: stale layer prompt mutated toolbar after dispose');
     assert.equal(result.renderUnchangedAfterLateCalls, true, 'Annotations dispose smoke: late calls requested render after dispose');
     assert.equal(result.lateAddIsNull, true, 'Annotations dispose smoke: late remote annotation was accepted after dispose');
     assert.equal(result.lateRemove, false, 'Annotations dispose smoke: late remove succeeded after dispose');
@@ -1006,9 +1031,73 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
             const barList = document.createElement('div');
             const sideList = document.createElement('div');
             const count = document.createElement('span');
-            root.append(toggle, bar, barList, sideList, count);
+            const canvas = document.createElement('canvas');
+            canvas.width = 100;
+            canvas.height = 100;
+            canvas.getBoundingClientRect = () => ({
+                left: 0,
+                top: 0,
+                right: 100,
+                bottom: 100,
+                width: 100,
+                height: 100,
+                x: 0,
+                y: 0,
+                toJSON: () => {},
+            });
+            const toolbar = document.createElement('div');
+            const pencilTool = document.createElement('button');
+            pencilTool.className = 'anno-tool';
+            pencilTool.dataset.tool = 'pencil';
+            const textTool = document.createElement('button');
+            textTool.className = 'anno-tool';
+            textTool.dataset.tool = 'text';
+            toolbar.append(pencilTool, textTool);
+            const annoVisible = document.createElement('button');
+            const annoDraw = document.createElement('button');
+            const annoUndo = document.createElement('button');
+            const annoClear = document.createElement('button');
+            const annoColor = document.createElement('input');
+            annoColor.value = '#ffcc00';
+            const annoDash = document.createElement('select');
+            const annoWidth = document.createElement('input');
+            annoWidth.value = '3';
+            root.append(
+                toggle,
+                bar,
+                barList,
+                sideList,
+                count,
+                canvas,
+                toolbar,
+                annoVisible,
+                annoDraw,
+                annoUndo,
+                annoClear,
+                annoColor,
+                annoDash,
+                annoWidth,
+            );
             document.body.appendChild(root);
-            return { root, toggle, bar, barList, sideList, count };
+            return {
+                root,
+                toggle,
+                bar,
+                barList,
+                sideList,
+                count,
+                canvas,
+                toolbar,
+                pencilTool,
+                textTool,
+                annoVisible,
+                annoDraw,
+                annoUndo,
+                annoClear,
+                annoColor,
+                annoDash,
+                annoWidth,
+            };
         }
 
         function makeHarness(extra = {}) {
@@ -1027,6 +1116,15 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
                 camera,
                 controls,
                 annotationsEnabled: false,
+                annotateCanvasEl: dom.canvas,
+                annotateToolbarEl: dom.toolbar,
+                annoVisibleBtn: dom.annoVisible,
+                annoDrawBtn: dom.annoDraw,
+                annoColorEl: dom.annoColor,
+                annoDashEl: dom.annoDash,
+                annoWidthEl: dom.annoWidth,
+                annoUndoBtn: dom.annoUndo,
+                annoClearBtn: dom.annoClear,
                 camsToggleBtn: dom.toggle,
                 camsBarEl: dom.bar,
                 camsBarListEl: dom.barList,
@@ -1037,6 +1135,25 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
                 ...extra,
             });
             return { ...dom, camera, controls, controller, events };
+        }
+
+        function firePointer(target, type, init = {}) {
+            const options = {
+                bubbles: true,
+                cancelable: true,
+                clientX: init.clientX ?? 10,
+                clientY: init.clientY ?? 10,
+                button: init.button ?? 0,
+                buttons: init.buttons ?? 1,
+                pointerId: init.pointerId ?? 1,
+            };
+            const event = typeof PointerEvent === 'function'
+                ? new PointerEvent(type, options)
+                : new MouseEvent(type, options);
+            if (!('pointerId' in event)) {
+                Object.defineProperty(event, 'pointerId', { value: options.pointerId });
+            }
+            target.dispatchEvent(event);
         }
 
         const presets = [
@@ -1128,6 +1245,71 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
             await Promise.resolve();
             const promptEndCount = promptHarness.controller.getPresets().length;
 
+            const annotationChanges = [];
+            let resolveTextPrompt = null;
+            const annotationPromptHarness = makeHarness({
+                annotationsEnabled: true,
+                onChange: (state) => annotationChanges.push(state),
+                promptAnnotationText: () => new Promise((resolve) => {
+                    resolveTextPrompt = resolve;
+                }),
+            });
+            annotationPromptHarness.controller.loadState({
+                presets: [presets[0]],
+                transitions: [],
+                activeId: 'cam-a',
+                lastCreatedId: 'cam-a',
+            });
+            annotationChanges.length = 0;
+            annotationPromptHarness.textTool.click();
+            const textAnnotationsBefore = annotationPromptHarness.controller.getPresets()[0]?.annotations?.length || 0;
+            firePointer(annotationPromptHarness.canvas, 'pointerdown', {
+                clientX: 25,
+                clientY: 25,
+                pointerId: 11,
+            });
+            await Promise.resolve();
+            annotationPromptHarness.controller.dispose();
+            resolveTextPrompt?.('Late annotation');
+            await Promise.resolve();
+            await Promise.resolve();
+            const textAnnotationsAfter = annotationPromptHarness.controller.getPresets()[0]?.annotations?.length || 0;
+
+            const drawChanges = [];
+            const drawHarness = makeHarness({
+                annotationsEnabled: true,
+                onChange: (state) => drawChanges.push(state),
+            });
+            drawHarness.controller.loadState({
+                presets: [presets[0]],
+                transitions: [],
+                activeId: 'cam-a',
+                lastCreatedId: 'cam-a',
+            });
+            drawHarness.pencilTool.click();
+            firePointer(drawHarness.canvas, 'pointerdown', {
+                clientX: 10,
+                clientY: 10,
+                pointerId: 12,
+                buttons: 1,
+            });
+            firePointer(drawHarness.canvas, 'pointermove', {
+                clientX: 50,
+                clientY: 50,
+                pointerId: 12,
+                buttons: 1,
+            });
+            firePointer(drawHarness.canvas, 'pointerup', {
+                clientX: 50,
+                clientY: 50,
+                pointerId: 12,
+                buttons: 0,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            const drawPreset = drawHarness.controller.getPresets()[0] || {};
+            const persistedDrawState = drawChanges[drawChanges.length - 1] || null;
+            const persistedDrawPreset = persistedDrawState?.presets?.[0] || {};
+
             return {
                 controlsDisabledDuringPlay,
                 pendingRafBeforeDispose,
@@ -1143,6 +1325,11 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
                 promptStartCount,
                 promptAddIsNull: promptAddResult == null,
                 promptEndCount,
+                textAnnotationsBefore,
+                textAnnotationsAfter,
+                staleTextPromptChanges: annotationChanges.length,
+                localDrawAnnotationCount: drawPreset.annotations?.length || 0,
+                persistedDrawAnnotationCount: persistedDrawPreset.annotations?.length || 0,
             };
         } finally {
             globalThis.requestAnimationFrame = nativeRaf;
@@ -1163,6 +1350,10 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.presetCountAfterLateCalls, 2, 'Camera presets smoke: late public calls changed preset state after dispose');
     assert.equal(result.promptAddIsNull, true, 'Camera presets smoke: pending add prompt resolved into a preset after dispose');
     assert.equal(result.promptEndCount, result.promptStartCount, 'Camera presets smoke: pending add prompt changed preset count after dispose');
+    assert.equal(result.textAnnotationsAfter, result.textAnnotationsBefore, 'Camera presets smoke: pending text prompt wrote an annotation after dispose');
+    assert.equal(result.staleTextPromptChanges, 0, 'Camera presets smoke: pending text prompt emitted onChange after dispose');
+    assert.equal(result.localDrawAnnotationCount, 1, 'Camera presets smoke: drawn 2D annotation was not stored locally');
+    assert.equal(result.persistedDrawAnnotationCount, 1, 'Camera presets smoke: drawn 2D annotation was not included in onChange state');
     diagnostics.assertNoErrors('Camera presets lifecycle smoke');
     await page.close();
 }

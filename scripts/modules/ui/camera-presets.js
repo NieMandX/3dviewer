@@ -107,6 +107,7 @@ export function createCameraPresetsController(options = {}) {
     let disposed = false;
     let transitionRafToken = 0;
     let transitionAbort = null;
+    let stateVersion = 0;
     const cleanupFns = [];
 
     function addListener(target, type, handler, options) {
@@ -432,6 +433,11 @@ export function createCameraPresetsController(options = {}) {
         }, 200);
     }
 
+    function markStateDirty() {
+        stateVersion += 1;
+        scheduleChange();
+    }
+
     function loadState(state = {}) {
         if (disposed) return false;
         const nextPresets = Array.isArray(state.presets) ? state.presets : null;
@@ -464,6 +470,7 @@ export function createCameraPresetsController(options = {}) {
         activeId = nextActive;
         lastCreatedId = nextLast;
         suppressChange = false;
+        stateVersion += 1;
         render();
         return true;
     }
@@ -481,6 +488,7 @@ export function createCameraPresetsController(options = {}) {
         let width = 3;
 
         let draft = null;
+        let draftPresetId = null;
         let pointerId = null;
         let prevControlsEnabled = null;
         let redrawScheduled = false;
@@ -691,8 +699,8 @@ export function createCameraPresetsController(options = {}) {
         async function commitTextAt(p) {
             const preset = getActivePreset();
             if (!preset) return;
-            ensureAnnotationsDefaults(preset);
-            if (!preset.annotationsVisible) preset.annotationsVisible = true;
+            const presetId = preset.id;
+            const version = stateVersion;
 
             let text = null;
             if (promptAnnotationText) {
@@ -707,14 +715,21 @@ export function createCameraPresetsController(options = {}) {
             if (text == null) return;
             const t = String(text).trim();
             if (!t) return;
+            if (disposed || version !== stateVersion || activeId !== presetId) return;
 
-            preset.annotations.push({
+            const targetPreset = getPresetById(presetId);
+            if (!targetPreset) return;
+            ensureAnnotationsDefaults(targetPreset);
+            if (!targetPreset.annotationsVisible) targetPreset.annotationsVisible = true;
+
+            targetPreset.annotations.push({
                 type: 'text',
                 p,
                 text: t,
                 fontSize: Math.max(10, Math.round(width * 6 + 10)),
                 style: { color, width, dash: 'solid' },
             });
+            markStateDirty();
             scheduleDraw();
         }
 
@@ -742,13 +757,17 @@ export function createCameraPresetsController(options = {}) {
             const preset = getActivePreset();
             if (!preset) return;
             ensureAnnotationsDefaults(preset);
-            if (!preset.annotationsVisible) preset.annotationsVisible = true;
+            if (!preset.annotationsVisible) {
+                preset.annotationsVisible = true;
+                markStateDirty();
+            }
 
             rect = getViewRect();
             if (!rect || rect.width <= 0 || rect.height <= 0) return;
 
             const p = canvasPointFromEvent(e);
             if (!p) return;
+            draftPresetId = preset.id;
 
             if (controls && prevControlsEnabled == null) {
                 prevControlsEnabled = controls.enabled;
@@ -756,10 +775,12 @@ export function createCameraPresetsController(options = {}) {
             }
 
             if (tool === 'text') {
+                const textPresetId = draftPresetId;
                 void (async () => {
                     try {
                         await commitTextAt(p);
                     } finally {
+                        if (draftPresetId === textPresetId) draftPresetId = null;
                         if (controls && prevControlsEnabled != null) {
                             controls.enabled = prevControlsEnabled;
                             prevControlsEnabled = null;
@@ -809,8 +830,9 @@ export function createCameraPresetsController(options = {}) {
             if (!draft || pointerId == null || e.pointerId !== pointerId) return;
 
             const preset = getActivePreset();
-            if (!preset) {
+            if (!preset || !draftPresetId || activeId !== draftPresetId || preset.id !== draftPresetId) {
                 draft = null;
+                draftPresetId = null;
                 pointerId = null;
                 releasePointerCapture(e);
                 scheduleDraw();
@@ -820,17 +842,27 @@ export function createCameraPresetsController(options = {}) {
 
             const shape = draft;
             draft = null;
+            draftPresetId = null;
             pointerId = null;
             releasePointerCapture(e);
 
+            let added = false;
             if (shape.type === 'path') {
                 const pts = Array.isArray(shape.points) ? shape.points : [];
-                if (pts.length >= 2) preset.annotations.push(shape);
+                if (pts.length >= 2) {
+                    preset.annotations.push(shape);
+                    added = true;
+                }
             } else if (shape.type === 'circle') {
-                if ((Number(shape.r) || 0) > 0.0001) preset.annotations.push(shape);
+                if ((Number(shape.r) || 0) > 0.0001) {
+                    preset.annotations.push(shape);
+                    added = true;
+                }
             } else {
                 preset.annotations.push(shape);
+                added = true;
             }
+            if (added) markStateDirty();
 
             if (controls && prevControlsEnabled != null) {
                 controls.enabled = prevControlsEnabled;
@@ -846,6 +878,7 @@ export function createCameraPresetsController(options = {}) {
                 releasePointerCapture(e);
             }
             draft = null;
+            draftPresetId = null;
             pointerId = null;
             if (controls && prevControlsEnabled != null) {
                 controls.enabled = prevControlsEnabled;
@@ -860,6 +893,7 @@ export function createCameraPresetsController(options = {}) {
             ensureAnnotationsDefaults(preset);
             if (!preset.annotations.length) return false;
             preset.annotations.pop();
+            markStateDirty();
             scheduleDraw();
             return true;
         }
@@ -868,7 +902,9 @@ export function createCameraPresetsController(options = {}) {
             const preset = getActivePreset();
             if (!preset) return false;
             ensureAnnotationsDefaults(preset);
+            if (!preset.annotations.length) return false;
             preset.annotations.length = 0;
+            markStateDirty();
             scheduleDraw();
             return true;
         }
@@ -877,7 +913,13 @@ export function createCameraPresetsController(options = {}) {
             const preset = getActivePreset();
             if (!preset) return false;
             ensureAnnotationsDefaults(preset);
-            preset.annotationsVisible = !!visible;
+            const next = !!visible;
+            if (preset.annotationsVisible === next) {
+                scheduleDraw();
+                return true;
+            }
+            preset.annotationsVisible = next;
+            markStateDirty();
             scheduleDraw();
             return true;
         }
@@ -928,6 +970,7 @@ export function createCameraPresetsController(options = {}) {
             dispose: () => {
                 drawEnabled = false;
                 draft = null;
+                draftPresetId = null;
                 pointerId = null;
                 if (controls && prevControlsEnabled != null) {
                     controls.enabled = prevControlsEnabled;
@@ -1135,7 +1178,7 @@ export function createCameraPresetsController(options = {}) {
             type: normalizeTransitionType(type),
             trajectory: normalizeTransitionTrajectory(trajectory),
         });
-        scheduleChange();
+        markStateDirty();
         return true;
     }
 
@@ -1144,6 +1187,7 @@ export function createCameraPresetsController(options = {}) {
         const from = getPresetById(fromId);
         const to = getPresetById(toId);
         if (!from || !to) return;
+        const version = stateVersion;
 
         const current = getTransition(fromId, toId);
         let result = null;
@@ -1162,6 +1206,7 @@ export function createCameraPresetsController(options = {}) {
             }
         }
         if (disposed) return;
+        if (version !== stateVersion || !getPresetById(fromId) || !getPresetById(toId)) return;
 
         if (result == null) {
             const secRaw = safePrompt(
@@ -1523,7 +1568,7 @@ export function createCameraPresetsController(options = {}) {
 
             updatePresetLabels(preset);
             if (activeId === preset.id) applyPreset(preset);
-            scheduleChange();
+            markStateDirty();
         };
 
         addListener(nameInput, 'change', applyFromInputs);
@@ -1556,6 +1601,7 @@ export function createCameraPresetsController(options = {}) {
                 if (!preset) return;
                 ensureAnnotationsDefaults(preset);
                 preset.annotationsVisible = !preset.annotationsVisible;
+                markStateDirty();
                 annotations.scheduleDraw();
                 syncAnnotButtons();
                 syncAnnotationsToolbar();
@@ -1568,7 +1614,10 @@ export function createCameraPresetsController(options = {}) {
                     const preset = getPresetById(editingId);
                     if (preset) {
                         ensureAnnotationsDefaults(preset);
-                        if (!preset.annotationsVisible) preset.annotationsVisible = true;
+                        if (!preset.annotationsVisible) {
+                            preset.annotationsVisible = true;
+                            markStateDirty();
+                        }
                     }
                 }
                 syncAnnotButtons();
@@ -1809,6 +1858,7 @@ export function createCameraPresetsController(options = {}) {
         if (disposed) return null;
         const snap = snapshotCurrentView();
         if (!snap) return null;
+        const version = stateVersion;
 
         const defaultName = `Cam ${presets.length + 1}`;
         let nameRaw = null;
@@ -1823,6 +1873,7 @@ export function createCameraPresetsController(options = {}) {
             nameRaw = safePrompt(promptFn, 'Имя камеры', defaultName);
         }
         if (disposed) return null;
+        if (version !== stateVersion) return null;
         if (nameRaw == null) return null;
         const name = String(nameRaw).trim() || defaultName;
         snap.name = name;
@@ -1831,7 +1882,7 @@ export function createCameraPresetsController(options = {}) {
         lastCreatedId = snap.id;
         setActive(snap.id);
         render();
-        scheduleChange();
+        markStateDirty();
         return snap;
     }
 
@@ -1858,7 +1909,7 @@ export function createCameraPresetsController(options = {}) {
         } else {
             render();
         }
-        scheduleChange();
+        markStateDirty();
         return snap;
     }
 
@@ -1868,6 +1919,7 @@ export function createCameraPresetsController(options = {}) {
         if (!preset) return false;
         if (preset.isDefault) return false;
         if (presets.length <= 1) return false;
+        const version = stateVersion;
         let ok = false;
         if (confirmCameraDelete) {
             try {
@@ -1879,6 +1931,7 @@ export function createCameraPresetsController(options = {}) {
             ok = safeConfirm(confirmFn, `Вы точно хотите удалить камеру “${preset.name || 'Camera'}”?`);
         }
         if (disposed) return false;
+        if (version !== stateVersion) return false;
         if (!ok) return false;
 
         const idx = presets.findIndex((p) => p && p.id === id);
@@ -1898,7 +1951,7 @@ export function createCameraPresetsController(options = {}) {
             setPropsPanelVisible(false);
         }
         render();
-        scheduleChange();
+        markStateDirty();
         return true;
     }
 
@@ -1920,7 +1973,7 @@ export function createCameraPresetsController(options = {}) {
         preset.shiftY = snap.shiftY;
 
         if (editingId === id) syncPropsPanel(preset);
-        scheduleChange();
+        markStateDirty();
         return true;
     }
 
@@ -1940,7 +1993,7 @@ export function createCameraPresetsController(options = {}) {
         const nextIndex = Math.max(0, Math.min(presets.length, toIndex));
         presets.splice(nextIndex, 0, moved);
         render();
-        scheduleChange();
+        markStateDirty();
         return true;
     }
 

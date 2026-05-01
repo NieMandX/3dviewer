@@ -1236,6 +1236,7 @@ export function createAnnotations3DController(options = {}) {
     }
 
     function createLayer(name, forcedId = null, makeActive = true) {
+        if (disposed) return null;
         const layerName = String(name || '').trim() || `Layer ${layers.length + 1}`;
         const group = new THREE.Group();
         group.name = layerName;
@@ -1661,25 +1662,32 @@ export function createAnnotations3DController(options = {}) {
         rectModalOpen = true;
         const area = rect.width * rect.height;
         const baseColor = rectDraft.style?.color || color;
+        const generation = disposalGeneration;
 
         void (async () => {
-            const settings = promptRectSettings
-                ? await Promise.resolve(promptRectSettings({
-                    color: baseColor,
-                    fill: 'hatch',
-                    info: 'area',
-                    area,
-                    text: '',
-                }))
-                : {
-                    color: baseColor,
-                    fill: 'hatch',
-                    info: 'area',
-                    text: '',
-                    area,
-                };
+            let settings = null;
+            try {
+                settings = promptRectSettings
+                    ? await Promise.resolve(promptRectSettings({
+                        color: baseColor,
+                        fill: 'hatch',
+                        info: 'area',
+                        area,
+                        text: '',
+                    }))
+                    : {
+                        color: baseColor,
+                        fill: 'hatch',
+                        info: 'area',
+                        text: '',
+                        area,
+                    };
+            } catch (_) {
+                settings = null;
+            }
 
             rectModalOpen = false;
+            if (disposed || generation !== disposalGeneration || draft !== rectDraft) return;
             if (!settings) {
                 draft = null;
                 clearDraft();
@@ -1740,23 +1748,30 @@ export function createAnnotations3DController(options = {}) {
         updateDraftGeometry();
         rectModalOpen = true;
         const baseColor = pinDraft.style?.color || color;
+        const generation = disposalGeneration;
 
         void (async () => {
-            const settings = promptRectSettings
-                ? await Promise.resolve(promptRectSettings({
-                    title: 'Pin',
-                    color: baseColor,
-                    fill: 'none',
-                    info: 'text',
-                    text: '',
-                    mode: 'pin',
-                }))
-                : {
-                    color: baseColor,
-                    text: '',
-                };
+            let settings = null;
+            try {
+                settings = promptRectSettings
+                    ? await Promise.resolve(promptRectSettings({
+                        title: 'Pin',
+                        color: baseColor,
+                        fill: 'none',
+                        info: 'text',
+                        text: '',
+                        mode: 'pin',
+                    }))
+                    : {
+                        color: baseColor,
+                        text: '',
+                    };
+            } catch (_) {
+                settings = null;
+            }
 
             rectModalOpen = false;
+            if (disposed || generation !== disposalGeneration || draft !== pinDraft) return;
             if (!settings) {
                 draft = null;
                 clearDraft();
@@ -2264,6 +2279,7 @@ export function createAnnotations3DController(options = {}) {
 
         addToolbarListener(annoLayerAddBtn, 'click', () => {
             void (async () => {
+                const generation = disposalGeneration;
                 let name = null;
                 if (promptLayerName) {
                     try {
@@ -2274,6 +2290,7 @@ export function createAnnotations3DController(options = {}) {
                 } else {
                     name = safePrompt(promptFn, 'Layer name', `Layer ${layers.length + 1}`);
                 }
+                if (disposed || generation !== disposalGeneration) return;
                 if (name == null) return;
                 const trimmed = String(name).trim();
                 if (!trimmed) return;
