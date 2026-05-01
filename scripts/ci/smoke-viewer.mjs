@@ -1249,6 +1249,119 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runSceneCoreDisposeLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createSceneCore } = await import('/scripts/modules/scene/scene-core.js');
+
+        class FakeRenderer {
+            constructor() {
+                this.domElement = document.createElement('canvas');
+                this.info = { autoReset: true };
+                this.shadowMap = { enabled: false, type: null };
+                this.calls = [];
+            }
+            setAnimationLoop(callback) {
+                this.calls.push(callback === null ? 'loop:null' : 'loop:set');
+            }
+            setPixelRatio(value) {
+                this.calls.push(`pixel:${value}`);
+            }
+            setClearColor() {
+                this.calls.push('clearColor');
+            }
+            dispose() {
+                this.calls.push('dispose');
+            }
+            forceContextLoss() {
+                this.calls.push('forceContextLoss');
+            }
+        }
+
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        const app = {};
+        let renderRequests = 0;
+        const core = createSceneCore({
+            THREE,
+            rootEl: root,
+            app,
+            useWebGPU: true,
+            WebGPURendererCtor: FakeRenderer,
+            requestRender: () => { renderRequests += 1; },
+            background: {
+                isEnvironmentEnabled: () => true,
+                getAlpha: () => 1,
+                body: document.body,
+            },
+        });
+
+        const bgMesh = core.backgroundController.ensureBgMesh();
+        const shadowMap = new THREE.WebGLRenderTarget(1, 1);
+        const shadowMapPass = new THREE.WebGLRenderTarget(1, 1);
+        let shadowMapDisposed = 0;
+        let shadowMapPassDisposed = 0;
+        shadowMap.addEventListener('dispose', () => {
+            shadowMapDisposed += 1;
+        });
+        shadowMapPass.addEventListener('dispose', () => {
+            shadowMapPassDisposed += 1;
+        });
+        core.dirLight.shadow.map = shadowMap;
+        core.dirLight.shadow.mapPass = shadowMapPass;
+
+        const childrenBeforeDispose = core.scene.children.length;
+        const canvasBeforeDispose = root.contains(core.renderer.domElement);
+        const appBgBeforeDispose = app.bgMesh === bgMesh;
+        const rendererCallsBeforeDispose = core.renderer.calls.slice();
+        core.dispose();
+        core.dispose();
+
+        return {
+            childrenBeforeDispose,
+            canvasBeforeDispose,
+            appBgBeforeDispose,
+            childrenAfterDispose: core.scene.children.length,
+            canvasAfterDispose: root.contains(core.renderer.domElement),
+            appBgAfterDispose: app.bgMesh || null,
+            shadowMapDisposed,
+            shadowMapPassDisposed,
+            shadowMapCleared: core.dirLight.shadow.map == null,
+            shadowMapPassCleared: core.dirLight.shadow.mapPass == null,
+            renderRequests,
+            rendererCallsBeforeDispose,
+            rendererCallsAfterDispose: core.renderer.calls,
+        };
+    });
+
+    assert.equal(result.childrenBeforeDispose, 5, 'Scene core smoke: expected world/lights/background children before dispose');
+    assert.equal(result.canvasBeforeDispose, true, 'Scene core smoke: renderer canvas was not attached');
+    assert.equal(result.appBgBeforeDispose, true, 'Scene core smoke: background mesh was not exposed on app');
+    assert.equal(result.childrenAfterDispose, 0, 'Scene core smoke: scene-owned objects stayed attached after dispose');
+    assert.equal(result.canvasAfterDispose, false, 'Scene core smoke: renderer canvas stayed attached after dispose');
+    assert.equal(result.appBgAfterDispose, null, 'Scene core smoke: app.bgMesh stayed after dispose');
+    assert.equal(result.shadowMapDisposed, 1, 'Scene core smoke: directional shadow map was not disposed exactly once');
+    assert.equal(result.shadowMapPassDisposed, 1, 'Scene core smoke: directional shadow mapPass was not disposed exactly once');
+    assert.equal(result.shadowMapCleared, true, 'Scene core smoke: directional shadow map reference was not cleared');
+    assert.equal(result.shadowMapPassCleared, true, 'Scene core smoke: directional shadow mapPass reference was not cleared');
+    assert.deepEqual(
+        result.rendererCallsAfterDispose.filter((entry) => entry === 'dispose'),
+        ['dispose'],
+        'Scene core smoke: renderer dispose was not idempotent through scene core',
+    );
+    assert.deepEqual(
+        result.rendererCallsAfterDispose.filter((entry) => entry === 'forceContextLoss'),
+        ['forceContextLoss'],
+        'Scene core smoke: renderer context was not released through scene core',
+    );
+    diagnostics.assertNoErrors('Scene core dispose lifecycle smoke');
+    await page.close();
+}
+
 async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -1602,6 +1715,84 @@ async function runWASDFlightLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.positionStableAfterDispose, true, 'WASD smoke: disposed controller changed camera position');
     assert.equal(result.targetStableAfterDispose, true, 'WASD smoke: disposed controller changed controls target');
     diagnostics.assertNoErrors('WASD flight lifecycle smoke');
+    await page.close();
+}
+
+async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createBackfaceOverlayController } = await import('/scripts/modules/render/backface-overlay.js');
+        const { createShadingController } = await import('/scripts/modules/render/shading-controller.js');
+
+        const backfaceWorld = new THREE.Group();
+        const backfaceMaterial = new THREE.MeshStandardMaterial({ name: 'backface-original' });
+        const backfaceMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), backfaceMaterial);
+        backfaceWorld.add(backfaceMesh);
+        const backface = createBackfaceOverlayController({ THREE, world: backfaceWorld });
+        backface.setBackfaceMode(true);
+        const backfaceChildCreated = !!backfaceMesh.userData._bfChild;
+        const backfaceMaterialSwapped = backfaceMesh.material !== backfaceMaterial;
+        backface.dispose();
+        backface.dispose();
+        const backfaceRestoredAfterDispose = backfaceMesh.material === backfaceMaterial;
+        const backfaceChildRemovedAfterDispose = backfaceMesh.children.length === 0;
+        backface.setBackfaceMode(true);
+        backface.ensureBackfaceOverlay(backfaceMesh);
+        const backfaceLateChildCount = backfaceMesh.children.length;
+        const backfaceLateMaterialStable = backfaceMesh.material === backfaceMaterial;
+
+        const shadingWorld = new THREE.Group();
+        const shadingScene = new THREE.Scene();
+        const shadingMaterial = new THREE.MeshStandardMaterial({ name: 'shading-original' });
+        const shadingMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), shadingMaterial);
+        shadingWorld.add(shadingMesh);
+        const shadingCalls = [];
+        const shadingSelect = document.createElement('select');
+        shadingSelect.append(new Option('Normal', 'normal'));
+        const shading = createShadingController({
+            THREE,
+            world: shadingWorld,
+            scene: shadingScene,
+            requestRender: () => shadingCalls.push('render'),
+            schedulePanelRefresh: () => shadingCalls.push('panel'),
+            setBackfaceMode: (on) => shadingCalls.push(`backface:${!!on}`),
+        });
+        shading.bindUI({ shadingSel: shadingSelect });
+        shading.dispose();
+        shading.dispose();
+        shadingSelect.value = 'normal';
+        shadingSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        const lateApplyResult = shading.applyShading('normal');
+        shading.bindUI({ shadingSel: shadingSelect });
+        shadingSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+        return {
+            backfaceChildCreated,
+            backfaceMaterialSwapped,
+            backfaceRestoredAfterDispose,
+            backfaceChildRemovedAfterDispose,
+            backfaceLateChildCount,
+            backfaceLateMaterialStable,
+            shadingLateApplyResult: lateApplyResult,
+            shadingMaterialStable: shadingMesh.material === shadingMaterial,
+            shadingCalls,
+        };
+    });
+
+    assert.equal(result.backfaceChildCreated, true, 'Shading lifecycle smoke: backface child was not created');
+    assert.equal(result.backfaceMaterialSwapped, true, 'Shading lifecycle smoke: backface material was not applied');
+    assert.equal(result.backfaceRestoredAfterDispose, true, 'Shading lifecycle smoke: backface dispose did not restore source material');
+    assert.equal(result.backfaceChildRemovedAfterDispose, true, 'Shading lifecycle smoke: backface dispose left child overlay');
+    assert.equal(result.backfaceLateChildCount, 0, 'Shading lifecycle smoke: disposed backface controller recreated overlay');
+    assert.equal(result.backfaceLateMaterialStable, true, 'Shading lifecycle smoke: disposed backface controller changed material');
+    assert.equal(result.shadingLateApplyResult, false, 'Shading lifecycle smoke: disposed shading controller accepted applyShading');
+    assert.equal(result.shadingMaterialStable, true, 'Shading lifecycle smoke: disposed shading controller changed material');
+    assert.deepEqual(result.shadingCalls, [], 'Shading lifecycle smoke: disposed shading controller fired callbacks');
+    diagnostics.assertNoErrors('Shading controllers lifecycle smoke');
     await page.close();
 }
 
@@ -3023,6 +3214,22 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     const result = await page.evaluate(async () => {
         const { createCollabController } = await import('/scripts/modules/collab/collab-controller.js');
 
+        let delayedProfileUpsertResolve = null;
+        let delayedProfileUpsertStartedResolve = null;
+        const delayedProfileUpsertStarted = new Promise((resolve) => {
+            delayedProfileUpsertStartedResolve = resolve;
+        });
+        let delayedMessageInsertResolve = null;
+        let delayedMessageInsertStartedResolve = null;
+        const delayedMessageInsertStarted = new Promise((resolve) => {
+            delayedMessageInsertStartedResolve = resolve;
+        });
+        let delayedAnnotationInsertResolve = null;
+        let delayedAnnotationInsertStartedResolve = null;
+        const delayedAnnotationInsertStarted = new Promise((resolve) => {
+            delayedAnnotationInsertStartedResolve = resolve;
+        });
+
         class FakeQuery {
             constructor(table) {
                 this.table = table;
@@ -3030,6 +3237,12 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             }
             upsert(payload) {
                 this.payload = payload;
+                if (this.table === 'profiles' && payload?.display_name === 'Late Name') {
+                    delayedProfileUpsertStartedResolve?.();
+                    return new Promise((resolve) => {
+                        delayedProfileUpsertResolve = () => resolve({ data: payload, error: null });
+                    });
+                }
                 return Promise.resolve({ data: payload, error: null });
             }
             insert(payload) {
@@ -3063,6 +3276,18 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
                     id: `${this.table}-row`,
                     ...(this.payload && typeof this.payload === 'object' ? this.payload : {}),
                 };
+                if (this.table === 'messages' && this.payload?.body === 'Late message') {
+                    delayedMessageInsertStartedResolve?.();
+                    return new Promise((resolve) => {
+                        delayedMessageInsertResolve = () => resolve({ data, error: null });
+                    });
+                }
+                if (this.table === 'annotations' && this.payload?.kind === 'late-pin') {
+                    delayedAnnotationInsertStartedResolve?.();
+                    return new Promise((resolve) => {
+                        delayedAnnotationInsertResolve = () => resolve({ data, error: null });
+                    });
+                }
                 return Promise.resolve({ data, error: null });
             }
         }
@@ -3167,9 +3392,31 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         annotationsChannel.emitStatus('CHANNEL_ERROR');
         await Promise.resolve();
         const afterChannelFailure = calls.slice();
+        const trackedBeforeSetName = roomChannel.tracked.length;
+        const setNameAfterDispose = controller
+            .setDisplayName('Late Name')
+            .then((value) => `resolved:${value}`, (err) => `rejected:${err?.message || String(err)}`);
+        const messageAfterDispose = controller
+            .sendMessage('Late message')
+            .then((value) => `resolved:${value?.id || 'null'}`, (err) => `rejected:${err?.message || String(err)}`);
+        const annotationAfterDispose = controller
+            .sendAnnotation({ kind: 'late-pin', payload: { text: 'late' } })
+            .then((value) => `resolved:${value?.id || 'null'}`, (err) => `rejected:${err?.message || String(err)}`);
+        await delayedProfileUpsertStarted;
+        await delayedMessageInsertStarted;
+        await delayedAnnotationInsertStarted;
+        const trackedWhileSetNamePending = roomChannel.tracked.length;
         const beforeDispose = calls.slice();
         await controller.dispose();
         const afterDispose = calls.slice();
+        delayedProfileUpsertResolve?.();
+        delayedMessageInsertResolve?.();
+        delayedAnnotationInsertResolve?.();
+        const setNameAfterDisposeResult = await setNameAfterDispose;
+        const messageAfterDisposeResult = await messageAfterDispose;
+        const annotationAfterDisposeResult = await annotationAfterDispose;
+        await Promise.resolve();
+        const trackedAfterLateSetName = roomChannel.tracked.length;
 
         roomChannel.emit('presence', 'sync', {});
         roomChannel.emit('broadcast', 'message', { payload: { id: 'late-broadcast-message', sender: 'peer-user' } });
@@ -3191,6 +3438,12 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             afterChannelFailure,
             afterDispose,
             afterLateEvents: calls.slice(),
+            trackedBeforeSetName,
+            trackedWhileSetNamePending,
+            trackedAfterLateSetName,
+            setNameAfterDisposeResult,
+            messageAfterDisposeResult,
+            annotationAfterDisposeResult,
             removedChannels,
             channelNames: channels.map((channel) => channel.name),
         };
@@ -3207,6 +3460,11 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     assert.ok(result.beforeDispose.includes('room:room-1'), 'Collab smoke: room update did not fire before dispose');
     assert.ok(result.afterChannelFailure.includes('connection:off:annotations:CHANNEL_ERROR'), 'Collab smoke: auxiliary channel failure did not emit offline state');
     assert.ok(result.afterDispose.includes('connection:off:DISPOSED'), 'Collab smoke: dispose did not emit connection close');
+    assert.equal(result.setNameAfterDisposeResult, 'resolved:Late Name', 'Collab smoke: delayed display name update did not settle');
+    assert.equal(result.messageAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed message insert returned stale data after dispose');
+    assert.equal(result.annotationAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed annotation insert returned stale data after dispose');
+    assert.equal(result.trackedWhileSetNamePending, result.trackedBeforeSetName, 'Collab smoke: delayed display name tracked presence before its write completed');
+    assert.equal(result.trackedAfterLateSetName, result.trackedWhileSetNamePending, 'Collab smoke: delayed display name tracked presence after dispose');
     assert.deepEqual(result.removedChannels, result.channelNames, 'Collab smoke: dispose did not remove all realtime channels');
     assert.deepEqual(result.afterLateEvents, result.afterDispose, 'Collab smoke: stale realtime callbacks fired after dispose');
     diagnostics.assertNoErrors('Collab realtime dispose smoke');
@@ -3334,10 +3592,14 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
 
         class TimeoutChannel extends FakeChannel {
             subscribe(callback) {
+                this.statusCallback = typeof callback === 'function' ? callback : null;
                 if (typeof callback === 'function') {
                     Promise.resolve().then(() => callback('TIMED_OUT'));
                 }
                 return Promise.resolve('TIMED_OUT');
+            }
+            emitStatus(status, err = null) {
+                this.statusCallback?.(status, err);
             }
         }
 
@@ -3371,6 +3633,10 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
             ),
             new Promise((resolve) => setTimeout(() => resolve('hung'), 50)),
         ]);
+        const timeoutCallsAfterFailure = timeoutCalls.slice();
+        timeoutChannels[0]?.emitStatus('SUBSCRIBED');
+        await Promise.resolve();
+        const timeoutCallsAfterLateStatus = timeoutCalls.slice();
 
         const afterFailure = calls.slice();
         channels.forEach((channel) => {
@@ -3399,6 +3665,8 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
             heartbeatCleared: intervalIds.length === clearedIntervals.length,
             timeoutThrown,
             timeoutCalls,
+            timeoutCallsAfterFailure,
+            timeoutCallsAfterLateStatus,
             timeoutChannelNames: timeoutChannels.map((channel) => channel.name),
             timeoutRemovedChannels,
         };
@@ -3417,6 +3685,7 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
     assert.equal(result.heartbeatCleared, true, 'Collab init-failure smoke: presence heartbeat leaked after failed init');
     assert.equal(result.timeoutThrown, 'Room realtime subscribe TIMED_OUT', 'Collab init-failure smoke: initial subscribe timeout hung');
     assert.ok(result.timeoutCalls.includes('connection:off:TIMED_OUT'), 'Collab init-failure smoke: timeout status was not emitted');
+    assert.deepEqual(result.timeoutCallsAfterLateStatus, result.timeoutCallsAfterFailure, 'Collab init-failure smoke: late subscribed status revived a failed room channel');
     assert.deepEqual(result.timeoutChannelNames, ['room:room-timeout'], 'Collab init-failure smoke: timeout opened unexpected channels');
     assert.deepEqual(result.timeoutRemovedChannels, result.timeoutChannelNames, 'Collab init-failure smoke: timeout channel was not removed');
     diagnostics.assertNoErrors('Collab init-failure cleanup smoke');
@@ -5816,6 +6085,7 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
 
     const result = await page.evaluate(async () => {
         const THREE = await import('three');
+        const { createBackgroundController } = await import('/scripts/modules/render/background-controller.js');
         const { createEnvironmentManager, loadEnvironmentEquirectTexture } = await import('/scripts/modules/render/environment-manager.js');
 
         const data = new Float32Array([1, 1, 1, 1]);
@@ -5876,6 +6146,57 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         const hdrLoadedIsCopy = hdrLoadedTex !== hdrSourceTex;
         hdrLoadedTex.dispose();
 
+        const bgScene = new THREE.Scene();
+        const bgCamera = new THREE.PerspectiveCamera();
+        const bgApp = {};
+        const bgToggleBtn = document.createElement('button');
+        const bgAlphaEl = document.createElement('input');
+        bgAlphaEl.value = '0.5';
+        document.body.append(bgToggleBtn, bgAlphaEl);
+        const bgRendererCalls = [];
+        const bgEvents = [];
+        const background = createBackgroundController({
+            THREE,
+            scene: bgScene,
+            camera: bgCamera,
+            app: bgApp,
+            renderer: {
+                setClearColor: (...args) => bgRendererCalls.push(args),
+            },
+            requestRender: () => bgEvents.push('render'),
+            isEnvironmentEnabled: () => true,
+            getAlpha: () => bgAlphaEl.value,
+            bgToggleBtn,
+            bgAlphaEl,
+            body: document.body,
+        });
+        const bgMesh = background.ensureBgMesh();
+        let bgGeometryDisposed = 0;
+        let bgMaterialDisposed = 0;
+        bgMesh?.geometry?.addEventListener?.('dispose', () => {
+            bgGeometryDisposed += 1;
+        });
+        bgMesh?.material?.addEventListener?.('dispose', () => {
+            bgMaterialDisposed += 1;
+        });
+        background.updateVisibility();
+        const bgEventsBeforeDispose = bgEvents.slice();
+        const bgRendererCallsBeforeDispose = bgRendererCalls.length;
+        const bgModeBeforeDispose = bgToggleBtn.dataset.mode || '';
+        const bgSceneChildrenBeforeDispose = bgScene.children.length;
+        background.dispose();
+        background.dispose();
+        const bgSceneChildrenAfterDispose = bgScene.children.length;
+        const bgEventsAfterDispose = bgEvents.slice();
+        bgAlphaEl.value = '0.1';
+        bgAlphaEl.dispatchEvent(new Event('input', { bubbles: true }));
+        bgToggleBtn.click();
+        background.setMode('black');
+        background.toggleMode();
+        background.updateVisibility();
+        background.syncToCamera();
+        const bgLateEnsure = background.ensureBgMesh();
+
         delete globalThis.__smokeLoadEnvironmentTexture;
         return {
             sceneEnvironmentCleared: scene.environment == null,
@@ -5888,6 +6209,21 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
             hdrSourceDisposed,
             hdrLoadedIsCopy,
             events,
+            bgMeshCreated: !!bgMesh,
+            bgSceneChildrenBeforeDispose,
+            bgSceneChildrenAfterDispose,
+            bgGeometryDisposed,
+            bgMaterialDisposed,
+            bgAppCleared: bgApp.bgMesh == null,
+            bgGetAfterDispose: background.getBgMesh() == null,
+            bgLateEnsureNull: bgLateEnsure == null,
+            bgEventsBeforeDispose,
+            bgEventsAfterDispose,
+            bgEventsAfterLateCalls: bgEvents.slice(),
+            bgRendererCallsBeforeDispose,
+            bgRendererCallsAfterLateCalls: bgRendererCalls.length,
+            bgModeBeforeDispose,
+            bgModeAfterLateCalls: bgToggleBtn.dataset.mode || '',
         };
     });
 
@@ -5901,6 +6237,17 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.hdrBaseCleared, true, 'Environment smoke: disposed manager retained hdrBaseTex');
     assert.equal(result.disabled, true, 'Environment smoke: disposed manager stayed enabled');
     assert.deepEqual(result.events, [], 'Environment smoke: disposed manager fired render/update callbacks');
+    assert.equal(result.bgMeshCreated, true, 'Environment smoke: background mesh was not created');
+    assert.equal(result.bgSceneChildrenBeforeDispose, 1, 'Environment smoke: background mesh was not attached to scene');
+    assert.equal(result.bgSceneChildrenAfterDispose, 0, 'Environment smoke: disposed background mesh stayed in scene');
+    assert.equal(result.bgGeometryDisposed, 1, 'Environment smoke: background geometry was not disposed exactly once');
+    assert.equal(result.bgMaterialDisposed, 1, 'Environment smoke: background material was not disposed exactly once');
+    assert.equal(result.bgAppCleared, true, 'Environment smoke: disposed background controller left app.bgMesh');
+    assert.equal(result.bgGetAfterDispose, true, 'Environment smoke: disposed background controller returned stale mesh');
+    assert.equal(result.bgLateEnsureNull, true, 'Environment smoke: disposed background controller recreated mesh');
+    assert.deepEqual(result.bgEventsAfterLateCalls, result.bgEventsAfterDispose, 'Environment smoke: disposed background controller requested render');
+    assert.equal(result.bgRendererCallsAfterLateCalls, result.bgRendererCallsBeforeDispose, 'Environment smoke: disposed background controller touched renderer');
+    assert.equal(result.bgModeAfterLateCalls, result.bgModeBeforeDispose, 'Environment smoke: disposed background controller mutated UI mode');
     diagnostics.assertNoErrors('Environment lifecycle smoke');
     await page.close();
 }
@@ -6585,6 +6932,8 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
     await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
     const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createShadowController } = await import('/scripts/modules/render/shadow-controller.js');
         const { createEnvironmentControlsController } = await import('/scripts/modules/ui/environment-controls.js');
         const { createHemiLightControlsController } = await import('/scripts/modules/ui/hemi-light-controls.js');
         const { createSunInputsController } = await import('/scripts/modules/ui/sun-inputs.js');
@@ -6767,6 +7116,37 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
         sliderDisplay.register('late', slider);
         sliderDisplay.attachInputs();
 
+        const shadowScene = new THREE.Scene();
+        const shadowLight = new THREE.DirectionalLight(0xffffff, 1);
+        shadowLight.position.set(4, 5, 6);
+        shadowLight.target.position.set(0, 0, 0);
+        shadowScene.add(shadowLight, shadowLight.target);
+        const shadowRenderer = { shadowMap: { needsUpdate: false } };
+        const shadowBounds = new THREE.Box3(
+            new THREE.Vector3(-1, -1, -1),
+            new THREE.Vector3(1, 1, 1),
+        );
+        const shadow = createShadowController({
+            THREE,
+            scene: shadowScene,
+            renderer: shadowRenderer,
+            dirLight: shadowLight,
+            computeSceneBounds: () => shadowBounds,
+        });
+        shadow.setShadowDebug(true);
+        const shadowChildrenAfterDebug = shadowScene.children.length;
+        shadow.dispose();
+        shadow.dispose();
+        const shadowChildrenAfterDispose = shadowScene.children.length;
+        const shadowTargetBeforeLateCalls = shadowLight.target.position.clone();
+        const shadowPositionBeforeLateCalls = shadowLight.position.clone();
+        const shadowCameraLeftBeforeLateCalls = shadowLight.shadow.camera.left;
+        shadowRenderer.shadowMap.needsUpdate = false;
+        shadow.setShadowDebug(true);
+        shadow.fitSunShadowToScene(true);
+        shadow.setAutoFrustum(false);
+        shadow.setFrustumScale(3);
+
         return {
             envOptionsBeforeDispose,
             envOptionsAfterLatePopulate: hdriPresetSel.options.length,
@@ -6790,6 +7170,16 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
             displayAfterLateCalls: display.value,
             sliderValueAfterLateCalls: slider.value,
             sliderInputEvents,
+            shadowChildrenAfterDebug,
+            shadowChildrenAfterDispose,
+            shadowChildrenAfterLateCalls: shadowScene.children.length,
+            shadowTargetStableAfterLateCalls: shadowLight.target.position.distanceTo(shadowTargetBeforeLateCalls) < 1e-9,
+            shadowPositionStableAfterLateCalls: shadowLight.position.distanceTo(shadowPositionBeforeLateCalls) < 1e-9,
+            shadowCameraStableAfterLateCalls: shadowLight.shadow.camera.left === shadowCameraLeftBeforeLateCalls,
+            shadowRendererStableAfterLateCalls: shadowRenderer.shadowMap.needsUpdate === false,
+            shadowDebugVisibleAfterLateCalls: shadow.isShadowDebugVisible(),
+            shadowAutoFrustumAfterLateCalls: shadow.getAutoFrustum(),
+            shadowFrustumScaleAfterLateCalls: shadow.getFrustumScale(),
         };
     });
 
@@ -6809,6 +7199,16 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
     assert.equal(result.displayAfterLateCalls, '8', 'Light controls smoke: disposed slider display still updated display');
     assert.equal(result.sliderValueAfterLateCalls, '9', 'Light controls smoke: disposed slider display still committed input');
     assert.equal(result.sliderInputEvents, 0, 'Light controls smoke: disposed slider display dispatched input');
+    assert.equal(result.shadowChildrenAfterDebug, 4, 'Light controls smoke: shadow debug helpers were not created');
+    assert.equal(result.shadowChildrenAfterDispose, 2, 'Light controls smoke: shadow debug helpers were not disposed');
+    assert.equal(result.shadowChildrenAfterLateCalls, 2, 'Light controls smoke: disposed shadow controller recreated helpers');
+    assert.equal(result.shadowTargetStableAfterLateCalls, true, 'Light controls smoke: disposed shadow controller moved target');
+    assert.equal(result.shadowPositionStableAfterLateCalls, true, 'Light controls smoke: disposed shadow controller moved light');
+    assert.equal(result.shadowCameraStableAfterLateCalls, true, 'Light controls smoke: disposed shadow controller changed camera frustum');
+    assert.equal(result.shadowRendererStableAfterLateCalls, true, 'Light controls smoke: disposed shadow controller flagged renderer shadow map');
+    assert.equal(result.shadowDebugVisibleAfterLateCalls, false, 'Light controls smoke: disposed shadow controller reported visible debug helpers');
+    assert.equal(result.shadowAutoFrustumAfterLateCalls, true, 'Light controls smoke: disposed shadow controller changed auto-frustum');
+    assert.equal(result.shadowFrustumScaleAfterLateCalls, 1, 'Light controls smoke: disposed shadow controller changed frustum scale');
     diagnostics.assertNoErrors('Light controls dispose smoke');
     await page.close();
 }
@@ -6840,10 +7240,14 @@ try {
     console.log('Dispose/reinit smoke passed.');
     await runRendererDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Renderer dispose lifecycle smoke passed.');
+    await runSceneCoreDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Scene core dispose lifecycle smoke passed.');
     await runRenderLoopLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Render loop lifecycle smoke passed.');
     await runWASDFlightLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('WASD flight lifecycle smoke passed.');
+    await runShadingControllersLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Shading controllers lifecycle smoke passed.');
     await runAnnotationsDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Annotations dispose lifecycle smoke passed.');
     await runCameraPresetsLifecycleSmoke(browser, smokeServer.baseUrl);

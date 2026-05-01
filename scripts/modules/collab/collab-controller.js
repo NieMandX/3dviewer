@@ -368,18 +368,18 @@ export async function createCollabController(options = {}) {
             };
             roomChannel.subscribe((statusValue, err) => {
                 const nextStatus = String(statusValue || '');
+                if (disposed) return;
                 if (err) {
                     emitConnectionState(false, 'SUBSCRIBE_ERROR');
                     rejectInitialSubscribe(err, 'Room realtime subscribe failed');
                     return;
                 }
                 if (nextStatus === 'SUBSCRIBED') {
+                    if (settled) return;
+                    settled = true;
                     emitConnectionState(true, nextStatus);
                     roomChannel.track(presenceMeta);
-                    if (!settled) {
-                        settled = true;
-                        resolve();
-                    }
+                    resolve();
                     return;
                 }
                 if (nextStatus === 'CLOSED' || nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') {
@@ -544,7 +544,9 @@ export async function createCollabController(options = {}) {
             id: user.id,
             display_name: currentName,
         });
+        if (disposed) return currentName;
         await roomChannel.track(presenceMeta);
+        if (disposed) return currentName;
         syncPresence();
         return currentName;
     }
@@ -564,7 +566,9 @@ export async function createCollabController(options = {}) {
             .select('*')
             .single();
         if (error) throw error;
+        if (disposed) return null;
         await sendBroadcast('message', { ...data, sender: user.id });
+        if (disposed) return null;
         return data;
     }
 
@@ -585,7 +589,9 @@ export async function createCollabController(options = {}) {
             .select('*')
             .single();
         if (error) throw error;
+        if (disposed) return null;
         await sendBroadcast('annotation', { ...data, sender: user.id });
+        if (disposed) return null;
         return data;
     }
 
@@ -727,32 +733,36 @@ export async function createCollabController(options = {}) {
         if (disposed) return false;
         let rpcError = null;
         const { error } = await supabase.rpc('claim_camera', { room_id: room.id });
+        if (disposed) return false;
         if (error) {
             rpcError = error;
             const { error: updateError } = await supabase
                 .from('rooms')
                 .update({ camera_owner_id: user.id })
                 .eq('id', room.id);
+            if (disposed) return false;
             if (updateError) throw rpcError || updateError;
         }
         await sendBroadcast('camera-lock', { ownerId: user.id, sender: user.id });
-        return true;
+        return !disposed;
     }
 
     async function releaseCamera() {
         if (disposed) return false;
         let rpcError = null;
         const { error } = await supabase.rpc('release_camera', { room_id: room.id });
+        if (disposed) return false;
         if (error) {
             rpcError = error;
             const { error: updateError } = await supabase
                 .from('rooms')
                 .update({ camera_owner_id: null })
                 .eq('id', room.id);
+            if (disposed) return false;
             if (updateError) throw rpcError || updateError;
         }
         await sendBroadcast('camera-lock', { ownerId: null, sender: user.id });
-        return true;
+        return !disposed;
     }
 
     async function broadcastCameraState(state) {
@@ -776,6 +786,7 @@ export async function createCollabController(options = {}) {
             presenceMeta.lastSeenAt = new Date().toISOString();
         }
         await roomChannel.track(presenceMeta);
+        if (disposed) return;
         syncPresence();
     }
 

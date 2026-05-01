@@ -8,11 +8,13 @@ export function createShadowController(options = {}) {
 
     let shadowCamHelper = null;
     let sunHelper = null;
+    let disposed = false;
 
     let autoFrustum = true;
     let frustumScale = 1;
 
     function ensureShadowTarget() {
+        if (disposed) return;
         if (!scene || !dirLight?.target) return;
         dirLight.target.userData ||= {};
         dirLight.target.userData.excludeFromBounds = true;
@@ -20,6 +22,7 @@ export function createShadowController(options = {}) {
     }
 
     function ensureShadowHelpers() {
+        if (disposed) return;
         if (!THREE || !scene || !dirLight) return;
         ensureShadowTarget();
         if (!shadowCamHelper && dirLight.shadow?.camera) {
@@ -37,6 +40,7 @@ export function createShadowController(options = {}) {
     }
 
     function setShadowDebug(on) {
+        if (disposed) return;
         ensureShadowHelpers();
         if (shadowCamHelper) shadowCamHelper.visible = !!on;
         if (sunHelper) sunHelper.visible = !!on;
@@ -53,6 +57,7 @@ export function createShadowController(options = {}) {
     }
 
     function setAutoFrustum(next) {
+        if (disposed) return;
         autoFrustum = !!next;
     }
 
@@ -61,12 +66,14 @@ export function createShadowController(options = {}) {
     }
 
     function setFrustumScale(next) {
+        if (disposed) return;
         const numeric = Number(next);
         if (!Number.isFinite(numeric)) return;
         frustumScale = Math.max(0.01, numeric);
     }
 
     function fitSunShadowToScene(recenterTarget = false, margin = 1.3) {
+        if (disposed) return;
         if (!THREE || !renderer || !dirLight || !dirLight.shadow?.camera) return;
         ensureShadowTarget();
 
@@ -136,6 +143,8 @@ export function createShadowController(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         disposeHelper(shadowCamHelper);
         disposeHelper(sunHelper);
         shadowCamHelper = null;

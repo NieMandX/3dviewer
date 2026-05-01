@@ -2,6 +2,7 @@ export function createBackfaceOverlayController(options = {}) {
     const THREE = options.THREE || null;
     const world = options.world || null;
     let backfaceMatcapTexture = null;
+    let disposed = false;
 
     /**
      * Унифицированный материал для режима Backface (white/red).
@@ -9,6 +10,7 @@ export function createBackfaceOverlayController(options = {}) {
      * полутона зависят от угла поверхности к камере, а не от источников света.
      */
     function getBackfaceMatcapTexture() {
+        if (disposed) return null;
         if (!THREE) return null;
         if (backfaceMatcapTexture) return backfaceMatcapTexture;
         if (typeof document === 'undefined') return null;
@@ -103,6 +105,7 @@ export function createBackfaceOverlayController(options = {}) {
     }
 
     function ensureBackfaceOverlay(mesh, origMat) {
+        if (disposed) return;
         if (!THREE) return;
         if (!mesh?.isMesh || !mesh.geometry) return;
         if (mesh.userData?._isBackfaceOverlay) return;
@@ -161,6 +164,7 @@ export function createBackfaceOverlayController(options = {}) {
     }
 
     function removeBackfaceOverlay(mesh) {
+        if (disposed) return;
         if (!mesh?.isMesh) return;
         if (mesh.userData?._isBackfaceOverlay) return; // служебный — пропускаем
         // вернуть оригинальный материал
@@ -196,6 +200,7 @@ export function createBackfaceOverlayController(options = {}) {
     }
 
     function setBackfaceMode(on) {
+        if (disposed) return;
         // Сначала собираем список целевых мешей (не служебных), чтобы
         // не модифицировать дерево прямо во время обхода
         const targets = [];
@@ -220,7 +225,9 @@ export function createBackfaceOverlayController(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
         setBackfaceMode(false);
+        disposed = true;
         backfaceMatcapTexture?.dispose?.();
         backfaceMatcapTexture = null;
     }

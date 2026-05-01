@@ -103,7 +103,30 @@ export function createSceneCore(options = {}) {
     dirLight.target.userData.excludeFromBounds = true;
     scene.add(dirLight.target);
 
+    let disposed = false;
+
+    function disposeLightShadow(light) {
+        const shadow = light?.shadow || null;
+        if (!shadow) return;
+
+        let shadowDisposeSucceeded = false;
+        try {
+            if (typeof shadow.dispose === 'function') {
+                shadow.dispose();
+                shadowDisposeSucceeded = true;
+            }
+        } catch (_) {}
+        if (!shadowDisposeSucceeded) {
+            try { shadow.map?.dispose?.(); } catch (_) {}
+            try { shadow.mapPass?.dispose?.(); } catch (_) {}
+        }
+        if (shadow.map) shadow.map = null;
+        if (shadow.mapPass) shadow.mapPass = null;
+    }
+
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         if (controls && onControlsChange) {
             try {
                 controls.removeEventListener('change', onControlsChange);
@@ -117,6 +140,10 @@ export function createSceneCore(options = {}) {
         } catch (_) {}
         try {
             backgroundController?.dispose?.();
+        } catch (_) {}
+        disposeLightShadow(dirLight);
+        try {
+            scene.remove(world, hemiLight, dirLight, dirLight.target);
         } catch (_) {}
         try {
             rendererInit?.dispose?.();

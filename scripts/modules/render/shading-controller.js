@@ -32,6 +32,7 @@ export function createShadingController(options = {}) {
     const getChecker = typeof options.getChecker === 'function' ? options.getChecker : () => null;
 
     let currentShadingMode = (typeof options.initialMode === 'string' && options.initialMode) ? options.initialMode : 'pbr';
+    let disposed = false;
 
     const MATERIAL_PRESERVE_FLAGS = [
         'annotationRoot',
@@ -185,6 +186,7 @@ export function createShadingController(options = {}) {
     }
 
     function applyShading(mode, afterRender) {
+        if (disposed) return false;
         currentShadingMode = mode;
 
         let panelScheduled = false;
@@ -206,7 +208,7 @@ export function createShadingController(options = {}) {
             setBackfaceMode(true);
             requestRender();
             scheduleOnce();
-            return;
+            return true;
         } else {
             // выходим из backface при любом другом режиме
             setBackfaceMode(false);
@@ -225,7 +227,7 @@ export function createShadingController(options = {}) {
             });
             requestRender();
             scheduleOnce();
-            return;
+            return true;
         } else {
             // выходим из beautywire, если он был включён
             world?.traverse?.(o => { if (o.isMesh) clearBeautyWire(o); });
@@ -243,7 +245,7 @@ export function createShadingController(options = {}) {
             });
             requestRender();
             scheduleOnce();
-            return;
+            return true;
         }
 
         world?.traverse?.(obj => {
@@ -271,6 +273,7 @@ export function createShadingController(options = {}) {
 
         requestRender();
         scheduleOnce();
+        return true;
     }
 
     function getCurrentMode() {
@@ -292,9 +295,16 @@ export function createShadingController(options = {}) {
     }
 
     function bindUI(ui = {}) {
+        if (disposed) return;
         const shadingSel = ui.shadingSel || null;
         disposeUI();
         addUIListener(shadingSel, 'change', () => applyShading(shadingSel.value));
+    }
+
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        disposeUI();
     }
 
     return {
@@ -302,5 +312,6 @@ export function createShadingController(options = {}) {
         getCurrentMode,
         bindUI,
         disposeUI,
+        dispose,
     };
 }

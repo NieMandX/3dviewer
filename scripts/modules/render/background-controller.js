@@ -18,6 +18,7 @@ export function createBackgroundController(options = {}) {
 
     let bgMesh = null;
     let bgMode = options.initialMode === 'black' ? 'black' : 'white';
+    let disposed = false;
     const worldCameraPos = THREE ? new THREE.Vector3() : null;
     const listeners = [];
 
@@ -34,10 +35,12 @@ export function createBackgroundController(options = {}) {
     }
 
     function getBgMesh() {
+        if (disposed) return null;
         return bgMesh;
     }
 
     function ensureBgMesh() {
+        if (disposed) return null;
         if (bgMesh) return bgMesh;
         if (!THREE || !scene || !camera) return null;
 
@@ -68,6 +71,7 @@ export function createBackgroundController(options = {}) {
     }
 
     function updateVisibility() {
+        if (disposed) return;
         if (!bgMesh) return;
         const alpha = resolveAlpha();
         const shouldShow = !!isEnvironmentEnabled() && (bgMode !== 'black' || alpha > 1e-6);
@@ -79,6 +83,7 @@ export function createBackgroundController(options = {}) {
     }
 
     function applyModeUI() {
+        if (disposed) return;
         if (bgToggleBtn) {
             bgToggleBtn.classList.toggle('active', bgMode === 'black');
             if (bgMode === 'black') {
@@ -102,6 +107,7 @@ export function createBackgroundController(options = {}) {
     }
 
     function setMode(mode) {
+        if (disposed) return;
         bgMode = mode === 'black' ? 'black' : 'white';
 
         if (bgMode === 'black') {
@@ -129,10 +135,12 @@ export function createBackgroundController(options = {}) {
     }
 
     function toggleMode() {
+        if (disposed) return;
         setMode(bgMode === 'black' ? 'white' : 'black');
     }
 
     function syncToCamera() {
+        if (disposed) return;
         if (!bgMesh || !camera) return;
         if (worldCameraPos && typeof camera.getWorldPosition === 'function') {
             camera.getWorldPosition(worldCameraPos);
@@ -154,6 +162,8 @@ export function createBackgroundController(options = {}) {
     setMode(bgMode);
 
     function dispose() {
+        if (disposed) return;
+        disposed = true;
         while (listeners.length) {
             const { target, type, handler, options } = listeners.pop();
             try { target.removeEventListener(type, handler, options); } catch (_) {}

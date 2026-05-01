@@ -3486,10 +3486,12 @@ export class ViewerApp {
                 event.preventDefault();
                 const text = String(collabChatInputEl.value || '').trim();
                 if (!text || !collabController) return;
+                const controller = collabController;
                 collabChatInputEl.value = '';
                 void (async () => {
                     try {
-                        const message = await collabController.sendMessage(text);
+                        const message = await controller.sendMessage(text);
+                        if (appDisposed || controller !== collabController) return;
                         if (message) appendChatMessage(message, { scroll: true });
                     } catch (err) {
                         console.error('Chat send failed', err);
@@ -3518,19 +3520,22 @@ export class ViewerApp {
         if (collabReserveBtn) {
             addAppEventListener(collabReserveBtn, 'click', async () => {
                 if (!collabController) return;
+                const controller = collabController;
                 collabReserveBtn.disabled = true;
                 try {
                     if (cameraSync?.isOwner?.()) {
-                        await collabController.releaseCamera();
+                        await controller.releaseCamera();
+                        if (appDisposed || controller !== collabController) return;
                         setCollabOwner(null);
                     } else {
-                        await collabController.claimCamera();
-                        setCollabOwner(collabController.user?.id || null);
+                        await controller.claimCamera();
+                        if (appDisposed || controller !== collabController) return;
+                        setCollabOwner(controller.user?.id || null);
                     }
                 } catch (err) {
                     console.error('Camera reserve failed', err);
                 } finally {
-                    collabReserveBtn.disabled = false;
+                    if (!appDisposed && controller === collabController) collabReserveBtn.disabled = false;
                 }
             });
         }
@@ -4603,6 +4608,7 @@ export class ViewerApp {
         let isRemoteModelLoad = false;
         let remoteModelLoadGeneration = 0;
         let isSyncingLocalModels = false;
+        let pendingLocalModelSyncRetryOptions = null;
         let activeRoomModelId = '';
         const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 16 * 1024 * 1024;
         const RESUMABLE_UPLOAD_CHUNK_BYTES = 6 * 1024 * 1024;
@@ -4618,6 +4624,36 @@ export class ViewerApp {
             if (!key || pendingLocalModelKeys.has(key)) return;
             pendingLocalModelKeys.add(key);
             pendingLocalModelFiles.push(file);
+        }
+
+        function requeueLocalModelFiles(files) {
+            const list = Array.isArray(files) ? files : [];
+            for (const file of list) {
+                const key = getModelFileKey(file);
+                if (!key || pendingLocalModelKeys.has(key) || nonRetryableModelSyncKeys.has(key)) continue;
+                pendingLocalModelKeys.add(key);
+                pendingLocalModelFiles.push(file);
+            }
+        }
+
+        function requestPendingLocalModelSyncRetry(options = {}) {
+            const nextOnlyIfRoomEmpty = !!options?.onlyIfRoomEmpty;
+            pendingLocalModelSyncRetryOptions = pendingLocalModelSyncRetryOptions
+                ? { onlyIfRoomEmpty: pendingLocalModelSyncRetryOptions.onlyIfRoomEmpty && nextOnlyIfRoomEmpty }
+                : { onlyIfRoomEmpty: nextOnlyIfRoomEmpty };
+        }
+
+        function flushPendingLocalModelSyncRetry() {
+            const retryOptions = pendingLocalModelSyncRetryOptions;
+            pendingLocalModelSyncRetryOptions = null;
+            if (!retryOptions || appDisposed || !pendingLocalModelFiles.length || !collabController || isRemoteModelLoad) return;
+            const scheduleMicrotask = typeof queueMicrotask === 'function'
+                ? queueMicrotask
+                : (callback) => Promise.resolve().then(callback);
+            scheduleMicrotask(() => {
+                if (appDisposed || isSyncingLocalModels || !pendingLocalModelFiles.length || !collabController || isRemoteModelLoad) return;
+                void syncPendingLocalModels(retryOptions);
+            });
         }
 
         async function handleFBXFile(file, callOptions = null) {
@@ -5011,7 +5047,10 @@ export class ViewerApp {
         }
 
         async function syncPendingLocalModels({ onlyIfRoomEmpty = false } = {}) {
-            if (isSyncingLocalModels) return false;
+            if (isSyncingLocalModels) {
+                requestPendingLocalModelSyncRetry({ onlyIfRoomEmpty });
+                return false;
+            }
             const controller = collabController;
             const roomId = String(controller?.room?.id || '');
             const projectId = String(controller?.project?.id || '');
@@ -5035,9 +5074,13 @@ export class ViewerApp {
                     pendingLocalModelFiles.length = 0;
                     pendingLocalModelKeys.clear();
                     const failed = [];
-                    for (const file of files) {
+                    let superseded = false;
+                    for (let index = 0; index < files.length; index += 1) {
+                        const file = files[index];
                         if (!isCurrent() || isRemoteModelLoad) {
-                            failed.length = 0;
+                            requeueLocalModelFiles(files.slice(index));
+                            requestPendingLocalModelSyncRetry({ onlyIfRoomEmpty });
+                            superseded = true;
                             break;
                         }
                         const synced = await syncModelToRoom(file, {
@@ -5053,20 +5096,22 @@ export class ViewerApp {
                             if (!key || !nonRetryableModelSyncKeys.has(key)) {
                                 failed.push(file);
                             }
+                        } else {
+                            requeueLocalModelFiles(files.slice(index));
+                            requestPendingLocalModelSyncRetry({ onlyIfRoomEmpty });
+                            superseded = true;
+                            break;
                         }
                     }
+                    if (superseded) break;
                     if (failed.length) {
-                        for (const file of failed) {
-                            const key = getModelFileKey(file);
-                            if (!key || pendingLocalModelKeys.has(key)) continue;
-                            pendingLocalModelKeys.add(key);
-                            pendingLocalModelFiles.push(file);
-                        }
+                        requeueLocalModelFiles(failed);
                         break;
                     }
                 }
             } finally {
                 isSyncingLocalModels = false;
+                flushPendingLocalModelSyncRetry();
             }
             return syncedAny;
         }
@@ -5814,7 +5859,7 @@ export class ViewerApp {
 	            try { assetLoaders?.dispose?.(); } catch (_) {}
 	            try { inspectorPanels?.dispose?.(); } catch (_) {}
 	            try { batchFinalizer?.dispose?.(); } catch (_) {}
-	            try { shadingController?.disposeUI?.(); } catch (_) {}
+	            try { shadingController?.dispose?.(); } catch (_) {}
 	            try { importedLightsController?.dispose?.(); } catch (_) {}
 	            try { appbarVisibilityToggles?.dispose?.(); } catch (_) {}
 	            try { appbarControlsController?.dispose?.(); } catch (_) {}
