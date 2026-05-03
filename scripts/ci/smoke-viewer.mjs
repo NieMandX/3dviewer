@@ -5229,11 +5229,35 @@ async function runWorkerLifecycleSmoke(browser, baseUrl) {
                 },
             });
 
-            fbxAutoRespond = true;
-            const fbxSecond = await fbxClient.parseFBXInWorker(
+            fbxAutoRespond = false;
+            const fbxSecondPromise = fbxClient.parseFBXInWorker(
                 new ArrayBuffer(8),
                 { embedded: true, orientation: true },
+            ).then(
+                (value) => value,
+                (err) => ({ error: err?.name || String(err) }),
             );
+            await Promise.resolve();
+            const fbxNewWorker = FakeWorker.instances.filter((worker) => worker.url.includes('fbx-worker')).at(-1);
+            const fbxSecondJobId = fbxNewWorker?.posts?.[0]?.id || 2;
+            fbxOldWorker?.onerror?.({
+                message: 'stale old FBX worker error',
+                preventDefault: () => {
+                    events.push('prevent-stale-fbx-error');
+                },
+            });
+            const fbxSupportedAfterStaleError = fbxClient.isSupported();
+            fbxNewWorker?.onmessage?.({
+                data: {
+                    id: fbxSecondJobId,
+                    ok: true,
+                    json: successJson,
+                    duration: 1,
+                    embedded: [],
+                    orientation: null,
+                },
+            });
+            const fbxSecond = await fbxSecondPromise;
 
             const zipClient = createZIPWorkerClient();
             zipAutoRespond = false;
@@ -5274,6 +5298,8 @@ async function runWorkerLifecycleSmoke(browser, baseUrl) {
                 fbxAbortResult,
                 fbxOldTerminated: !!fbxOldWorker?.terminated,
                 fbxSecondOk: !!fbxSecond?.obj,
+                fbxSecondError: fbxSecond?.error || null,
+                fbxSupportedAfterStaleError,
                 fbxWorkerCount: FakeWorker.instances.filter((worker) => worker.url.includes('fbx-worker')).length,
                 zipAbortResult,
                 zipOldTerminated: !!zipOldWorker?.terminated,
@@ -5291,6 +5317,8 @@ async function runWorkerLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.fbxAbortResult, 'AbortError', 'Worker smoke: FBX abort did not reject with AbortError');
     assert.equal(result.fbxOldTerminated, true, 'Worker smoke: FBX worker was not terminated on abort');
     assert.equal(result.fbxSecondOk, true, 'Worker smoke: FBX worker did not recover after abort');
+    assert.equal(result.fbxSecondError, null, 'Worker smoke: stale FBX worker error killed the next job');
+    assert.equal(result.fbxSupportedAfterStaleError, true, 'Worker smoke: stale FBX worker error disabled the live client');
     assert.equal(result.fbxWorkerCount, 2, 'Worker smoke: FBX worker was not recreated after abort');
     assert.equal(result.zipAbortResult, 'AbortError', 'Worker smoke: ZIP abort did not reject with AbortError');
     assert.equal(result.zipOldTerminated, true, 'Worker smoke: ZIP worker was not terminated on abort');

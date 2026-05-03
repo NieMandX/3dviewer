@@ -88,8 +88,9 @@ export function createFBXWorkerClient(options = {}) {
         if (workerInstance) return workerInstance;
         try {
             workerInstance = new Worker(workerUrl, { type: 'module' });
+            const worker = workerInstance;
             workerInstance.onmessage = (event) => {
-                if (disposed) return;
+                if (disposed || workerInstance !== worker) return;
                 const { id, ok, json, error, duration, embedded, orientation } = event.data || {};
                 const job = pending.get(id);
                 if (!job) return;
@@ -99,7 +100,7 @@ export function createFBXWorkerClient(options = {}) {
                 else job.reject(new Error(error || 'FBX worker error'));
             };
             workerInstance.onerror = (event) => {
-                if (disposed) return;
+                if (disposed || workerInstance !== worker) return;
                 event.preventDefault?.();
                 const err = event?.error || (event?.message ? new Error(event.message) : new Error('FBX worker error'));
                 disable(err);
