@@ -5641,6 +5641,74 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runAuxRealtimeChannelRegistrySmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createAuxRealtimeChannelRegistry } = await import('/scripts/modules/collab/aux-realtime-channels.js');
+
+        const registry = createAuxRealtimeChannelRegistry();
+        const removed = [];
+        const oldModelsChannel = { name: 'old-models' };
+        const nextModelsChannel = { name: 'next-models' };
+        const cameraChannel = { name: 'camera' };
+        const transitionsChannel = { name: 'transitions' };
+        const errorChannel = { name: 'error-channel' };
+
+        registry.set('room_models', oldModelsChannel);
+        registry.set('room_models', nextModelsChannel);
+        const staleRemoveResult = await registry.remove('room_models', {
+            channel: oldModelsChannel,
+            removeChannel: async (channel) => removed.push(channel.name),
+        });
+        const currentAfterStaleFailure = registry.get('room_models')?.name || '';
+        const currentRemoveResult = await registry.remove('room_models', {
+            channel: nextModelsChannel,
+            removeChannel: async (channel) => removed.push(channel.name),
+        });
+
+        registry.set('room_cameras', cameraChannel);
+        registry.set('room_transitions', transitionsChannel);
+        const clearAllNames = registry.clearAll().map((channel) => channel.name).sort();
+        const sizeAfterClearAll = registry.size();
+
+        registry.set('room_models', errorChannel);
+        const removeErrorSwallowed = await registry.remove('room_models', {
+            channel: errorChannel,
+            removeChannel: async () => {
+                throw new Error('remove failed');
+            },
+        }).then(
+            (value) => value,
+            (err) => `rejected:${err?.message || String(err)}`,
+        );
+
+        return {
+            staleRemoveResult,
+            currentAfterStaleFailure,
+            currentRemoveResult,
+            removed,
+            clearAllNames,
+            sizeAfterClearAll,
+            removeErrorSwallowed,
+            sizeAfterRemoveError: registry.size(),
+        };
+    });
+
+    assert.equal(result.staleRemoveResult, false, 'Aux realtime registry smoke: stale channel failure removed current channel');
+    assert.equal(result.currentAfterStaleFailure, 'next-models', 'Aux realtime registry smoke: stale channel failure changed current channel');
+    assert.equal(result.currentRemoveResult, true, 'Aux realtime registry smoke: current failed channel was not removed');
+    assert.deepEqual(result.removed, ['next-models'], 'Aux realtime registry smoke: removed wrong realtime channel');
+    assert.deepEqual(result.clearAllNames, ['camera', 'transitions'], 'Aux realtime registry smoke: clearAll returned wrong channels');
+    assert.equal(result.sizeAfterClearAll, 0, 'Aux realtime registry smoke: clearAll left channel refs behind');
+    assert.equal(result.removeErrorSwallowed, true, 'Aux realtime registry smoke: removeChannel failure was propagated');
+    assert.equal(result.sizeAfterRemoveError, 0, 'Aux realtime registry smoke: removeChannel failure left channel ref behind');
+    diagnostics.assertNoErrors('Aux realtime channel registry smoke');
+    await page.close();
+}
+
 async function runAbortableTusUploadSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -8796,6 +8864,8 @@ try {
     console.log('Room model state smoke passed.');
     await runDeferredRealtimeReloadSmoke(browser, smokeServer.baseUrl);
     console.log('Deferred realtime reload smoke passed.');
+    await runAuxRealtimeChannelRegistrySmoke(browser, smokeServer.baseUrl);
+    console.log('Aux realtime channel registry smoke passed.');
     await runAbortableTusUploadSmoke(browser, smokeServer.baseUrl);
     console.log('Abortable TUS upload smoke passed.');
     await runWorkerLifecycleSmoke(browser, smokeServer.baseUrl);

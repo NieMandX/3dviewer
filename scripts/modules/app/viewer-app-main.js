@@ -49,6 +49,7 @@ import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload
 import { createRealtimeChannelStatusHandler } from '../collab/realtime-channel-status.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
 import { isRoomModelIdLinked, promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
+import { createAuxRealtimeChannelRegistry } from '../collab/aux-realtime-channels.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
 import { createVoiceController } from '../voice/voice-controller.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
@@ -1007,7 +1008,10 @@ export class ViewerApp {
         let presenceRefreshTimer = null;
         const PRESENCE_REFRESH_MS = 3000;
         const PRESENCE_STALE_MS = 15000;
-        let roomModelsChannel = null;
+        const ROOM_MODELS_CHANNEL = 'room_models';
+        const ROOM_CAMERAS_CHANNEL = 'room_cameras';
+        const ROOM_TRANSITIONS_CHANNEL = 'room_transitions';
+        const roomAuxRealtimeChannels = createAuxRealtimeChannelRegistry();
         const roomModelIds = new Set();
         const loadedRoomModelIds = new Set();
         let isLoadingRoomModels = false;
@@ -1019,8 +1023,6 @@ export class ViewerApp {
         let roomModelLoadQueue = null;
         let remoteModelLoadRoomId = '';
         let remoteModelLoadModelId = '';
-        let roomCamerasChannel = null;
-        let roomTransitionsChannel = null;
         let cameraSyncMuted = false;
         let cameraSyncMuteToken = 0;
         let cameraPersistTimer = null;
@@ -1380,7 +1382,15 @@ export class ViewerApp {
             return true;
         }
 
-        function createRoomAuxRealtimeStatusHandler(label, { controller, roomId, generation } = {}) {
+        function removeRoomAuxRealtimeChannel(label, { channel = null, controller = null } = {}) {
+            const supabase = controller?.supabase || collabController?.supabase || collabSupabase || null;
+            void roomAuxRealtimeChannels.remove(label, {
+                channel,
+                removeChannel: supabase?.removeChannel?.bind(supabase) || null,
+            });
+        }
+
+        function createRoomAuxRealtimeStatusHandler(label, { controller, roomId, generation, channel = null } = {}) {
             const isCurrent = () => (
                 !!controller
                 && controller === collabController
@@ -1391,6 +1401,7 @@ export class ViewerApp {
                 isCurrent,
                 onFailure: ({ reason }) => {
                     if (!isCurrent()) return;
+                    removeRoomAuxRealtimeChannel(label, { channel, controller });
                     setCollabConnectionState(false, reason);
                     setCollabStatus('offline');
                     scheduleCollabAutoResume(reason);
@@ -1856,16 +1867,13 @@ export class ViewerApp {
             }
 
             const supabase = collabController?.supabase || collabSupabase;
-            const extraChannels = [roomModelsChannel, roomCamerasChannel, roomTransitionsChannel];
+            const extraChannels = roomAuxRealtimeChannels.clearAll();
             for (const channel of extraChannels) {
                 if (!channel || !supabase?.removeChannel) continue;
                 try {
                     await supabase.removeChannel(channel);
                 } catch (_) {}
             }
-            roomModelsChannel = null;
-            roomCamerasChannel = null;
-            roomTransitionsChannel = null;
             roomCameraRealtimeReload?.clear?.();
             cancelCameraPersistTimer();
 
@@ -5566,7 +5574,7 @@ export class ViewerApp {
         }
 
         function subscribeRoomModelsChannel({ controller, roomId, generation } = {}) {
-            if (!controller || roomModelsChannel) return;
+            if (!controller || roomAuxRealtimeChannels.get(ROOM_MODELS_CHANNEL)) return;
             const isCurrent = () => (
                 controller === collabController
                 && isActiveRoomLoad(generation, roomId)
@@ -5596,7 +5604,10 @@ export class ViewerApp {
                 if (modelError || !isCurrent() || !isRoomModelStillLinked(modelId)) return;
                 if (modelRow) await loadProjectModel(modelRow, { roomId, generation, requireRoomModelLink: true });
             };
-            roomModelsChannel = controller.supabase.channel(`room:${roomId}:models`);
+            const roomModelsChannel = roomAuxRealtimeChannels.set(
+                ROOM_MODELS_CHANNEL,
+                controller.supabase.channel(`room:${roomId}:models`)
+            );
             roomModelsChannel.on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'room_models', filter: `room_id=eq.${roomId}` },
@@ -5610,6 +5621,7 @@ export class ViewerApp {
                 controller,
                 roomId,
                 generation,
+                channel: roomModelsChannel,
             });
             roomModelsChannel.subscribe((statusValue, error) => {
                 statusHandler(statusValue, error);
@@ -6002,10 +6014,12 @@ export class ViewerApp {
                 && isActiveRoomLoad(generation, roomId)
             );
             const createCameraChannelStatusHandler = (label) => {
+                const channel = roomAuxRealtimeChannels.get(label);
                 const statusHandler = createRoomAuxRealtimeStatusHandler(label, {
                     controller,
                     roomId,
                     generation,
+                    channel,
                 });
                 return (statusValue, error = null) => {
                     statusHandler(statusValue, error);
@@ -6014,8 +6028,11 @@ export class ViewerApp {
                 };
             };
             if (!isCurrent()) return;
-            if (!roomCamerasChannel) {
-                roomCamerasChannel = controller.supabase.channel(`room:${roomId}:cameras`);
+            if (!roomAuxRealtimeChannels.get(ROOM_CAMERAS_CHANNEL)) {
+                const roomCamerasChannel = roomAuxRealtimeChannels.set(
+                    ROOM_CAMERAS_CHANNEL,
+                    controller.supabase.channel(`room:${roomId}:cameras`)
+                );
                 roomCamerasChannel.on(
                     'postgres_changes',
                     { event: '*', schema: 'public', table: 'room_cameras', filter: `room_id=eq.${roomId}` },
@@ -6023,10 +6040,13 @@ export class ViewerApp {
                         if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
                     }
                 );
-                roomCamerasChannel.subscribe(createCameraChannelStatusHandler('room_cameras'));
+                roomCamerasChannel.subscribe(createCameraChannelStatusHandler(ROOM_CAMERAS_CHANNEL));
             }
-            if (!roomTransitionsChannel) {
-                roomTransitionsChannel = controller.supabase.channel(`room:${roomId}:transitions`);
+            if (!roomAuxRealtimeChannels.get(ROOM_TRANSITIONS_CHANNEL)) {
+                const roomTransitionsChannel = roomAuxRealtimeChannels.set(
+                    ROOM_TRANSITIONS_CHANNEL,
+                    controller.supabase.channel(`room:${roomId}:transitions`)
+                );
                 roomTransitionsChannel.on(
                     'postgres_changes',
                     { event: '*', schema: 'public', table: 'room_transitions', filter: `room_id=eq.${roomId}` },
@@ -6034,7 +6054,7 @@ export class ViewerApp {
                         if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
                     }
                 );
-                roomTransitionsChannel.subscribe(createCameraChannelStatusHandler('room_transitions'));
+                roomTransitionsChannel.subscribe(createCameraChannelStatusHandler(ROOM_TRANSITIONS_CHANNEL));
             }
         }
 
