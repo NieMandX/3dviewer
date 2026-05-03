@@ -5947,6 +5947,9 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
             });
             const zipHandlerErrorResult = await zipHandlerErrorPromise;
             const zipHandlerErrorTerminated = zipHandlerErrorWorker?.terminated || 0;
+            const zipHandlerErrorAckCount = zipHandlerErrorWorker?.messages
+                ?.filter((message) => message?.type === 'ack')
+                .length || 0;
             zipHandlerErrorWorker?.emit?.({ id: zipHandlerErrorJobId, type: 'done' });
             await Promise.resolve();
             await Promise.resolve();
@@ -6019,6 +6022,7 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 zipRaceEvents,
                 zipHandlerErrorResult,
                 zipHandlerErrorTerminated,
+                zipHandlerErrorAckCount,
                 zipHandlerErrorEventsAfterStale,
                 zipHandlerRecoveryResult,
                 zipHandlerRecoveryMeta,
@@ -6054,6 +6058,7 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
     assert.deepEqual(result.zipRaceEvents, [], 'Worker client dispose smoke: ZIP arrayBuffer race fired onError after dispose');
     assert.equal(result.zipHandlerErrorResult, 'Error:handler import failed', 'Worker client dispose smoke: ZIP handler failure did not reject import');
     assert.equal(result.zipHandlerErrorTerminated, 1, 'Worker client dispose smoke: ZIP handler failure left worker alive');
+    assert.equal(result.zipHandlerErrorAckCount, 0, 'Worker client dispose smoke: ZIP handler failure still acked the failed chunk');
     assert.deepEqual(result.zipHandlerErrorEventsAfterStale, ['fbx'], 'Worker client dispose smoke: stale ZIP messages reached handlers after handler failure');
     assert.equal(result.zipHandlerRecoveryResult, 'done', 'Worker client dispose smoke: ZIP client did not recover after handler failure');
     assert.deepEqual(result.zipHandlerRecoveryMeta, [0], 'Worker client dispose smoke: ZIP recovery job missed worker messages');

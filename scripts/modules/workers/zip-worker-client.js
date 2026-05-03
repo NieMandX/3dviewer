@@ -140,24 +140,18 @@ export function createZIPWorkerClient(options = {}) {
                         return;
                     }
                     if (msg.type === 'fbx') {
-                        try {
-                            if (signal?.aborted) throw makeAbortError();
-                            await handlers.onFBX?.(msg);
-                        } finally {
-                            if (!signal?.aborted && workerInstance === worker) {
-                                worker.postMessage({ id, type: 'ack', seq: msg.seq });
-                            }
+                        if (signal?.aborted) throw makeAbortError();
+                        await handlers.onFBX?.(msg);
+                        if (!signal?.aborted && workerInstance === worker) {
+                            worker.postMessage({ id, type: 'ack', seq: msg.seq });
                         }
                         return;
                     }
                     if (msg.type === 'image') {
-                        try {
-                            if (signal?.aborted) throw makeAbortError();
-                            await handlers.onImage?.(msg);
-                        } finally {
-                            if (!signal?.aborted && workerInstance === worker) {
-                                worker.postMessage({ id, type: 'ack', seq: msg.seq });
-                            }
+                        if (signal?.aborted) throw makeAbortError();
+                        await handlers.onImage?.(msg);
+                        if (!signal?.aborted && workerInstance === worker) {
+                            worker.postMessage({ id, type: 'ack', seq: msg.seq });
                         }
                         return;
                     }
