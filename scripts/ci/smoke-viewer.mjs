@@ -5674,21 +5674,84 @@ async function runZIPFallbackCleanupSmoke(browser, baseUrl) {
 
         await handleZIPFile(new File([new Uint8Array([1])], 'fallback.zip', { type: 'application/zip' }));
 
+        const handleFailingFallbackZIPFile = createZIPFileHandler({
+            loadedModels,
+            allEmbedded,
+            basename: (path) => String(path || '').split(/[\\/]/).pop(),
+            handleFBXFile: async (file, groupName) => {
+                loadedModels.push({
+                    obj: { name: file.name },
+                    name: file.name,
+                    group: groupName || null,
+                });
+            },
+            cleanupImportedRange: ({ modelStart = 0, embeddedStart = 0 } = {}) => {
+                cleanupCalls.push({
+                    modelStart,
+                    embeddedStart,
+                    modelCountBefore: loadedModels.length,
+                    embeddedCountBefore: allEmbedded.length,
+                });
+                loadedModels.splice(modelStart);
+                allEmbedded.splice(embeddedStart).forEach((entry) => {
+                    const url = String(entry?.url || '');
+                    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+                });
+            },
+            JSZip: {
+                loadAsync: async () => ({
+                    files: {
+                        'model.fbx': {
+                            dir: false,
+                            name: 'model.fbx',
+                            async: async () => new ArrayBuffer(3),
+                        },
+                        'textures/ok.png': {
+                            dir: false,
+                            name: 'textures/ok.png',
+                            async: async () => new Blob([new Uint8Array([7, 8, 9])], { type: 'image/png' }),
+                        },
+                        'textures/broken.png': {
+                            dir: false,
+                            name: 'textures/broken.png',
+                            async: async () => {
+                                throw new Error('broken fallback image');
+                            },
+                        },
+                    },
+                }),
+            },
+        });
+        const fallbackFailureResult = await handleFailingFallbackZIPFile(
+            new File([new Uint8Array([2])], 'main-fallback.zip', { type: 'application/zip' })
+        ).then(
+            () => 'resolved',
+            (err) => err?.message || String(err),
+        );
+
         return {
             cleanupCalls,
+            fallbackFailureResult,
             loadedCount: loadedModels.length,
             embeddedCount: allEmbedded.length,
             fallbackLogged: fallbackLogs.some((entry) => entry.level === 'warn' && entry.message.includes('fallback')),
         };
     });
 
-    assert.equal(result.cleanupCalls.length, 1, 'ZIP fallback cleanup smoke: worker partial import was not cleaned before fallback');
+    assert.equal(result.cleanupCalls.length, 2, 'ZIP fallback cleanup smoke: partial imports were not cleaned consistently');
     assert.deepEqual(result.cleanupCalls[0], {
         modelStart: 0,
         embeddedStart: 0,
         modelCountBefore: 1,
         embeddedCountBefore: 1,
     }, 'ZIP fallback cleanup smoke: cleanup range did not match partial worker import');
+    assert.deepEqual(result.cleanupCalls[1], {
+        modelStart: 0,
+        embeddedStart: 0,
+        modelCountBefore: 1,
+        embeddedCountBefore: 1,
+    }, 'ZIP fallback cleanup smoke: cleanup range did not match partial main-thread fallback import');
+    assert.equal(result.fallbackFailureResult, 'broken fallback image', 'ZIP fallback cleanup smoke: fallback failure was not propagated');
     assert.equal(result.loadedCount, 0, 'ZIP fallback cleanup smoke: partial worker model survived fallback cleanup');
     assert.equal(result.embeddedCount, 0, 'ZIP fallback cleanup smoke: partial worker texture survived fallback cleanup');
     assert.equal(result.fallbackLogged, true, 'ZIP fallback cleanup smoke: fallback path was not exercised');
