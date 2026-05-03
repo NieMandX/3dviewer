@@ -7011,6 +7011,34 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         const concurrentBaseSame = baseA === baseB;
         concurrentManager.dispose();
 
+        const environmentUnhandled = [];
+        const onEnvironmentUnhandled = (event) => {
+            event.preventDefault();
+            environmentUnhandled.push(String(event.reason?.message || event.reason || 'unknown'));
+        };
+        window.addEventListener('unhandledrejection', onEnvironmentUnhandled);
+
+        let failingLoadCount = 0;
+        const failingManager = createEnvironmentManager({
+            enabled: true,
+            useWebGPU: true,
+            rendererInitPromise: Promise.resolve(),
+            loadEquirectTexture: async (url) => {
+                failingLoadCount += 1;
+                throw new Error(`failed:${url}`);
+            },
+        });
+        const failingRebuildResult = await failingManager.rebuild({ force: true });
+        failingManager.requestRebuild({ immediate: true });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const failingPresetResult = await failingManager.selectPresetIndex(0).then(
+            (value) => value,
+            (err) => `rejected:${err?.message || err}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        failingManager.dispose();
+        window.removeEventListener('unhandledrejection', onEnvironmentUnhandled);
+
         const hdrSourceTex = new THREE.DataTexture(new Float32Array([0.2, 0.3, 0.4, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
         let hdrSourceDisposed = 0;
         hdrSourceTex.addEventListener('dispose', () => {
@@ -7089,6 +7117,12 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
             concurrentLoadCount,
             concurrentBaseSame,
             concurrentBaseDisposed,
+            failingLoadCount,
+            failingRebuildResult,
+            failingPresetResult,
+            failingEnv: failingManager.getCurrentEnv(),
+            failingBg: failingManager.getCurrentBg(),
+            environmentUnhandled,
             hdrSourceDisposed,
             hdrLoadedIsCopy,
             events,
@@ -7115,6 +7149,12 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.concurrentLoadCount, 1, 'Environment smoke: concurrent HDR base requests started duplicate loads');
     assert.equal(result.concurrentBaseSame, true, 'Environment smoke: concurrent HDR base requests did not share the same texture');
     assert.equal(result.concurrentBaseDisposed, 1, 'Environment smoke: shared concurrent HDR base was not disposed exactly once');
+    assert.equal(result.failingLoadCount, 5, 'Environment smoke: failed environment loads did not exercise default/fallback/preset paths');
+    assert.equal(result.failingRebuildResult, true, 'Environment smoke: failed rebuild did not resolve cleanly');
+    assert.equal(result.failingPresetResult, false, 'Environment smoke: failed HDRI preset rejected instead of resolving false');
+    assert.equal(result.failingEnv, null, 'Environment smoke: failed load produced a current environment');
+    assert.equal(result.failingBg, null, 'Environment smoke: failed load produced a current background');
+    assert.deepEqual(result.environmentUnhandled, [], 'Environment smoke: failed environment load caused unhandled rejection');
     assert.equal(result.hdrSourceDisposed, 1, 'Environment smoke: source HDR texture was not disposed after vertical flip');
     assert.equal(result.hdrLoadedIsCopy, true, 'Environment smoke: HDR loader did not return flipped texture copy');
     assert.equal(result.sceneEnvironmentCleared, true, 'Environment smoke: disposed manager restored scene.environment');

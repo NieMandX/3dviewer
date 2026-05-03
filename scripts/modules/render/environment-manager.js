@@ -182,6 +182,13 @@ export function createEnvironmentManager(options = {}) {
         ? options.loadEquirectTexture
         : loadEnvironmentEquirectTexture;
 
+    function warnEnvironmentFailure(message, err) {
+        if (disposed) return;
+        try {
+            console.warn(message, err);
+        } catch (_) {}
+    }
+
     function isLifecycleCurrent(generation) {
         return !disposed && enabled && generation === lifecycleGeneration;
     }
@@ -209,8 +216,14 @@ export function createEnvironmentManager(options = {}) {
                 nextBase = await loadEquirectTextureImpl(DEFAULT_ENV_URL);
             } catch (err) {
                 if (disposed || loadGeneration !== hdrBaseLoadGeneration) return null;
-                console.warn('Default EXR environment failed to load, falling back to HDR.', err);
-                nextBase = await loadEquirectTextureImpl(FALLBACK_HDR_URL);
+                warnEnvironmentFailure('Default EXR environment failed to load, falling back to HDR.', err);
+                try {
+                    nextBase = await loadEquirectTextureImpl(FALLBACK_HDR_URL);
+                } catch (fallbackErr) {
+                    if (disposed || loadGeneration !== hdrBaseLoadGeneration) return null;
+                    warnEnvironmentFailure('Fallback HDR environment failed to load.', fallbackErr);
+                    return null;
+                }
             }
             if (disposed || loadGeneration !== hdrBaseLoadGeneration) {
                 nextBase?.dispose?.();
@@ -585,10 +598,19 @@ export function createEnvironmentManager(options = {}) {
         }
 
         envRebuildPromise = (async () => {
-            do {
+            try {
+                do {
+                    envRebuildQueued = false;
+                    await rebuildOnce();
+                } while (!disposed && enabled && envRebuildQueued);
+            } catch (err) {
                 envRebuildQueued = false;
-                await rebuildOnce();
-            } while (!disposed && enabled && envRebuildQueued);
+                if (!disposed && enabled) {
+                    warnEnvironmentFailure('Environment rebuild failed.', err);
+                }
+                return false;
+            }
+            return true;
         })().finally(() => {
             envRebuildPromise = null;
         });
@@ -640,6 +662,11 @@ export function createEnvironmentManager(options = {}) {
         let nextBase = null;
         try {
             nextBase = await loadEquirectTextureImpl(entry.url);
+        } catch (err) {
+            if (!disposed && presetGeneration === presetLoadGeneration) {
+                warnEnvironmentFailure(`HDRI preset failed to load: ${entry.url}`, err);
+            }
+            return false;
         } finally {
             if (presetGeneration === presetLoadGeneration) {
                 presetLoadActive = false;
@@ -647,7 +674,7 @@ export function createEnvironmentManager(options = {}) {
         }
         if (disposed || presetGeneration !== presetLoadGeneration) {
             nextBase?.dispose?.();
-            return;
+            return false;
         }
         hdrBaseTex = nextBase;
         if (app) app.hdrBaseTex = hdrBaseTex;
@@ -661,6 +688,7 @@ export function createEnvironmentManager(options = {}) {
         if (enabled) {
             await rebuild({ force: true });
         }
+        return true;
     }
 
     function getCurrentEnv() {
