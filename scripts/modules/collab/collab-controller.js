@@ -331,6 +331,26 @@ export async function createCollabController(options = {}) {
         lastSeenAt: new Date().toISOString(),
     };
 
+    function handlePresenceTrackFailure(err) {
+        if (disposed) return;
+        try {
+            console.warn('Presence track failed', err);
+        } catch (_) {}
+    }
+
+    function trackPresenceMeta() {
+        if (disposed) return Promise.resolve(null);
+        try {
+            return Promise.resolve(roomChannel.track(presenceMeta)).catch((err) => {
+                handlePresenceTrackFailure(err);
+                return null;
+            });
+        } catch (err) {
+            handlePresenceTrackFailure(err);
+            return Promise.resolve(null);
+        }
+    }
+
     const syncPresence = () => {
         if (disposed) return;
         if (typeof onParticipants !== 'function') return;
@@ -392,7 +412,7 @@ export async function createCollabController(options = {}) {
                     if (settled) return;
                     settled = true;
                     emitConnectionState(true, nextStatus);
-                    roomChannel.track(presenceMeta);
+                    void trackPresenceMeta();
                     resolve();
                     return;
                 }
@@ -412,7 +432,7 @@ export async function createCollabController(options = {}) {
         presenceHeartbeat = setInterval(async () => {
             try {
                 presenceMeta.lastSeenAt = new Date().toISOString();
-                await roomChannel.track(presenceMeta);
+                await trackPresenceMeta();
             } catch (_) {}
         }, PRESENCE_HEARTBEAT_MS);
     };
@@ -563,7 +583,7 @@ export async function createCollabController(options = {}) {
             display_name: currentName,
         });
         if (disposed) return currentName;
-        await roomChannel.track(presenceMeta);
+        await trackPresenceMeta();
         if (disposed) return currentName;
         syncPresence();
         return currentName;

@@ -3615,6 +3615,12 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
 
     const result = await page.evaluate(async () => {
         const { createCollabController } = await import('/scripts/modules/collab/collab-controller.js');
+        const unhandled = [];
+        const handleUnhandled = (event) => {
+            unhandled.push(String(event?.reason?.message || event?.reason || 'unhandled'));
+            event?.preventDefault?.();
+        };
+        globalThis.addEventListener('unhandledrejection', handleUnhandled);
 
         let delayedProfileUpsertResolve = null;
         let delayedProfileUpsertStartedResolve = null;
@@ -3755,6 +3761,38 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             rpc: async () => ({ data: null, error: null }),
         };
 
+        class RejectTrackChannel extends FakeChannel {
+            track() {
+                this.tracked.push({ failed: true });
+                return Promise.reject(new Error('initial presence track failed'));
+            }
+        }
+
+        const trackRejectChannels = [];
+        const trackRejectSupabase = {
+            ...supabase,
+            channel: (name) => {
+                const channel = new RejectTrackChannel(name);
+                trackRejectChannels.push(channel);
+                return channel;
+            },
+            removeChannel: async () => 'ok',
+        };
+        const trackRejectController = await createCollabController({
+            supabase: trackRejectSupabase,
+            user: { id: 'track-user' },
+            project: { id: 'track-project', slug: 'track-project' },
+            room: { id: 'track-room', slug: 'track-room', camera_owner_id: null, camera_state: null },
+            displayName: 'Track',
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await trackRejectController.dispose();
+        const trackRejectUnhandled = unhandled.slice();
+        const trackRejectCalls = trackRejectChannels
+            .filter((channel) => channel.name === 'room:track-room')
+            .reduce((sum, channel) => sum + channel.tracked.length, 0);
+        unhandled.length = 0;
+
         const calls = [];
         const controller = await createCollabController({
             supabase,
@@ -3835,11 +3873,16 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         annotationsChannel.emitStatus('CLOSED');
 
         await Promise.resolve();
+        const afterLateEvents = calls.slice();
+        globalThis.removeEventListener('unhandledrejection', handleUnhandled);
         return {
             beforeDispose,
             afterChannelFailure,
             afterDispose,
-            afterLateEvents: calls.slice(),
+            afterLateEvents,
+            unhandled,
+            trackRejectUnhandled,
+            trackRejectCalls,
             trackedBeforeSetName,
             trackedWhileSetNamePending,
             trackedAfterLateSetName,
@@ -3865,6 +3908,9 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     assert.equal(result.setNameAfterDisposeResult, 'resolved:Late Name', 'Collab smoke: delayed display name update did not settle');
     assert.equal(result.messageAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed message insert returned stale data after dispose');
     assert.equal(result.annotationAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed annotation insert returned stale data after dispose');
+    assert.equal(result.trackRejectCalls, 1, 'Collab smoke: initial presence track failure was not exercised');
+    assert.deepEqual(result.trackRejectUnhandled, [], 'Collab smoke: initial presence track rejection was unhandled');
+    assert.deepEqual(result.unhandled, [], 'Collab smoke: realtime dispose flow caused unhandled rejections');
     assert.equal(result.trackedWhileSetNamePending, result.trackedBeforeSetName, 'Collab smoke: delayed display name tracked presence before its write completed');
     assert.equal(result.trackedAfterLateSetName, result.trackedWhileSetNamePending, 'Collab smoke: delayed display name tracked presence after dispose');
     assert.deepEqual(result.removedChannels, result.channelNames, 'Collab smoke: dispose did not remove all realtime channels');
