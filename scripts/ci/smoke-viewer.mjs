@@ -3018,6 +3018,76 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
         const callsAfterDispose = calls.slice();
         const lateResult = await finalizer.finalizeBatchAfterAllFiles();
 
+        const staleCalls = [];
+        const staleModels = [{ obj: { name: 'stale-model' }, zipKind: 'SM', group: 'stale-group' }];
+        const staleOutEl = document.createElement('div');
+        staleOutEl.innerHTML = '<details data-level="group" open></details>';
+        let staleLastFinalizedModelIndex = 0;
+        let staleCurrent = true;
+        let resolveStaleHdr = null;
+        const staleHdrStarted = new Promise((resolve) => {
+            resolveStaleHdr = resolve;
+        });
+        let finishStaleHdr = null;
+        const staleHdrBlocked = new Promise((resolve) => {
+            finishStaleHdr = resolve;
+        });
+        const staleFinalizer = createBatchFinalizer({
+            loadedModels: staleModels,
+            allEmbedded: [],
+            getLastFinalizedModelIndex: () => staleLastFinalizedModelIndex,
+            setLastFinalizedModelIndex: (next) => {
+                staleCalls.push(`stale:last:${next}`);
+                staleLastFinalizedModelIndex = next;
+            },
+            getGalleryNeedsRefresh: () => false,
+            getDidInitialRebase: () => true,
+            isIBLEnabled: () => true,
+            getIBLRotation: () => 30,
+            loadHDRBase: async () => {
+                staleCalls.push('stale:loadHDR:start');
+                resolveStaleHdr();
+                await staleHdrBlocked;
+                staleCalls.push('stale:loadHDR:done');
+            },
+            buildAndApplyEnvFromRotation: async () => staleCalls.push('stale:buildEnv'),
+            syncBackgroundToEnvironment: () => staleCalls.push('stale:syncBg'),
+            applyGlassControlsToScene: () => staleCalls.push('stale:glass'),
+            fitSunShadowToScene: () => staleCalls.push('stale:shadow'),
+            updateSun: () => staleCalls.push('stale:sun'),
+            buildVPMIndex: () => {
+                staleCalls.push('stale:vpmIndex');
+                return {};
+            },
+            autoBindVPMForModel: async () => staleCalls.push('stale:autobind'),
+            ensureZipCollisionsHidden: () => staleCalls.push('stale:hideCollisions'),
+            fitAll: () => staleCalls.push('stale:fitAll'),
+            focusOn: () => staleCalls.push('stale:focusOn'),
+            onInitialFraming: () => staleCalls.push('stale:initialFraming'),
+            outEl: staleOutEl,
+            hideSMCollisions: () => {
+                staleCalls.push('stale:hideSM');
+                return true;
+            },
+            syncCollisionButtons: () => staleCalls.push('stale:syncCollisions'),
+            setStatusMessage: (message) => staleCalls.push(`stale:status:${message}`),
+            setEmptyHintVisible: (visible) => staleCalls.push(`stale:hint:${!!visible}`),
+            applyShading: (_mode, done) => {
+                staleCalls.push('stale:shading');
+                done?.();
+            },
+            getCurrentShadingMode: () => 'pbr',
+        });
+        const stalePromise = staleFinalizer.finalizeBatchAfterAllFiles({
+            isCurrent: () => staleCurrent,
+        });
+        await staleHdrStarted;
+        const staleCallsBeforeSupersede = staleCalls.slice();
+        staleCurrent = false;
+        finishStaleHdr();
+        const staleResult = await stalePromise;
+        const staleCallsAfterSupersede = staleCalls.slice();
+
         return {
             callsBeforeDispose,
             callsAfterDispose,
@@ -3025,6 +3095,10 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
             lateResult,
             lastFinalizedModelIndex,
             galleryNeedsRefresh,
+            staleCallsBeforeSupersede,
+            staleCallsAfterSupersede,
+            staleResult,
+            staleLastFinalizedModelIndex,
         };
     });
 
@@ -3037,6 +3111,13 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
     assert.equal(result.lateResult, false, 'Batch finalizer smoke: disposed finalizer accepted a late finalize call');
     assert.equal(result.lastFinalizedModelIndex, 0, 'Batch finalizer smoke: disposed finalizer advanced finalized index');
     assert.equal(result.galleryNeedsRefresh, false, 'Batch finalizer smoke: pre-dispose gallery refresh state did not update as expected');
+    assert.deepEqual(
+        result.staleCallsAfterSupersede,
+        [...result.staleCallsBeforeSupersede, 'stale:loadHDR:done'],
+        'Batch finalizer smoke: stale finalizer continued scene/UI finalization after await',
+    );
+    assert.equal(result.staleResult, false, 'Batch finalizer smoke: stale in-flight finalizer did not return false');
+    assert.equal(result.staleLastFinalizedModelIndex, 0, 'Batch finalizer smoke: stale finalizer advanced finalized index');
     diagnostics.assertNoErrors('Batch finalizer dispose smoke');
     await page.close();
 }

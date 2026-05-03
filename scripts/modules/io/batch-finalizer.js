@@ -61,29 +61,38 @@ export function createBatchFinalizer(options = {}) {
     let disposed = false;
     let finalizeGeneration = 0;
 
-    function isCurrent(generation) {
-        return !disposed && generation === finalizeGeneration;
+    function isCurrent(generation, contextCurrent = null) {
+        if (disposed || generation !== finalizeGeneration) return false;
+        if (typeof contextCurrent !== 'function') return true;
+        try {
+            return contextCurrent() !== false;
+        } catch (_) {
+            return false;
+        }
     }
 
-    async function finalizeBatchAfterAllFiles() {
+    async function finalizeBatchAfterAllFiles(runOptions = {}) {
         if (disposed || !loadedModels.length) return false;
         const generation = ++finalizeGeneration;
+        const contextCurrent = typeof runOptions.isCurrent === 'function' ? runOptions.isCurrent : null;
+        const stillCurrent = () => isCurrent(generation, contextCurrent);
+        if (!stillCurrent()) return false;
 
         const newModels = loadedModels.slice(getLastFinalizedModelIndex());
         const hasNewModels = newModels.length > 0;
         const needGalleryRefresh = getGalleryNeedsRefresh();
 
         if (!hasNewModels && !needGalleryRefresh) {
-            if (!isCurrent(generation)) return false;
+            if (!stillCurrent()) return false;
             setStatusMessage('Готово');
             setEmptyHintVisible(loadedModels.length === 0);
             return true;
         }
 
         if (needGalleryRefresh) {
-            if (!isCurrent(generation)) return false;
+            if (!stillCurrent()) return false;
             renderGallery(allEmbedded);
-            if (!isCurrent(generation)) return false;
+            if (!stillCurrent()) return false;
             setGalleryNeedsRefresh(false);
         }
 
@@ -91,7 +100,7 @@ export function createBatchFinalizer(options = {}) {
         let firstTime = false;
         if (!getDidInitialRebase() && hasNewModels) {
             const off = computeAutoOffsetHorizontalOnly();
-            if (!isCurrent(generation)) return false;
+            if (!stillCurrent()) return false;
             setWorldOffset(off);
             setDidInitialRebase(true);
             firstTime = true;
@@ -100,12 +109,12 @@ export function createBatchFinalizer(options = {}) {
         if (hasNewModels) {
             if (isIBLEnabled()) {
                 await loadHDRBase();
-                if (!isCurrent(generation)) return false;
+                if (!stillCurrent()) return false;
                 await buildAndApplyEnvFromRotation(getIBLRotation());
-                if (!isCurrent(generation)) return false;
+                if (!stillCurrent()) return false;
             }
 
-            if (!isCurrent(generation)) return false;
+            if (!stillCurrent()) return false;
             syncBackgroundToEnvironment();
 
             applyGlassControlsToScene();
@@ -123,18 +132,18 @@ export function createBatchFinalizer(options = {}) {
             try {
                 const vpmIndex = buildVPMIndex(allEmbedded);
                 for (const m of modelsForBinding) {
-                    if (!isCurrent(generation)) return false;
+                    if (!stillCurrent()) return false;
                     await autoBindVPMForModel(m.obj, vpmIndex);
-                    if (!isCurrent(generation)) return false;
+                    if (!stillCurrent()) return false;
                 }
             } catch (e) {
-                if (!isCurrent(generation)) return false;
+                if (!stillCurrent()) return false;
                 logBind(`⚠️ VPM: ошибка автопривязки — ${e?.message || e}`, 'warn');
             }
         }
 
         if (hasNewModels) {
-            if (!isCurrent(generation)) return false;
+            if (!stillCurrent()) return false;
             const smGroups = new Set();
             newModels.forEach(model => {
                 if ((model.zipKind || '').toUpperCase() !== 'SM') return;
@@ -150,7 +159,7 @@ export function createBatchFinalizer(options = {}) {
         }
 
         const finalizeUI = () => {
-            if (!isCurrent(generation)) return;
+            if (!stillCurrent()) return;
             outEl.querySelectorAll('details[data-level="group"], details[data-level="file"]').forEach(d => d.open = false);
             if (firstTime) {
                 if (imagesDetails) imagesDetails.open = false;
@@ -167,14 +176,14 @@ export function createBatchFinalizer(options = {}) {
         };
 
         if (hasNewModels) {
-            if (!isCurrent(generation)) return false;
+            if (!stillCurrent()) return false;
             applyShading(getCurrentShadingMode(), finalizeUI);
         } else {
             finalizeUI();
         }
 
         if (hasNewModels) {
-            if (!isCurrent(generation)) return false;
+            if (!stillCurrent()) return false;
             setLastFinalizedModelIndex(loadedModels.length);
         }
         return true;

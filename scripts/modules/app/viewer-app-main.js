@@ -5291,8 +5291,10 @@ export class ViewerApp {
                     cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId });
                     return false;
                 }
-                await finalizeBatchAfterAllFiles();
-                if (isStaleLoad()) {
+                await finalizeBatchAfterAllFiles({
+                    isCurrent: () => !isStaleLoad() && !importSignal?.aborted,
+                });
+                if (isStaleLoad() || importSignal?.aborted) {
                     abortImport();
                     cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId });
                     return false;
@@ -6063,11 +6065,12 @@ export class ViewerApp {
         /**
          * Финальный шаг после загрузки всех файлов: применяет HDRI/фокус, автопривязку ВПМ и перерисовывает UI.
          */
-	        async function finalizeBatchAfterAllFiles() {
-	            const result = await batchFinalizer.finalizeBatchAfterAllFiles();
-	            await syncPendingLocalModels();
-	            return result;
-	        }
+		        async function finalizeBatchAfterAllFiles(options = {}) {
+		            const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : null;
+		            const result = await batchFinalizer.finalizeBatchAfterAllFiles({ isCurrent });
+		            if (result && (!isCurrent || isCurrent())) await syncPendingLocalModels();
+		            return result;
+		        }
 
 	        async function disposeApp() {
 	            if (appDisposed) return;
