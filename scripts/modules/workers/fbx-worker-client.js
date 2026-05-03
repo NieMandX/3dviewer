@@ -142,20 +142,24 @@ export function createFBXWorkerClient(options = {}) {
         const { json, duration, embedded, orientation } = await promise;
         if (disposed || signal?.aborted) throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
         const loader = new THREE.ObjectLoader();
-        const parsed = loader.parse(json);
-        if (disposed || signal?.aborted) {
+        let parsed = null;
+        try {
+            parsed = loader.parse(json);
+            if (disposed || signal?.aborted) {
+                throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
+            }
+            if (json.animations?.length) {
+                const clips = json.animations.map(THREE.AnimationClip.parse).filter(Boolean);
+                if (clips.length) parsed.animations = clips;
+            }
+            if (disposed || signal?.aborted) {
+                throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
+            }
+            return { obj: parsed, duration: duration || 0, embedded: embedded || [], orientationInfo: orientation || null };
+        } catch (err) {
             disposeParsedObject(parsed);
-            throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
+            throw err;
         }
-        if (json.animations?.length) {
-            const clips = json.animations.map(THREE.AnimationClip.parse).filter(Boolean);
-            if (clips.length) parsed.animations = clips;
-        }
-        if (disposed || signal?.aborted) {
-            disposeParsedObject(parsed);
-            throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
-        }
-        return { obj: parsed, duration: duration || 0, embedded: embedded || [], orientationInfo: orientation || null };
     }
 
     function isSupported() {

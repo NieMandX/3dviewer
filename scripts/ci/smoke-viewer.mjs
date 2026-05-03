@@ -6048,6 +6048,75 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
             const zipRaceResult = await zipRacePromise;
             const zipRacePostedAfterDispose = zipRaceWorker?.messages?.length || 0;
 
+            let fbxParseFailureResult = '';
+            let fbxParseFailureGeometryDisposed = 0;
+            let fbxParseFailureMaterialDisposed = 0;
+            {
+                const nativeGeometryDispose = THREE.BufferGeometry.prototype.dispose;
+                const nativeMaterialDispose = THREE.Material.prototype.dispose;
+                const nativeObjectLoaderParse = THREE.ObjectLoader.prototype.parse;
+                const failureRoot = new THREE.Group();
+                const failureGeometry = new THREE.BufferGeometry();
+                failureGeometry.name = 'fbxParseFailureGeometry';
+                failureGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
+                    0, 0, 0,
+                    1, 0, 0,
+                    0, 1, 0,
+                ], 3));
+                const failureMaterial = new THREE.MeshBasicMaterial({ name: 'fbxParseFailureMaterial' });
+                failureRoot.add(new THREE.Mesh(failureGeometry, failureMaterial));
+                THREE.BufferGeometry.prototype.dispose = function smokeFBXParseFailureGeometryDispose(...args) {
+                    if (this.name === 'fbxParseFailureGeometry') {
+                        fbxParseFailureGeometryDisposed += 1;
+                    }
+                    return nativeGeometryDispose.apply(this, args);
+                };
+                THREE.Material.prototype.dispose = function smokeFBXParseFailureMaterialDispose(...args) {
+                    if (this.name === 'fbxParseFailureMaterial') {
+                        fbxParseFailureMaterialDisposed += 1;
+                    }
+                    return nativeMaterialDispose.apply(this, args);
+                };
+                THREE.ObjectLoader.prototype.parse = function smokeFBXParseFailureObjectParse() {
+                    return failureRoot;
+                };
+                try {
+                    const fbxParseFailureStartIndex = workers.length;
+                    const fbxParseFailureClient = createFBXWorkerClient({ workerUrl: '/fake-fbx-worker-parse-failure.js' });
+                    const fbxParseFailurePromise = fbxParseFailureClient.parseFBXInWorker(
+                        new ArrayBuffer(4),
+                        { embedded: true, orientation: true }
+                    ).then(
+                        () => 'resolved',
+                        (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+                    );
+                    await Promise.resolve();
+                    const fbxParseFailureWorker = workers[fbxParseFailureStartIndex] || null;
+                    const fbxParseFailureJobId = fbxParseFailureWorker?.messages?.[0]?.id || 1;
+                    fbxParseFailureWorker?.emit?.({
+                        id: fbxParseFailureJobId,
+                        ok: true,
+                        json: {
+                            animations: {
+                                length: 1,
+                                map() {
+                                    throw new Error('clip rebuild failed');
+                                },
+                            },
+                        },
+                        duration: 1,
+                        embedded: [],
+                        orientation: null,
+                    });
+                    fbxParseFailureResult = await fbxParseFailurePromise;
+                    fbxParseFailureClient.dispose();
+                } finally {
+                    THREE.BufferGeometry.prototype.dispose = nativeGeometryDispose;
+                    THREE.Material.prototype.dispose = nativeMaterialDispose;
+                    THREE.ObjectLoader.prototype.parse = nativeObjectLoaderParse;
+                }
+            }
+
             const zipHandlerErrorStartIndex = workers.length;
             const zipHandlerErrorClient = createZIPWorkerClient({ workerUrl: '/fake-zip-worker-handler-error.js' });
             const zipHandlerErrorEvents = [];
@@ -6148,6 +6217,9 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 zipRacePostedAfterDispose,
                 zipRaceTerminated: zipRaceWorker?.terminated || 0,
                 zipRaceEvents,
+                fbxParseFailureResult,
+                fbxParseFailureGeometryDisposed,
+                fbxParseFailureMaterialDisposed,
                 zipHandlerErrorResult,
                 zipHandlerErrorTerminated,
                 zipHandlerErrorAckCount,
@@ -6184,6 +6256,9 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
     assert.equal(result.zipRacePostedAfterDispose, 0, 'Worker client dispose smoke: ZIP posted to worker after dispose');
     assert.equal(result.zipRaceTerminated, 1, 'Worker client dispose smoke: ZIP arrayBuffer race worker was not terminated');
     assert.deepEqual(result.zipRaceEvents, [], 'Worker client dispose smoke: ZIP arrayBuffer race fired onError after dispose');
+    assert.equal(result.fbxParseFailureResult, 'Error:clip rebuild failed', 'Worker client dispose smoke: FBX parse failure was not propagated');
+    assert.equal(result.fbxParseFailureGeometryDisposed, 1, 'Worker client dispose smoke: FBX parse failure leaked restored geometry');
+    assert.equal(result.fbxParseFailureMaterialDisposed, 1, 'Worker client dispose smoke: FBX parse failure leaked restored material');
     assert.equal(result.zipHandlerErrorResult, 'Error:handler import failed', 'Worker client dispose smoke: ZIP handler failure did not reject import');
     assert.equal(result.zipHandlerErrorTerminated, 1, 'Worker client dispose smoke: ZIP handler failure left worker alive');
     assert.equal(result.zipHandlerErrorAckCount, 0, 'Worker client dispose smoke: ZIP handler failure still acked the failed chunk');
