@@ -1640,6 +1640,8 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
         animationLoop.start();
         animationCallback?.(32);
         const animationAfterRestart = animationRenders;
+        firstAnimationCallback?.(40);
+        const animationAfterStaleRestartCallback = animationRenders;
         animationLoop.dispose();
 
         return {
@@ -1661,6 +1663,7 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
             animationAfterFirst,
             animationAfterStaleStopCallback,
             animationAfterRestart,
+            animationAfterStaleRestartCallback,
         };
     });
 
@@ -1688,6 +1691,7 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.animationAfterFirst, 1, 'Render loop smoke: setAnimationLoop first frame did not render');
     assert.equal(result.animationAfterStaleStopCallback, 1, 'Render loop smoke: stale animation callback rendered after stop');
     assert.equal(result.animationAfterRestart, 2, 'Render loop smoke: setAnimationLoop restart did not request a fresh render');
+    assert.equal(result.animationAfterStaleRestartCallback, 2, 'Render loop smoke: stale animation callback rendered after restart');
     diagnostics.assertNoErrors('Render loop lifecycle smoke');
     await page.close();
 }

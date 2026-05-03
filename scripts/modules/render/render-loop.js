@@ -37,6 +37,7 @@ export function createRenderLoopController(options = {}) {
     let lastFrameTime = 0;
     let lastRenderStats = null;
     let rafToken = 0;
+    let loopGeneration = 0;
     const hasAnimationLoop = typeof renderer?.setAnimationLoop === 'function';
 
     function requestRender() {
@@ -73,15 +74,19 @@ export function createRenderLoopController(options = {}) {
         }
     }
 
-    function scheduleNextFrame() {
-        if (hasAnimationLoop || !raf || !running || rafToken) return;
-        rafToken = raf(animate);
+    function isActiveFrame(generation) {
+        return running && generation === loopGeneration;
     }
 
-    function animate() {
-        if (!running) return;
+    function scheduleNextFrame(generation = loopGeneration) {
+        if (hasAnimationLoop || !raf || !running || rafToken) return;
+        rafToken = raf(() => animate(generation));
+    }
+
+    function animate(generation = loopGeneration) {
+        if (!isActiveFrame(generation)) return;
         rafToken = 0;
-        scheduleNextFrame();
+        scheduleNextFrame(generation);
 
         const now = timeNow();
         if (!lastFrameTime) lastFrameTime = now;
@@ -95,6 +100,7 @@ export function createRenderLoopController(options = {}) {
             reportLoopError(err, 'controls');
             return;
         }
+        if (!isActiveFrame(generation)) return;
 
         try {
             onFrame();
@@ -102,6 +108,7 @@ export function createRenderLoopController(options = {}) {
             reportLoopError(err, 'frame');
             return;
         }
+        if (!isActiveFrame(generation)) return;
 
         if (isWebGPU && !getRendererReady()) {
             updateStatsSafely();
@@ -148,22 +155,27 @@ export function createRenderLoopController(options = {}) {
 
     function start() {
         if (running) return;
+        loopGeneration += 1;
         running = true;
         needsRender = true;
+        lastFrameTime = 0;
+        const generation = loopGeneration;
         if (hasAnimationLoop) {
-            renderer.setAnimationLoop(animate);
+            renderer.setAnimationLoop(() => animate(generation));
             return;
         }
-        scheduleNextFrame();
+        scheduleNextFrame(generation);
     }
 
     function stop() {
+        const wasRunning = running;
         running = false;
+        loopGeneration += 1;
         if (rafToken && cancelRaf) {
             cancelRaf(rafToken);
         }
         rafToken = 0;
-        if (hasAnimationLoop) {
+        if (hasAnimationLoop && wasRunning) {
             renderer.setAnimationLoop(null);
         }
     }
