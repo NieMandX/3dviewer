@@ -3,6 +3,14 @@ const TUS_CLIENT_CDN = 'https://cdn.jsdelivr.net/npm/tus-js-client@3.1.3/dist/tu
 let cachedModule = null;
 let cachedPromise = null;
 
+function cleanupScript(script, { remove = false } = {}) {
+    try {
+        script.onload = null;
+        script.onerror = null;
+        if (remove) script.remove();
+    } catch (_) {}
+}
+
 export async function loadTusClient() {
     if (cachedModule?.Upload) return cachedModule;
     if (cachedPromise) return cachedPromise;
@@ -25,14 +33,15 @@ export async function loadTusClient() {
             const tus = globalThis.tus;
             if (tus?.Upload) {
                 cachedModule = tus;
+                cleanupScript(script);
                 resolve(cachedModule);
             } else {
-                try { script.remove(); } catch (_) {}
+                cleanupScript(script, { remove: true });
                 reject(new Error('tus-js-client loaded without Upload API.'));
             }
         };
         script.onerror = () => {
-            try { script.remove(); } catch (_) {}
+            cleanupScript(script, { remove: true });
             reject(new Error('Failed to load tus-js-client from CDN.'));
         };
         document.head.appendChild(script);

@@ -370,19 +370,29 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
         async function smokeSupabaseRetry() {
             delete window.supabase;
             let scriptAttempts = 0;
+            let scriptRemovals = 0;
+            let firstHandlersCleared = false;
+            let secondHandlersCleared = false;
             document.head.appendChild = (node) => {
                 const src = String(node?.src || '');
                 if (node?.tagName === 'SCRIPT' && src.includes('@supabase/supabase-js')) {
                     scriptAttempts += 1;
+                    const nativeRemove = node.remove?.bind(node);
+                    node.remove = () => {
+                        scriptRemovals += 1;
+                        nativeRemove?.();
+                    };
                     queueMicrotask(() => {
                         if (scriptAttempts === 1) {
                             node.onerror?.(new Event('error'));
+                            firstHandlersCleared = node.onload === null && node.onerror === null;
                             return;
                         }
                         window.supabase = {
                             createClient: (url, anonKey, options) => ({ url, anonKey, options }),
                         };
                         node.onload?.(new Event('load'));
+                        secondHandlersCleared = node.onload === null && node.onerror === null;
                     });
                     return node;
                 }
@@ -400,6 +410,9 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
             return {
                 firstError,
                 scriptAttempts,
+                scriptRemovals,
+                firstHandlersCleared,
+                secondHandlersCleared,
                 secondUrl: client?.url || '',
                 secondAnonKey: client?.anonKey || '',
             };
@@ -408,17 +421,27 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
         async function smokeLiveKitRetry() {
             delete window.LivekitClient;
             let scriptAttempts = 0;
+            let scriptRemovals = 0;
+            let firstHandlersCleared = false;
+            let secondHandlersCleared = false;
             document.head.appendChild = (node) => {
                 const src = String(node?.src || '');
                 if (node?.tagName === 'SCRIPT' && src.includes('livekit-client')) {
                     scriptAttempts += 1;
+                    const nativeRemove = node.remove?.bind(node);
+                    node.remove = () => {
+                        scriptRemovals += 1;
+                        nativeRemove?.();
+                    };
                     queueMicrotask(() => {
                         if (scriptAttempts === 1) {
                             node.onerror?.(new Event('error'));
+                            firstHandlersCleared = node.onload === null && node.onerror === null;
                             return;
                         }
                         window.LivekitClient = { Room: function RetryRoom() {} };
                         node.onload?.(new Event('load'));
+                        secondHandlersCleared = node.onload === null && node.onerror === null;
                     });
                     return node;
                 }
@@ -436,6 +459,9 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
             return {
                 firstError,
                 scriptAttempts,
+                scriptRemovals,
+                firstHandlersCleared,
+                secondHandlersCleared,
                 hasRoom: typeof sdk?.Room === 'function',
             };
         }
@@ -443,17 +469,27 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
         async function smokeTusRetry() {
             delete window.tus;
             let scriptAttempts = 0;
+            let scriptRemovals = 0;
+            let firstHandlersCleared = false;
+            let secondHandlersCleared = false;
             document.head.appendChild = (node) => {
                 const src = String(node?.src || '');
                 if (node?.tagName === 'SCRIPT' && src.includes('tus-js-client')) {
                     scriptAttempts += 1;
+                    const nativeRemove = node.remove?.bind(node);
+                    node.remove = () => {
+                        scriptRemovals += 1;
+                        nativeRemove?.();
+                    };
                     queueMicrotask(() => {
                         if (scriptAttempts === 1) {
                             node.onerror?.(new Event('error'));
+                            firstHandlersCleared = node.onload === null && node.onerror === null;
                             return;
                         }
                         window.tus = { Upload: function RetryUpload() {} };
                         node.onload?.(new Event('load'));
+                        secondHandlersCleared = node.onload === null && node.onerror === null;
                     });
                     return node;
                 }
@@ -471,6 +507,9 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
             return {
                 firstError,
                 scriptAttempts,
+                scriptRemovals,
+                firstHandlersCleared,
+                secondHandlersCleared,
                 hasUpload: typeof tus?.Upload === 'function',
             };
         }
@@ -490,13 +529,22 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
 
     assert.equal(result.supabase.firstError, 'Supabase UMD failed to load.', 'SDK retry smoke: expected first Supabase load to fail');
     assert.equal(result.supabase.scriptAttempts, 2, 'SDK retry smoke: Supabase loader did not retry after failed script');
+    assert.equal(result.supabase.scriptRemovals, 1, 'SDK retry smoke: Supabase failed script was not removed');
+    assert.equal(result.supabase.firstHandlersCleared, true, 'SDK retry smoke: Supabase failed script handlers were not cleared');
+    assert.equal(result.supabase.secondHandlersCleared, true, 'SDK retry smoke: Supabase loaded script handlers were not cleared');
     assert.equal(result.supabase.secondUrl, 'https://retry.supabase.co', 'SDK retry smoke: Supabase retry did not create client');
     assert.equal(result.supabase.secondAnonKey, 'anon', 'SDK retry smoke: Supabase retry used wrong anon key');
     assert.equal(result.livekit.firstError, 'LiveKit browser SDK failed to load.', 'SDK retry smoke: expected first LiveKit load to fail');
     assert.equal(result.livekit.scriptAttempts, 2, 'SDK retry smoke: LiveKit loader did not retry after failed script');
+    assert.equal(result.livekit.scriptRemovals, 1, 'SDK retry smoke: LiveKit failed script was not removed');
+    assert.equal(result.livekit.firstHandlersCleared, true, 'SDK retry smoke: LiveKit failed script handlers were not cleared');
+    assert.equal(result.livekit.secondHandlersCleared, true, 'SDK retry smoke: LiveKit loaded script handlers were not cleared');
     assert.equal(result.livekit.hasRoom, true, 'SDK retry smoke: LiveKit retry did not resolve SDK');
     assert.equal(result.tus.firstError, 'Failed to load tus-js-client from CDN.', 'SDK retry smoke: expected first TUS load to fail');
     assert.equal(result.tus.scriptAttempts, 2, 'SDK retry smoke: TUS loader did not retry after failed script');
+    assert.equal(result.tus.scriptRemovals, 1, 'SDK retry smoke: TUS failed script was not removed');
+    assert.equal(result.tus.firstHandlersCleared, true, 'SDK retry smoke: TUS failed script handlers were not cleared');
+    assert.equal(result.tus.secondHandlersCleared, true, 'SDK retry smoke: TUS loaded script handlers were not cleared');
     assert.equal(result.tus.hasUpload, true, 'SDK retry smoke: TUS retry did not resolve Upload API');
     diagnostics.assertNoErrors('Browser SDK retry smoke');
     await page.close();

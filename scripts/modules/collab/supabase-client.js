@@ -3,6 +3,14 @@ const SUPABASE_CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.104.1
 let cachedModule = null;
 let cachedPromise = null;
 
+function cleanupScript(script, { remove = false } = {}) {
+    try {
+        script.onload = null;
+        script.onerror = null;
+        if (remove) script.remove();
+    } catch (_) {}
+}
+
 async function loadSupabaseModule() {
     if (cachedModule) return cachedModule;
     if (cachedPromise) return cachedPromise;
@@ -20,12 +28,17 @@ async function loadSupabaseModule() {
         script.onload = () => {
             if (window.supabase) {
                 cachedModule = window.supabase;
+                cleanupScript(script);
                 resolve(cachedModule);
             } else {
+                cleanupScript(script, { remove: true });
                 reject(new Error('Supabase UMD failed to initialize.'));
             }
         };
-        script.onerror = () => reject(new Error('Supabase UMD failed to load.'));
+        script.onerror = () => {
+            cleanupScript(script, { remove: true });
+            reject(new Error('Supabase UMD failed to load.'));
+        };
         document.head.appendChild(script);
     }).catch((err) => {
         cachedPromise = null;
