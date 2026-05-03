@@ -4633,6 +4633,7 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
         let currentGeneration = 1;
         let currentActiveRequestGeneration = 0;
         const events = [];
+        const errors = [];
         const releases = new Map();
         const starts = new Map();
 
@@ -4661,13 +4662,28 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
                 const id = String(model?.id || '');
                 events.push(`start:${id}`);
                 markStart(id);
-                if (id === 'A' || id === 'C' || id === 'BLOCKED' || id === 'AFTER_RESET' || id === 'ACTIVE_STALE') {
+                if (
+                    id === 'A'
+                    || id === 'C'
+                    || id === 'BLOCKED'
+                    || id === 'AFTER_RESET'
+                    || id === 'ACTIVE_STALE'
+                    || id === 'STALE_ERROR'
+                    || id === 'AFTER_STALE_ERROR'
+                ) {
                     await new Promise((resolve) => {
                         releases.set(id, resolve);
                     });
                 }
+                if (id === 'STALE_ERROR') {
+                    events.push(`fail:${id}`);
+                    throw new Error('stale room model load failed');
+                }
                 events.push(`done:${id}`);
                 return true;
+            },
+            onError: (err, { context } = {}) => {
+                errors.push(`${context?.modelId || ''}:${err?.message || err}`);
             },
         });
 
@@ -4718,9 +4734,34 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             { id: 'ACTIVE_FRESH' },
             { roomId: 'room-1', generation: 5, activeRequestGeneration: 2 },
         );
+        const eventsBeforeStaleErrorScenario = events.slice();
+        const errorsBeforeStaleErrorScenario = errors.slice();
+
+        currentGeneration = 6;
+        const staleErrorLoad = queue.load(
+            { id: 'STALE_ERROR' },
+            { roomId: 'room-1', generation: 6 },
+        );
+        await waitForStart('STALE_ERROR');
+        currentGeneration = 7;
+        queue.reset();
+        const afterStaleErrorLoad = queue.load(
+            { id: 'AFTER_STALE_ERROR' },
+            { roomId: 'room-1', generation: 7 },
+        );
+        await waitForStart('AFTER_STALE_ERROR');
+        const afterStaleErrorStartedBeforeFailure = events.includes('start:AFTER_STALE_ERROR')
+            && !events.includes('fail:STALE_ERROR');
+        releases.get('STALE_ERROR')();
+        releases.get('AFTER_STALE_ERROR')();
+        const staleErrorLoadResult = await staleErrorLoad;
+        const afterStaleErrorLoadResult = await afterStaleErrorLoad;
 
         return {
             events,
+            eventsBeforeStaleErrorScenario,
+            errors,
+            errorsBeforeStaleErrorScenario,
             firstLoadResult,
             secondLoadResult,
             staleLoadResult,
@@ -4731,7 +4772,10 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             afterResetLoadResult,
             activeStaleLoadResult,
             activeFreshLoadResult,
+            staleErrorLoadResult,
+            afterStaleErrorLoadResult,
             afterResetStartedBeforeBlockedDone,
+            afterStaleErrorStartedBeforeFailure,
             pendingDuringActive,
             deletedPending,
             pendingAfter: queue.getPendingModelIds(),
@@ -4749,13 +4793,17 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
     assert.equal(result.afterResetLoadResult, true, 'Room model queue smoke: reset generation load did not finish');
     assert.equal(result.activeStaleLoadResult, false, 'Room model queue smoke: stale active-model request still reported success');
     assert.equal(result.activeFreshLoadResult, true, 'Room model queue smoke: fresh active-model request did not load');
+    assert.equal(result.staleErrorLoadResult, false, 'Room model queue smoke: stale failing load should resolve false');
+    assert.equal(result.afterStaleErrorLoadResult, true, 'Room model queue smoke: post-reset load did not finish after stale failure');
     assert.equal(result.afterResetStartedBeforeBlockedDone, true, 'Room model queue smoke: reset did not release active stale load slot');
+    assert.equal(result.afterStaleErrorStartedBeforeFailure, true, 'Room model queue smoke: reset did not release active failing load slot');
+    assert.deepEqual(result.errors, result.errorsBeforeStaleErrorScenario, 'Room model queue smoke: stale load failure reached onError after reset');
     assert.deepEqual(result.pendingDuringActive, ['B'], 'Room model queue smoke: concurrent model was not queued');
     assert.equal(result.deletedPending, true, 'Room model queue smoke: pending delete did not remove queued model');
     assert.deepEqual(result.pendingAfter, [], 'Room model queue smoke: pending queue did not drain');
     assert.equal(result.activeAfter, false, 'Room model queue smoke: queue stayed active after drain');
     assert.deepEqual(
-        result.events,
+        result.eventsBeforeStaleErrorScenario,
         [
             'start:A', 'done:A', 'start:B', 'done:B',
             'start:C', 'done:C',

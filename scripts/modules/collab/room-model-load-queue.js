@@ -66,8 +66,13 @@ export function createRoomModelLoadQueue(options = {}) {
             if (activeRunId !== runId || queueGeneration !== runGeneration || !isContextCurrent(context)) return false;
             return loaded;
         } catch (err) {
-            if (onError) onError(err, { model, context });
-            else console.error('Room model queued load failed', err);
+            const stillCurrentRun = activeRunId === runId
+                && queueGeneration === runGeneration
+                && isContextCurrent(context);
+            if (stillCurrentRun) {
+                if (onError) onError(err, { model, context });
+                else console.error('Room model queued load failed', err);
+            }
             return false;
         } finally {
             if (activeRunId === runId && queueGeneration === runGeneration) {
