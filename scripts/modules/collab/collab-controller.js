@@ -823,7 +823,7 @@ export async function createCollabController(options = {}) {
         if (!presenceMeta.lastSeenAt) {
             presenceMeta.lastSeenAt = new Date().toISOString();
         }
-        await roomChannel.track(presenceMeta);
+        await trackPresenceMeta();
         if (disposed) return;
         syncPresence();
     }

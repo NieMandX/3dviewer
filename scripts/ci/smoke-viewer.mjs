@@ -3786,6 +3786,10 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             displayName: 'Track',
         });
         await new Promise((resolve) => setTimeout(resolve, 0));
+        const trackRejectUpdatePresence = await trackRejectController.updatePresence({ mode: 'smoke' }).then(
+            () => 'resolved',
+            (err) => `rejected:${err?.message || String(err)}`,
+        );
         await trackRejectController.dispose();
         const trackRejectUnhandled = unhandled.slice();
         const trackRejectCalls = trackRejectChannels
@@ -3883,6 +3887,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             unhandled,
             trackRejectUnhandled,
             trackRejectCalls,
+            trackRejectUpdatePresence,
             trackedBeforeSetName,
             trackedWhileSetNamePending,
             trackedAfterLateSetName,
@@ -3908,7 +3913,8 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     assert.equal(result.setNameAfterDisposeResult, 'resolved:Late Name', 'Collab smoke: delayed display name update did not settle');
     assert.equal(result.messageAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed message insert returned stale data after dispose');
     assert.equal(result.annotationAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed annotation insert returned stale data after dispose');
-    assert.equal(result.trackRejectCalls, 1, 'Collab smoke: initial presence track failure was not exercised');
+    assert.equal(result.trackRejectCalls, 2, 'Collab smoke: presence track failures were not exercised');
+    assert.equal(result.trackRejectUpdatePresence, 'resolved', 'Collab smoke: rejected updatePresence track was propagated');
     assert.deepEqual(result.trackRejectUnhandled, [], 'Collab smoke: initial presence track rejection was unhandled');
     assert.deepEqual(result.unhandled, [], 'Collab smoke: realtime dispose flow caused unhandled rejections');
     assert.equal(result.trackedWhileSetNamePending, result.trackedBeforeSetName, 'Collab smoke: delayed display name tracked presence before its write completed');
