@@ -64,7 +64,7 @@ export function createZIPWorkerClient(options = {}) {
             workerInstance = new Worker(workerUrl, { type: 'module' });
             const worker = workerInstance;
             workerInstance.onmessage = (event) => {
-                if (disposed) return;
+                if (disposed || workerInstance !== worker) return;
                 const msg = event.data || {};
                 const job = pending.get(msg.id);
                 if (!job) return;
@@ -80,7 +80,7 @@ export function createZIPWorkerClient(options = {}) {
                     });
             };
             workerInstance.onerror = (event) => {
-                if (disposed) return;
+                if (disposed || workerInstance !== worker) return;
                 event.preventDefault?.();
                 const err = event?.error || (event?.message ? new Error(event.message) : new Error('ZIP worker error'));
                 disable(err);

@@ -5716,15 +5716,35 @@ async function runWorkerLifecycleSmoke(browser, baseUrl) {
             const zipOldWorker = FakeWorker.instances.find((worker) => worker.url.includes('zip-worker'));
             zipOldWorker?.onmessage?.({ data: { id: 1, type: 'done' } });
 
-            zipAutoRespond = true;
+            zipAutoRespond = false;
             const zipSecondMeta = [];
-            const zipSecond = await zipClient.unpackZIPInWorker({
+            const zipSecondPromise = zipClient.unpackZIPInWorker({
                 name: 'ok.zip',
                 arrayBuffer: async () => new ArrayBuffer(4),
             }, {
                 onMeta: (msg) => zipSecondMeta.push(msg.counts?.fbx ?? -1),
                 onError: (err) => zipCallbacks.push(`lateOnError:${err?.name || err}`),
             });
+            await Promise.resolve();
+            await Promise.resolve();
+            const zipNewWorker = FakeWorker.instances.filter((worker) => worker.url.includes('zip-worker')).at(-1);
+            const zipSecondJobId = zipNewWorker?.posts?.[0]?.id || 2;
+            zipOldWorker?.onerror?.({
+                message: 'stale old ZIP worker error',
+                preventDefault: () => {
+                    events.push('prevent-stale-zip-error');
+                },
+            });
+            const zipSupportedAfterStaleError = zipClient.isSupported();
+            zipNewWorker?.onmessage?.({
+                data: {
+                    id: zipSecondJobId,
+                    type: 'meta',
+                    counts: { fbx: 0, images: 0, geojson: 0 },
+                },
+            });
+            zipNewWorker?.onmessage?.({ data: { id: zipSecondJobId, type: 'done' } });
+            const zipSecond = await zipSecondPromise;
 
             return {
                 fbxAbortResult,
@@ -5736,6 +5756,7 @@ async function runWorkerLifecycleSmoke(browser, baseUrl) {
                 zipAbortResult,
                 zipOldTerminated: !!zipOldWorker?.terminated,
                 zipSecondType: zipSecond?.type || null,
+                zipSupportedAfterStaleError,
                 zipWorkerCount: FakeWorker.instances.filter((worker) => worker.url.includes('zip-worker')).length,
                 zipCallbacks,
                 zipSecondMeta,
@@ -5755,6 +5776,7 @@ async function runWorkerLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.zipAbortResult, 'AbortError', 'Worker smoke: ZIP abort did not reject with AbortError');
     assert.equal(result.zipOldTerminated, true, 'Worker smoke: ZIP worker was not terminated on abort');
     assert.equal(result.zipSecondType, 'done', 'Worker smoke: ZIP worker did not recover after abort');
+    assert.equal(result.zipSupportedAfterStaleError, true, 'Worker smoke: stale ZIP worker error disabled the live client');
     assert.equal(result.zipWorkerCount, 2, 'Worker smoke: ZIP worker was not recreated after abort');
     assert.deepEqual(result.zipCallbacks, [], 'Worker smoke: ZIP stale onError fired after abort');
     assert.deepEqual(result.zipSecondMeta, [0], 'Worker smoke: ZIP next job did not receive meta after abort');
