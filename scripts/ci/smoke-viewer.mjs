@@ -1955,23 +1955,100 @@ async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
             callbacks.forEach((callback, index) => callback(1000 + index));
             await Promise.resolve();
             await Promise.resolve();
+            const geometryDisposedAfterLateCallbacks = geometryDisposed;
+            const materialDisposedAfterLateCallbacks = materialDisposed;
+            const renderUnchangedAfterLateCalls = renderCount === renderCountAfterDispose;
+
+            const beforeDraftGeometryDisposed = geometryDisposed;
+            const beforeDraftMaterialDisposed = materialDisposed;
+            const beforeDraftRafCount = rafCallbacks.length;
+            const draftWorld = new THREE.Group();
+            const draftCamera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+            draftCamera.position.set(0, 0, 5);
+            draftCamera.lookAt(0, 0, 0);
+            draftCamera.updateMatrixWorld(true);
+            const draftCanvas = document.createElement('canvas');
+            const draftToolbar = document.createElement('div');
+            const draftLayerSelect = document.createElement('select');
+            draftCanvas.getBoundingClientRect = () => ({
+                left: 0,
+                top: 0,
+                right: 100,
+                bottom: 100,
+                width: 100,
+                height: 100,
+            });
+            draftCanvas.setPointerCapture = () => {};
+            draftCanvas.releasePointerCapture = () => {};
+            document.body.append(draftCanvas, draftToolbar, draftLayerSelect);
+            const draftController = createAnnotations3DController({
+                THREE,
+                world: draftWorld,
+                camera: draftCamera,
+                controls: { enabled: true, target: new THREE.Vector3(0, 0, 0) },
+                renderer: {
+                    isWebGPURenderer: true,
+                    info: { render: { frame: 200 } },
+                    device: {
+                        queue: {
+                            onSubmittedWorkDone: () => {
+                                queueWaits += 1;
+                                return Promise.resolve();
+                            },
+                        },
+                    },
+                },
+                annotateCanvasEl: draftCanvas,
+                annotateToolbarEl: draftToolbar,
+                annoLayerSelectEl: draftLayerSelect,
+                requestRender: () => {
+                    renderCount += 1;
+                },
+            });
+            draftController.setEnabled(true);
+            const makePointer = (type, props = {}) => new PointerEvent(type, {
+                bubbles: true,
+                pointerId: 9,
+                pointerType: 'mouse',
+                button: 0,
+                buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1,
+                clientX: 50,
+                clientY: 50,
+                ...props,
+            });
+            draftCanvas.dispatchEvent(makePointer('pointerdown', { clientX: 50, clientY: 50 }));
+            draftCanvas.dispatchEvent(makePointer('pointermove', { clientX: 90, clientY: 50 }));
+            draftCanvas.dispatchEvent(makePointer('pointermove', { clientX: 90, clientY: 90 }));
+            const draftDeferredBeforeDispose = (
+                geometryDisposed === beforeDraftGeometryDisposed
+                && materialDisposed === beforeDraftMaterialDisposed
+                && rafCallbacks.length > beforeDraftRafCount
+            );
+            draftCanvas.dispatchEvent(makePointer('pointercancel', { clientX: 90, clientY: 90 }));
+            draftController.dispose();
+            draftController.dispose();
+            const draftGeometryDisposedOnDispose = geometryDisposed - beforeDraftGeometryDisposed;
+            const draftMaterialDisposedOnDispose = materialDisposed - beforeDraftMaterialDisposed;
 
             return {
                 added,
                 deferredBeforeDispose,
+                draftDeferredBeforeDispose,
+                draftGeometryDisposedOnDispose,
+                draftMaterialDisposedOnDispose,
                 canvasActiveBeforeDispose,
                 rootRemoved: controller.getRoot().parent == null,
                 canvasInactiveAfterDispose: !canvas.classList.contains('active'),
                 controlsRestored: controls.enabled === true,
                 geometryDisposedAfterDispose,
                 materialDisposedAfterDispose,
-                geometryDisposedAfterLateCallbacks: geometryDisposed,
-                materialDisposedAfterLateCallbacks: materialDisposed,
+                geometryDisposedAfterLateCallbacks,
+                materialDisposedAfterLateCallbacks,
                 queueWaits,
                 layerPromptCalls,
                 layerOptionsBeforePrompt,
                 layerOptionsAfterLatePrompt: layerSelect.options.length,
-                renderUnchangedAfterLateCalls: renderCount === renderCountAfterDispose,
+                renderUnchangedAfterLateCalls,
                 lateAddIsNull: lateAdd == null,
                 lateRemove,
                 lateSetEnabled,
@@ -1987,6 +2064,9 @@ async function runAnnotationsDisposeLifecycleSmoke(browser, baseUrl) {
 
     assert.equal(result.added, true, 'Annotations dispose smoke: remote annotation was not added');
     assert.equal(result.deferredBeforeDispose, true, 'Annotations dispose smoke: WebGPU disposal was not deferred before dispose');
+    assert.equal(result.draftDeferredBeforeDispose, true, 'Annotations dispose smoke: WebGPU draft disposal was not deferred');
+    assert.ok(result.draftGeometryDisposedOnDispose > 0, 'Annotations dispose smoke: deferred draft geometries were not flushed on dispose');
+    assert.ok(result.draftMaterialDisposedOnDispose > 0, 'Annotations dispose smoke: deferred draft materials were not flushed on dispose');
     assert.equal(result.canvasActiveBeforeDispose, true, 'Annotations dispose smoke: draw mode did not activate canvas');
     assert.equal(result.rootRemoved, true, 'Annotations dispose smoke: annotations root stayed attached after dispose');
     assert.equal(result.canvasInactiveAfterDispose, true, 'Annotations dispose smoke: canvas stayed active after dispose');

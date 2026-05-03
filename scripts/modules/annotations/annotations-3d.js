@@ -1197,11 +1197,6 @@ export function createAnnotations3DController(options = {}) {
             disposeObjectNow(obj);
             return;
         }
-        if (reason === 'draft' && shouldDeferDispose()) {
-            // Draft meshes churn every pointer move; explicit dispose in WebGPU can race with queued submits.
-            // For drafts we prefer dropping references and letting GC reclaim them.
-            return;
-        }
         if (shouldDeferDispose()) {
             pendingDisposals.set(obj, {
                 queuedAt: Date.now(),
