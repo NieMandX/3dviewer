@@ -1372,6 +1372,13 @@ export class ViewerApp {
             roomCameraRealtimeReload?.flush?.(context);
         }
 
+        function cancelCameraPersistTimer() {
+            if (!cameraPersistTimer) return false;
+            clearTimeout(cameraPersistTimer);
+            cameraPersistTimer = null;
+            return true;
+        }
+
         function createRoomAuxRealtimeStatusHandler(label, { controller, roomId, generation } = {}) {
             const isCurrent = () => (
                 !!controller
@@ -1839,10 +1846,7 @@ export class ViewerApp {
             cameraSync?.dispose?.();
             cameraSync = null;
             clearCameraSyncMute();
-            if (cameraPersistTimer) {
-                clearTimeout(cameraPersistTimer);
-                cameraPersistTimer = null;
-            }
+            cancelCameraPersistTimer();
             clearCollabAutoResumeTimer();
             if (!preserveAutoResume) {
                 collabAutoResumeEnabled = false;
@@ -1862,6 +1866,7 @@ export class ViewerApp {
             roomCamerasChannel = null;
             roomTransitionsChannel = null;
             roomCameraRealtimeReload?.clear?.();
+            cancelCameraPersistTimer();
 
             if (collabController?.dispose) {
                 try {
@@ -5492,6 +5497,7 @@ export class ViewerApp {
             );
             if (!controller || !roomId || !cameraPresets?.loadState || !isCurrent()) return;
             const muteToken = beginCameraSyncMute();
+            cancelCameraPersistTimer();
             try {
                 const { data: camRows, error: camError } = await controller.supabase
                     .from('room_cameras')
@@ -5804,7 +5810,7 @@ export class ViewerApp {
                 && isActiveRoomLoad(generation, roomId)
             );
             if (!controller || !roomId || cameraSyncMuted || !isCurrent()) return;
-            if (cameraPersistTimer) clearTimeout(cameraPersistTimer);
+            cancelCameraPersistTimer();
             cameraPersistTimer = setTimeout(async () => {
                 cameraPersistTimer = null;
                 if (cameraSyncMuted || !isCurrent()) return;
