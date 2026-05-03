@@ -5321,6 +5321,48 @@ export class ViewerApp {
                 .order('sort_order', { ascending: true });
         }
 
+        async function queryRoomModelLinkExists(controller, roomId, modelId) {
+            if (!controller?.supabase || !roomId || !modelId) return false;
+            const { data, error } = await controller.supabase
+                .from('room_models')
+                .select('model_id')
+                .eq('room_id', roomId)
+                .eq('model_id', modelId)
+                .limit(1)
+                .maybeSingle();
+            if (error) throw error;
+            return String(data?.model_id || '') === String(modelId || '');
+        }
+
+        function clearLocalActiveRoomModel({ roomId = '', modelId = '' } = {}) {
+            const id = String(modelId || '').trim();
+            if (!id) {
+                activeRoomModelId = '';
+                return;
+            }
+            forgetRoomModelId(id);
+            cleanupRoomModelScopedAssets({ roomId, modelId: id });
+            if (activeRoomModelId === id) activeRoomModelId = '';
+        }
+
+        async function clearRoomActiveModelIfCurrent({ controller, roomId = '', modelId = '', isCurrent = null } = {}) {
+            if (!controller?.supabase || !roomId || !modelId) return false;
+            try {
+                const { error } = await controller.supabase
+                    .from('rooms')
+                    .update({ active_model_id: null })
+                    .eq('id', roomId)
+                    .eq('active_model_id', modelId);
+                if (error) throw error;
+                return true;
+            } catch (err) {
+                if (typeof isCurrent === 'function' ? isCurrent() : true) {
+                    console.error('Room active model cleanup failed', err);
+                }
+                return false;
+            }
+        }
+
         async function reconcileRoomModels({ controller, roomId, generation } = {}) {
             const isCurrent = () => (
                 !!controller
@@ -5846,6 +5888,25 @@ export class ViewerApp {
                 activeRoomModelId = '';
                 return;
             }
+            let linked = false;
+            try {
+                linked = await queryRoomModelLinkExists(collabController, roomId, activeModelId);
+            } catch (err) {
+                if (isCurrentActiveRequest()) console.error('Room active model link check failed', err);
+                return;
+            }
+            if (!isCurrentActiveRequest()) return;
+            if (!linked) {
+                clearLocalActiveRoomModel({ roomId, modelId: activeModelId });
+                await clearRoomActiveModelIfCurrent({
+                    controller: collabController,
+                    roomId,
+                    modelId: activeModelId,
+                    isCurrent: isCurrentActiveRequest,
+                });
+                return;
+            }
+            rememberRoomModelId(activeModelId);
             if (activeModelId === activeRoomModelId && loadedRoomModelIds.has(activeModelId)) return;
             const { data: modelRow, error } = await collabController.supabase
                 .from('project_models')
@@ -5854,9 +5915,29 @@ export class ViewerApp {
                 .limit(1)
                 .maybeSingle();
             if (!isCurrentActiveRequest()) return;
-            if (error || !modelRow) return;
-            activeRoomModelId = activeModelId;
-            await loadProjectModel(modelRow, { roomId, generation, activeRequestGeneration });
+            if (error) return;
+            if (!modelRow) {
+                clearLocalActiveRoomModel({ roomId, modelId: activeModelId });
+                await clearRoomActiveModelIfCurrent({
+                    controller: collabController,
+                    roomId,
+                    modelId: activeModelId,
+                    isCurrent: isCurrentActiveRequest,
+                });
+                return;
+            }
+            const loadResult = await loadProjectModel(modelRow, {
+                roomId,
+                generation,
+                activeRequestGeneration,
+                requireRoomModelLink: true,
+            });
+            if (!isCurrentActiveRequest()) return;
+            if (loadResult || isRoomModelStillLinked(activeModelId)) {
+                activeRoomModelId = activeModelId;
+            } else {
+                clearLocalActiveRoomModel({ roomId, modelId: activeModelId });
+            }
         }
 
         roomUpdateHandler = (room) => {
