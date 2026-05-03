@@ -254,6 +254,47 @@ export async function createCollabController(options = {}) {
 
     const channels = [];
     let presenceHeartbeat = null;
+    const deliveredAnnotationIds = new Set();
+    const deletedAnnotationIds = new Set();
+    const deliveredMessageIds = new Set();
+
+    function getRecordId(record) {
+        return String(record?.id || record?.message_id || '').trim();
+    }
+
+    function deliverAnnotation(record, meta) {
+        if (disposed) return;
+        if (typeof onAnnotation !== 'function') return;
+        const id = getRecordId(record);
+        if (id) {
+            if (deletedAnnotationIds.has(id) || deliveredAnnotationIds.has(id)) return;
+            deliveredAnnotationIds.add(id);
+        }
+        onAnnotation(record, meta);
+    }
+
+    function deliverAnnotationDelete(record, meta) {
+        if (disposed) return;
+        if (typeof onAnnotationDelete !== 'function') return;
+        const id = getRecordId(record);
+        if (id) {
+            if (deletedAnnotationIds.has(id)) return;
+            deletedAnnotationIds.add(id);
+            deliveredAnnotationIds.delete(id);
+        }
+        onAnnotationDelete(record, meta);
+    }
+
+    function deliverMessage(record, meta) {
+        if (disposed) return;
+        if (typeof onMessage !== 'function') return;
+        const id = getRecordId(record);
+        if (id) {
+            if (deliveredMessageIds.has(id)) return;
+            deliveredMessageIds.add(id);
+        }
+        onMessage(record, meta);
+    }
 
     function stopPresenceHeartbeat() {
         if (!presenceHeartbeat) return;
@@ -377,19 +418,19 @@ export async function createCollabController(options = {}) {
     roomChannel.on('broadcast', { event: 'annotation' }, ({ payload }) => {
         if (disposed) return;
         if (!payload || payload.sender === user.id) return;
-        if (typeof onAnnotation === 'function') onAnnotation(payload, { source: 'broadcast' });
+        deliverAnnotation(payload, { source: 'broadcast' });
     });
 
     roomChannel.on('broadcast', { event: 'annotation-delete' }, ({ payload }) => {
         if (disposed) return;
         if (!payload || payload.sender === user.id) return;
-        if (typeof onAnnotationDelete === 'function') onAnnotationDelete(payload, { source: 'broadcast' });
+        deliverAnnotationDelete(payload, { source: 'broadcast' });
     });
 
     roomChannel.on('broadcast', { event: 'message' }, ({ payload }) => {
         if (disposed) return;
         if (!payload || payload.sender === user.id) return;
-        if (typeof onMessage === 'function') onMessage(payload, { source: 'broadcast' });
+        deliverMessage(payload, { source: 'broadcast' });
     });
 
     try {
@@ -465,7 +506,7 @@ export async function createCollabController(options = {}) {
             { event: 'INSERT', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
             (payload) => {
                 if (disposed) return;
-                if (typeof onAnnotation === 'function') onAnnotation(payload.new, { source: 'realtime' });
+                deliverAnnotation(payload.new, { source: 'realtime' });
             }
         );
         annotationsChannel.on(
@@ -473,7 +514,7 @@ export async function createCollabController(options = {}) {
             { event: 'DELETE', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
             (payload) => {
                 if (disposed) return;
-                if (typeof onAnnotationDelete === 'function') onAnnotationDelete(payload.old);
+                deliverAnnotationDelete(payload.old, { source: 'realtime' });
             }
         );
         channels.push(annotationsChannel);
@@ -485,7 +526,7 @@ export async function createCollabController(options = {}) {
             { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${room.id}` },
             (payload) => {
                 if (disposed) return;
-                if (typeof onMessage === 'function') onMessage(payload.new, { source: 'realtime' });
+                deliverMessage(payload.new, { source: 'realtime' });
             }
         );
         channels.push(messagesChannel);
@@ -501,7 +542,7 @@ export async function createCollabController(options = {}) {
         if (!historyAnnotations.error && Array.isArray(historyAnnotations.data)) {
             historyAnnotations.data.forEach((row) => {
                 if (disposed) return;
-                if (typeof onAnnotation === 'function') onAnnotation(row, { source: 'history' });
+                deliverAnnotation(row, { source: 'history' });
             });
         }
 
@@ -515,7 +556,7 @@ export async function createCollabController(options = {}) {
         if (!historyMessages.error && Array.isArray(historyMessages.data)) {
             historyMessages.data.forEach((row) => {
                 if (disposed) return;
-                if (typeof onMessage === 'function') onMessage(row, { source: 'history' });
+                deliverMessage(row, { source: 'history' });
             });
         }
 
