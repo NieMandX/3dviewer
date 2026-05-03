@@ -3867,18 +3867,22 @@ export class ViewerApp {
             const safeEmbeddedStart = Math.max(0, Math.min(Number(embeddedStart) || 0, allEmbedded.length));
             const removedModels = loadedModels.splice(safeModelStart);
             const removedEntries = allEmbedded.splice(safeEmbeddedStart);
+            const disposeContext = createImportedObjectDisposeContext({
+                preservedResources: collectLoadedModelResources(loadedModels),
+            });
 
             removedModels.forEach((record) => {
                 const obj = record?.obj || null;
                 revokeImportedModelRecordUrls(record);
                 try { obj?.parent?.remove?.(obj); } catch (_) {}
-                disposeImportedObjectTree(obj);
+                disposeImportedObjectTree(obj, disposeContext);
             });
 
             removedEntries.forEach((entry) => revokeEmbeddedEntryUrl(entry));
 
             if (removedModels.length) {
                 lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
+                sceneIndex.invalidateAll?.();
                 materialsPanel?.markNeedsFullRefresh?.();
             }
 
@@ -3927,15 +3931,117 @@ export class ViewerApp {
             revokeGeoJsonMetaUrl(record.obj?.userData?.geojson);
         }
 
-        function disposeImportedObjectTree(root) {
-            if (!root) return;
-            const disposedGeometries = new Set();
-            const disposedMaterials = new Set();
-            const disposedTextures = new Set();
-            const disposedSkeletons = new Set();
+        function createImportedResourceSet(source = null) {
+            const setFrom = (value) => {
+                if (value instanceof Set) return new Set(value);
+                if (Array.isArray(value)) return new Set(value.filter(Boolean));
+                return new Set();
+            };
+            return {
+                geometries: setFrom(source?.geometries),
+                materials: setFrom(source?.materials),
+                textures: setFrom(source?.textures),
+                skeletons: setFrom(source?.skeletons),
+            };
+        }
+
+        function addImportedMaterialResources(resources, material) {
+            if (!resources || !material || resources.materials.has(material)) return;
+            resources.materials.add(material);
+            Object.values(material).forEach((value) => {
+                if (value?.isTexture) resources.textures.add(value);
+            });
+        }
+
+        function collectImportedObjectResources(root, resources = createImportedResourceSet()) {
+            if (!root?.traverse) return resources;
+
+            const asMaterialArray = (value) => {
+                if (!value) return [];
+                return Array.isArray(value) ? value.filter(Boolean) : [value];
+            };
+
+            root.traverse((child) => {
+                const geometry = child?.geometry || null;
+                if (geometry?.dispose && child?.isSprite !== true) {
+                    resources.geometries.add(geometry);
+                }
+                const skeleton = child?.skeleton || null;
+                if (skeleton?.dispose) {
+                    resources.skeletons.add(skeleton);
+                }
+
+                [
+                    ...asMaterialArray(child?.userData?._origMaterial),
+                    ...asMaterialArray(child?.userData?._removedMaterials),
+                    ...asMaterialArray(child?.userData?._bfFront),
+                    ...asMaterialArray(child?.userData?._bfBack),
+                    ...asMaterialArray(child?.userData?._wireBase),
+                    ...asMaterialArray(child?.userData?._beautyBase),
+                    ...asMaterialArray(child?.userData?._removedCustomDepthMaterial),
+                    ...asMaterialArray(child?.userData?._removedCustomDistanceMaterial),
+                    ...asMaterialArray(child?.customDepthMaterial),
+                    ...asMaterialArray(child?.customDistanceMaterial),
+                    ...asMaterialArray(child?.material),
+                ].forEach((material) => addImportedMaterialResources(resources, material));
+
+                const generatedChildKeys = ['_bfChild', '_wireOverlay', '_beautyWire'];
+                generatedChildKeys.forEach((key) => {
+                    const generatedChild = child?.userData?.[key] || null;
+                    if (!generatedChild) return;
+                    asMaterialArray(generatedChild.material).forEach((material) => {
+                        addImportedMaterialResources(resources, material);
+                    });
+                    if (generatedChild.geometry?.dispose) {
+                        resources.geometries.add(generatedChild.geometry);
+                    }
+                });
+            });
+
+            return resources;
+        }
+
+        function collectLoadedModelResources(models = []) {
+            const resources = createImportedResourceSet();
+            (Array.isArray(models) ? models : []).forEach((record) => {
+                collectImportedObjectResources(record?.obj, resources);
+            });
+            return resources;
+        }
+
+        function createImportedObjectDisposeContext(options = {}) {
+            const preservedResources = createImportedResourceSet(options.preservedResources);
             const sharedTextures = new Set();
             if (scene?.environment?.isTexture) sharedTextures.add(scene.environment);
             if (scene?.background?.isTexture) sharedTextures.add(scene.background);
+
+            return {
+                disposedGeometries: new Set(),
+                disposedMaterials: new Set(),
+                disposedTextures: new Set(),
+                disposedSkeletons: new Set(),
+                preservedGeometries: preservedResources.geometries,
+                preservedMaterials: preservedResources.materials,
+                preservedTextures: preservedResources.textures,
+                preservedSkeletons: preservedResources.skeletons,
+                sharedTextures,
+            };
+        }
+
+        function disposeImportedObjectTree(root, context = null) {
+            if (!root) return;
+            const disposeContext = context || createImportedObjectDisposeContext();
+            const {
+                disposedGeometries,
+                disposedMaterials,
+                disposedTextures,
+                disposedSkeletons,
+                preservedGeometries,
+                preservedMaterials,
+                preservedTextures,
+                preservedSkeletons,
+                sharedTextures,
+            } = disposeContext;
 
             const asMaterialArray = (value) => {
                 if (!value) return [];
@@ -3944,10 +4050,18 @@ export class ViewerApp {
 
             const disposeMaterial = (material, { disposeTextures = true } = {}) => {
                 if (!material || disposedMaterials.has(material)) return;
+                if (preservedMaterials.has(material)) return;
                 disposedMaterials.add(material);
                 if (disposeTextures) {
                     Object.values(material).forEach((value) => {
-                        if (!value?.isTexture || sharedTextures.has(value) || disposedTextures.has(value)) return;
+                        if (
+                            !value?.isTexture ||
+                            sharedTextures.has(value) ||
+                            preservedTextures.has(value) ||
+                            disposedTextures.has(value)
+                        ) {
+                            return;
+                        }
                         disposedTextures.add(value);
                         value.dispose?.();
                     });
@@ -3957,12 +4071,17 @@ export class ViewerApp {
 
             root.traverse?.((child) => {
                 const geometry = child?.geometry || null;
-                if (geometry?.dispose && !disposedGeometries.has(geometry) && child?.isSprite !== true) {
+                if (
+                    geometry?.dispose &&
+                    !disposedGeometries.has(geometry) &&
+                    !preservedGeometries.has(geometry) &&
+                    child?.isSprite !== true
+                ) {
                     disposedGeometries.add(geometry);
                     geometry.dispose();
                 }
                 const skeleton = child?.skeleton || null;
-                if (skeleton?.dispose && !disposedSkeletons.has(skeleton)) {
+                if (skeleton?.dispose && !disposedSkeletons.has(skeleton) && !preservedSkeletons.has(skeleton)) {
                     disposedSkeletons.add(skeleton);
                     skeleton.dispose();
                 }
@@ -4013,7 +4132,11 @@ export class ViewerApp {
                     asMaterialArray(generatedChild.material).forEach((material) => {
                         disposeMaterial(material, { disposeTextures: false });
                     });
-                    if (generatedChild.geometry?.dispose && !disposedGeometries.has(generatedChild.geometry)) {
+                    if (
+                        generatedChild.geometry?.dispose &&
+                        !disposedGeometries.has(generatedChild.geometry) &&
+                        !preservedGeometries.has(generatedChild.geometry)
+                    ) {
                         disposedGeometries.add(generatedChild.geometry);
                         generatedChild.geometry.dispose();
                     }
@@ -4049,6 +4172,13 @@ export class ViewerApp {
                 return false;
             }
 
+            const keptModels = roomModelRecords.length
+                ? loadedModels.filter((record) => !scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId))
+                : loadedModels;
+            const disposeContext = createImportedObjectDisposeContext({
+                preservedResources: collectLoadedModelResources(keptModels),
+            });
+
             roomModelRecords.forEach((record) => {
                 const obj = record?.obj || null;
                 revokeImportedModelRecordUrls(record);
@@ -4057,13 +4187,13 @@ export class ViewerApp {
                         obj.parent.remove(obj);
                     } catch (_) {}
                 }
-                disposeImportedObjectTree(obj);
+                disposeImportedObjectTree(obj, disposeContext);
             });
 
             if (roomModelRecords.length) {
-                const keptModels = loadedModels.filter((record) => !scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId));
                 loadedModels.splice(0, loadedModels.length, ...keptModels);
                 lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
+                sceneIndex.invalidateAll?.();
                 materialsPanel?.markNeedsFullRefresh?.();
             }
 
@@ -6115,15 +6245,17 @@ export class ViewerApp {
 	            try { customSelects?.dispose?.(); } catch (_) {}
 	            try { statusUI?.dispose?.(); } catch (_) {}
 
-	            loadedModels.forEach((record) => {
-	                const obj = record?.obj || null;
-	                revokeImportedModelRecordUrls(record);
-	                try { obj?.parent?.remove?.(obj); } catch (_) {}
-	                disposeImportedObjectTree(obj);
-	            });
-	            loadedModels.length = 0;
-	            allEmbedded.forEach((entry) => revokeEmbeddedEntryUrl(entry));
-	            allEmbedded.length = 0;
+		            const disposeContext = createImportedObjectDisposeContext();
+		            loadedModels.forEach((record) => {
+		                const obj = record?.obj || null;
+		                revokeImportedModelRecordUrls(record);
+		                try { obj?.parent?.remove?.(obj); } catch (_) {}
+		                disposeImportedObjectTree(obj, disposeContext);
+		            });
+		            loadedModels.length = 0;
+		            sceneIndex.invalidateAll?.();
+		            allEmbedded.forEach((entry) => revokeEmbeddedEntryUrl(entry));
+		            allEmbedded.length = 0;
 
 	            try { sceneCore?.dispose?.(); } catch (_) {}
 	        }

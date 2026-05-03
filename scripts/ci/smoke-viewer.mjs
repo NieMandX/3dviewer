@@ -1015,6 +1015,9 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
             replacementTexture: 0,
             originalMaterial: 0,
             replacementMaterial: 0,
+            sharedCrossRootTexture: 0,
+            sharedCrossRootMaterialTexture: 0,
+            sharedCrossRootMaterial: 0,
         };
         const track = (resource, key) => {
             resource.addEventListener?.('dispose', () => {
@@ -1030,8 +1033,34 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
         mesh.userData._origMaterial = originalMaterial;
         const root = new THREE.Group();
         root.add(mesh);
+        const sharedCrossRootTexture = track(new THREE.Texture(), 'sharedCrossRootTexture');
+        const sharedTextureRootA = new THREE.Group();
+        const sharedTextureRootB = new THREE.Group();
+        sharedTextureRootA.add(new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ map: sharedCrossRootTexture })
+        ));
+        sharedTextureRootB.add(new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ map: sharedCrossRootTexture })
+        ));
+        const sharedCrossRootMaterialTexture = track(new THREE.Texture(), 'sharedCrossRootMaterialTexture');
+        const sharedCrossRootMaterial = track(
+            new THREE.MeshStandardMaterial({ map: sharedCrossRootMaterialTexture }),
+            'sharedCrossRootMaterial'
+        );
+        const sharedMaterialRootA = new THREE.Group();
+        const sharedMaterialRootB = new THREE.Group();
+        sharedMaterialRootA.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), sharedCrossRootMaterial));
+        sharedMaterialRootB.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), sharedCrossRootMaterial));
         globalThis.__lpmDisposeMaterialTextureCounts = disposeCounts;
-        globalThis.viewerApp.loadedModels.push({ obj: root, name: 'dispose-replacement-texture.fbx' });
+        globalThis.viewerApp.loadedModels.push(
+            { obj: root, name: 'dispose-replacement-texture.fbx' },
+            { obj: sharedTextureRootA, name: 'shared-texture-a.fbx' },
+            { obj: sharedTextureRootB, name: 'shared-texture-b.fbx' },
+            { obj: sharedMaterialRootA, name: 'shared-material-a.fbx' },
+            { obj: sharedMaterialRootB, name: 'shared-material-b.fbx' },
+        );
     });
 
     await page.evaluate(async () => {
@@ -1043,6 +1072,9 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(disposeResourceCounts.replacementTexture, 1, 'Dispose smoke: replacement material texture leaked when _origMaterial exists');
     assert.equal(disposeResourceCounts.originalMaterial, 1, 'Dispose smoke: original material was not disposed');
     assert.equal(disposeResourceCounts.replacementMaterial, 1, 'Dispose smoke: replacement material was not disposed');
+    assert.equal(disposeResourceCounts.sharedCrossRootTexture, 1, 'Dispose smoke: shared cross-model texture was disposed more than once');
+    assert.equal(disposeResourceCounts.sharedCrossRootMaterialTexture, 1, 'Dispose smoke: shared cross-model material texture was disposed more than once');
+    assert.equal(disposeResourceCounts.sharedCrossRootMaterial, 1, 'Dispose smoke: shared cross-model material was disposed more than once');
     assert.equal(afterFirstDispose.fileInputChange, 0, 'Dispose smoke: file input listener leaked after dispose');
     assert.equal(afterFirstDispose.emptyHintClick, 0, 'Dispose smoke: empty hint listener leaked after dispose');
     assert.equal(afterFirstDispose.sampleChange, 0, 'Dispose smoke: sample select listener leaked after dispose');
