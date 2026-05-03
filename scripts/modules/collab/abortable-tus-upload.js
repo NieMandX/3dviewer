@@ -8,6 +8,49 @@ export function makeAbortError(message = 'Upload aborted') {
     }
 }
 
+export function runAbortableOperation(operation, options = {}) {
+    const signal = options.signal || null;
+    const abortMessage = options.abortMessage || 'Operation aborted';
+    const run = typeof operation === 'function' ? operation : () => operation;
+
+    if (signal?.aborted) {
+        return Promise.reject(signal.reason || makeAbortError(abortMessage));
+    }
+
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => {
+            try {
+                signal?.removeEventListener?.('abort', handleAbort);
+            } catch (_) {}
+        };
+        const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            callback(value);
+        };
+        function handleAbort() {
+            finish(reject, signal?.reason || makeAbortError(abortMessage));
+        }
+
+        signal?.addEventListener?.('abort', handleAbort, { once: true });
+
+        let result = null;
+        try {
+            result = run();
+        } catch (err) {
+            finish(reject, err);
+            return;
+        }
+
+        Promise.resolve(result).then(
+            (value) => finish(resolve, value),
+            (err) => finish(reject, err),
+        );
+    });
+}
+
 export async function runAbortableTusUpload(options = {}) {
     const UploadCtor = options.UploadCtor || options.tus?.Upload || null;
     const file = options.file || null;

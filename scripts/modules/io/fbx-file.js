@@ -45,6 +45,7 @@ export function createFBXFileHandler(options = {}) {
     const markCollisionMeshes = typeof options.markCollisionMeshes === 'function' ? options.markCollisionMeshes : () => {};
     const splitAllMeshesByUDIM_SM = typeof options.splitAllMeshesByUDIM_SM === 'function' ? options.splitAllMeshesByUDIM_SM : () => {};
     const optimizeGlassMeshes = typeof options.optimizeGlassMeshes === 'function' ? options.optimizeGlassMeshes : () => {};
+    const enableDebugGlobals = options.enableDebugGlobals === true;
 
     const autoBindByNamesForModel = typeof options.autoBindByNamesForModel === 'function' ? options.autoBindByNamesForModel : () => {};
     const setImportedLightsEnabled = typeof options.setImportedLightsEnabled === 'function' ? options.setImportedLightsEnabled : () => {};
@@ -127,6 +128,20 @@ export function createFBXFileHandler(options = {}) {
                 disposeMaterial(material, { disposeTextures: true });
             });
         });
+    }
+
+    function setDebugGlobals(root, parsedViaWorker) {
+        if (!enableDebugGlobals || typeof globalThis === 'undefined') return;
+        globalThis.__fbxLoader = fbxLoader;
+        globalThis.__lastFBXLoaded = root;
+        globalThis.__fbxParsedInWorker = parsedViaWorker;
+    }
+
+    function clearDebugGlobalsFor(root) {
+        if (!enableDebugGlobals || typeof globalThis === 'undefined') return;
+        if (globalThis.__lastFBXLoaded === root) {
+            globalThis.__lastFBXLoaded = null;
+        }
     }
 
     return async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, callOptions = null) {
@@ -245,11 +260,7 @@ export function createFBXFileHandler(options = {}) {
         throwIfAborted(obj);
         setStatusMessage('Обработка сцены…');
 
-        if (typeof globalThis !== 'undefined') {
-            globalThis.__fbxLoader = fbxLoader;
-            globalThis.__lastFBXLoaded = obj;
-            globalThis.__fbxParsedInWorker = parsedViaWorker;
-        }
+        setDebugGlobals(obj, parsedViaWorker);
 
         obj.userData._fbxFileName = file.name;
 
@@ -446,6 +457,7 @@ export function createFBXFileHandler(options = {}) {
                     obj.parent.remove(obj);
                 } catch (_) {}
             }
+            clearDebugGlobalsFor(obj);
             disposeObjectResources(obj);
             throw err;
         }

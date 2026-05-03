@@ -95,10 +95,12 @@ export function ensureBeautyWire(mesh, angleDeg = BEAUTY_WIRE_ANGLE_DEG) {
         mesh.add(line);
         mesh.userData._beautyWire = line;
         line.userData._angle = angleDeg;
-    } else if (line.userData._angle !== angleDeg) {
+        line.userData._geoId = mesh.geometry.id;
+    } else if (line.userData._angle !== angleDeg || line.userData._geoId !== mesh.geometry.id) {
         line.geometry?.dispose?.();
         line.geometry = new THREE.EdgesGeometry(mesh.geometry, angleDeg);
         line.userData._angle = angleDeg;
+        line.userData._geoId = mesh.geometry.id;
     }
 
     mesh.material = mesh.userData._beautyBase;
@@ -115,4 +117,3 @@ export function clearBeautyWire(mesh) {
         mesh.userData._beautyWire.visible = false;
     }
 }
-

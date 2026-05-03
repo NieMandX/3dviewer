@@ -341,51 +341,61 @@ export function createVPMBinder(options = {}) {
             // ERM (асинхронно распакуем каналы)
             if (set.ERM) {
                 const p = (async () => {
-                    const maps = await splitERMtoThreeMaps(set.ERM);
-                    const baseNm = labelFromURL(set.ERM);
+                    try {
+                        const maps = await splitERMtoThreeMaps(set.ERM);
+                        const baseNm = labelFromURL(set.ERM);
 
-                    if (maps.emissiveMap) {
-                        maps.emissiveMap.name = `${baseNm} [R]`;
-                        maps.emissiveMap.userData ||= {};
-                        maps.emissiveMap.userData.origName = maps.emissiveMap.name;
-                    }
-                    if (maps.roughnessMap) {
-                        maps.roughnessMap.name = `${baseNm} [G]`;
-                        maps.roughnessMap.userData ||= {};
-                        maps.roughnessMap.userData.origName = maps.roughnessMap.name;
-                    }
-                    if (maps.metalnessMap) {
-                        maps.metalnessMap.name = `${baseNm} [B]`;
-                        maps.metalnessMap.userData ||= {};
-                        maps.metalnessMap.userData.origName = maps.metalnessMap.name;
-                    }
+                        if (maps.emissiveMap) {
+                            maps.emissiveMap.name = `${baseNm} [R]`;
+                            maps.emissiveMap.userData ||= {};
+                            maps.emissiveMap.userData.origName = maps.emissiveMap.name;
+                        }
+                        if (maps.roughnessMap) {
+                            maps.roughnessMap.name = `${baseNm} [G]`;
+                            maps.roughnessMap.userData ||= {};
+                            maps.roughnessMap.userData.origName = maps.roughnessMap.name;
+                        }
+                        if (maps.metalnessMap) {
+                            maps.metalnessMap.name = `${baseNm} [B]`;
+                            maps.metalnessMap.userData ||= {};
+                            maps.metalnessMap.userData.origName = maps.metalnessMap.name;
+                        }
 
-                    mat.emissive = new THREE.Color(1, 1, 1);
-                    mat.emissiveIntensity = 1.0;
-                    mat.emissiveMap = maps.emissiveMap; // R
-                    mat.roughnessMap = maps.roughnessMap; // G
-                    mat.metalnessMap = maps.metalnessMap; // B
-                    mat.metalness = 1.0; // карта задаёт финальное значение
-                    mat.needsUpdate = true;
+                        mat.emissive = new THREE.Color(1, 1, 1);
+                        mat.emissiveIntensity = 1.0;
+                        mat.emissiveMap = maps.emissiveMap; // R
+                        mat.roughnessMap = maps.roughnessMap; // G
+                        mat.metalnessMap = maps.metalnessMap; // B
+                        mat.metalness = 1.0; // карта задаёт финальное значение
+                        mat.needsUpdate = true;
 
-                    if (!isBindCurrent()) {
+                        if (!isBindCurrent()) {
+                            disposeMaterialTree(mat, {
+                                sharedTextures: Array.from(collectMaterialTextures(previousMaterial)),
+                            });
+                            disposePendingShadowMaterials(pendingDepthMaterial, pendingDistanceMaterial);
+                            return;
+                        }
+
+                        if (env) {
+                            mat.envMap = env;
+                            mat.envMapIntensity = envInt;
+                        }
+                        applyPendingShadowMaterials();
+                        o.material = mat;
+                        cacheOriginalMaterialFor(o, true);
+                        disposeUnusedMaterialTree(previousMaterial, { root });
+                        appliedCount += 1;
+                        logBind(`VPM: Slot ${slot}, UDIM ${udim} → ${mat.name}`, 'ok');
+                    } catch (err) {
                         disposeMaterialTree(mat, {
                             sharedTextures: Array.from(collectMaterialTextures(previousMaterial)),
                         });
                         disposePendingShadowMaterials(pendingDepthMaterial, pendingDistanceMaterial);
-                        return;
+                        if (isBindCurrent()) {
+                            logBind(`VPM: ERM ${labelFromURL(set.ERM)} не обработан → ${err?.message || err}`, 'warn');
+                        }
                     }
-
-                    if (env) {
-                        mat.envMap = env;
-                        mat.envMapIntensity = envInt;
-                    }
-                    applyPendingShadowMaterials();
-                    o.material = mat;
-                    cacheOriginalMaterialFor(o, true);
-                    disposeUnusedMaterialTree(previousMaterial, { root });
-                    appliedCount += 1;
-                    logBind(`VPM: Slot ${slot}, UDIM ${udim} → ${mat.name}`, 'ok');
                 })();
                 bindOps.push(p);
             } else {

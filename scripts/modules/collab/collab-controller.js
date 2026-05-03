@@ -1,5 +1,6 @@
 import { createSupabaseClient } from './supabase-client.js';
 import { createRealtimeChannelStatusHandler } from './realtime-channel-status.js';
+import { makeAbortError, runAbortableOperation } from './abortable-tus-upload.js';
 
 function makeSlug(length = 8) {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -153,11 +154,23 @@ export async function createCollabController(options = {}) {
         onCameraOwner,
         onRoomUpdate,
         onConnectionState,
+        signal,
     } = options;
 
     const status = typeof onStatus === 'function' ? onStatus : () => {};
     const connectionStateCallback = typeof onConnectionState === 'function' ? onConnectionState : null;
     status('Connecting…');
+    const abortMessage = 'Collab controller init aborted';
+
+    function throwIfAborted() {
+        if (signal?.aborted) throw signal.reason || makeAbortError(abortMessage);
+    }
+
+    async function awaitCurrent(operation) {
+        const result = await runAbortableOperation(operation, { signal, abortMessage });
+        throwIfAborted();
+        return result;
+    }
 
     let lastConnectionState = null;
     let lastConnectionReason = '';
@@ -173,20 +186,21 @@ export async function createCollabController(options = {}) {
         } catch (_) {}
     }
 
-    const supabase = injectedSupabase || await createSupabaseClient({
+    throwIfAborted();
+    const supabase = injectedSupabase || await awaitCurrent(() => createSupabaseClient({
         url: supabaseUrl,
         anonKey: supabaseAnonKey,
-    });
+    }));
 
-    const user = injectedUser || await ensureAuth(supabase);
+    const user = injectedUser || await awaitCurrent(() => ensureAuth(supabase));
     let currentName = normalizeName(displayName);
 
     let project = injectedProject || null;
     if (!project) {
         if (projectId) {
-            project = await fetchProjectById(supabase, projectId);
+            project = await awaitCurrent(() => fetchProjectById(supabase, projectId));
         } else if (projectSlug) {
-            project = await joinProjectBySlug(supabase, projectSlug);
+            project = await awaitCurrent(() => joinProjectBySlug(supabase, projectSlug));
         }
     }
     if (!project) {
@@ -202,9 +216,9 @@ export async function createCollabController(options = {}) {
     let created = false;
     if (!room) {
         if (roomId) {
-            room = await fetchRoomById(supabase, roomId);
+            room = await awaitCurrent(() => fetchRoomById(supabase, roomId));
         } else {
-            const result = await ensureRoom(supabase, project.id, roomSlug, user.id);
+            const result = await awaitCurrent(() => ensureRoom(supabase, project.id, roomSlug, user.id));
             room = result.room;
             slug = result.slug;
             created = result.created;
@@ -228,10 +242,10 @@ export async function createCollabController(options = {}) {
     const DELETE_BETWEEN_MS = 120;
 
     if (currentName) {
-        await supabase.from('profiles').upsert({
+        await awaitCurrent(() => supabase.from('profiles').upsert({
             id: user.id,
             display_name: currentName,
-        });
+        }));
     }
 
     if (typeof onRoomReady === 'function') {
@@ -359,7 +373,7 @@ export async function createCollabController(options = {}) {
     });
 
     try {
-        await new Promise((resolve, reject) => {
+        await awaitCurrent(() => new Promise((resolve, reject) => {
             let settled = false;
             const rejectInitialSubscribe = (reason, fallbackMessage) => {
                 if (settled) return;
@@ -387,7 +401,7 @@ export async function createCollabController(options = {}) {
                     rejectInitialSubscribe(null, `Room realtime subscribe ${nextStatus}`);
                 }
             });
-        });
+        }));
     } catch (err) {
         await cleanupInitFailure(err);
     }
@@ -423,7 +437,7 @@ export async function createCollabController(options = {}) {
             }
         );
         channels.push(roomUpdates);
-        await subscribeTrackedChannel(roomUpdates, 'room_updates');
+        await awaitCurrent(() => subscribeTrackedChannel(roomUpdates, 'room_updates'));
 
         const annotationsChannel = supabase.channel(`room:${room.id}:annotations`);
         annotationsChannel.on(
@@ -443,7 +457,7 @@ export async function createCollabController(options = {}) {
             }
         );
         channels.push(annotationsChannel);
-        await subscribeTrackedChannel(annotationsChannel, 'annotations');
+        await awaitCurrent(() => subscribeTrackedChannel(annotationsChannel, 'annotations'));
 
         const messagesChannel = supabase.channel(`room:${room.id}:messages`);
         messagesChannel.on(
@@ -455,13 +469,15 @@ export async function createCollabController(options = {}) {
             }
         );
         channels.push(messagesChannel);
-        await subscribeTrackedChannel(messagesChannel, 'messages');
+        await awaitCurrent(() => subscribeTrackedChannel(messagesChannel, 'messages'));
 
-        const historyAnnotations = await supabase
-            .from('annotations')
-            .select('*')
-            .eq('room_id', room.id)
-            .order('created_at', { ascending: true });
+        const historyAnnotations = await awaitCurrent(() => (
+            supabase
+                .from('annotations')
+                .select('*')
+                .eq('room_id', room.id)
+                .order('created_at', { ascending: true })
+        ));
         if (!historyAnnotations.error && Array.isArray(historyAnnotations.data)) {
             historyAnnotations.data.forEach((row) => {
                 if (disposed) return;
@@ -469,11 +485,13 @@ export async function createCollabController(options = {}) {
             });
         }
 
-        const historyMessages = await supabase
-            .from('messages')
-            .select('*')
-            .eq('room_id', room.id)
-            .order('created_at', { ascending: true });
+        const historyMessages = await awaitCurrent(() => (
+            supabase
+                .from('messages')
+                .select('*')
+                .eq('room_id', room.id)
+                .order('created_at', { ascending: true })
+        ));
         if (!historyMessages.error && Array.isArray(historyMessages.data)) {
             historyMessages.data.forEach((row) => {
                 if (disposed) return;

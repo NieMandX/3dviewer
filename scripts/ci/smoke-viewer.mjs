@@ -1727,6 +1727,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const THREE = await import('three');
         const { createBackfaceOverlayController } = await import('/scripts/modules/render/backface-overlay.js');
         const { createShadingController } = await import('/scripts/modules/render/shading-controller.js');
+        const { ensureBeautyWire } = await import('/scripts/modules/render/wire-overlays.js');
 
         const backfaceWorld = new THREE.Group();
         const backfaceMaterial = new THREE.MeshStandardMaterial({ name: 'backface-original' });
@@ -1770,6 +1771,26 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         shading.bindUI({ shadingSel: shadingSelect });
         shadingSelect.dispatchEvent(new Event('change', { bubbles: true }));
 
+        const beautyMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ name: 'beauty-original' }),
+        );
+        ensureBeautyWire(beautyMesh, 25);
+        const firstBeautyLine = beautyMesh.userData._beautyWire;
+        const firstBeautyGeometry = firstBeautyLine?.geometry || null;
+        let firstBeautyGeometryDisposed = 0;
+        const nativeFirstBeautyDispose = firstBeautyGeometry?.dispose?.bind(firstBeautyGeometry);
+        if (firstBeautyGeometry && nativeFirstBeautyDispose) {
+            firstBeautyGeometry.dispose = (...args) => {
+                firstBeautyGeometryDisposed += 1;
+                return nativeFirstBeautyDispose(...args);
+            };
+        }
+        beautyMesh.geometry = new THREE.BoxGeometry(2, 1, 1);
+        ensureBeautyWire(beautyMesh, 25);
+        const beautyLineReused = beautyMesh.userData._beautyWire === firstBeautyLine;
+        const beautyGeometryRebuilt = !!firstBeautyLine?.geometry && firstBeautyLine.geometry !== firstBeautyGeometry;
+
         return {
             backfaceChildCreated,
             backfaceMaterialSwapped,
@@ -1780,6 +1801,9 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             shadingLateApplyResult: lateApplyResult,
             shadingMaterialStable: shadingMesh.material === shadingMaterial,
             shadingCalls,
+            beautyLineReused,
+            beautyGeometryRebuilt,
+            firstBeautyGeometryDisposed,
         };
     });
 
@@ -1792,6 +1816,9 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.shadingLateApplyResult, false, 'Shading lifecycle smoke: disposed shading controller accepted applyShading');
     assert.equal(result.shadingMaterialStable, true, 'Shading lifecycle smoke: disposed shading controller changed material');
     assert.deepEqual(result.shadingCalls, [], 'Shading lifecycle smoke: disposed shading controller fired callbacks');
+    assert.equal(result.beautyLineReused, true, 'Shading lifecycle smoke: BeautyWire recreated line object instead of updating geometry');
+    assert.equal(result.beautyGeometryRebuilt, true, 'Shading lifecycle smoke: BeautyWire did not rebuild stale edge geometry');
+    assert.equal(result.firstBeautyGeometryDisposed, 1, 'Shading lifecycle smoke: BeautyWire old edge geometry was not disposed');
     diagnostics.assertNoErrors('Shading controllers lifecycle smoke');
     await page.close();
 }
@@ -3178,6 +3205,70 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        const vpmOldMaterialAfterBind = vpmOldMaterialDisposed();
 	        const vpmOldTextureAfterBind = vpmOldTextureDisposed();
 
+	        const nativeMaterialDispose = THREE.Material.prototype.dispose;
+	        const nativeFetch = globalThis.fetch;
+	        const vpmFailureDisposedMaterials = [];
+	        THREE.Material.prototype.dispose = function patchedFailureMaterialDispose(...args) {
+	            vpmFailureDisposedMaterials.push(this.name || this.type || 'material');
+	            return nativeMaterialDispose.apply(this, args);
+	        };
+	        const vpmFailureDisposedTextures = [];
+	        let vpmFailureResult = '';
+	        let vpmFailureMaterialStillOriginal = false;
+	        try {
+	            globalThis.fetch = async () => {
+	                throw new Error('ERM fetch failed');
+	            };
+	            const vpmFailureOldTexture = new THREE.Texture();
+	            vpmFailureOldTexture.name = 'vpm-failure-old';
+	            const vpmFailureOldMaterial = new THREE.MeshStandardMaterial({
+	                name: 'vpm failure old',
+	                map: vpmFailureOldTexture,
+	            });
+	            const vpmFailureMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), vpmFailureOldMaterial);
+	            vpmFailureMesh.name = 'vpm_failure_mesh';
+	            const vpmFailureRoot = new THREE.Group();
+	            vpmFailureRoot.userData._fbxFileName = 'SM_fail_case.fbx';
+	            vpmFailureRoot.add(vpmFailureMesh);
+	            const vpmFailureLoadedModels = [{ obj: vpmFailureRoot, name: 'SM_fail_case.fbx', zipKind: 'SM' }];
+	            const failureLabels = new Map([
+	                ['blob:vpm-failure-diffuse', 'T_fail_case_Diffuse_1.1001.png'],
+	                ['blob:vpm-failure-normal', 'T_fail_case_Normal_1.1001.png'],
+	                ['blob:vpm-failure-erm', 'T_fail_case_ERM_1.1001.png'],
+	            ]);
+	            const vpmFailureBinder = createVPMBinder({
+	                THREE,
+	                loadedModels: vpmFailureLoadedModels,
+	                labelFromURL: (url) => failureLabels.get(url) || '',
+	                toStandard,
+	                textureLoader: {
+	                    load: (url) => {
+	                        const texture = new THREE.Texture();
+	                        texture.name = failureLabels.get(url) || url;
+	                        texture.addEventListener('dispose', () => {
+	                            vpmFailureDisposedTextures.push(texture.name);
+	                        });
+	                        return texture;
+	                    },
+	                },
+	                detectSlotFromMatOrObj: () => 1,
+	                copyTextureSettings: () => {},
+	            });
+	            const vpmFailureIndex = vpmFailureBinder.buildVPMIndex([
+	                { url: 'blob:vpm-failure-diffuse' },
+	                { url: 'blob:vpm-failure-normal' },
+	                { url: 'blob:vpm-failure-erm' },
+	            ]);
+	            vpmFailureResult = await vpmFailureBinder.autoBindVPMForModel(vpmFailureRoot, vpmFailureIndex).then(
+	                () => 'resolved',
+	                (err) => err?.message || String(err),
+	            );
+	            vpmFailureMaterialStillOriginal = vpmFailureMesh.material === vpmFailureOldMaterial;
+	        } finally {
+	            THREE.Material.prototype.dispose = nativeMaterialDispose;
+	            globalThis.fetch = nativeFetch;
+	        }
+
 	        return {
 	            filenameAfterFirstBind,
 	            filenameAfterSecondBind,
@@ -3189,6 +3280,10 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            modalConvertedTextureAfterBind,
 	            vpmOldMaterialAfterBind,
 	            vpmOldTextureAfterBind,
+	            vpmFailureResult,
+	            vpmFailureMaterialStillOriginal,
+	            vpmFailureDisposedTextures,
+	            vpmFailureDisposedMaterials,
 	        };
 	    });
 
@@ -3202,6 +3297,18 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.modalConvertedTextureAfterBind, 1, 'Texture replacement smoke: texture modal leaked converted source texture');
 	    assert.equal(result.vpmOldMaterialAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source material');
 	    assert.equal(result.vpmOldTextureAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source texture');
+	    assert.equal(result.vpmFailureResult, 'resolved', 'Texture replacement smoke: VPM ERM failure rejected whole bind');
+	    assert.equal(result.vpmFailureMaterialStillOriginal, true, 'Texture replacement smoke: VPM ERM failure replaced mesh material');
+	    assert.deepEqual(result.vpmFailureDisposedTextures.sort(), [
+	        'T_fail_case_Diffuse_1.1001.png',
+	        'T_fail_case_Normal_1.1001.png',
+	    ].sort(), 'Texture replacement smoke: VPM ERM failure leaked loaded textures');
+	    assert.ok(
+	        result.vpmFailureDisposedMaterials.includes('vpm failure old')
+	            && result.vpmFailureDisposedMaterials.includes('MeshDepthMaterial')
+	            && result.vpmFailureDisposedMaterials.includes('MeshDistanceMaterial'),
+	        'Texture replacement smoke: VPM ERM failure leaked temp or shadow materials',
+	    );
     diagnostics.assertNoErrors('Texture replacement lifecycle smoke');
     await page.close();
 }
@@ -3638,6 +3745,67 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
         await Promise.resolve();
         const timeoutCallsAfterLateStatus = timeoutCalls.slice();
 
+        let abortHistoryStartedResolve = null;
+        let abortHistoryResolve = null;
+        const abortHistoryStarted = new Promise((resolve) => {
+            abortHistoryStartedResolve = resolve;
+        });
+        class AbortHistoryQuery extends FakeQuery {
+            order(...args) {
+                if (this.table === 'annotations') {
+                    abortHistoryStartedResolve?.();
+                    return new Promise((resolve) => {
+                        abortHistoryResolve = () => resolve({ data: [], error: null });
+                    });
+                }
+                return super.order(...args);
+            }
+        }
+        class AbortChannel extends FakeChannel {
+            subscribe(callback) {
+                if (typeof callback === 'function') {
+                    Promise.resolve().then(() => callback('SUBSCRIBED'));
+                }
+                return Promise.resolve('SUBSCRIBED');
+            }
+        }
+        const abortChannels = [];
+        const abortRemovedChannels = [];
+        const abortCalls = [];
+        const initAbortController = new AbortController();
+        const abortSupabase = {
+            from: (table) => new AbortHistoryQuery(table),
+            channel: (name) => {
+                const channel = new AbortChannel(name);
+                abortChannels.push(channel);
+                return channel;
+            },
+            removeChannel: async (channel) => {
+                abortRemovedChannels.push(channel.name);
+                return 'ok';
+            },
+            rpc: async () => ({ data: null, error: null }),
+        };
+        const abortInitPromise = createCollabController({
+            supabase: abortSupabase,
+            user: { id: 'abort-user' },
+            project: { id: 'project-abort', slug: 'project-abort' },
+            room: { id: 'room-abort', slug: 'room-abort', camera_owner_id: null, camera_state: null },
+            displayName: 'Abort',
+            signal: initAbortController.signal,
+            onConnectionState: ({ connected, reason }) => abortCalls.push(`connection:${connected ? 'on' : 'off'}:${reason}`),
+        }).then(
+            () => 'resolved',
+            (err) => `${err?.name || 'Error'}:${err?.message || String(err)}`,
+        );
+        await abortHistoryStarted;
+        initAbortController.abort(new DOMException('init switched', 'AbortError'));
+        const abortThrown = await Promise.race([
+            abortInitPromise,
+            new Promise((resolve) => setTimeout(() => resolve('hung'), 50)),
+        ]);
+        abortHistoryResolve?.();
+
         const afterFailure = calls.slice();
         channels.forEach((channel) => {
             channel.emit('presence', 'sync', {});
@@ -3669,6 +3837,10 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
             timeoutCallsAfterLateStatus,
             timeoutChannelNames: timeoutChannels.map((channel) => channel.name),
             timeoutRemovedChannels,
+            abortThrown,
+            abortCalls,
+            abortChannelNames: abortChannels.map((channel) => channel.name),
+            abortRemovedChannels,
         };
     });
 
@@ -3681,13 +3853,22 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
     assert.deepEqual(result.removedChannels, result.channelNames, 'Collab init-failure smoke: failed init did not remove opened channels');
     assert.ok(result.afterFailure.includes('connection:on:SUBSCRIBED'), 'Collab init-failure smoke: room channel did not subscribe before failure');
     assert.deepEqual(result.afterLateEvents, result.afterFailure, 'Collab init-failure smoke: stale callbacks fired after failed init cleanup');
-    assert.equal(result.intervalCount, 1, 'Collab init-failure smoke: expected one presence heartbeat');
+    assert.equal(result.intervalCount, 2, 'Collab init-failure smoke: expected failed and aborted init heartbeats');
     assert.equal(result.heartbeatCleared, true, 'Collab init-failure smoke: presence heartbeat leaked after failed init');
     assert.equal(result.timeoutThrown, 'Room realtime subscribe TIMED_OUT', 'Collab init-failure smoke: initial subscribe timeout hung');
     assert.ok(result.timeoutCalls.includes('connection:off:TIMED_OUT'), 'Collab init-failure smoke: timeout status was not emitted');
     assert.deepEqual(result.timeoutCallsAfterLateStatus, result.timeoutCallsAfterFailure, 'Collab init-failure smoke: late subscribed status revived a failed room channel');
     assert.deepEqual(result.timeoutChannelNames, ['room:room-timeout'], 'Collab init-failure smoke: timeout opened unexpected channels');
     assert.deepEqual(result.timeoutRemovedChannels, result.timeoutChannelNames, 'Collab init-failure smoke: timeout channel was not removed');
+    assert.equal(result.abortThrown, 'AbortError:init switched', 'Collab init-failure smoke: aborted init did not reject promptly');
+    assert.ok(result.abortCalls.includes('connection:on:SUBSCRIBED'), 'Collab init-failure smoke: aborted init did not subscribe before abort');
+    assert.deepEqual(result.abortChannelNames, [
+        'room:room-abort',
+        'room:room-abort:updates',
+        'room:room-abort:annotations',
+        'room:room-abort:messages',
+    ], 'Collab init-failure smoke: aborted init opened unexpected channels');
+    assert.deepEqual(result.abortRemovedChannels, result.abortChannelNames, 'Collab init-failure smoke: aborted init did not remove opened channels');
     diagnostics.assertNoErrors('Collab init-failure cleanup smoke');
     await page.close();
 }
@@ -4370,6 +4551,7 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
         const { createRoomModelLoadQueue } = await import('/scripts/modules/collab/room-model-load-queue.js');
 
         let currentGeneration = 1;
+        let currentActiveRequestGeneration = 0;
         const events = [];
         const releases = new Map();
         const starts = new Map();
@@ -4390,12 +4572,16 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
         };
 
         const queue = createRoomModelLoadQueue({
-            isCurrent: ({ generation, roomId }) => generation === currentGeneration && roomId === 'room-1',
+            isCurrent: ({ generation, roomId, activeRequestGeneration = 0 }) => (
+                generation === currentGeneration
+                && roomId === 'room-1'
+                && (!activeRequestGeneration || activeRequestGeneration === currentActiveRequestGeneration)
+            ),
             loadModelNow: async (model) => {
                 const id = String(model?.id || '');
                 events.push(`start:${id}`);
                 markStart(id);
-                if (id === 'A' || id === 'C' || id === 'BLOCKED' || id === 'AFTER_RESET') {
+                if (id === 'A' || id === 'C' || id === 'BLOCKED' || id === 'AFTER_RESET' || id === 'ACTIVE_STALE') {
                     await new Promise((resolve) => {
                         releases.set(id, resolve);
                     });
@@ -4438,6 +4624,21 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
         const blockedLoadResult = await blockedLoad;
         const afterResetLoadResult = await afterResetLoad;
 
+        currentGeneration = 5;
+        currentActiveRequestGeneration = 1;
+        const activeStaleLoad = queue.load(
+            { id: 'ACTIVE_STALE' },
+            { roomId: 'room-1', generation: 5, activeRequestGeneration: 1 },
+        );
+        await waitForStart('ACTIVE_STALE');
+        currentActiveRequestGeneration = 2;
+        releases.get('ACTIVE_STALE')();
+        const activeStaleLoadResult = await activeStaleLoad;
+        const activeFreshLoadResult = await queue.load(
+            { id: 'ACTIVE_FRESH' },
+            { roomId: 'room-1', generation: 5, activeRequestGeneration: 2 },
+        );
+
         return {
             events,
             firstLoadResult,
@@ -4448,6 +4649,8 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             queuedBeforeResetResult,
             blockedLoadResult,
             afterResetLoadResult,
+            activeStaleLoadResult,
+            activeFreshLoadResult,
             afterResetStartedBeforeBlockedDone,
             pendingDuringActive,
             deletedPending,
@@ -4464,6 +4667,8 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
     assert.equal(result.queuedBeforeResetResult, false, 'Room model queue smoke: pre-reset queued load should resolve false immediately');
     assert.equal(result.blockedLoadResult, false, 'Room model queue smoke: reset active load still reported success');
     assert.equal(result.afterResetLoadResult, true, 'Room model queue smoke: reset generation load did not finish');
+    assert.equal(result.activeStaleLoadResult, false, 'Room model queue smoke: stale active-model request still reported success');
+    assert.equal(result.activeFreshLoadResult, true, 'Room model queue smoke: fresh active-model request did not load');
     assert.equal(result.afterResetStartedBeforeBlockedDone, true, 'Room model queue smoke: reset did not release active stale load slot');
     assert.deepEqual(result.pendingDuringActive, ['B'], 'Room model queue smoke: concurrent model was not queued');
     assert.equal(result.deletedPending, true, 'Room model queue smoke: pending delete did not remove queued model');
@@ -4475,6 +4680,8 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             'start:A', 'done:A', 'start:B', 'done:B',
             'start:C', 'done:C',
             'start:BLOCKED', 'start:AFTER_RESET', 'done:BLOCKED', 'done:AFTER_RESET',
+            'start:ACTIVE_STALE', 'done:ACTIVE_STALE',
+            'start:ACTIVE_FRESH', 'done:ACTIVE_FRESH',
         ],
         'Room model queue smoke: queued/stale/deleted model order is wrong',
     );
@@ -4711,7 +4918,10 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
     await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
     const result = await page.evaluate(async () => {
-        const { runAbortableTusUpload } = await import('/scripts/modules/collab/abortable-tus-upload.js');
+        const {
+            runAbortableOperation,
+            runAbortableTusUpload,
+        } = await import('/scripts/modules/collab/abortable-tus-upload.js');
 
         const events = [];
         let previousUploadsResolver = null;
@@ -4789,9 +4999,34 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
             onProgress: (bytesUploaded, bytesTotal) => progress.push(`${bytesUploaded}/${bytesTotal}`),
         }).then(() => 'resolved');
 
+        let blockedOperationStarted = false;
+        let releaseBlockedOperation = null;
+        const operationAbortController = new AbortController();
+        const operationAbortResult = await Promise.race([
+            runAbortableOperation(() => {
+                blockedOperationStarted = true;
+                return new Promise((resolve) => {
+                    releaseBlockedOperation = () => resolve('late');
+                });
+            }, {
+                signal: operationAbortController.signal,
+                abortMessage: 'operation superseded',
+            }).then(
+                (value) => `resolved:${value}`,
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            ),
+            Promise.resolve().then(() => {
+                operationAbortController.abort(new DOMException('operation superseded', 'AbortError'));
+                return null;
+            }).then(() => new Promise((resolve) => setTimeout(resolve, 0))).then(() => 'hung'),
+        ]);
+        releaseBlockedOperation?.();
+
         return {
             abortResult,
             successResult,
+            operationAbortResult,
+            blockedOperationStarted,
             progress,
             events,
         };
@@ -4801,6 +5036,8 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
     assert.equal(result.events.includes('start'), false, 'Abortable TUS smoke: aborted upload started after abort');
     assert.ok(result.events.includes('abort:terminate'), 'Abortable TUS smoke: upload.abort(true) was not called');
     assert.equal(result.successResult, 'resolved', 'Abortable TUS smoke: successful upload did not resolve');
+    assert.equal(result.blockedOperationStarted, true, 'Abortable operation smoke: operation did not start');
+    assert.equal(result.operationAbortResult, 'AbortError:operation superseded', 'Abortable operation smoke: non-abortable operation did not reject on abort');
     assert.deepEqual(result.progress, ['25/100'], 'Abortable TUS smoke: progress callback did not fire');
     assert.ok(result.events.includes('success:resume'), 'Abortable TUS smoke: previous upload was not resumed');
     assert.ok(result.events.includes('success:start'), 'Abortable TUS smoke: successful upload did not start');
@@ -5468,6 +5705,11 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
         const nativeDispose = THREE.BufferGeometry.prototype.dispose;
         const nativeMaterialDispose = THREE.Material.prototype.dispose;
         const nativeRevokeObjectURL = URL.revokeObjectURL;
+        const debugGlobalDescriptors = {
+            loader: Object.getOwnPropertyDescriptor(globalThis, '__fbxLoader'),
+            last: Object.getOwnPropertyDescriptor(globalThis, '__lastFBXLoaded'),
+            parsed: Object.getOwnPropertyDescriptor(globalThis, '__fbxParsedInWorker'),
+        };
         THREE.BufferGeometry.prototype.dispose = function patchedDispose(...args) {
             disposedGeometries.push(this.name || this.uuid || 'geometry');
             return nativeDispose.apply(this, args);
@@ -5645,6 +5887,53 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 (err) => err?.message || String(err),
             );
 
+            const debugSentinel = { sentinel: true };
+            globalThis.__lastFBXLoaded = debugSentinel;
+            const debugWorld = new THREE.Group();
+            const debugLoadedModels = [];
+            const debugRoot = new THREE.Group();
+            const debugGeometry = makeGeometry();
+            debugGeometry.name = 'debugGeometry';
+            const debugMaterial = new THREE.MeshBasicMaterial({ name: 'debugMaterial' });
+            debugRoot.add(new THREE.Mesh(debugGeometry, debugMaterial));
+            const debugHandleFBXFile = createFBXFileHandler({
+                THREE,
+                world: debugWorld,
+                loadedModels: debugLoadedModels,
+                parseFBXOnMainThread: () => ({ obj: debugRoot, duration: 1 }),
+            });
+            const debugDefaultResult = await debugHandleFBXFile(
+                new File([new Uint8Array([10, 11, 12])], 'debug.fbx', { type: 'application/octet-stream' }),
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+            const debugGlobalUnchanged = globalThis.__lastFBXLoaded === debugSentinel;
+
+            const debugFailureWorld = new THREE.Group();
+            const debugFailureRoot = new THREE.Group();
+            const debugFailureGeometry = makeGeometry();
+            debugFailureGeometry.name = 'debugFailureGeometry';
+            const debugFailureMaterial = new THREE.MeshBasicMaterial({ name: 'debugFailureMaterial' });
+            debugFailureRoot.add(new THREE.Mesh(debugFailureGeometry, debugFailureMaterial));
+            const debugFailureHandleFBXFile = createFBXFileHandler({
+                THREE,
+                world: debugFailureWorld,
+                loadedModels: [],
+                enableDebugGlobals: true,
+                parseFBXOnMainThread: () => ({ obj: debugFailureRoot, duration: 1 }),
+                normalizeObjectOrientation: () => {
+                    throw new Error('debug cleanup failure');
+                },
+            });
+            const debugFailureResult = await debugFailureHandleFBXFile(
+                new File([new Uint8Array([13, 14, 15])], 'debug-failure.fbx', { type: 'application/octet-stream' }),
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+            const debugFailureGlobalCleared = globalThis.__lastFBXLoaded == null;
+
             return {
                 singleResult,
                 singleDisposed,
@@ -5678,11 +5967,24 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 rollbackGeometryDisposed: disposedGeometries.includes('rollbackGeometry'),
                 rollbackMaterialDisposed: disposedMaterials.includes('rollbackMaterial'),
                 rollbackUrlRevoked: revokedUrls.includes(rollbackUrl),
+                debugDefaultResult,
+                debugGlobalUnchanged,
+                debugFailureResult,
+                debugFailureGlobalCleared,
+                debugFailureGeometryDisposed: disposedGeometries.includes('debugFailureGeometry'),
+                debugFailureMaterialDisposed: disposedMaterials.includes('debugFailureMaterial'),
             };
         } finally {
             THREE.BufferGeometry.prototype.dispose = nativeDispose;
             THREE.Material.prototype.dispose = nativeMaterialDispose;
             URL.revokeObjectURL = nativeRevokeObjectURL;
+            const restoreDebugGlobal = (name, descriptor) => {
+                if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+                else delete globalThis[name];
+            };
+            restoreDebugGlobal('__fbxLoader', debugGlobalDescriptors.loader);
+            restoreDebugGlobal('__lastFBXLoaded', debugGlobalDescriptors.last);
+            restoreDebugGlobal('__fbxParsedInWorker', debugGlobalDescriptors.parsed);
         }
     });
 
@@ -5718,6 +6020,12 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.rollbackGeometryDisposed, true, 'FBX cleanup smoke: failed post-add geometry was not disposed');
     assert.equal(result.rollbackMaterialDisposed, true, 'FBX cleanup smoke: failed post-add material was not disposed');
     assert.equal(result.rollbackUrlRevoked, true, 'FBX cleanup smoke: failed post-add embedded blob URL was not revoked');
+    assert.equal(result.debugDefaultResult, 'resolved', 'FBX cleanup smoke: debug-global default import failed');
+    assert.equal(result.debugGlobalUnchanged, true, 'FBX cleanup smoke: production import retained Object3D in debug global');
+    assert.equal(result.debugFailureResult, 'debug cleanup failure', 'FBX cleanup smoke: debug-global failure did not propagate');
+    assert.equal(result.debugFailureGlobalCleared, true, 'FBX cleanup smoke: failed debug import retained Object3D in global');
+    assert.equal(result.debugFailureGeometryDisposed, true, 'FBX cleanup smoke: failed debug import geometry was not disposed');
+    assert.equal(result.debugFailureMaterialDisposed, true, 'FBX cleanup smoke: failed debug import material was not disposed');
     diagnostics.assertNoErrors('FBX cleanup lifecycle smoke');
     await page.close();
 }

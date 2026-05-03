@@ -41,7 +41,7 @@ import { createVisibilityAndCollisions } from '../ui/visibility-collisions.js';
 import { collectViewerDom } from '../ui/viewer-dom.js';
 import { createCustomSelectController } from '../ui/custom-select.js';
 import { createCollabController } from '../collab/collab-controller.js';
-import { runAbortableTusUpload } from '../collab/abortable-tus-upload.js';
+import { runAbortableOperation, runAbortableTusUpload } from '../collab/abortable-tus-upload.js';
 import { loadTusClient } from '../collab/tus-client.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
@@ -994,6 +994,7 @@ export class ViewerApp {
         let collabOwnerId = null;
         let collabParticipants = [];
         let collabSessionGeneration = 0;
+        let collabInitAbortController = null;
         let collabAuthGeneration = 0;
         let collabAuthInFlight = false;
         let collabCrudGeneration = 0;
@@ -1001,6 +1002,7 @@ export class ViewerApp {
         const PRESENCE_REFRESH_MS = 3000;
         const PRESENCE_STALE_MS = 15000;
         let roomModelsChannel = null;
+        const roomModelIds = new Set();
         const loadedRoomModelIds = new Set();
         let isLoadingRoomModels = false;
         let loadingRoomModelsGeneration = 0;
@@ -1261,6 +1263,7 @@ export class ViewerApp {
 
         function bumpRoomLoadGeneration() {
             roomLoadGeneration += 1;
+            activeRoomModelRequestGeneration += 1;
             if (roomModelLoadQueue?.reset) roomModelLoadQueue.reset();
             else roomModelLoadQueue?.clear?.();
             abortActiveRoomImports();
@@ -1275,6 +1278,13 @@ export class ViewerApp {
 
         function bumpCollabSessionGeneration() {
             collabSessionGeneration += 1;
+            const controller = collabInitAbortController;
+            collabInitAbortController = null;
+            try {
+                if (controller && !controller.signal?.aborted) {
+                    controller.abort(makeRoomLoadAbortError('Collab session superseded'));
+                }
+            } catch (_) {}
             return collabSessionGeneration;
         }
 
@@ -1871,6 +1881,7 @@ export class ViewerApp {
             if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
 
             cleanupRoomScopedAssets(previousRoomId);
+            roomModelIds.clear();
             roomModelCount = 0;
             roomCameraCount = 0;
             activeRoomModelId = '';
@@ -2821,6 +2832,8 @@ export class ViewerApp {
                 && String(collabRoom?.id || '') === requestedRoomId
             );
             bumpRoomLoadGeneration();
+            const initAbortController = typeof AbortController === 'function' ? new AbortController() : null;
+            collabInitAbortController = initAbortController;
             collabJoinBtn.disabled = true;
             setCollabStatus('connecting');
             try {
@@ -2834,6 +2847,7 @@ export class ViewerApp {
                     projectSlug: requestedProject.slug,
                     roomSlug: requestedRoom.slug,
                     displayName: name,
+                    signal: initAbortController?.signal || null,
                     onStatus: (text) => {
                         if (!isCurrentRoomRequest()) return;
                         const label = String(text || '').trim();
@@ -2922,6 +2936,7 @@ export class ViewerApp {
                 roomUpdateHandler?.(collabController.room);
                 await loadRoomModels();
                 if (!isCurrentSession()) return;
+                subscribeRoomCameraChanges();
                 await loadRoomCameras();
                 if (!isCurrentSession()) return;
                 if (roomCameraCount === 0) {
@@ -2930,7 +2945,6 @@ export class ViewerApp {
                         transitions: cameraPresets.getTransitions?.() || [],
                     });
                 }
-                subscribeRoomCameraChanges();
                 await syncPendingLocalModels({ onlyIfRoomEmpty: true });
                 if (!isCurrentSession()) return;
 
@@ -2974,6 +2988,9 @@ export class ViewerApp {
                 setCollabStatus('error');
                 if (throwOnError) throw err;
             } finally {
+                if (collabInitAbortController === initAbortController) {
+                    collabInitAbortController = null;
+                }
                 if (isCurrentSession()) collabJoinBtn.disabled = false;
             }
         }
@@ -3777,6 +3794,38 @@ export class ViewerApp {
             if (!scopeMatchesRoom(scope, roomId)) return false;
             if (!modelId) return true;
             return String(scope.modelId || '') === String(modelId);
+        }
+
+        function getScopedRoomModelId(value, roomId = '') {
+            const scope = value?.scope || value?.obj?.userData?.importScope || value?.userData?.importScope || null;
+            if (!scopeMatchesRoom(scope, roomId)) return '';
+            return String(scope.modelId || '').trim();
+        }
+
+        function rememberRoomModelId(modelId) {
+            const id = String(modelId || '').trim();
+            if (!id) return false;
+            const existed = roomModelIds.has(id);
+            roomModelIds.add(id);
+            roomModelCount = roomModelIds.size;
+            return !existed;
+        }
+
+        function forgetRoomModelId(modelId) {
+            const id = String(modelId || '').trim();
+            if (!id) return false;
+            const removed = roomModelIds.delete(id);
+            roomModelCount = roomModelIds.size;
+            return removed;
+        }
+
+        function replaceRoomModelIds(modelIds = []) {
+            roomModelIds.clear();
+            modelIds.forEach((modelId) => {
+                const id = String(modelId || '').trim();
+                if (id) roomModelIds.add(id);
+            });
+            roomModelCount = roomModelIds.size;
         }
 
         function assignImportScopeToRange({ modelStart = 0, embeddedStart = 0, scope = null } = {}) {
@@ -4610,6 +4659,7 @@ export class ViewerApp {
         let isSyncingLocalModels = false;
         let pendingLocalModelSyncRetryOptions = null;
         let activeRoomModelId = '';
+        let activeRoomModelRequestGeneration = 0;
         const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 16 * 1024 * 1024;
         const RESUMABLE_UPLOAD_CHUNK_BYTES = 6 * 1024 * 1024;
 
@@ -4800,9 +4850,14 @@ export class ViewerApp {
                 });
             } else {
                 if (options.signal?.aborted) throw makeRoomLoadAbortError();
-                const { error: uploadError } = await bucket.upload(path, file, {
-                    upsert: true,
-                    contentType: file.type || 'application/octet-stream',
+                const { error: uploadError } = await runAbortableOperation(() => (
+                    bucket.upload(path, file, {
+                        upsert: true,
+                        contentType: file.type || 'application/octet-stream',
+                    })
+                ), {
+                    signal: options.signal || null,
+                    abortMessage: 'Model sync superseded',
                 });
                 if (uploadError) throw uploadError;
             }
@@ -4978,6 +5033,7 @@ export class ViewerApp {
                 if (!roomModelRow?.model_id) {
                     throw new Error('Room model link was not persisted.');
                 }
+                rememberRoomModelId(modelRow.id);
 
                 setSyncStatus('обновление активной модели…');
                 activeRoomModelId = modelRow.id;
@@ -5000,7 +5056,7 @@ export class ViewerApp {
                     roomId,
                     modelId: modelRow.id,
                 });
-                roomModelCount += 1;
+                rememberRoomModelId(modelRow.id);
                 setStatusMessage('готово: модель синхронизирована');
                 shouldKeepStatusMessage = true;
                 return true;
@@ -5008,6 +5064,7 @@ export class ViewerApp {
                 if (isAbortError(err) || !isCurrent()) {
                     if (createdModelRowId) {
                         loadedRoomModelIds.delete(createdModelRowId);
+                        forgetRoomModelId(createdModelRowId);
                         if (activeRoomModelId === createdModelRowId) activeRoomModelId = '';
                     }
                     await cleanupSyncedModelArtifacts({
@@ -5031,6 +5088,7 @@ export class ViewerApp {
                 console.error('Model sync failed', err);
                 if (createdModelRowId) {
                     loadedRoomModelIds.delete(createdModelRowId);
+                    forgetRoomModelId(createdModelRowId);
                     if (activeRoomModelId === createdModelRowId) activeRoomModelId = '';
                 }
                 await cleanupSyncedModelArtifacts({
@@ -5118,7 +5176,7 @@ export class ViewerApp {
 
         async function loadProjectModel(model, options = {}) {
             if (!model) return;
-            const expectedRoomId = String(options.roomId || collabController?.room?.id || '');
+            const expectedRoomId = String(options.roomId || controller?.room?.id || '');
             const expectedGeneration = Number.isFinite(options.generation)
                 ? options.generation
                 : roomLoadGeneration;
@@ -5132,12 +5190,20 @@ export class ViewerApp {
 
         async function loadProjectModelNow(model, options = {}) {
             if (!model) return false;
+            const controller = collabController;
             const expectedRoomId = String(options.roomId || collabController?.room?.id || '');
             const expectedGeneration = Number.isFinite(options.generation)
                 ? options.generation
                 : roomLoadGeneration;
+            const expectedActiveRequestGeneration = Number.isFinite(options.activeRequestGeneration)
+                ? options.activeRequestGeneration
+                : 0;
             const modelId = String(model.id || '').trim();
-            const isStaleLoad = () => !isActiveRoomLoad(expectedGeneration, expectedRoomId);
+            const isStaleLoad = () => (
+                !isActiveRoomLoad(expectedGeneration, expectedRoomId)
+                || (expectedActiveRequestGeneration > 0
+                    && expectedActiveRequestGeneration !== activeRoomModelRequestGeneration)
+            );
             if (isStaleLoad()) return false;
             if (loadedRoomModelIds.has(modelId)) return true;
 
@@ -5162,10 +5228,15 @@ export class ViewerApp {
                 remoteModelLoadModelId = modelId;
                 setStatusMessage('Загрузка модели из комнаты…');
                 let blob = null;
-                if (storagePath && collabController?.supabase) {
-                    const { data, error } = await collabController.supabase.storage
-                        .from('models')
-                        .download(storagePath);
+                if (storagePath && controller?.supabase) {
+                    const { data, error } = await runAbortableOperation(() => (
+                        controller.supabase.storage
+                            .from('models')
+                            .download(storagePath)
+                    ), {
+                        signal: importSignal,
+                        abortMessage: 'Room model load superseded',
+                    });
                     if (error) throw error;
                     blob = data || null;
                 } else if (model.url && !String(model.url).startsWith('storage://')) {
@@ -5227,74 +5298,116 @@ export class ViewerApp {
             }
         }
 
+        async function queryRoomModelRows(controller, roomId) {
+            return controller.supabase
+                .from('room_models')
+                .select('model_id, sort_order, project_models (id, url, name, meta)')
+                .eq('room_id', roomId)
+                .order('sort_order', { ascending: true });
+        }
+
+        async function reconcileRoomModels({ controller, roomId, generation } = {}) {
+            const isCurrent = () => (
+                !!controller
+                && controller === collabController
+                && isActiveRoomLoad(generation, roomId)
+            );
+            if (!isCurrent()) return false;
+            const { data, error } = await queryRoomModelRows(controller, roomId);
+            if (error) throw error;
+            if (!isCurrent()) return false;
+            const rows = Array.isArray(data) ? data : [];
+            const nextIds = rows
+                .map((row) => String(row?.model_id || '').trim())
+                .filter(Boolean);
+            const nextIdSet = new Set(nextIds);
+            replaceRoomModelIds(nextIds);
+
+            const loadedScopedIds = new Set();
+            loadedModels.forEach((record) => {
+                const modelId = getScopedRoomModelId(record, roomId);
+                if (modelId) loadedScopedIds.add(modelId);
+            });
+            allEmbedded.forEach((entry) => {
+                const modelId = getScopedRoomModelId(entry, roomId);
+                if (modelId) loadedScopedIds.add(modelId);
+            });
+            loadedScopedIds.forEach((modelId) => {
+                if (!nextIdSet.has(modelId)) {
+                    cleanupRoomModelScopedAssets({ roomId, modelId });
+                }
+            });
+
+            for (const row of rows) {
+                if (!isCurrent()) return false;
+                const model = row.project_models;
+                if (model) await loadProjectModel(model, { roomId, generation });
+            }
+            return true;
+        }
+
+        function subscribeRoomModelsChannel({ controller, roomId, generation } = {}) {
+            if (!controller || roomModelsChannel) return;
+            const isCurrent = () => (
+                controller === collabController
+                && isActiveRoomLoad(generation, roomId)
+            );
+            roomModelsChannel = controller.supabase.channel(`room:${roomId}:models`);
+            roomModelsChannel.on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'room_models', filter: `room_id=eq.${roomId}` },
+                async (payload) => {
+                    if (!isCurrent()) return;
+                    const eventType = String(payload?.eventType || '').toUpperCase();
+                    if (eventType === 'DELETE') {
+                        const modelId = String(payload?.old?.model_id || '').trim();
+                        if (!modelId) return;
+                        forgetRoomModelId(modelId);
+                        cleanupRoomModelScopedAssets({ roomId, modelId });
+                        return;
+                    }
+                    if (eventType !== 'INSERT') return;
+
+                    const modelId = String(payload?.new?.model_id || '').trim();
+                    if (!modelId) return;
+                    rememberRoomModelId(modelId);
+                    if (loadedRoomModelIds.has(modelId)) return;
+                    const { data: modelRow, error: modelError } = await controller.supabase
+                        .from('project_models')
+                        .select('*')
+                        .eq('id', modelId)
+                        .limit(1)
+                        .maybeSingle();
+                    if (modelError || !isCurrent()) return;
+                    if (modelRow) await loadProjectModel(modelRow, { roomId, generation });
+                }
+            );
+            const statusHandler = createRoomAuxRealtimeStatusHandler('room_models', {
+                controller,
+                roomId,
+                generation,
+            });
+            roomModelsChannel.subscribe((statusValue, error) => {
+                statusHandler(statusValue, error);
+                if (String(statusValue || '').trim().toUpperCase() !== 'SUBSCRIBED') return;
+                if (!isCurrent()) return;
+                void reconcileRoomModels({ controller, roomId, generation }).catch((err) => {
+                    if (isCurrent()) console.error('Room models reconcile failed', err);
+                });
+            });
+        }
+
         async function loadRoomModels() {
-            if (!collabController) return;
-            const roomId = String(collabController.room?.id || '');
+            const controller = collabController;
+            const roomId = String(controller?.room?.id || '');
             const generation = roomLoadGeneration;
-            if (!roomId) return;
+            if (!controller || !roomId) return;
             if (isLoadingRoomModels && loadingRoomModelsGeneration === generation) return;
             isLoadingRoomModels = true;
             loadingRoomModelsGeneration = generation;
             try {
-                const { data, error } = await collabController.supabase
-                    .from('room_models')
-                    .select('model_id, sort_order, project_models (id, url, name, meta)')
-                    .eq('room_id', roomId)
-                    .order('sort_order', { ascending: true });
-                if (error) throw error;
-                if (!isActiveRoomLoad(generation, roomId)) return;
-                const rows = Array.isArray(data) ? data : [];
-                roomModelCount = rows.length;
-                for (const row of rows) {
-                    if (!isActiveRoomLoad(generation, roomId)) return;
-                    const model = row.project_models;
-                    if (model) {
-                        await loadProjectModel(model, { roomId, generation });
-                    }
-                }
-                if (!roomModelsChannel && collabController) {
-                    roomModelsChannel = collabController.supabase.channel(`room:${roomId}:models`);
-                    const channelController = collabController;
-                    roomModelsChannel.on(
-                        'postgres_changes',
-                        { event: '*', schema: 'public', table: 'room_models', filter: `room_id=eq.${roomId}` },
-                        async (payload) => {
-                            if (!isActiveRoomLoad(generation, roomId)) return;
-                            const eventType = String(payload?.eventType || '').toUpperCase();
-                            if (eventType === 'DELETE') {
-                                const deletedRow = payload.old;
-                                if (!deletedRow?.model_id) return;
-                                roomModelCount = Math.max(0, roomModelCount - 1);
-                                cleanupRoomModelScopedAssets({
-                                    roomId,
-                                    modelId: deletedRow.model_id,
-                                });
-                                return;
-                            }
-                            if (eventType !== 'INSERT') return;
-
-                            const row = payload.new;
-                            if (!row?.model_id) return;
-                            const alreadyLoaded = loadedRoomModelIds.has(row.model_id);
-                            if (alreadyLoaded) return;
-                            roomModelCount += 1;
-                            const { data: modelRow, error: modelError } = await collabController.supabase
-                                .from('project_models')
-                                .select('*')
-                                .eq('id', row.model_id)
-                                .limit(1)
-                                .maybeSingle();
-                            if (modelError) return;
-                            if (!isActiveRoomLoad(generation, roomId)) return;
-                            if (modelRow) await loadProjectModel(modelRow, { roomId, generation });
-                        }
-                    );
-                    roomModelsChannel.subscribe(createRoomAuxRealtimeStatusHandler('room_models', {
-                        controller: channelController,
-                        roomId,
-                        generation,
-                    }));
-                }
+                subscribeRoomModelsChannel({ controller, roomId, generation });
+                await reconcileRoomModels({ controller, roomId, generation });
             } catch (err) {
                 console.error('Room models load failed', err);
             } finally {
@@ -5663,6 +5776,18 @@ export class ViewerApp {
                 && controller === collabController
                 && isActiveRoomLoad(generation, roomId)
             );
+            const createCameraChannelStatusHandler = (label) => {
+                const statusHandler = createRoomAuxRealtimeStatusHandler(label, {
+                    controller,
+                    roomId,
+                    generation,
+                });
+                return (statusValue, error = null) => {
+                    statusHandler(statusValue, error);
+                    if (String(statusValue || '').trim().toUpperCase() !== 'SUBSCRIBED') return;
+                    if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
+                };
+            };
             if (!isCurrent()) return;
             if (!roomCamerasChannel) {
                 roomCamerasChannel = controller.supabase.channel(`room:${roomId}:cameras`);
@@ -5673,11 +5798,7 @@ export class ViewerApp {
                         if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
                     }
                 );
-                roomCamerasChannel.subscribe(createRoomAuxRealtimeStatusHandler('room_cameras', {
-                    controller,
-                    roomId,
-                    generation,
-                }));
+                roomCamerasChannel.subscribe(createCameraChannelStatusHandler('room_cameras'));
             }
             if (!roomTransitionsChannel) {
                 roomTransitionsChannel = controller.supabase.channel(`room:${roomId}:transitions`);
@@ -5688,19 +5809,21 @@ export class ViewerApp {
                         if (isCurrent()) requestRoomCameraRealtimeReload({ controller, roomId, generation });
                     }
                 );
-                roomTransitionsChannel.subscribe(createRoomAuxRealtimeStatusHandler('room_transitions', {
-                    controller,
-                    roomId,
-                    generation,
-                }));
+                roomTransitionsChannel.subscribe(createCameraChannelStatusHandler('room_transitions'));
             }
         }
 
         async function loadModelFromRoom(room) {
             if (!room || !collabController) return;
+            const activeRequestGeneration = activeRoomModelRequestGeneration + 1;
+            activeRoomModelRequestGeneration = activeRequestGeneration;
             const roomId = String(room.id || collabController.room?.id || '');
             const generation = roomLoadGeneration;
-            if (!isActiveRoomLoad(generation, roomId)) return;
+            const isCurrentActiveRequest = () => (
+                activeRequestGeneration === activeRoomModelRequestGeneration
+                && isActiveRoomLoad(generation, roomId)
+            );
+            if (!isCurrentActiveRequest()) return;
             const activeModelId = String(room?.active_model_id || '').trim();
             if (!activeModelId) {
                 activeRoomModelId = '';
@@ -5713,10 +5836,10 @@ export class ViewerApp {
                 .eq('id', activeModelId)
                 .limit(1)
                 .maybeSingle();
-            if (!isActiveRoomLoad(generation, roomId)) return;
+            if (!isCurrentActiveRequest()) return;
             if (error || !modelRow) return;
             activeRoomModelId = activeModelId;
-            await loadProjectModel(modelRow, { roomId, generation });
+            await loadProjectModel(modelRow, { roomId, generation, activeRequestGeneration });
         }
 
         roomUpdateHandler = (room) => {
