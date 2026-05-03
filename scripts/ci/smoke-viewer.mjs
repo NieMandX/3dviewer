@@ -7546,6 +7546,7 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
     const result = await page.evaluate(async () => {
         const THREE = await import('three');
         const { createShadowController } = await import('/scripts/modules/render/shadow-controller.js');
+        const { createImportedLightsController } = await import('/scripts/modules/scene/imported-lights.js');
         const { createEnvironmentControlsController } = await import('/scripts/modules/ui/environment-controls.js');
         const { createHemiLightControlsController } = await import('/scripts/modules/ui/hemi-light-controls.js');
         const { createSunInputsController } = await import('/scripts/modules/ui/sun-inputs.js');
@@ -7759,6 +7760,61 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
         shadow.setAutoFrustum(false);
         shadow.setFrustumScale(3);
 
+        const lightRoot = new THREE.Group();
+        const importedSpot = new THREE.SpotLight(0xffffff, 5);
+        importedSpot.name = 'ImportedSpot';
+        importedSpot.position.set(0, 3, 0);
+        importedSpot.target.position.set(0, 0, -4);
+        lightRoot.add(importedSpot, importedSpot.target);
+        const importedLightCalls = { render: 0, updated: 0 };
+        const importedLights = createImportedLightsController({
+            THREE,
+            loadedModels: [{ obj: lightRoot, name: 'lights.fbx' }],
+            requestRender: () => { importedLightCalls.render += 1; },
+            onLightsUpdated: () => { importedLightCalls.updated += 1; },
+        });
+        importedLights.disableShadowsOnImportedLights(lightRoot);
+        importedLights.ensureLightHelpers(lightRoot);
+        const helperBeforeDispose = importedSpot.userData._lightHelper || null;
+        let helperGeometryDisposed = 0;
+        let helperMaterialDisposed = 0;
+        helperBeforeDispose?.traverse?.((node) => {
+            node.geometry?.addEventListener?.('dispose', () => { helperGeometryDisposed += 1; });
+            const materials = Array.isArray(node.material) ? node.material : [node.material];
+            materials.filter(Boolean).forEach((material) => {
+                material.addEventListener?.('dispose', () => { helperMaterialDisposed += 1; });
+            });
+        });
+        importedLights.setLightHelpersVisible(true);
+        importedLights.setImportedLightsEnabled(true);
+        const importedBeforeDispose = {
+            helperAttached: !!helperBeforeDispose?.parent,
+            helperVisible: helperBeforeDispose?.visible === true,
+            intensity: importedSpot.intensity,
+            visible: importedSpot.visible,
+            calls: { ...importedLightCalls },
+        };
+        importedLights.dispose();
+        importedLights.dispose();
+        const importedAfterDispose = {
+            helperRemoved: !helperBeforeDispose?.parent,
+            helperRefCleared: !importedSpot.userData._lightHelper,
+            helperGeometryDisposed,
+            helperMaterialDisposed,
+            intensity: importedSpot.intensity,
+            visible: importedSpot.visible,
+            calls: { ...importedLightCalls },
+        };
+        importedLights.ensureLightHelpers(lightRoot);
+        importedLights.setLightHelpersVisible(false);
+        importedLights.setImportedLightsEnabled(false);
+        const importedAfterLateCalls = {
+            helperRecreated: !!importedSpot.userData._lightHelper,
+            intensity: importedSpot.intensity,
+            visible: importedSpot.visible,
+            calls: { ...importedLightCalls },
+        };
+
         return {
             envOptionsBeforeDispose,
             envOptionsAfterLatePopulate: hdriPresetSel.options.length,
@@ -7792,6 +7848,9 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
             shadowDebugVisibleAfterLateCalls: shadow.isShadowDebugVisible(),
             shadowAutoFrustumAfterLateCalls: shadow.getAutoFrustum(),
             shadowFrustumScaleAfterLateCalls: shadow.getFrustumScale(),
+            importedBeforeDispose,
+            importedAfterDispose,
+            importedAfterLateCalls,
         };
     });
 
@@ -7821,6 +7880,18 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
     assert.equal(result.shadowDebugVisibleAfterLateCalls, false, 'Light controls smoke: disposed shadow controller reported visible debug helpers');
     assert.equal(result.shadowAutoFrustumAfterLateCalls, true, 'Light controls smoke: disposed shadow controller changed auto-frustum');
     assert.equal(result.shadowFrustumScaleAfterLateCalls, 1, 'Light controls smoke: disposed shadow controller changed frustum scale');
+    assert.equal(result.importedBeforeDispose.helperAttached, true, 'Light controls smoke: imported light helper was not attached');
+    assert.equal(result.importedBeforeDispose.helperVisible, true, 'Light controls smoke: imported light helper did not become visible');
+    assert.equal(result.importedAfterDispose.helperRemoved, true, 'Light controls smoke: imported light helper stayed attached after dispose');
+    assert.equal(result.importedAfterDispose.helperRefCleared, true, 'Light controls smoke: imported light helper ref stayed after dispose');
+    assert.ok(result.importedAfterDispose.helperGeometryDisposed > 0, 'Light controls smoke: imported light helper geometry was not disposed');
+    assert.ok(result.importedAfterDispose.helperMaterialDisposed > 0, 'Light controls smoke: imported light helper material was not disposed');
+    assert.deepEqual(result.importedAfterLateCalls, {
+        helperRecreated: false,
+        intensity: result.importedAfterDispose.intensity,
+        visible: result.importedAfterDispose.visible,
+        calls: result.importedAfterDispose.calls,
+    }, 'Light controls smoke: disposed imported lights controller still mutated state');
     diagnostics.assertNoErrors('Light controls dispose smoke');
     await page.close();
 }

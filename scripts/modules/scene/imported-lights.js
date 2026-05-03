@@ -11,6 +11,7 @@ export function createImportedLightsController(options = {}) {
 
     let showLightHelpers = !!options.showLightHelpers;
     let importedLightsEnabled = !!options.importedLightsEnabled;
+    let disposed = false;
 
     const lightDirTmp = THREE ? new THREE.Vector3() : null;
     const lightWorldPos = THREE ? new THREE.Vector3() : null;
@@ -43,6 +44,7 @@ export function createImportedLightsController(options = {}) {
     }
 
     function disableShadowsOnImportedLights(root) {
+        if (disposed) return;
         if (!root) return;
         let shadowsOff = 0;
         let intensityOff = 0;
@@ -91,6 +93,7 @@ export function createImportedLightsController(options = {}) {
     }
 
     function restoreLightTargetsFromOrientation(root) {
+        if (disposed) return;
         if (!root || !tempBox || !tempSize || !lightWorldPos || !lightWorldQuat || !lightDirTmp || !targetWorldPos) return;
 
         root.updateMatrixWorld(true);
@@ -135,6 +138,7 @@ export function createImportedLightsController(options = {}) {
     }
 
     function ensureLightHelpers(root) {
+        if (disposed) return;
         if (!root || !THREE) return;
 
         const box = new THREE.Box3();
@@ -190,6 +194,7 @@ export function createImportedLightsController(options = {}) {
     }
 
     function setLightHelpersVisible(visible) {
+        if (disposed) return;
         showLightHelpers = !!visible;
         loadedModels.forEach(model => {
             model.obj?.traverse(o => {
@@ -203,6 +208,7 @@ export function createImportedLightsController(options = {}) {
     }
 
     function setImportedLightsEnabled(enabled, targetRoot = null, options = {}) {
+        if (disposed) return;
         const { silent = false } = options || {};
         const roots = targetRoot
             ? (Array.isArray(targetRoot) ? targetRoot : [targetRoot])
@@ -269,6 +275,7 @@ export function createImportedLightsController(options = {}) {
     }
 
     function bindUI(options = {}) {
+        if (disposed) return;
         const lightHelpersBtn = options.lightHelpersBtn || null;
         const lightEmittersBtn = options.lightEmittersBtn || null;
 
@@ -307,19 +314,26 @@ export function createImportedLightsController(options = {}) {
     }
 
     function disposeLightHelpers() {
+        if (disposed) return;
+        const helpers = [];
         loadedModels.forEach(model => {
             model.obj?.traverse(o => {
                 const helper = o?.userData?._lightHelper || null;
                 if (!helper) return;
-                disposeLightHelper(helper);
-                delete o.userData._lightHelper;
+                helpers.push({ light: o, helper });
             });
+        });
+        helpers.forEach(({ light, helper }) => {
+            disposeLightHelper(helper);
+            delete light.userData._lightHelper;
         });
     }
 
     function dispose() {
+        if (disposed) return;
         disposeUI();
         disposeLightHelpers();
+        disposed = true;
     }
 
     return {
