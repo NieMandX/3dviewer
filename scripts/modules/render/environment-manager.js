@@ -112,6 +112,7 @@ export function createEnvironmentManager(options = {}) {
     let envRebuildTimer = null;
     let envRebuildPromise = null;
     let envRebuildQueued = false;
+    let hdrBaseLoadPromise = null;
     let disposed = false;
     let lifecycleGeneration = 0;
     let hdrBaseLoadGeneration = 0;
@@ -200,22 +201,35 @@ export function createEnvironmentManager(options = {}) {
         if (disposed) return null;
         if (hdrBaseTex) return hdrBaseTex;
         if (presetLoadActive) return null;
+        if (hdrBaseLoadPromise) return hdrBaseLoadPromise;
         const loadGeneration = hdrBaseLoadGeneration;
-        let nextBase = null;
+        const promise = (async () => {
+            let nextBase = null;
+            try {
+                nextBase = await loadEquirectTextureImpl(DEFAULT_ENV_URL);
+            } catch (err) {
+                if (disposed || loadGeneration !== hdrBaseLoadGeneration) return null;
+                console.warn('Default EXR environment failed to load, falling back to HDR.', err);
+                nextBase = await loadEquirectTextureImpl(FALLBACK_HDR_URL);
+            }
+            if (disposed || loadGeneration !== hdrBaseLoadGeneration) {
+                nextBase?.dispose?.();
+                return null;
+            }
+            if (hdrBaseTex) {
+                if (hdrBaseTex !== nextBase) nextBase?.dispose?.();
+                return hdrBaseTex;
+            }
+            hdrBaseTex = nextBase;
+            if (app) app.hdrBaseTex = hdrBaseTex;
+            return hdrBaseTex;
+        })();
+        hdrBaseLoadPromise = promise;
         try {
-            nextBase = await loadEquirectTextureImpl(DEFAULT_ENV_URL);
-        } catch (err) {
-            if (disposed || loadGeneration !== hdrBaseLoadGeneration) return null;
-            console.warn('Default EXR environment failed to load, falling back to HDR.', err);
-            nextBase = await loadEquirectTextureImpl(FALLBACK_HDR_URL);
+            return await promise;
+        } finally {
+            if (hdrBaseLoadPromise === promise) hdrBaseLoadPromise = null;
         }
-        if (disposed || loadGeneration !== hdrBaseLoadGeneration) {
-            nextBase?.dispose?.();
-            return null;
-        }
-        hdrBaseTex = nextBase;
-        if (app) app.hdrBaseTex = hdrBaseTex;
-        return hdrBaseTex;
     }
 
     function cloneEquirectDataTexture(srcTex) {
@@ -672,6 +686,7 @@ export function createEnvironmentManager(options = {}) {
         hdrBaseLoadGeneration += 1;
         presetLoadGeneration += 1;
         presetLoadActive = false;
+        hdrBaseLoadPromise = null;
         if (envRebuildTimer) {
             clearTimeout(envRebuildTimer);
             envRebuildTimer = null;

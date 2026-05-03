@@ -6439,6 +6439,30 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         releaseLoad();
         await rebuildPromise;
 
+        let releaseConcurrentLoad = null;
+        let concurrentLoadCount = 0;
+        let concurrentBaseDisposed = 0;
+        const concurrentManager = createEnvironmentManager({
+            loadEquirectTexture: async () => {
+                concurrentLoadCount += 1;
+                await new Promise((resolve) => {
+                    releaseConcurrentLoad = resolve;
+                });
+                const tex = new THREE.DataTexture(new Float32Array([0.5, 0.5, 0.5, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
+                tex.addEventListener('dispose', () => {
+                    concurrentBaseDisposed += 1;
+                });
+                return tex;
+            },
+        });
+        const concurrentBaseA = concurrentManager.loadHDRBase();
+        const concurrentBaseB = concurrentManager.loadHDRBase();
+        await Promise.resolve();
+        releaseConcurrentLoad?.();
+        const [baseA, baseB] = await Promise.all([concurrentBaseA, concurrentBaseB]);
+        const concurrentBaseSame = baseA === baseB;
+        concurrentManager.dispose();
+
         const hdrSourceTex = new THREE.DataTexture(new Float32Array([0.2, 0.3, 0.4, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
         let hdrSourceDisposed = 0;
         hdrSourceTex.addEventListener('dispose', () => {
@@ -6514,6 +6538,9 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
             disabled: manager.isEnabled() === false,
             loadCount,
             sourceDisposed,
+            concurrentLoadCount,
+            concurrentBaseSame,
+            concurrentBaseDisposed,
             hdrSourceDisposed,
             hdrLoadedIsCopy,
             events,
@@ -6537,6 +6564,9 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
 
     assert.equal(result.loadCount, 1, 'Environment smoke: HDR loader was not exercised');
     assert.equal(result.sourceDisposed, 1, 'Environment smoke: late HDR texture was not disposed after manager dispose');
+    assert.equal(result.concurrentLoadCount, 1, 'Environment smoke: concurrent HDR base requests started duplicate loads');
+    assert.equal(result.concurrentBaseSame, true, 'Environment smoke: concurrent HDR base requests did not share the same texture');
+    assert.equal(result.concurrentBaseDisposed, 1, 'Environment smoke: shared concurrent HDR base was not disposed exactly once');
     assert.equal(result.hdrSourceDisposed, 1, 'Environment smoke: source HDR texture was not disposed after vertical flip');
     assert.equal(result.hdrLoadedIsCopy, true, 'Environment smoke: HDR loader did not return flipped texture copy');
     assert.equal(result.sceneEnvironmentCleared, true, 'Environment smoke: disposed manager restored scene.environment');
