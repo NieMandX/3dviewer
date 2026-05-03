@@ -4349,6 +4349,36 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
         await Promise.resolve();
         const beforeDisposeCalls = calls.slice();
 
+        controller.setOwner('peer-user');
+        controller.handleRemoteState({
+            sender: 'peer-user',
+            ts: 200,
+            position: [4, 5, 6],
+            target: [1, 1, 1],
+            up: [0, 1, 0],
+            fov: 45,
+        });
+        const afterFreshRemote = camera.position.toArray();
+        controller.handleRemoteState({
+            sender: 'peer-user',
+            ts: 100,
+            position: [8, 8, 8],
+            target: [2, 2, 2],
+            up: [0, 1, 0],
+            fov: 35,
+        });
+        const afterStaleRemote = camera.position.toArray();
+        controller.handleRemoteState({
+            sender: 'peer-user',
+            ts: 300,
+            position: [7, 7, 7],
+            target: [3, 3, 3],
+            up: [0, 1, 0],
+            fov: 40,
+        });
+        const afterNewerRemote = camera.position.toArray();
+        const beforeDisposeWithRemoteCalls = calls.slice();
+
         controller.dispose();
         controller.setOwner('local-user');
         controls.dispatchEvent(new Event('change'));
@@ -4364,16 +4394,23 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
 
         return {
             beforeDisposeCalls,
+            beforeDisposeWithRemoteCalls,
             afterDisposeCalls: calls.slice(),
             unhandled,
+            afterFreshRemote,
+            afterStaleRemote,
+            afterNewerRemote,
             cameraPosition: camera.position.toArray(),
         };
     });
 
     assert.deepEqual(result.beforeDisposeCalls, ['broadcast', 'persist'], 'Camera sync smoke: owner change did not send camera updates');
     assert.deepEqual(result.unhandled, [], 'Camera sync smoke: rejected camera sync promises became unhandled');
-    assert.deepEqual(result.afterDisposeCalls, result.beforeDisposeCalls, 'Camera sync smoke: disposed controller still reacted to controls/remote state');
-    assert.deepEqual(result.cameraPosition, [1, 2, 3], 'Camera sync smoke: disposed controller applied remote camera state');
+    assert.deepEqual(result.afterFreshRemote, [4, 5, 6], 'Camera sync smoke: fresh remote state was not applied');
+    assert.deepEqual(result.afterStaleRemote, [4, 5, 6], 'Camera sync smoke: stale remote state overwrote newer camera state');
+    assert.deepEqual(result.afterNewerRemote, [7, 7, 7], 'Camera sync smoke: newer remote state was ignored after stale state');
+    assert.deepEqual(result.afterDisposeCalls, result.beforeDisposeWithRemoteCalls, 'Camera sync smoke: disposed controller still reacted to controls/remote state');
+    assert.deepEqual(result.cameraPosition, [7, 7, 7], 'Camera sync smoke: disposed controller applied remote camera state');
     diagnostics.assertNoErrors('Camera sync lifecycle smoke');
     await page.close();
 }

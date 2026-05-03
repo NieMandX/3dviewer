@@ -23,6 +23,7 @@ export function createCameraSyncController(options = {}) {
     let lastBroadcastAt = 0;
     let lastPersistAt = 0;
     let lastLocalActivityAt = 0;
+    let lastAppliedRemoteTs = -Infinity;
     let localActive = false;
     let applyingRemote = false;
     let disposed = false;
@@ -42,24 +43,33 @@ export function createCameraSyncController(options = {}) {
     }
 
     function applyCameraState(state) {
-        if (!camera || !controls || !state) return;
+        if (!camera || !controls || !state) return false;
         const pos = Array.isArray(state.position) ? state.position : null;
         const tgt = Array.isArray(state.target) ? state.target : null;
         const up = Array.isArray(state.up) ? state.up : null;
-        if (!pos || !tgt) return;
+        if (!pos || !tgt) return false;
 
         applyingRemote = true;
-        camera.position.set(pos[0], pos[1], pos[2]);
-        controls.target.set(tgt[0], tgt[1], tgt[2]);
-        if (up && up.length >= 3) camera.up.set(up[0], up[1], up[2]);
-        if (Number.isFinite(state.fov)) camera.fov = state.fov;
-        if (Number.isFinite(state.zoom)) camera.zoom = state.zoom;
-        if (Number.isFinite(state.near)) camera.near = state.near;
-        if (Number.isFinite(state.far)) camera.far = state.far;
-        camera.updateProjectionMatrix();
-        controls.update();
-        requestRender();
-        applyingRemote = false;
+        try {
+            camera.position.set(pos[0], pos[1], pos[2]);
+            controls.target.set(tgt[0], tgt[1], tgt[2]);
+            if (up && up.length >= 3) camera.up.set(up[0], up[1], up[2]);
+            if (Number.isFinite(state.fov)) camera.fov = state.fov;
+            if (Number.isFinite(state.zoom)) camera.zoom = state.zoom;
+            if (Number.isFinite(state.near)) camera.near = state.near;
+            if (Number.isFinite(state.far)) camera.far = state.far;
+            camera.updateProjectionMatrix();
+            controls.update();
+            requestRender();
+            return true;
+        } finally {
+            applyingRemote = false;
+        }
+    }
+
+    function getRemoteTimestamp(payload) {
+        const ts = Number(payload?.ts);
+        return Number.isFinite(ts) ? ts : null;
     }
 
     function markLocalActivity(active) {
@@ -82,7 +92,11 @@ export function createCameraSyncController(options = {}) {
         if (disposed) return;
         if (!payload || payload.sender === localUserId) return;
         if (!shouldFollowRemote()) return;
-        applyCameraState(payload);
+        const remoteTs = getRemoteTimestamp(payload);
+        if (remoteTs != null && remoteTs < lastAppliedRemoteTs) return;
+        if (applyCameraState(payload) && remoteTs != null) {
+            lastAppliedRemoteTs = Math.max(lastAppliedRemoteTs, remoteTs);
+        }
     }
 
     function handleControlsChange() {
