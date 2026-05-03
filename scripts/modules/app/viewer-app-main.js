@@ -5548,34 +5548,39 @@ export class ViewerApp {
                 controller === collabController
                 && isActiveRoomLoad(generation, roomId)
             );
+            const handleRoomModelRealtimeChange = async (payload) => {
+                if (!isCurrent()) return;
+                const eventType = String(payload?.eventType || '').toUpperCase();
+                if (eventType === 'DELETE') {
+                    const modelId = String(payload?.old?.model_id || '').trim();
+                    if (!modelId) return;
+                    forgetRoomModelId(modelId);
+                    cleanupRoomModelScopedAssets({ roomId, modelId });
+                    return;
+                }
+                if (eventType !== 'INSERT') return;
+
+                const modelId = String(payload?.new?.model_id || '').trim();
+                if (!modelId) return;
+                rememberRoomModelId(modelId);
+                if (loadedRoomModelIds.has(modelId)) return;
+                const { data: modelRow, error: modelError } = await controller.supabase
+                    .from('project_models')
+                    .select('*')
+                    .eq('id', modelId)
+                    .limit(1)
+                    .maybeSingle();
+                if (modelError || !isCurrent() || !isRoomModelStillLinked(modelId)) return;
+                if (modelRow) await loadProjectModel(modelRow, { roomId, generation, requireRoomModelLink: true });
+            };
             roomModelsChannel = controller.supabase.channel(`room:${roomId}:models`);
             roomModelsChannel.on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'room_models', filter: `room_id=eq.${roomId}` },
-                async (payload) => {
-                    if (!isCurrent()) return;
-                    const eventType = String(payload?.eventType || '').toUpperCase();
-                    if (eventType === 'DELETE') {
-                        const modelId = String(payload?.old?.model_id || '').trim();
-                        if (!modelId) return;
-                        forgetRoomModelId(modelId);
-                        cleanupRoomModelScopedAssets({ roomId, modelId });
-                        return;
-                    }
-                    if (eventType !== 'INSERT') return;
-
-                    const modelId = String(payload?.new?.model_id || '').trim();
-                    if (!modelId) return;
-                    rememberRoomModelId(modelId);
-                    if (loadedRoomModelIds.has(modelId)) return;
-                    const { data: modelRow, error: modelError } = await controller.supabase
-                        .from('project_models')
-                        .select('*')
-                        .eq('id', modelId)
-                        .limit(1)
-                        .maybeSingle();
-                    if (modelError || !isCurrent() || !isRoomModelStillLinked(modelId)) return;
-                    if (modelRow) await loadProjectModel(modelRow, { roomId, generation, requireRoomModelLink: true });
+                (payload) => {
+                    void handleRoomModelRealtimeChange(payload).catch((err) => {
+                        if (isCurrent()) console.error('Room models realtime change failed', err);
+                    });
                 }
             );
             const statusHandler = createRoomAuxRealtimeStatusHandler('room_models', {
