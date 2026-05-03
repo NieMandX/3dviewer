@@ -6073,6 +6073,31 @@ async function runGeoJsonMetaLifecycleSmoke(browser, baseUrl) {
                 (err) => err?.message || String(err),
             );
 
+            let workerAbortFallbackCalled = false;
+            const workerAbortHandler = createZIPFileHandler({
+                basename: (path) => String(path || '').split(/[\\/]/).pop(),
+                makeGeoJsonMeta,
+                unpackZIPInWorker: async (_file, handlers) => {
+                    await handlers.onGeoJSON?.({
+                        name: 'worker-abort.geojson',
+                        text: '{"type":"FeatureCollection","features":[]}',
+                    });
+                    throw new DOMException('simulated worker abort', 'AbortError');
+                },
+                JSZip: {
+                    loadAsync: async () => {
+                        workerAbortFallbackCalled = true;
+                        return { files: {} };
+                    },
+                },
+            });
+            const workerAbortResult = await workerAbortHandler(
+                new File([new Uint8Array([3])], 'SM_worker_abort.zip', { type: 'application/zip' })
+            ).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || String(err)}`,
+            );
+
             const emptyZipHandler = createZIPFileHandler({
                 basename: (path) => String(path || '').split(/[\\/]/).pop(),
                 makeGeoJsonMeta,
@@ -6102,6 +6127,8 @@ async function runGeoJsonMetaLifecycleSmoke(browser, baseUrl) {
                 directSecond,
                 directMetaUrlAfterRevoke: directMeta.url,
                 workerFallbackResult,
+                workerAbortResult,
+                workerAbortFallbackCalled,
                 emptyZipResult,
                 revoked,
             };
@@ -6116,10 +6143,12 @@ async function runGeoJsonMetaLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.directSecond, false, 'GeoJSON meta smoke: direct revoke was not idempotent');
     assert.equal(result.directMetaUrlAfterRevoke, '', 'GeoJSON meta smoke: revoked direct meta kept stale URL');
     assert.equal(result.workerFallbackResult, 'simulated fallback failure', 'GeoJSON meta smoke: worker fallback path was not exercised');
+    assert.equal(result.workerAbortResult, 'AbortError:simulated worker abort', 'GeoJSON meta smoke: worker abort was not propagated as abort');
+    assert.equal(result.workerAbortFallbackCalled, false, 'GeoJSON meta smoke: worker abort incorrectly started main-thread fallback');
     assert.equal(result.emptyZipResult, 'resolved', 'GeoJSON meta smoke: empty ZIP fallback did not complete');
     assert.deepEqual(
         result.revoked,
-        ['blob:geo-1', 'blob:geo-2', 'blob:geo-3'],
+        ['blob:geo-1', 'blob:geo-2', 'blob:geo-3', 'blob:geo-4'],
         'GeoJSON meta smoke: leaked or double-revoked GeoJSON blob URLs',
     );
     diagnostics.assertNoErrors('GeoJSON meta lifecycle smoke');

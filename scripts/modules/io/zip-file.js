@@ -45,6 +45,11 @@ export function createZIPFileHandler(options = {}) {
         } catch (_) {}
     }
 
+    function cleanupPartialImport({ modelStart = 0, embeddedStart = 0, geoMeta = null } = {}) {
+        revokeGeoJsonMetaUrl(geoMeta);
+        cleanupImportedRange({ modelStart, embeddedStart });
+    }
+
     return async function handleZIPFile(file, callOptions = null) {
         const signal = callOptions?.signal || null;
         const throwIfAborted = () => {
@@ -146,21 +151,24 @@ export function createZIPFileHandler(options = {}) {
                     if (attached) {
                         logBind(`GeoJSON: прикреплён к ${attached} FBX из «${file.name}» (${zipGeoMeta.entryName}${zipGeoMeta.featureCount != null ? `, features: ${zipGeoMeta.featureCount}` : ''})`, 'ok');
                         schedulePanelRefresh();
-	                    } else {
-	                        logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
-	                        revokeGeoJsonMetaUrl(zipGeoMeta);
-	                    }
-	                }
+                    } else {
+                        logBind(`GeoJSON: файл найден в «${file.name}», но FBX из этого ZIP не обнаружены`, 'warn');
+                        revokeGeoJsonMetaUrl(zipGeoMeta);
+                    }
+                }
 
                 ensureZipCollisionsHidden(file.name);
                 setStatusMessage(`Готово: ${file.name}`);
                 return;
             } catch (err) {
-	                if (isAbortError(err)) throw err;
-	                revokeGeoJsonMetaUrl(zipGeoMeta);
-	                cleanupImportedRange({ modelStart: importModelStart, embeddedStart: importEmbeddedStart });
-	                zipGeoMeta = null;
-	                lastNormalizeOrientationType = null;
+                cleanupPartialImport({
+                    modelStart: importModelStart,
+                    embeddedStart: importEmbeddedStart,
+                    geoMeta: zipGeoMeta,
+                });
+                zipGeoMeta = null;
+                lastNormalizeOrientationType = null;
+                if (isAbortError(err)) throw err;
                 logBind(`ZIP worker: не удалось обработать «${file.name}» → fallback на main thread (${err?.message || err})`, 'warn');
             }
         }
@@ -260,8 +268,11 @@ export function createZIPFileHandler(options = {}) {
 
             setStatusMessage(`Готово: ${file.name}`);
         } catch (err) {
-            revokeGeoJsonMetaUrl(zipGeoMeta);
-            cleanupImportedRange({ modelStart: importModelStart, embeddedStart: importEmbeddedStart });
+            cleanupPartialImport({
+                modelStart: importModelStart,
+                embeddedStart: importEmbeddedStart,
+                geoMeta: zipGeoMeta,
+            });
             zipGeoMeta = null;
             lastNormalizeOrientationType = null;
             throw err;
