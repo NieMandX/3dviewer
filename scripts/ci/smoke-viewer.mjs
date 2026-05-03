@@ -2662,6 +2662,108 @@ async function runFileFlowFailureSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runFileFlowSerializationSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createFileFlowController } = await import('/scripts/modules/io/file-flow.js');
+
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.multiple = true;
+        const rootEl = document.createElement('main');
+        const dropEl = document.createElement('div');
+        document.body.append(fileInput, rootEl, dropEl);
+
+        const calls = [];
+        let loadedCount = 0;
+        let releaseFirst = null;
+        const firstBlocked = new Promise((resolve) => {
+            releaseFirst = resolve;
+        });
+        let firstStarted = null;
+        const waitFirstStarted = new Promise((resolve) => {
+            firstStarted = resolve;
+        });
+        let finalizeCount = 0;
+
+        const controller = createFileFlowController({
+            fileInput,
+            rootEl,
+            dropEl,
+            sampleModels: [],
+            handleFBXFile: async () => {},
+            handleZIPFile: async (file) => {
+                calls.push(`zip:start:${file.name}`);
+                if (file.name === 'one.zip') {
+                    firstStarted();
+                    await firstBlocked;
+                }
+                calls.push(`zip:done:${file.name}`);
+                loadedCount += 1;
+            },
+            finalizeBatchAfterAllFiles: async () => {
+                finalizeCount += 1;
+                calls.push('finalize');
+            },
+            setEmptyHintVisible: (visible) => calls.push(`hint:${!!visible}`),
+            getLoadedModelCount: () => loadedCount,
+        });
+
+        Object.defineProperty(fileInput, 'files', {
+            configurable: true,
+            value: [new File(['one'], 'one.zip', { type: 'application/zip' })],
+        });
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        await waitFirstStarted;
+
+        Object.defineProperty(fileInput, 'files', {
+            configurable: true,
+            value: [new File(['two'], 'two.zip', { type: 'application/zip' })],
+        });
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+        const callsBeforeRelease = calls.slice();
+
+        releaseFirst();
+        for (let i = 0; i < 50 && finalizeCount < 2; i += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        const callsAfterCompletion = calls.slice();
+        controller.dispose();
+
+        return {
+            callsBeforeRelease,
+            callsAfterCompletion,
+            finalizeCount,
+            loadedCount,
+        };
+    });
+
+    assert.deepEqual(result.callsBeforeRelease, [
+        'hint:false',
+        'zip:start:one.zip',
+    ], 'File-flow serialization smoke: second batch started while first import was still active');
+    assert.deepEqual(result.callsAfterCompletion, [
+        'hint:false',
+        'zip:start:one.zip',
+        'zip:done:one.zip',
+        'hint:false',
+        'finalize',
+        'hint:false',
+        'zip:start:two.zip',
+        'zip:done:two.zip',
+        'hint:false',
+        'finalize',
+    ], 'File-flow serialization smoke: queued batches did not finish in order');
+    assert.equal(result.finalizeCount, 2, 'File-flow serialization smoke: queued batches did not both finalize');
+    assert.equal(result.loadedCount, 2, 'File-flow serialization smoke: queued batch did not load the second file');
+    diagnostics.assertNoErrors('File-flow serialization smoke');
+    await page.close();
+}
+
 async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -7939,6 +8041,8 @@ try {
     console.log('Camera pick lifecycle smoke passed.');
     await runFileFlowFailureSmoke(browser, smokeServer.baseUrl);
     console.log('File-flow failure smoke passed.');
+    await runFileFlowSerializationSmoke(browser, smokeServer.baseUrl);
+    console.log('File-flow serialization smoke passed.');
     await runFileFlowDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('File-flow dispose lifecycle smoke passed.');
     await runBatchFinalizerDisposeSmoke(browser, smokeServer.baseUrl);

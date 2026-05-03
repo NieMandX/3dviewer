@@ -19,6 +19,7 @@ export function createFileFlowController(options = {}) {
 
     const cleanupFns = [];
     const activeBatchControllers = new Set();
+    let operationQueue = Promise.resolve();
     let disposed = false;
 
     function makeAbortError(message = 'File import aborted') {
@@ -59,6 +60,17 @@ export function createFileFlowController(options = {}) {
         cleanupFns.push(() => el.removeEventListener('click', handler));
     }
 
+    function enqueueOperation(operation) {
+        const queued = operationQueue
+            .catch(() => {})
+            .then(() => {
+                if (disposed) return false;
+                return operation();
+            });
+        operationQueue = queued.catch(() => {});
+        return queued;
+    }
+
     async function handleFiles(files, callOptions = null) {
         const errors = [];
         const signal = callOptions?.signal || null;
@@ -79,7 +91,7 @@ export function createFileFlowController(options = {}) {
         return errors;
     }
 
-    async function runFileBatch(files, { resetInput = false } = {}) {
+    async function runFileBatchNow(files, { resetInput = false } = {}) {
         if (disposed || !files.length) return [];
         const controller = createBatchController();
         const signal = controller?.signal || null;
@@ -94,6 +106,12 @@ export function createFileFlowController(options = {}) {
             setEmptyHintVisible(getLoadedModelCount() === 0);
             await finalizeBatchAfterAllFiles();
         }
+    }
+
+    async function runFileBatch(files, { resetInput = false } = {}) {
+        const list = Array.from(files || []);
+        if (disposed || !list.length) return [];
+        return enqueueOperation(() => runFileBatchNow(list, { resetInput }));
     }
 
     function populateSampleSelect() {
@@ -128,8 +146,11 @@ export function createFileFlowController(options = {}) {
             const idx = sampleSelect.selectedIndex;
             const sample = sampleModels[idx];
             if (!sample || !sample.files || !sample.files.length) return;
-            onSampleChosen(sample);
-            await loadSampleModel(sample);
+            await enqueueOperation(async () => {
+                if (disposed) return false;
+                onSampleChosen(sample);
+                return loadSampleModel(sample);
+            });
         };
         sampleSelect.addEventListener('change', handleSampleChange);
         cleanupFns.push(() => sampleSelect.removeEventListener('change', handleSampleChange));
