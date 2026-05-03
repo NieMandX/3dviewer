@@ -181,6 +181,9 @@ export function createEnvironmentManager(options = {}) {
     const loadEquirectTextureImpl = typeof options.loadEquirectTexture === 'function'
         ? options.loadEquirectTexture
         : loadEnvironmentEquirectTexture;
+    const createPMREMGenerator = typeof options.createPMREMGenerator === 'function'
+        ? options.createPMREMGenerator
+        : () => new THREE.PMREMGenerator(renderer);
 
     function warnEnvironmentFailure(message, err) {
         if (disposed) return;
@@ -527,26 +530,31 @@ export function createEnvironmentManager(options = {}) {
             return;
         }
 
-        applyHDRAdjustments(nextBg, { gamma, tintColor: tintLinear, exposure, saturation, blur });
-        nextBg.mapping = THREE.EquirectangularReflectionMapping;
-        if ('colorSpace' in nextBg) {
-            nextBg.colorSpace = THREE.LinearSRGBColorSpace;
-        }
-        nextBg.needsUpdate = true;
-
         let nextEnv = null;
         let nextEnvTarget = null;
-        if (useWebGPU) {
-            nextBg.needsPMREMUpdate = true;
-            nextEnv = nextBg;
-        } else {
-            if (!pmremGen) {
-                pmremGen = new THREE.PMREMGenerator(renderer);
-                if (app) app.pmremGen = pmremGen;
+        try {
+            applyHDRAdjustments(nextBg, { gamma, tintColor: tintLinear, exposure, saturation, blur });
+            nextBg.mapping = THREE.EquirectangularReflectionMapping;
+            if ('colorSpace' in nextBg) {
+                nextBg.colorSpace = THREE.LinearSRGBColorSpace;
             }
-            const rt = pmremGen.fromEquirectangular(nextBg);
-            nextEnvTarget = rt;
-            nextEnv = rt.texture;
+            nextBg.needsUpdate = true;
+
+            if (useWebGPU) {
+                nextBg.needsPMREMUpdate = true;
+                nextEnv = nextBg;
+            } else {
+                if (!pmremGen) {
+                    pmremGen = createPMREMGenerator(renderer);
+                    if (app) app.pmremGen = pmremGen;
+                }
+                const rt = pmremGen.fromEquirectangular(nextBg);
+                nextEnvTarget = rt;
+                nextEnv = rt.texture;
+            }
+        } catch (err) {
+            disposeEnvironmentResources({ env: nextEnv, bg: nextBg, envTarget: nextEnvTarget, base });
+            throw err;
         }
 
         if (!nextEnv) {

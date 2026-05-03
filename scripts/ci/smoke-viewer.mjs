@@ -7278,6 +7278,36 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         failingManager.dispose();
         window.removeEventListener('unhandledrejection', onEnvironmentUnhandled);
 
+        const pmremFailureBase = new THREE.DataTexture(new Float32Array([0.25, 0.25, 0.25, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
+        let pmremFailureCloneDisposed = 0;
+        const nativeDataTextureDispose = THREE.DataTexture.prototype.dispose;
+        THREE.DataTexture.prototype.dispose = function smokeDataTextureDispose(...args) {
+            if (this !== pmremFailureBase && this?.image?.data?.[0] === 0.25) {
+                pmremFailureCloneDisposed += 1;
+            }
+            return nativeDataTextureDispose.apply(this, args);
+        };
+        let pmremFailureResult = null;
+        let pmremFailureManager = null;
+        try {
+            pmremFailureManager = createEnvironmentManager({
+                enabled: true,
+                renderer: {},
+                useWebGPU: false,
+                loadEquirectTexture: async () => pmremFailureBase,
+                createPMREMGenerator: () => ({
+                    fromEquirectangular() {
+                        throw new Error('pmrem failed');
+                    },
+                    dispose() {},
+                }),
+            });
+            pmremFailureResult = await pmremFailureManager.rebuild({ force: true });
+        } finally {
+            THREE.DataTexture.prototype.dispose = nativeDataTextureDispose;
+            pmremFailureManager?.dispose?.();
+        }
+
         const hdrSourceTex = new THREE.DataTexture(new Float32Array([0.2, 0.3, 0.4, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
         let hdrSourceDisposed = 0;
         hdrSourceTex.addEventListener('dispose', () => {
@@ -7362,6 +7392,8 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
             failingEnv: failingManager.getCurrentEnv(),
             failingBg: failingManager.getCurrentBg(),
             environmentUnhandled,
+            pmremFailureResult,
+            pmremFailureCloneDisposed,
             hdrSourceDisposed,
             hdrLoadedIsCopy,
             events,
@@ -7394,6 +7426,8 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.failingEnv, null, 'Environment smoke: failed load produced a current environment');
     assert.equal(result.failingBg, null, 'Environment smoke: failed load produced a current background');
     assert.deepEqual(result.environmentUnhandled, [], 'Environment smoke: failed environment load caused unhandled rejection');
+    assert.equal(result.pmremFailureResult, false, 'Environment smoke: PMREM failure did not resolve cleanly');
+    assert.equal(result.pmremFailureCloneDisposed, 1, 'Environment smoke: PMREM failure leaked cloned background texture');
     assert.equal(result.hdrSourceDisposed, 1, 'Environment smoke: source HDR texture was not disposed after vertical flip');
     assert.equal(result.hdrLoadedIsCopy, true, 'Environment smoke: HDR loader did not return flipped texture copy');
     assert.equal(result.sceneEnvironmentCleared, true, 'Environment smoke: disposed manager restored scene.environment');
