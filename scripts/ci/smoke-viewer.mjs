@@ -4486,6 +4486,50 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
             },
         };
         const calls = [];
+        const immediateCalls = [];
+        const immediateControls = new EventTarget();
+        immediateControls.target = makeVector(0, 0, 0);
+        immediateControls.update = () => {
+            immediateCalls.push('controls:update');
+        };
+        const immediateCamera = {
+            position: makeVector(1, 2, 3),
+            up: makeVector(0, 1, 0),
+            fov: 50,
+            zoom: 1,
+            near: 0.1,
+            far: 1000,
+            updateProjectionMatrix: () => {
+                immediateCalls.push('camera:updateProjectionMatrix');
+            },
+        };
+        const immediateController = createCameraSyncController({
+            camera: immediateCamera,
+            controls: immediateControls,
+            localUserId: 'local-user',
+            requestRender: () => immediateCalls.push('render'),
+            idleDelayMs: 10000,
+        });
+        immediateController.handleRemoteState({
+            sender: 'peer-user',
+            ts: 1,
+            position: [10, 11, 12],
+            target: [1, 1, 1],
+            up: [0, 1, 0],
+            fov: 45,
+        });
+        const afterImmediateRemote = immediateCamera.position.toArray();
+        immediateController.markLocalActivity(true);
+        immediateController.handleRemoteState({
+            sender: 'peer-user',
+            ts: 2,
+            position: [20, 21, 22],
+            target: [2, 2, 2],
+            up: [0, 1, 0],
+            fov: 40,
+        });
+        const afterBusyRemote = immediateCamera.position.toArray();
+        immediateController.dispose();
         const collab = {
             broadcastCameraState: async () => {
                 calls.push('broadcast');
@@ -4562,6 +4606,8 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
             beforeDisposeWithRemoteCalls,
             afterDisposeCalls: calls.slice(),
             unhandled,
+            afterImmediateRemote,
+            afterBusyRemote,
             afterFreshRemote,
             afterStaleRemote,
             afterNewerRemote,
@@ -4571,6 +4617,8 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
 
     assert.deepEqual(result.beforeDisposeCalls, ['broadcast', 'persist'], 'Camera sync smoke: owner change did not send camera updates');
     assert.deepEqual(result.unhandled, [], 'Camera sync smoke: rejected camera sync promises became unhandled');
+    assert.deepEqual(result.afterImmediateRemote, [10, 11, 12], 'Camera sync smoke: initial remote state was blocked by idle delay');
+    assert.deepEqual(result.afterBusyRemote, [10, 11, 12], 'Camera sync smoke: active local interaction did not block remote state');
     assert.deepEqual(result.afterFreshRemote, [4, 5, 6], 'Camera sync smoke: fresh remote state was not applied');
     assert.deepEqual(result.afterStaleRemote, [4, 5, 6], 'Camera sync smoke: stale remote state overwrote newer camera state');
     assert.deepEqual(result.afterNewerRemote, [7, 7, 7], 'Camera sync smoke: newer remote state was ignored after stale state');

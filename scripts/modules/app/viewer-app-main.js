@@ -997,6 +997,7 @@ export class ViewerApp {
         let collabProjects = [];
         let collabRooms = [];
         let collabOwnerId = null;
+        let pendingCollabCameraState = null;
         let collabParticipants = [];
         let collabSessionGeneration = 0;
         let collabInitAbortController = null;
@@ -1875,6 +1876,7 @@ export class ViewerApp {
             }
             collabController = null;
             collabOwnerId = null;
+            pendingCollabCameraState = null;
             collabParticipants = [];
             renderParticipants(collabParticipants);
             updateOwnerLabel();
@@ -2108,6 +2110,19 @@ export class ViewerApp {
             renderParticipants(collabParticipants);
             updateOwnerLabel();
             updateReserveButton();
+        }
+
+        function handleCollabCameraState(state, generation = collabSessionGeneration) {
+            if (!state) return;
+            if (!cameraSync) {
+                pendingCollabCameraState = {
+                    generation,
+                    state: typeof state === 'object' ? { ...state } : state,
+                };
+                return;
+            }
+            pendingCollabCameraState = null;
+            cameraSync.handleRemoteState(state);
         }
 
         function updateReserveButton() {
@@ -2914,7 +2929,7 @@ export class ViewerApp {
                     },
                     onCameraState: (state) => {
                         if (!isCurrentRoomRequest()) return;
-                        cameraSync?.handleRemoteState?.(state);
+                        handleCollabCameraState(state, sessionGeneration);
                     },
                     onCameraOwner: (ownerId) => {
                         if (!isCurrentRoomRequest()) return;
@@ -2926,6 +2941,9 @@ export class ViewerApp {
                     },
                 });
                 if (!isCurrentRoomRequest()) {
+                    if (pendingCollabCameraState?.generation === sessionGeneration) {
+                        pendingCollabCameraState = null;
+                    }
                     await nextController.dispose?.();
                     return;
                 }
@@ -2942,6 +2960,11 @@ export class ViewerApp {
                 });
                 if (collabOwnerId) {
                     setCollabOwner(collabOwnerId);
+                }
+                if (pendingCollabCameraState?.generation === sessionGeneration) {
+                    const pendingCameraState = pendingCollabCameraState.state;
+                    pendingCollabCameraState = null;
+                    cameraSync.handleRemoteState(pendingCameraState);
                 }
                 roomUpdateHandler?.(collabController.room);
                 await loadRoomModels();
