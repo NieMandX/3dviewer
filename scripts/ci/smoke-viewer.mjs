@@ -4857,9 +4857,11 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
         let muted = true;
         let currentGeneration = 1;
         const events = [];
+        const errors = [];
         const releases = new Map();
         const starts = new Map();
         const dones = new Map();
+        const failures = new Map();
 
         const waitFor = (map, label) => {
             if (map.has(label)) return map.get(label).promise;
@@ -4881,13 +4883,21 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
             reload: async ({ label }) => {
                 events.push(`start:${label}`);
                 mark(starts, label);
-                if (label === 'A' || label === 'B' || label === 'D' || label === 'F') {
+                if (label === 'A' || label === 'B' || label === 'D' || label === 'F' || label === 'G' || label === 'H') {
                     await new Promise((resolve) => {
                         releases.set(label, resolve);
                     });
                 }
+                if (label === 'G') {
+                    events.push(`fail:${label}`);
+                    mark(failures, label);
+                    throw new Error('stale reload failed');
+                }
                 events.push(`done:${label}`);
                 mark(dones, label);
+            },
+            onError: (err, context) => {
+                errors.push(`${context?.label || ''}:${err?.message || err}`);
             },
         });
 
@@ -4937,6 +4947,33 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
         await waitFor(dones, 'D');
         await waitFor(dones, 'F');
         await new Promise((resolve) => setTimeout(resolve, 0));
+        const eventsBeforeStaleErrorScenario = events.slice();
+        const errorsBeforeStaleErrorScenario = errors.slice();
+        const stateBeforeStaleErrorScenario = {
+            dirty: reloader.isDirty(),
+            queued: reloader.isQueued(),
+            inFlight: reloader.isInFlight(),
+            lastContext: reloader.getLastContext(),
+        };
+
+        currentGeneration = 4;
+        const requestG = reloader.request({ label: 'G', generation: 4 });
+        await waitFor(starts, 'G');
+        reloader.clear();
+        const stateAfterStaleErrorClear = {
+            dirty: reloader.isDirty(),
+            queued: reloader.isQueued(),
+            inFlight: reloader.isInFlight(),
+            lastContext: reloader.getLastContext(),
+        };
+        const requestH = reloader.request({ label: 'H', generation: 4 });
+        await waitFor(starts, 'H');
+        const hStartedBeforeGFailed = events.includes('start:H') && !events.includes('fail:G');
+        releases.get('G')();
+        releases.get('H')();
+        await waitFor(failures, 'G');
+        await waitFor(dones, 'H');
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         return {
             requestMuted,
@@ -4952,8 +4989,16 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
             stateAfterClear,
             requestF,
             fStartedBeforeDDone,
+            requestG,
+            requestH,
+            hStartedBeforeGFailed,
             beforeFlushEvents,
             events,
+            eventsBeforeStaleErrorScenario,
+            errors,
+            errorsBeforeStaleErrorScenario,
+            stateBeforeStaleErrorScenario,
+            stateAfterStaleErrorClear,
             dirtyAfterFlush: reloader.isDirty(),
             queuedAfterFlush: reloader.isQueued(),
             inFlightAfterFlush: reloader.isInFlight(),
@@ -4980,14 +5025,24 @@ async function runDeferredRealtimeReloadSmoke(browser, baseUrl) {
     assert.equal(result.requestF, true, 'Deferred realtime smoke: clear did not release in-flight slot for new reload');
     assert.equal(result.fStartedBeforeDDone, true, 'Deferred realtime smoke: new reload waited for stale in-flight reload after clear');
     assert.deepEqual(
-        result.events,
+        result.eventsBeforeStaleErrorScenario,
         ['start:A', 'done:A', 'start:B', 'done:B', 'start:C', 'done:C', 'start:D', 'start:F', 'done:D', 'done:F'],
         'Deferred realtime smoke: reload order is wrong',
     );
+    assert.equal(result.requestG, true, 'Deferred realtime smoke: stale-error scenario did not start reload');
+    assert.deepEqual(
+        result.stateAfterStaleErrorClear,
+        { dirty: false, queued: false, inFlight: false, lastContext: null },
+        'Deferred realtime smoke: stale-error clear did not reset in-flight state',
+    );
+    assert.equal(result.requestH, true, 'Deferred realtime smoke: stale-error clear did not allow the next reload');
+    assert.equal(result.hStartedBeforeGFailed, true, 'Deferred realtime smoke: stale-error scenario did not overlap runs');
+    assert.deepEqual(result.errors, result.errorsBeforeStaleErrorScenario, 'Deferred realtime smoke: stale reload error reached onError after clear');
     assert.equal(result.dirtyAfterFlush, false, 'Deferred realtime smoke: dirty flag stayed set');
     assert.equal(result.queuedAfterFlush, false, 'Deferred realtime smoke: queued flag stayed set');
     assert.equal(result.inFlightAfterFlush, false, 'Deferred realtime smoke: in-flight flag stayed set');
-    assert.equal(result.lastContext?.label, 'F', 'Deferred realtime smoke: stale context replaced latest valid context');
+    assert.equal(result.stateBeforeStaleErrorScenario.lastContext?.label, 'F', 'Deferred realtime smoke: stale context replaced latest valid context');
+    assert.equal(result.lastContext?.label, 'H', 'Deferred realtime smoke: latest context was not updated after stale-error recovery');
     diagnostics.assertNoErrors('Deferred realtime reload smoke');
     await page.close();
 }

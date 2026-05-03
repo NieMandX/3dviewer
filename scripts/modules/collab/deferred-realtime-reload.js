@@ -46,8 +46,13 @@ export function createDeferredRealtimeReload(options = {}) {
                 await reload(context);
             }
         } catch (err) {
-            if (onError) onError(err, context);
-            else console.error('Deferred realtime reload failed', err);
+            const stillCurrentRun = activeRunId === runId
+                && lifecycleGeneration === runGeneration
+                && isCurrent(context);
+            if (stillCurrentRun) {
+                if (onError) onError(err, context);
+                else console.error('Deferred realtime reload failed', err);
+            }
         } finally {
             if (activeRunId === runId && lifecycleGeneration === runGeneration) {
                 inFlight = false;
