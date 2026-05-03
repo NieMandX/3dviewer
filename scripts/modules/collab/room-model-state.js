@@ -1,3 +1,13 @@
+export function isRoomModelIdLinked(roomModelIds, modelId) {
+    const id = String(modelId || '').trim();
+    if (!id || !roomModelIds?.has) return false;
+    try {
+        return roomModelIds.has(id);
+    } catch (_) {
+        return false;
+    }
+}
+
 export function pruneLoadedRoomModelIds(options = {}) {
     const loadedRoomModelIds = options.loadedRoomModelIds || null;
     const records = Array.isArray(options.records) ? options.records : [];

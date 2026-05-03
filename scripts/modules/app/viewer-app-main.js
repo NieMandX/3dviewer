@@ -48,7 +48,7 @@ import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
 import { createRealtimeChannelStatusHandler } from '../collab/realtime-channel-status.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
-import { promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
+import { isRoomModelIdLinked, promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
 import { createVoiceController } from '../voice/voice-controller.js';
 import { HDRI_LIBRARY } from '../render/environment-manager.js';
@@ -3833,6 +3833,10 @@ export class ViewerApp {
             roomModelCount = roomModelIds.size;
         }
 
+        function isRoomModelStillLinked(modelId) {
+            return isRoomModelIdLinked(roomModelIds, modelId);
+        }
+
         function assignImportScopeToRange({ modelStart = 0, embeddedStart = 0, scope = null } = {}) {
             const nextScope = cloneImportScope(scope);
             if (!nextScope) return;
@@ -5206,11 +5210,13 @@ export class ViewerApp {
             const expectedActiveRequestGeneration = Number.isFinite(options.activeRequestGeneration)
                 ? options.activeRequestGeneration
                 : 0;
+            const requireRoomModelLink = options.requireRoomModelLink === true;
             const modelId = String(model.id || '').trim();
             const isStaleLoad = () => (
                 !isActiveRoomLoad(expectedGeneration, expectedRoomId)
                 || (expectedActiveRequestGeneration > 0
                     && expectedActiveRequestGeneration !== activeRoomModelRequestGeneration)
+                || (requireRoomModelLink && !isRoomModelStillLinked(modelId))
             );
             if (isStaleLoad()) return false;
             if (loadedRoomModelIds.has(modelId)) return true;
@@ -5349,8 +5355,10 @@ export class ViewerApp {
 
             for (const row of rows) {
                 if (!isCurrent()) return false;
+                const modelId = String(row?.model_id || '').trim();
+                if (!modelId || !isRoomModelStillLinked(modelId)) continue;
                 const model = row.project_models;
-                if (model) await loadProjectModel(model, { roomId, generation });
+                if (model) await loadProjectModel(model, { roomId, generation, requireRoomModelLink: true });
             }
             return true;
         }
@@ -5387,8 +5395,8 @@ export class ViewerApp {
                         .eq('id', modelId)
                         .limit(1)
                         .maybeSingle();
-                    if (modelError || !isCurrent()) return;
-                    if (modelRow) await loadProjectModel(modelRow, { roomId, generation });
+                    if (modelError || !isCurrent() || !isRoomModelStillLinked(modelId)) return;
+                    if (modelRow) await loadProjectModel(modelRow, { roomId, generation, requireRoomModelLink: true });
                 }
             );
             const statusHandler = createRoomAuxRealtimeStatusHandler('room_models', {

@@ -4926,6 +4926,7 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
 
     const result = await page.evaluate(async () => {
         const {
+            isRoomModelIdLinked,
             promoteLocalImportScopeToRoom,
             pruneLoadedRoomModelIds,
         } = await import('/scripts/modules/collab/room-model-state.js');
@@ -4966,6 +4967,26 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
             records: [],
         });
 
+        const realtimeIds = new Set();
+        const realtimeLoads = [];
+        let releaseInsertFetch = null;
+        const insertFetch = new Promise((resolve) => {
+            releaseInsertFetch = resolve;
+        });
+        const handleInsert = async (modelId) => {
+            realtimeIds.add(modelId);
+            await insertFetch;
+            if (isRoomModelIdLinked(realtimeIds, modelId)) {
+                realtimeLoads.push(modelId);
+            }
+        };
+        const insertPromise = handleInsert('late-delete');
+        realtimeIds.delete('late-delete');
+        releaseInsertFetch();
+        await insertPromise;
+        realtimeIds.add('kept');
+        const keptStillLinked = isRoomModelIdLinked(realtimeIds, 'kept');
+
         return {
             roomRemoved: roomPrune.removedIds,
             activeAfterRoomPrune: roomPrune.activeRoomModelId,
@@ -4978,6 +4999,8 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
             untouchedModelScope: loadedModels[1].scope,
             promotedEmbeddedScope: allEmbedded[0].scope,
             untouchedEmbeddedScope: allEmbedded[1].scope,
+            realtimeLoads,
+            keptStillLinked,
         };
     });
 
@@ -4992,6 +5015,8 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
     assert.equal(result.untouchedModelScope.kind, 'local', 'Room model state smoke: unrelated local model scope was changed');
     assert.deepEqual(result.promotedEmbeddedScope, { kind: 'room', roomId: 'room-1', modelId: 'model-1' }, 'Room model state smoke: embedded scope was not promoted to room');
     assert.equal(result.untouchedEmbeddedScope.kind, 'local', 'Room model state smoke: unrelated embedded scope was changed');
+    assert.deepEqual(result.realtimeLoads, [], 'Room model state smoke: deleted realtime INSERT still loaded after async gap');
+    assert.equal(result.keptStillLinked, true, 'Room model state smoke: linked model id was not recognized');
     diagnostics.assertNoErrors('Room model state smoke');
     await page.close();
 }
