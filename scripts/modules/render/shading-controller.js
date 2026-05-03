@@ -204,7 +204,11 @@ export function createShadingController(options = {}) {
         // backface — отдельный режим (двухпроходный), его не делаем через makeVariantFrom
         if (mode === 'backface') {
             // если ранее был включён beautywire — выключаем его при входе в backface
-            world?.traverse?.(o => { if (o.isMesh) clearBeautyWire(o); });
+            world?.traverse?.(o => {
+                if (!o.isMesh) return;
+                disposeCurrentShadingVariant(o);
+                clearBeautyWire(o);
+            });
             setBackfaceMode(true);
             requestRender();
             scheduleOnce();
@@ -219,6 +223,7 @@ export function createShadingController(options = {}) {
             world?.traverse?.(o => {
                 if (o.userData?.isCollision) return; // не переписывать материал коллизий
                 if (!o.isMesh) return;
+                disposeCurrentShadingVariant(o);
                 if (shouldPreserveMeshMaterial(o)) {
                     restorePreservedMeshMaterial(o);
                     return;
@@ -237,6 +242,7 @@ export function createShadingController(options = {}) {
             world?.traverse?.(o => {
                 if (o.userData?.isCollision) return;
                 if (!o.isMesh) return;
+                disposeCurrentShadingVariant(o);
                 if (shouldPreserveMeshMaterial(o)) {
                     restorePreservedMeshMaterial(o);
                     return;

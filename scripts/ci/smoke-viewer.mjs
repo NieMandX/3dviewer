@@ -1759,7 +1759,12 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const THREE = await import('three');
         const { createBackfaceOverlayController } = await import('/scripts/modules/render/backface-overlay.js');
         const { createShadingController } = await import('/scripts/modules/render/shading-controller.js');
-        const { ensureBeautyWire } = await import('/scripts/modules/render/wire-overlays.js');
+        const {
+            clearBeautyWire,
+            clearWireframeOverlay,
+            ensureBeautyWire,
+            ensureWireframeOverlay,
+        } = await import('/scripts/modules/render/wire-overlays.js');
 
         const backfaceWorld = new THREE.Group();
         const backfaceMaterial = new THREE.MeshStandardMaterial({ name: 'backface-original' });
@@ -1823,6 +1828,75 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const beautyLineReused = beautyMesh.userData._beautyWire === firstBeautyLine;
         const beautyGeometryRebuilt = !!firstBeautyLine?.geometry && firstBeautyLine.geometry !== firstBeautyGeometry;
 
+        const patchDisposeCounter = (material) => {
+            let count = 0;
+            const nativeDispose = material?.dispose?.bind(material);
+            if (material && nativeDispose) {
+                material.dispose = (...args) => {
+                    count += 1;
+                    return nativeDispose(...args);
+                };
+            }
+            return () => count;
+        };
+
+        const beautyTransitionWorld = new THREE.Group();
+        const beautyTransitionMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ name: 'beauty-transition-original' }),
+        );
+        beautyTransitionWorld.add(beautyTransitionMesh);
+        const beautyTransitionShading = createShadingController({
+            THREE,
+            world: beautyTransitionWorld,
+            scene: new THREE.Scene(),
+            clearBeautyWire,
+            ensureBeautyWire,
+            setBackfaceMode: () => {},
+        });
+        beautyTransitionShading.applyShading('normal');
+        const beautyTransitionVariant = beautyTransitionMesh.material;
+        const getBeautyTransitionDisposeCount = patchDisposeCounter(beautyTransitionVariant);
+        beautyTransitionShading.applyShading('beautywire');
+
+        const backfaceTransitionWorld = new THREE.Group();
+        const backfaceTransitionMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ name: 'backface-transition-original' }),
+        );
+        backfaceTransitionWorld.add(backfaceTransitionMesh);
+        const backfaceTransitionShading = createShadingController({
+            THREE,
+            world: backfaceTransitionWorld,
+            scene: new THREE.Scene(),
+            clearBeautyWire,
+            setBackfaceMode: () => {},
+        });
+        backfaceTransitionShading.applyShading('normal');
+        const backfaceTransitionVariant = backfaceTransitionMesh.material;
+        const getBackfaceTransitionDisposeCount = patchDisposeCounter(backfaceTransitionVariant);
+        backfaceTransitionShading.applyShading('backface');
+
+        const wireTransitionWorld = new THREE.Group();
+        const wireTransitionMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ name: 'wire-transition-original' }),
+        );
+        wireTransitionWorld.add(wireTransitionMesh);
+        const wireTransitionShading = createShadingController({
+            THREE,
+            world: wireTransitionWorld,
+            scene: new THREE.Scene(),
+            useWebGPU: true,
+            clearWireframeOverlay,
+            ensureWireframeOverlay,
+            setBackfaceMode: () => {},
+        });
+        wireTransitionShading.applyShading('normal');
+        const wireTransitionVariant = wireTransitionMesh.material;
+        const getWireTransitionDisposeCount = patchDisposeCounter(wireTransitionVariant);
+        wireTransitionShading.applyShading('wire');
+
         return {
             backfaceChildCreated,
             backfaceMaterialSwapped,
@@ -1836,6 +1910,9 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             beautyLineReused,
             beautyGeometryRebuilt,
             firstBeautyGeometryDisposed,
+            beautyTransitionVariantDisposed: getBeautyTransitionDisposeCount(),
+            backfaceTransitionVariantDisposed: getBackfaceTransitionDisposeCount(),
+            wireTransitionVariantDisposed: getWireTransitionDisposeCount(),
         };
     });
 
@@ -1851,6 +1928,9 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.beautyLineReused, true, 'Shading lifecycle smoke: BeautyWire recreated line object instead of updating geometry');
     assert.equal(result.beautyGeometryRebuilt, true, 'Shading lifecycle smoke: BeautyWire did not rebuild stale edge geometry');
     assert.equal(result.firstBeautyGeometryDisposed, 1, 'Shading lifecycle smoke: BeautyWire old edge geometry was not disposed');
+    assert.equal(result.beautyTransitionVariantDisposed, 1, 'Shading lifecycle smoke: BeautyWire transition leaked previous shading material');
+    assert.equal(result.backfaceTransitionVariantDisposed, 1, 'Shading lifecycle smoke: backface transition leaked previous shading material');
+    assert.equal(result.wireTransitionVariantDisposed, 1, 'Shading lifecycle smoke: WebGPU wire transition leaked previous shading material');
     diagnostics.assertNoErrors('Shading controllers lifecycle smoke');
     await page.close();
 }
