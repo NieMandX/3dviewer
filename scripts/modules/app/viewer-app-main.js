@@ -23,6 +23,7 @@ import { createGeoJsonModalController } from '../ui/geojson-modal.js';
 import { createSelectedMaterialLinkResolver, createTextureInfoFormatter, guessKindFromName } from '../ui/texture-helpers.js';
 import { createHemiLightControlsController } from '../ui/hemi-light-controls.js';
 import { createStatusUIController } from '../ui/status-ui.js';
+import { createTransientStatusController } from '../ui/transient-status.js';
 import { createAppbarControlsController } from '../ui/appbar-controls.js';
 import { createAppbarVisibilityTogglesController } from '../ui/appbar-visibility-toggles.js';
 import { createCameraPresetsController } from '../ui/camera-presets.js';
@@ -395,6 +396,10 @@ export class ViewerApp {
         const emptyHintEl = dom.emptyHintEl;
         const setStatusMessage = statusUI.setStatusMessage;
         const setEmptyHintVisible = statusUI.setEmptyHintVisible;
+        const transientStatus = createTransientStatusController({
+            setStatusMessage,
+            getStatusMessage: () => String(statusEl?.textContent || ''),
+        });
         const shadingSel = dom.shadingSel;
 
         
@@ -4968,6 +4973,7 @@ export class ViewerApp {
             if (!controller || !supabase || !file || isRemoteModelLoad || !isCurrent()) return false;
             const syncAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
             const syncSignal = syncAbortController?.signal || null;
+            const syncStatus = transientStatus.begin();
             let shouldKeepStatusMessage = false;
             let uploadedPath = '';
             let createdModelRowId = '';
@@ -4975,7 +4981,7 @@ export class ViewerApp {
                 if (syncSignal?.aborted || !isCurrent()) throw makeRoomLoadAbortError('Model sync superseded');
             };
             const setSyncStatus = (message) => {
-                if (!syncSignal?.aborted && isCurrent()) setStatusMessage(`Синхронизация: ${message}`);
+                if (!syncSignal?.aborted && isCurrent()) syncStatus.set(`Синхронизация: ${message}`);
             };
             if (syncAbortController) activeRoomModelSyncControllers.add(syncAbortController);
             try {
@@ -5057,6 +5063,7 @@ export class ViewerApp {
                     modelId: modelRow.id,
                 });
                 rememberRoomModelId(modelRow.id);
+                syncStatus.keep();
                 setStatusMessage('готово: модель синхронизирована');
                 shouldKeepStatusMessage = true;
                 return true;
@@ -5083,6 +5090,7 @@ export class ViewerApp {
                         `Синхронизация отклонена: файл ${sizeMb} МБ превышает лимит Storage. `
                         + 'В Supabase: Storage -> Settings -> Global file size limit.'
                     );
+                    syncStatus.keep();
                     shouldKeepStatusMessage = true;
                 }
                 console.error('Model sync failed', err);
@@ -5100,7 +5108,7 @@ export class ViewerApp {
                 return false;
             } finally {
                 if (syncAbortController) activeRoomModelSyncControllers.delete(syncAbortController);
-                if (!shouldKeepStatusMessage && isCurrent()) setStatusMessage('');
+                if (!shouldKeepStatusMessage) syncStatus.clear();
             }
         }
 
@@ -5220,13 +5228,14 @@ export class ViewerApp {
                     importAbortController.abort(makeRoomLoadAbortError());
                 } catch (_) {}
             };
+            const loadStatus = transientStatus.begin();
             if (importAbortController) activeRoomImportControllers.add(importAbortController);
             try {
                 isRemoteModelLoad = true;
                 remoteModelLoadGeneration = expectedGeneration;
                 remoteModelLoadRoomId = expectedRoomId;
                 remoteModelLoadModelId = modelId;
-                setStatusMessage('Загрузка модели из комнаты…');
+                loadStatus.set('Загрузка модели из комнаты…');
                 let blob = null;
                 if (storagePath && controller?.supabase) {
                     const { data, error } = await runAbortableOperation(() => (
@@ -5294,7 +5303,7 @@ export class ViewerApp {
                     remoteModelLoadRoomId = '';
                     remoteModelLoadModelId = '';
                 }
-                if (isActiveRoomLoad(expectedGeneration, expectedRoomId)) setStatusMessage('');
+                loadStatus.clear();
             }
         }
 

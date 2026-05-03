@@ -7118,6 +7118,82 @@ async function runStatusUIDisposeSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runTransientStatusSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createStatusUIController } = await import('/scripts/modules/ui/status-ui.js');
+        const { createTransientStatusController } = await import('/scripts/modules/ui/transient-status.js');
+
+        const statusEl = document.createElement('div');
+        const appbarStatusEl = document.createElement('div');
+        document.body.append(statusEl, appbarStatusEl);
+
+        const status = createStatusUIController({
+            statusEl,
+            appbarStatusEl,
+            readyClearDelayMs: 1000,
+        });
+        const transient = createTransientStatusController({
+            setStatusMessage: status.setStatusMessage,
+            getStatusMessage: () => statusEl.textContent,
+        });
+
+        const first = transient.begin();
+        first.set('Синхронизация: загрузка 10%');
+        const textAfterFirstSet = statusEl.textContent;
+
+        const second = transient.begin();
+        second.set('Загрузка модели из комнаты…');
+        const firstClearWhileStale = first.clear();
+        const textAfterStaleClear = statusEl.textContent;
+
+        const secondClear = second.clear();
+        const textAfterSecondClear = statusEl.textContent;
+
+        const third = transient.begin();
+        third.set('Синхронизация: запись модели…');
+        status.setStatusMessage('Экспорт…');
+        const thirdClearAfterOverride = third.clear();
+        const textAfterOverrideClear = statusEl.textContent;
+
+        const fourth = transient.begin();
+        fourth.set('Синхронизация: обновление активной модели…');
+        fourth.keep();
+        status.setStatusMessage('готово: модель синхронизирована');
+        const fourthClearAfterKeep = fourth.clear();
+        const textAfterKeepClear = statusEl.textContent;
+
+        status.dispose();
+
+        return {
+            textAfterFirstSet,
+            firstClearWhileStale,
+            textAfterStaleClear,
+            secondClear,
+            textAfterSecondClear,
+            thirdClearAfterOverride,
+            textAfterOverrideClear,
+            fourthClearAfterKeep,
+            textAfterKeepClear,
+        };
+    });
+
+    assert.equal(result.textAfterFirstSet, 'Синхронизация: загрузка 10%', 'Transient status smoke: initial scoped status was not set');
+    assert.equal(result.firstClearWhileStale, false, 'Transient status smoke: stale scope cleared newer status');
+    assert.equal(result.textAfterStaleClear, 'Загрузка модели из комнаты…', 'Transient status smoke: newer status was overwritten by stale clear');
+    assert.equal(result.secondClear, true, 'Transient status smoke: current scope did not clear its own status');
+    assert.equal(result.textAfterSecondClear, '', 'Transient status smoke: current scope status stayed visible after clear');
+    assert.equal(result.thirdClearAfterOverride, false, 'Transient status smoke: scope cleared externally replaced status');
+    assert.equal(result.textAfterOverrideClear, 'Экспорт…', 'Transient status smoke: externally replaced status was cleared');
+    assert.equal(result.fourthClearAfterKeep, false, 'Transient status smoke: kept scope cleared retained message');
+    assert.equal(result.textAfterKeepClear, 'готово: модель синхронизирована', 'Transient status smoke: kept message was cleared');
+    diagnostics.assertNoErrors('Transient status smoke');
+    await page.close();
+}
+
 async function runModalControllersDisposeSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -8097,6 +8173,8 @@ try {
     console.log('Appbar/layout dispose smoke passed.');
     await runLightControlsDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Light controls dispose smoke passed.');
+    await runTransientStatusSmoke(browser, smokeServer.baseUrl);
+    console.log('Transient status smoke passed.');
     await runModalControllersDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Modal controllers dispose smoke passed.');
     await runStatusUIDisposeSmoke(browser, smokeServer.baseUrl);
