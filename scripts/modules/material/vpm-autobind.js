@@ -270,7 +270,9 @@ export function createVPMBinder(options = {}) {
             const sourceMaterial = Array.isArray(previousMaterial) ? previousMaterial[0] : previousMaterial;
             const bindGeneration = (Number(o.userData?._vpmBindGeneration) || 0) + 1;
             (o.userData ||= {})._vpmBindGeneration = bindGeneration;
+            let bindActive = true;
             const isBindCurrent = () => (
+                bindActive &&
                 isRootLive(root) &&
                 o.userData?._vpmBindGeneration === bindGeneration &&
                 o.material === previousMaterial
@@ -286,6 +288,31 @@ export function createVPMBinder(options = {}) {
             let pendingDepthMaterial = null;
             let pendingDistanceMaterial = null;
 
+            function isTextureStillOwned(texture, materialSlot) {
+                if (!texture?.isTexture) return false;
+                if (!bindActive) return false;
+                if (!isRootLive(root)) return false;
+                if (o.userData?._vpmBindGeneration !== bindGeneration) return false;
+                if (o.material !== previousMaterial && o.material !== mat) return false;
+                return mat?.[materialSlot] === texture;
+            }
+
+            function handleLoadedTexture(texture, materialSlot) {
+                if (!isTextureStillOwned(texture, materialSlot)) {
+                    texture?.dispose?.();
+                    return;
+                }
+                if (o.material === mat) requestRender();
+            }
+
+            function handleTextureLoadError(texture, materialSlot, label, err) {
+                if (!isTextureStillOwned(texture, materialSlot)) {
+                    texture?.dispose?.();
+                    return;
+                }
+                logBind(`VPM: ${label} не загрузилась → ${err?.message || err || 'unknown error'}`, 'warn');
+            }
+
             function applyPendingShadowMaterials() {
                 if (!pendingDepthMaterial && !pendingDistanceMaterial) return;
                 disposeCustomShadowMaterials(o);
@@ -298,8 +325,14 @@ export function createVPMBinder(options = {}) {
             // Diffuse
             if (set.Diffuse && textureLoader) {
                 const prevMap = mat.map || null;
-                const map = textureLoader.load(set.Diffuse);
                 const nm = labelFromURL(set.Diffuse);
+                let map = null;
+                map = textureLoader.load(
+                    set.Diffuse,
+                    () => handleLoadedTexture(map, 'map'),
+                    undefined,
+                    (err) => handleTextureLoadError(map, 'map', nm, err),
+                );
                 map.name = nm;
                 map.userData ||= {};
                 map.userData.origName = nm;
@@ -326,8 +359,14 @@ export function createVPMBinder(options = {}) {
             // Normal
             if (set.Normal && textureLoader) {
                 const prevNormal = mat.normalMap || null;
-                const n = textureLoader.load(set.Normal);
                 const nm = labelFromURL(set.Normal);
+                let n = null;
+                n = textureLoader.load(
+                    set.Normal,
+                    () => handleLoadedTexture(n, 'normalMap'),
+                    undefined,
+                    (err) => handleTextureLoadError(n, 'normalMap', nm, err),
+                );
                 n.name = nm;
                 n.userData ||= {};
                 n.userData.origName = nm;
@@ -370,6 +409,7 @@ export function createVPMBinder(options = {}) {
                         mat.needsUpdate = true;
 
                         if (!isBindCurrent()) {
+                            bindActive = false;
                             disposeMaterialTree(mat, {
                                 sharedTextures: Array.from(collectMaterialTextures(previousMaterial)),
                             });
@@ -388,11 +428,13 @@ export function createVPMBinder(options = {}) {
                         appliedCount += 1;
                         logBind(`VPM: Slot ${slot}, UDIM ${udim} → ${mat.name}`, 'ok');
                     } catch (err) {
+                        const wasBindCurrent = isBindCurrent();
+                        bindActive = false;
                         disposeMaterialTree(mat, {
                             sharedTextures: Array.from(collectMaterialTextures(previousMaterial)),
                         });
                         disposePendingShadowMaterials(pendingDepthMaterial, pendingDistanceMaterial);
-                        if (isBindCurrent()) {
+                        if (wasBindCurrent) {
                             logBind(`VPM: ERM ${labelFromURL(set.ERM)} не обработан → ${err?.message || err}`, 'warn');
                         }
                     }

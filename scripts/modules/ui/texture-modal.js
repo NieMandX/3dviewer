@@ -34,6 +34,7 @@ export function createTextureModalController(options = {}) {
     const applyGlassControlsToScene = typeof options.applyGlassControlsToScene === 'function' ? options.applyGlassControlsToScene : () => {};
     const schedulePanelRefresh = typeof options.schedulePanelRefresh === 'function' ? options.schedulePanelRefresh : () => {};
     const logBind = typeof options.logBind === 'function' ? options.logBind : () => {};
+    const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
 
     const notify = typeof options.alert === 'function'
         ? options.alert
@@ -48,8 +49,33 @@ export function createTextureModalController(options = {}) {
 
     function isTextureStillUsed(texture) {
         if (!texture?.isTexture) return false;
+        if (!loadedModels && !world) return true;
         if (loadedModels && loadedModelsUseTexture(loadedModels, texture)) return true;
         return objectTreeUsesTexture(world, texture);
+    }
+
+    function isTextureStillBound(obj, material, slot, texture) {
+        if (!texture?.isTexture) return false;
+        const materials = Array.isArray(obj?.material) ? obj.material : [obj?.material];
+        return materials.includes(material) && material?.[slot] === texture && isTextureStillUsed(texture);
+    }
+
+    function handleTextureLoaded(obj, material, slot, texture) {
+        if (isTextureStillBound(obj, material, slot, texture)) {
+            if (!disposed) requestRender();
+            return;
+        }
+        texture?.dispose?.();
+    }
+
+    function handleTextureLoadError(obj, material, slot, texture, label, err) {
+        if (!isTextureStillBound(obj, material, slot, texture)) {
+            texture?.dispose?.();
+            return;
+        }
+        if (!disposed) {
+            logBind(`⚠️ ${label} — текстура не загрузилась: ${err?.message || err || 'unknown error'}`, 'warn');
+        }
     }
 
     function clearModalEntry() {
@@ -147,7 +173,14 @@ export function createTextureModalController(options = {}) {
             return;
         }
 
-        const t = textureLoader.load(modalTex.url);
+        const { obj, index } = link;
+        let t = null;
+        t = textureLoader.load(
+            modalTex.url,
+            () => handleTextureLoaded(obj, std, slot, t),
+            undefined,
+            (err) => handleTextureLoadError(obj, std, slot, t, modalTex.short, err),
+        );
         t.name = humanName;
         (t.userData ||= {}).origName = humanName;
         if (linearColorSpace && srgbColorSpace) {
@@ -169,7 +202,6 @@ export function createTextureModalController(options = {}) {
         std.needsUpdate = true;
 
         // ВАЖНО: подменяем материал у меша
-        const { obj, index } = link;
         if (Array.isArray(obj.material)) {
             obj.material[index] = std;
         } else {

@@ -17,6 +17,8 @@ export function createFilenameBinder(options = {}) {
     const cacheOriginalMaterialFor =
         typeof options.cacheOriginalMaterialFor === 'function' ? options.cacheOriginalMaterialFor : () => {};
     const logBind = typeof options.logBind === 'function' ? options.logBind : () => {};
+    const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
+    const isRootLive = typeof options.isRootLive === 'function' ? options.isRootLive : () => true;
     const undoStack = Array.isArray(options.undoStack) ? options.undoStack : null;
 
     const getEnvironment = typeof options.getEnvironment === 'function' ? options.getEnvironment : () => null;
@@ -108,6 +110,29 @@ export function createFilenameBinder(options = {}) {
         return idx;
     }
 
+    function isTextureStillBound(root, obj, material, slot, texture) {
+        if (!texture?.isTexture) return false;
+        if (!isRootLive(root)) return false;
+        const materials = Array.isArray(obj?.material) ? obj.material : [obj?.material];
+        return materials.includes(material) && material?.[slot] === texture;
+    }
+
+    function handleTextureLoaded(root, obj, material, slot, texture) {
+        if (isTextureStillBound(root, obj, material, slot, texture)) {
+            requestRender();
+            return;
+        }
+        texture?.dispose?.();
+    }
+
+    function handleTextureLoadError(root, obj, material, slot, texture, label, err) {
+        if (!isTextureStillBound(root, obj, material, slot, texture)) {
+            texture?.dispose?.();
+            return;
+        }
+        logBind(`⚠️ ${label} — текстура не загрузилась: ${err?.message || err || 'unknown error'}`, 'warn');
+    }
+
     /**
      * Автопривязка для "обычных" моделей (НПМ): сопоставление текстур по имени файла.
      * Ожидает входные embeddedList (файлы из ZIP/FBX) и обновляет материалы в сцене.
@@ -184,7 +209,13 @@ export function createFilenameBinder(options = {}) {
                 return;
             }
 
-            const t = textureLoader.load(tex.url);
+            let t = null;
+            t = textureLoader.load(
+                tex.url,
+                () => handleTextureLoaded(root, target.obj, m, slot, t),
+                undefined,
+                (err) => handleTextureLoadError(root, target.obj, m, slot, t, tex.short, err),
+            );
             t.name = humanName;
             (t.userData ||= {}).origName = humanName;
             t.colorSpace = (slot === 'map' || slot === 'emissiveMap') ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;

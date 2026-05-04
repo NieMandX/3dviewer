@@ -45,6 +45,10 @@ export function createTexturesUI(options = {}) {
         ? options.schedulePanelRefresh
         : () => {};
 
+    const requestRender = typeof options.requestRender === 'function'
+        ? options.requestRender
+        : () => {};
+
     const logBind = typeof options.logBind === 'function' ? options.logBind : () => {};
 
     const markGalleryRendered = typeof options.markGalleryRendered === 'function'
@@ -76,6 +80,7 @@ export function createTexturesUI(options = {}) {
         cacheOriginalMaterialFor,
         applyGlassControlsToScene,
         schedulePanelRefresh,
+        requestRender,
         logBind,
         colorSpaces: {
             linear: THREE.LinearSRGBColorSpace,

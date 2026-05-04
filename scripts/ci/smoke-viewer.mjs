@@ -3694,6 +3694,21 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
             return () => count;
         };
 
+        const createDeferredTextureLoader = () => {
+            const loads = [];
+            return {
+                loads,
+                loader: {
+                    load: (url, onLoad, _onProgress, onError) => {
+                        const texture = new THREE.Texture();
+                        texture.name = String(url || '');
+                        loads.push({ url, texture, onLoad, onError });
+                        return texture;
+                    },
+                },
+            };
+        };
+
         const filenameShared = new THREE.Texture();
         filenameShared.name = 'filename-shared';
         const filenameSharedDisposed = trackDispose(filenameShared);
@@ -3760,6 +3775,60 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        ]);
 	        const filenameConvertedMaterialAfterBind = filenameConvertedMaterialDisposed();
 	        const filenameConvertedTextureAfterBind = filenameConvertedTextureDisposed();
+
+	        const filenameDeferred = createDeferredTextureLoader();
+	        let filenameRenderCount = 0;
+	        const filenameRenderRoot = new THREE.Group();
+	        const filenameRenderMesh = new THREE.Mesh(
+	            new THREE.BoxGeometry(1, 1, 1),
+	            new THREE.MeshStandardMaterial({ name: 'render wall' })
+	        );
+	        filenameRenderMesh.name = 'mesh_wall';
+	        filenameRenderRoot.add(filenameRenderMesh);
+	        const filenameRenderBinder = createFilenameBinder({
+	            THREE,
+	            geomSuffixes: ['wall'],
+	            guessKindFromName: () => 'base',
+	            findGeomSuffix: (label) => (String(label || '').toLowerCase().includes('wall') ? 'wall' : null),
+	            textureLoader: filenameDeferred.loader,
+	            toStandard: (material) => material,
+	            copyTextureSettings: () => {},
+	            requestRender: () => { filenameRenderCount += 1; },
+	        });
+	        filenameRenderBinder.autoBindByNamesForModel(filenameRenderRoot, 'model.fbx', [
+	            { short: 'T_wall_d_1.png', full: 'T_wall_d_1.png', url: 'blob:filename-render' },
+	        ]);
+	        const filenameRenderBeforeLoad = filenameRenderCount;
+	        filenameDeferred.loads[0].onLoad?.(filenameDeferred.loads[0].texture);
+	        const filenameRenderAfterLoad = filenameRenderCount;
+
+	        const filenameStaleDeferred = createDeferredTextureLoader();
+	        let filenameStaleRenderCount = 0;
+	        let filenameRootLive = true;
+	        const filenameStaleRoot = new THREE.Group();
+	        const filenameStaleMesh = new THREE.Mesh(
+	            new THREE.BoxGeometry(1, 1, 1),
+	            new THREE.MeshStandardMaterial({ name: 'stale wall' })
+	        );
+	        filenameStaleMesh.name = 'mesh_wall';
+	        filenameStaleRoot.add(filenameStaleMesh);
+	        const filenameStaleBinder = createFilenameBinder({
+	            THREE,
+	            geomSuffixes: ['wall'],
+	            guessKindFromName: () => 'base',
+	            findGeomSuffix: (label) => (String(label || '').toLowerCase().includes('wall') ? 'wall' : null),
+	            textureLoader: filenameStaleDeferred.loader,
+	            toStandard: (material) => material,
+	            copyTextureSettings: () => {},
+	            requestRender: () => { filenameStaleRenderCount += 1; },
+	            isRootLive: () => filenameRootLive,
+	        });
+	        filenameStaleBinder.autoBindByNamesForModel(filenameStaleRoot, 'model.fbx', [
+	            { short: 'T_wall_d_1.png', full: 'T_wall_d_1.png', url: 'blob:filename-stale' },
+	        ]);
+	        const filenameStaleDisposed = trackDispose(filenameStaleDeferred.loads[0].texture);
+	        filenameRootLive = false;
+	        filenameStaleDeferred.loads[0].onLoad?.(filenameStaleDeferred.loads[0].texture);
 
         const modalShared = new THREE.Texture();
         modalShared.name = 'modal-shared';
@@ -3837,6 +3906,60 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        const modalConvertedTextureAfterBind = modalConvertedTextureDisposed();
 	        controller.dispose();
 
+	        const modalDeferred = createDeferredTextureLoader();
+	        let modalRenderCount = 0;
+	        const modalRenderRoot = new THREE.Group();
+	        const modalRenderMesh = new THREE.Mesh(
+	            new THREE.BoxGeometry(1, 1, 1),
+	            new THREE.MeshStandardMaterial({ name: 'modal-render' })
+	        );
+	        modalRenderRoot.add(modalRenderMesh);
+	        const modalRenderLoadedModels = [{ obj: modalRenderRoot, name: 'modal-render.fbx' }];
+	        const modalRenderController = createTextureModalController({
+	            slotSelectEl: slot,
+	            basename: (value) => String(value || '').split('/').pop(),
+	            guessKindFromName: () => 'base',
+	            getSelectedMaterialLink: () => ({ obj: modalRenderMesh, mat: modalRenderMesh.material, index: 0 }),
+	            loadedModels: modalRenderLoadedModels,
+	            textureLoader: modalDeferred.loader,
+	            toStandard,
+	            copyTextureSettings: () => {},
+	            requestRender: () => { modalRenderCount += 1; },
+	        });
+	        modalRenderController.open({ short: 'render.png', full: 'textures/render.png', url: 'blob:modal-render', mime: 'image/png' });
+	        modalRenderController.bindSelected();
+	        const modalRenderBeforeLoad = modalRenderCount;
+	        modalDeferred.loads[0].onLoad?.(modalDeferred.loads[0].texture);
+	        const modalRenderAfterLoad = modalRenderCount;
+	        modalRenderController.dispose();
+
+	        const modalStaleDeferred = createDeferredTextureLoader();
+	        let modalStaleRenderCount = 0;
+	        const modalStaleRoot = new THREE.Group();
+	        const modalStaleMesh = new THREE.Mesh(
+	            new THREE.BoxGeometry(1, 1, 1),
+	            new THREE.MeshStandardMaterial({ name: 'modal-stale' })
+	        );
+	        modalStaleRoot.add(modalStaleMesh);
+	        const modalStaleLoadedModels = [{ obj: modalStaleRoot, name: 'modal-stale.fbx' }];
+	        const modalStaleController = createTextureModalController({
+	            slotSelectEl: slot,
+	            basename: (value) => String(value || '').split('/').pop(),
+	            guessKindFromName: () => 'base',
+	            getSelectedMaterialLink: () => ({ obj: modalStaleMesh, mat: modalStaleMesh.material, index: 0 }),
+	            loadedModels: modalStaleLoadedModels,
+	            textureLoader: modalStaleDeferred.loader,
+	            toStandard,
+	            copyTextureSettings: () => {},
+	            requestRender: () => { modalStaleRenderCount += 1; },
+	        });
+	        modalStaleController.open({ short: 'stale.png', full: 'textures/stale.png', url: 'blob:modal-stale', mime: 'image/png' });
+	        modalStaleController.bindSelected();
+	        const modalStaleDisposed = trackDispose(modalStaleDeferred.loads[0].texture);
+	        modalStaleLoadedModels.length = 0;
+	        modalStaleDeferred.loads[0].onLoad?.(modalStaleDeferred.loads[0].texture);
+	        modalStaleController.dispose();
+
 	        const vpmOldTexture = new THREE.Texture();
 	        vpmOldTexture.name = 'vpm-old';
 	        const vpmOldTextureDisposed = trackDispose(vpmOldTexture);
@@ -3862,6 +3985,63 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        await vpmBinder.autoBindVPMForModel(vpmRoot, vpmIndex);
 	        const vpmOldMaterialAfterBind = vpmOldMaterialDisposed();
 	        const vpmOldTextureAfterBind = vpmOldTextureDisposed();
+
+	        const vpmDeferred = createDeferredTextureLoader();
+	        let vpmRenderCount = 0;
+	        const vpmRenderMesh = new THREE.Mesh(
+	            new THREE.BoxGeometry(1, 1, 1),
+	            new THREE.MeshStandardMaterial({ name: 'vpm render' })
+	        );
+	        vpmRenderMesh.name = 'vpm_render_mesh';
+	        const vpmRenderRoot = new THREE.Group();
+	        vpmRenderRoot.userData._fbxFileName = 'SM_render_case.fbx';
+	        vpmRenderRoot.add(vpmRenderMesh);
+	        const vpmRenderLoadedModels = [{ obj: vpmRenderRoot, name: 'SM_render_case.fbx', zipKind: 'SM' }];
+	        const renderLabels = new Map([['blob:vpm-render-diffuse', 'T_render_case_Diffuse_1.1001.png']]);
+	        const vpmRenderBinder = createVPMBinder({
+	            THREE,
+	            loadedModels: vpmRenderLoadedModels,
+	            labelFromURL: (url) => renderLabels.get(url) || '',
+	            toStandard,
+	            textureLoader: vpmDeferred.loader,
+	            detectSlotFromMatOrObj: () => 1,
+	            copyTextureSettings: () => {},
+	            requestRender: () => { vpmRenderCount += 1; },
+	        });
+	        const vpmRenderIndex = vpmRenderBinder.buildVPMIndex([{ url: 'blob:vpm-render-diffuse' }]);
+	        await vpmRenderBinder.autoBindVPMForModel(vpmRenderRoot, vpmRenderIndex);
+	        const vpmRenderAfterBind = vpmRenderCount;
+	        vpmDeferred.loads[0].onLoad?.(vpmDeferred.loads[0].texture);
+	        const vpmRenderAfterLoad = vpmRenderCount;
+
+	        const vpmStaleDeferred = createDeferredTextureLoader();
+	        let vpmStaleRenderCount = 0;
+	        const vpmStaleMesh = new THREE.Mesh(
+	            new THREE.BoxGeometry(1, 1, 1),
+	            new THREE.MeshStandardMaterial({ name: 'vpm stale' })
+	        );
+	        vpmStaleMesh.name = 'vpm_stale_mesh';
+	        const vpmStaleRoot = new THREE.Group();
+	        vpmStaleRoot.userData._fbxFileName = 'SM_stale_case.fbx';
+	        vpmStaleRoot.add(vpmStaleMesh);
+	        const vpmStaleLoadedModels = [{ obj: vpmStaleRoot, name: 'SM_stale_case.fbx', zipKind: 'SM' }];
+	        const staleLabels = new Map([['blob:vpm-stale-diffuse', 'T_stale_case_Diffuse_1.1001.png']]);
+	        const vpmStaleBinder = createVPMBinder({
+	            THREE,
+	            loadedModels: vpmStaleLoadedModels,
+	            labelFromURL: (url) => staleLabels.get(url) || '',
+	            toStandard,
+	            textureLoader: vpmStaleDeferred.loader,
+	            detectSlotFromMatOrObj: () => 1,
+	            copyTextureSettings: () => {},
+	            requestRender: () => { vpmStaleRenderCount += 1; },
+	        });
+	        const vpmStaleIndex = vpmStaleBinder.buildVPMIndex([{ url: 'blob:vpm-stale-diffuse' }]);
+	        await vpmStaleBinder.autoBindVPMForModel(vpmStaleRoot, vpmStaleIndex);
+	        const vpmStaleRenderAfterBind = vpmStaleRenderCount;
+	        const vpmStaleDisposed = trackDispose(vpmStaleDeferred.loads[0].texture);
+	        vpmStaleLoadedModels.length = 0;
+	        vpmStaleDeferred.loads[0].onLoad?.(vpmStaleDeferred.loads[0].texture);
 
 	        const nativeMaterialDispose = THREE.Material.prototype.dispose;
 	        const nativeFetch = globalThis.fetch;
@@ -3932,12 +4112,25 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            filenameAfterSecondBind,
 	            filenameConvertedMaterialAfterBind,
 	            filenameConvertedTextureAfterBind,
+	            filenameRenderBeforeLoad,
+	            filenameRenderAfterLoad,
+	            filenameStaleRenderCount,
+	            filenameStaleDisposed: filenameStaleDisposed(),
 	            modalAfterFirstBind,
 	            modalAfterSecondBind,
 	            modalConvertedMaterialAfterBind,
 	            modalConvertedTextureAfterBind,
+	            modalRenderBeforeLoad,
+	            modalRenderAfterLoad,
+	            modalStaleRenderCount,
+	            modalStaleDisposed: modalStaleDisposed(),
 	            vpmOldMaterialAfterBind,
 	            vpmOldTextureAfterBind,
+	            vpmRenderAfterBind,
+	            vpmRenderAfterLoad,
+	            vpmStaleRenderAfterBind,
+	            vpmStaleRenderAfterLoad: vpmStaleRenderCount,
+	            vpmStaleDisposed: vpmStaleDisposed(),
 	            vpmFailureResult,
 	            vpmFailureMaterialStillOriginal,
 	            vpmFailureDisposedTextures,
@@ -3949,12 +4142,24 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.filenameAfterSecondBind, 1, 'Texture replacement smoke: filename binder did not dispose texture after last reference was replaced');
 	    assert.equal(result.filenameConvertedMaterialAfterBind, 1, 'Texture replacement smoke: filename binder leaked converted source material');
 	    assert.equal(result.filenameConvertedTextureAfterBind, 1, 'Texture replacement smoke: filename binder leaked converted source texture');
+	    assert.equal(result.filenameRenderBeforeLoad, 0, 'Texture replacement smoke: filename binder requested render before image decode');
+	    assert.equal(result.filenameRenderAfterLoad, 1, 'Texture replacement smoke: filename binder did not request render after image decode');
+	    assert.equal(result.filenameStaleRenderCount, 0, 'Texture replacement smoke: stale filename texture requested render after model removal');
+	    assert.equal(result.filenameStaleDisposed, 1, 'Texture replacement smoke: stale filename texture was not disposed after late decode');
 	    assert.equal(result.modalAfterFirstBind, 0, 'Texture replacement smoke: texture modal disposed texture still used by another mesh');
 	    assert.equal(result.modalAfterSecondBind, 1, 'Texture replacement smoke: texture modal did not dispose texture after last reference was replaced');
 	    assert.equal(result.modalConvertedMaterialAfterBind, 1, 'Texture replacement smoke: texture modal leaked converted source material');
 	    assert.equal(result.modalConvertedTextureAfterBind, 1, 'Texture replacement smoke: texture modal leaked converted source texture');
+	    assert.equal(result.modalRenderBeforeLoad, 0, 'Texture replacement smoke: texture modal requested render before image decode');
+	    assert.equal(result.modalRenderAfterLoad, 1, 'Texture replacement smoke: texture modal did not request render after image decode');
+	    assert.equal(result.modalStaleRenderCount, 0, 'Texture replacement smoke: stale modal texture requested render after model removal');
+	    assert.equal(result.modalStaleDisposed, 1, 'Texture replacement smoke: stale modal texture was not disposed after late decode');
 	    assert.equal(result.vpmOldMaterialAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source material');
 	    assert.equal(result.vpmOldTextureAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source texture');
+	    assert.equal(result.vpmRenderAfterBind, 1, 'Texture replacement smoke: VPM bind did not request initial render');
+	    assert.equal(result.vpmRenderAfterLoad, 2, 'Texture replacement smoke: VPM bind did not request render after diffuse decode');
+	    assert.equal(result.vpmStaleRenderAfterLoad, result.vpmStaleRenderAfterBind, 'Texture replacement smoke: stale VPM texture requested render after model removal');
+	    assert.equal(result.vpmStaleDisposed, 1, 'Texture replacement smoke: stale VPM texture was not disposed after late decode');
 	    assert.equal(result.vpmFailureResult, 'resolved', 'Texture replacement smoke: VPM ERM failure rejected whole bind');
 	    assert.equal(result.vpmFailureMaterialStillOriginal, true, 'Texture replacement smoke: VPM ERM failure replaced mesh material');
 	    assert.deepEqual(result.vpmFailureDisposedTextures.sort(), [

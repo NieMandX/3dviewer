@@ -44,6 +44,7 @@ export function createInspectorPanels(options = {}) {
         cacheOriginalMaterialFor: options.cacheOriginalMaterialFor,
         applyGlassControlsToScene: options.applyGlassControlsToScene,
         schedulePanelRefresh,
+        requestRender: options.requestRender,
         logBind: options.logBind,
         markGalleryRendered: options.markGalleryRendered,
     });

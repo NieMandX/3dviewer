@@ -18,6 +18,11 @@ export function createAutobindPipeline(options = {}) {
     const logBind = typeof options.logBind === 'function' ? options.logBind : () => {};
 
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
+    const isRootLive = (root) => {
+        if (!root) return false;
+        if (!Array.isArray(options.loadedModels)) return true;
+        return loadedModels.some((model) => model?.obj === root);
+    };
 
     const detectSlotFromMatOrObj =
         typeof options.detectSlotFromMatOrObj === 'function' ? options.detectSlotFromMatOrObj : () => null;
@@ -80,6 +85,8 @@ export function createAutobindPipeline(options = {}) {
         copyTextureSettings,
         cacheOriginalMaterialFor,
         logBind,
+        requestRender,
+        isRootLive,
         undoStack,
         getEnvironment,
         getEnvMapIntensity,
@@ -96,4 +103,3 @@ export function createAutobindPipeline(options = {}) {
         autoBindByNamesForModel,
     };
 }
-
