@@ -4584,10 +4584,20 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         const delayedMessageInsertStarted = new Promise((resolve) => {
             delayedMessageInsertStartedResolve = resolve;
         });
+        let delayedMessageErrorResolve = null;
+        let delayedMessageErrorStartedResolve = null;
+        const delayedMessageErrorStarted = new Promise((resolve) => {
+            delayedMessageErrorStartedResolve = resolve;
+        });
         let delayedAnnotationInsertResolve = null;
         let delayedAnnotationInsertStartedResolve = null;
         const delayedAnnotationInsertStarted = new Promise((resolve) => {
             delayedAnnotationInsertStartedResolve = resolve;
+        });
+        let delayedAnnotationErrorResolve = null;
+        let delayedAnnotationErrorStartedResolve = null;
+        const delayedAnnotationErrorStarted = new Promise((resolve) => {
+            delayedAnnotationErrorStartedResolve = resolve;
         });
 
         class FakeQuery {
@@ -4663,10 +4673,22 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
                         delayedMessageInsertResolve = () => resolve({ data, error: null });
                     });
                 }
+                if (this.table === 'messages' && this.payload?.body === 'Late error message') {
+                    delayedMessageErrorStartedResolve?.();
+                    return new Promise((resolve) => {
+                        delayedMessageErrorResolve = () => resolve({ data: null, error: new Error('late message failed') });
+                    });
+                }
                 if (this.table === 'annotations' && this.payload?.kind === 'late-pin') {
                     delayedAnnotationInsertStartedResolve?.();
                     return new Promise((resolve) => {
                         delayedAnnotationInsertResolve = () => resolve({ data, error: null });
+                    });
+                }
+                if (this.table === 'annotations' && this.payload?.kind === 'late-error-pin') {
+                    delayedAnnotationErrorStartedResolve?.();
+                    return new Promise((resolve) => {
+                        delayedAnnotationErrorResolve = () => resolve({ data: null, error: new Error('late annotation failed') });
                     });
                 }
                 return Promise.resolve({ data, error: null });
@@ -4827,9 +4849,17 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         const annotationAfterDispose = controller
             .sendAnnotation({ kind: 'late-pin', payload: { text: 'late' } })
             .then((value) => `resolved:${value?.id || 'null'}`, (err) => `rejected:${err?.message || String(err)}`);
+        const messageErrorAfterDispose = controller
+            .sendMessage('Late error message')
+            .then((value) => `resolved:${value?.id || 'null'}`, (err) => `rejected:${err?.message || String(err)}`);
+        const annotationErrorAfterDispose = controller
+            .sendAnnotation({ kind: 'late-error-pin', payload: { text: 'late-error' } })
+            .then((value) => `resolved:${value?.id || 'null'}`, (err) => `rejected:${err?.message || String(err)}`);
         await delayedProfileUpsertStarted;
         await delayedMessageInsertStarted;
         await delayedAnnotationInsertStarted;
+        await delayedMessageErrorStarted;
+        await delayedAnnotationErrorStarted;
         const trackedWhileSetNamePending = roomChannel.tracked.length;
         const beforeDispose = calls.slice();
         await controller.dispose();
@@ -4837,9 +4867,13 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         delayedProfileUpsertResolve?.();
         delayedMessageInsertResolve?.();
         delayedAnnotationInsertResolve?.();
+        delayedMessageErrorResolve?.();
+        delayedAnnotationErrorResolve?.();
         const setNameAfterDisposeResult = await setNameAfterDispose;
         const messageAfterDisposeResult = await messageAfterDispose;
         const annotationAfterDisposeResult = await annotationAfterDispose;
+        const messageErrorAfterDisposeResult = await messageErrorAfterDispose;
+        const annotationErrorAfterDisposeResult = await annotationErrorAfterDispose;
         await Promise.resolve();
         const trackedAfterLateSetName = roomChannel.tracked.length;
 
@@ -4875,6 +4909,8 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             setNameAfterDisposeResult,
             messageAfterDisposeResult,
             annotationAfterDisposeResult,
+            messageErrorAfterDisposeResult,
+            annotationErrorAfterDisposeResult,
             historyAnnotationCalls: calls.filter((entry) => entry === 'annotation:history:history-annotation').length,
             historyAnnotationDuplicateCalls: calls.filter((entry) => entry === 'annotation:realtime:history-annotation').length,
             historyMessageCalls: calls.filter((entry) => entry === 'message:history:history-message').length,
@@ -4906,6 +4942,8 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     assert.equal(result.setNameAfterDisposeResult, 'resolved:Late Name', 'Collab smoke: delayed display name update did not settle');
     assert.equal(result.messageAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed message insert returned stale data after dispose');
     assert.equal(result.annotationAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed annotation insert returned stale data after dispose');
+    assert.equal(result.messageErrorAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed message error was propagated after dispose');
+    assert.equal(result.annotationErrorAfterDisposeResult, 'resolved:null', 'Collab smoke: delayed annotation error was propagated after dispose');
     assert.equal(result.trackRejectCalls, 2, 'Collab smoke: presence track failures were not exercised');
     assert.equal(result.trackRejectUpdatePresence, 'resolved', 'Collab smoke: rejected updatePresence track was propagated');
     assert.deepEqual(result.trackRejectUnhandled, [], 'Collab smoke: initial presence track rejection was unhandled');

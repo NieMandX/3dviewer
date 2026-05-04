@@ -610,7 +610,7 @@ export async function createCollabController(options = {}) {
             return true;
         } catch (err) {
             // Broadcast is an optimization; DB realtime still keeps peers in sync.
-            console.warn('Broadcast send failed', err);
+            if (!disposed) console.warn('Broadcast send failed', err);
             return false;
         }
     }
@@ -619,10 +619,17 @@ export async function createCollabController(options = {}) {
         if (disposed) return currentName;
         currentName = normalizeName(name);
         presenceMeta.name = currentName;
-        await supabase.from('profiles').upsert({
-            id: user.id,
-            display_name: currentName,
-        });
+        try {
+            const { error } = await supabase.from('profiles').upsert({
+                id: user.id,
+                display_name: currentName,
+            }) || {};
+            if (disposed) return currentName;
+            if (error) throw error;
+        } catch (err) {
+            if (disposed) return currentName;
+            throw err;
+        }
         if (disposed) return currentName;
         await trackPresenceMeta();
         if (disposed) return currentName;
@@ -634,18 +641,25 @@ export async function createCollabController(options = {}) {
         if (disposed) return null;
         const text = String(body || '').trim();
         if (!text) return null;
-        const { data, error } = await supabase
-            .from('messages')
-            .insert({
-                room_id: room.id,
-                author_id: user.id,
-                author_name: currentName,
-                body: text,
-            })
-            .select('*')
-            .single();
-        if (error) throw error;
+        let data = null;
+        let error = null;
+        try {
+            ({ data, error } = await supabase
+                .from('messages')
+                .insert({
+                    room_id: room.id,
+                    author_id: user.id,
+                    author_name: currentName,
+                    body: text,
+                })
+                .select('*')
+                .single() || {});
+        } catch (err) {
+            if (disposed) return null;
+            throw err;
+        }
         if (disposed) return null;
+        if (error) throw error;
         await sendBroadcast('message', { ...data, sender: user.id });
         if (disposed) return null;
         return data;
@@ -662,13 +676,20 @@ export async function createCollabController(options = {}) {
             payload: record.payload,
         };
         if (record.id) payload.id = record.id;
-        const { data, error } = await supabase
-            .from('annotations')
-            .insert(payload)
-            .select('*')
-            .single();
-        if (error) throw error;
+        let data = null;
+        let error = null;
+        try {
+            ({ data, error } = await supabase
+                .from('annotations')
+                .insert(payload)
+                .select('*')
+                .single() || {});
+        } catch (err) {
+            if (disposed) return null;
+            throw err;
+        }
         if (disposed) return null;
+        if (error) throw error;
         await sendBroadcast('annotation', { ...data, sender: user.id });
         if (disposed) return null;
         return data;
@@ -811,14 +832,26 @@ export async function createCollabController(options = {}) {
     async function claimCamera() {
         if (disposed) return false;
         let rpcError = null;
-        const { error } = await supabase.rpc('claim_camera', { room_id: room.id });
+        let error = null;
+        try {
+            ({ error } = await supabase.rpc('claim_camera', { room_id: room.id }) || {});
+        } catch (err) {
+            if (disposed) return false;
+            throw err;
+        }
         if (disposed) return false;
         if (error) {
             rpcError = error;
-            const { error: updateError } = await supabase
-                .from('rooms')
-                .update({ camera_owner_id: user.id })
-                .eq('id', room.id);
+            let updateError = null;
+            try {
+                ({ error: updateError } = await supabase
+                    .from('rooms')
+                    .update({ camera_owner_id: user.id })
+                    .eq('id', room.id) || {});
+            } catch (err) {
+                if (disposed) return false;
+                throw err;
+            }
             if (disposed) return false;
             if (updateError) throw rpcError || updateError;
         }
@@ -829,14 +862,26 @@ export async function createCollabController(options = {}) {
     async function releaseCamera() {
         if (disposed) return false;
         let rpcError = null;
-        const { error } = await supabase.rpc('release_camera', { room_id: room.id });
+        let error = null;
+        try {
+            ({ error } = await supabase.rpc('release_camera', { room_id: room.id }) || {});
+        } catch (err) {
+            if (disposed) return false;
+            throw err;
+        }
         if (disposed) return false;
         if (error) {
             rpcError = error;
-            const { error: updateError } = await supabase
-                .from('rooms')
-                .update({ camera_owner_id: null })
-                .eq('id', room.id);
+            let updateError = null;
+            try {
+                ({ error: updateError } = await supabase
+                    .from('rooms')
+                    .update({ camera_owner_id: null })
+                    .eq('id', room.id) || {});
+            } catch (err) {
+                if (disposed) return false;
+                throw err;
+            }
             if (disposed) return false;
             if (updateError) throw rpcError || updateError;
         }
@@ -854,7 +899,14 @@ export async function createCollabController(options = {}) {
         if (disposed) return;
         if (!state) return;
         const payload = { camera_state: state };
-        const { error } = await supabase.from('rooms').update(payload).eq('id', room.id);
+        let error = null;
+        try {
+            ({ error } = await supabase.from('rooms').update(payload).eq('id', room.id) || {});
+        } catch (err) {
+            if (disposed) return;
+            throw err;
+        }
+        if (disposed) return;
         if (error) throw error;
     }
 
