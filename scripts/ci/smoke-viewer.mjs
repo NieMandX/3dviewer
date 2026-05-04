@@ -3159,6 +3159,145 @@ async function runFileFlowSerializationSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runImportPipelineQueueSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createImportPipelineQueue } = await import('/scripts/modules/io/import-pipeline.js');
+
+        const makeAbortError = (message = 'aborted') => {
+            try {
+                return new DOMException(message, 'AbortError');
+            } catch (_) {
+                const err = new Error(message);
+                err.name = 'AbortError';
+                return err;
+            }
+        };
+
+        const queue = createImportPipelineQueue({ makeAbortError });
+        const events = [];
+        const deferred = () => {
+            let resolve = null;
+            const promise = new Promise((nextResolve) => {
+                resolve = nextResolve;
+            });
+            return { promise, resolve };
+        };
+
+        const startedA = deferred();
+        const releaseA = deferred();
+        const first = queue.enqueue(async () => {
+            events.push('start:A');
+            startedA.resolve();
+            await releaseA.promise;
+            events.push('done:A');
+            return 'A';
+        });
+        await startedA.promise;
+        const second = queue.enqueue(async () => {
+            events.push('start:B');
+            events.push(`pending:B:${queue.getPendingCount()}`);
+            return 'B';
+        });
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+        const beforeRelease = events.slice();
+        const pendingBeforeRelease = queue.getPendingCount();
+        releaseA.resolve();
+        const serialValues = await Promise.all([first, second]);
+        const afterSerial = events.slice();
+        const pendingAfterSerial = queue.getPendingCount();
+
+        const startedBlocker = deferred();
+        const releaseBlocker = deferred();
+        const blocker = queue.enqueue(async () => {
+            events.push('start:blocker');
+            startedBlocker.resolve();
+            await releaseBlocker.promise;
+            events.push('done:blocker');
+        });
+        await startedBlocker.promise;
+        const abortController = new AbortController();
+        const abortedQueued = queue.enqueue(async () => {
+            events.push('start:aborted');
+            return 'bad';
+        }, {
+            signal: abortController.signal,
+            abortMessage: 'queued abort',
+        });
+        abortController.abort(makeAbortError('queued abort'));
+        releaseBlocker.resolve();
+        await blocker;
+        let abortedResult = '';
+        try {
+            await abortedQueued;
+            abortedResult = 'resolved';
+        } catch (err) {
+            abortedResult = `${err?.name || ''}:${err?.message || err}`;
+        }
+
+        const startedCurrentBlocker = deferred();
+        const releaseCurrentBlocker = deferred();
+        const currentBlocker = queue.enqueue(async () => {
+            events.push('start:current-blocker');
+            startedCurrentBlocker.resolve();
+            await releaseCurrentBlocker.promise;
+            events.push('done:current-blocker');
+        });
+        await startedCurrentBlocker.promise;
+        let current = true;
+        const staleQueued = queue.enqueue(async () => {
+            events.push('start:stale');
+            return 'stale';
+        }, {
+            isCurrent: () => current,
+            abortMessage: 'queued stale',
+        });
+        current = false;
+        releaseCurrentBlocker.resolve();
+        await currentBlocker;
+        let staleResult = '';
+        try {
+            await staleQueued;
+            staleResult = 'resolved';
+        } catch (err) {
+            staleResult = `${err?.name || ''}:${err?.message || err}`;
+        }
+
+        return {
+            beforeRelease,
+            pendingBeforeRelease,
+            serialValues,
+            afterSerial,
+            pendingAfterSerial,
+            abortedResult,
+            staleResult,
+            events,
+            pendingEnd: queue.getPendingCount(),
+        };
+    });
+
+    assert.deepEqual(result.beforeRelease, ['start:A'], 'Import pipeline smoke: second import started before first settled');
+    assert.equal(result.pendingBeforeRelease, 2, 'Import pipeline smoke: queued import was not tracked as pending');
+    assert.deepEqual(result.serialValues, ['A', 'B'], 'Import pipeline smoke: serialized imports returned wrong results');
+    assert.deepEqual(result.afterSerial, [
+        'start:A',
+        'done:A',
+        'start:B',
+        'pending:B:1',
+    ], 'Import pipeline smoke: serialized import order changed');
+    assert.equal(result.pendingAfterSerial, 0, 'Import pipeline smoke: pending count did not clear after serialized imports');
+    assert.equal(result.abortedResult, 'AbortError:queued abort', 'Import pipeline smoke: aborted queued import did not reject with AbortError');
+    assert.equal(result.staleResult, 'AbortError:queued stale', 'Import pipeline smoke: stale queued import did not reject with AbortError');
+    assert.equal(result.events.includes('start:aborted'), false, 'Import pipeline smoke: aborted queued import still ran');
+    assert.equal(result.events.includes('start:stale'), false, 'Import pipeline smoke: stale queued import still ran');
+    assert.equal(result.pendingEnd, 0, 'Import pipeline smoke: pending count leaked after abort/stale cases');
+    diagnostics.assertNoErrors('Import pipeline queue smoke');
+    await page.close();
+}
+
 async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -9811,6 +9950,8 @@ try {
     console.log('File-flow failure smoke passed.');
     await runFileFlowSerializationSmoke(browser, smokeServer.baseUrl);
     console.log('File-flow serialization smoke passed.');
+    await runImportPipelineQueueSmoke(browser, smokeServer.baseUrl);
+    console.log('Import pipeline queue smoke passed.');
     await runFileFlowDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('File-flow dispose lifecycle smoke passed.');
     await runBatchFinalizerDisposeSmoke(browser, smokeServer.baseUrl);

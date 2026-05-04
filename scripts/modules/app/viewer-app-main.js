@@ -60,6 +60,7 @@ import { createBackfaceOverlayController } from '../render/backface-overlay.js';
 import { createShadingController } from '../render/shading-controller.js';
 import { createAssetLoaders } from '../io/asset-loaders.js';
 import { createImportHandlers } from '../io/import-handlers.js';
+import { createImportPipelineQueue } from '../io/import-pipeline.js';
 import { createFileFlowUIController } from '../io/file-flow-ui.js';
 import { SAMPLE_MODELS } from '../io/sample-models.js';
 import { createBatchFinalizer } from '../io/batch-finalizer.js';
@@ -1242,6 +1243,10 @@ export class ViewerApp {
         function isAbortError(error) {
             return error?.name === 'AbortError';
         }
+
+        const importPipelineQueue = createImportPipelineQueue({
+            makeAbortError: makeRoomLoadAbortError,
+        });
 
         function abortActiveRoomImports() {
             if (!activeRoomImportControllers.size && !activeRoomModelSyncControllers.size) return;
@@ -3937,19 +3942,36 @@ export class ViewerApp {
             return removedModels.length > 0 || removedEntries.length > 0;
         }
 
-        async function runImportWithScope(scope, loadFn) {
-            const modelStart = loadedModels.length;
-            const embeddedStart = allEmbedded.length;
-            try {
-                assignImportScopeToRange({ modelStart, embeddedStart, scope });
-                return await loadFn();
-            } catch (err) {
-                assignImportScopeToRange({ modelStart, embeddedStart, scope });
-                cleanupImportedRange({ modelStart, embeddedStart });
-                throw err;
-            } finally {
-                assignImportScopeToRange({ modelStart, embeddedStart, scope });
-            }
+        async function runImportWithScope(scope, loadFn, options = {}) {
+            const signal = options?.signal || null;
+            const isCurrent = typeof options?.isCurrent === 'function' ? options.isCurrent : null;
+            const abortMessage = options?.abortMessage || 'Import operation superseded';
+            const throwIfCanceled = () => {
+                if (signal?.aborted) {
+                    const reason = signal.reason;
+                    if (reason?.name === 'AbortError') throw reason;
+                    throw makeRoomLoadAbortError(abortMessage);
+                }
+                if (isCurrent && !isCurrent()) throw makeRoomLoadAbortError(abortMessage);
+            };
+
+            return importPipelineQueue.enqueue(async () => {
+                const modelStart = loadedModels.length;
+                const embeddedStart = allEmbedded.length;
+                try {
+                    throwIfCanceled();
+                    assignImportScopeToRange({ modelStart, embeddedStart, scope });
+                    const result = await loadFn();
+                    throwIfCanceled();
+                    return result;
+                } catch (err) {
+                    assignImportScopeToRange({ modelStart, embeddedStart, scope });
+                    cleanupImportedRange({ modelStart, embeddedStart });
+                    throw err;
+                } finally {
+                    assignImportScopeToRange({ modelStart, embeddedStart, scope });
+                }
+            }, { signal, isCurrent, abortMessage });
         }
 
         function revokeEmbeddedEntryUrl(entry) {
@@ -4894,7 +4916,7 @@ export class ViewerApp {
                 fileName: file?.name || '',
             }, () => (
                 rawHandleFBXFile(file, null, null, null, callOptions)
-            ));
+            ), { signal: callOptions?.signal || null });
             queueLocalModelFile(file);
         }
 
@@ -4903,7 +4925,7 @@ export class ViewerApp {
                 kind: 'local',
                 fileKey: getModelFileKey(file),
                 fileName: file?.name || '',
-            }, () => rawHandleZIPFile(file, callOptions));
+            }, () => rawHandleZIPFile(file, callOptions), { signal: callOptions?.signal || null });
             queueLocalModelFile(file);
         }
 
@@ -5449,9 +5471,17 @@ export class ViewerApp {
                 if (kind === 'fbx') {
                     await runImportWithScope(roomImportScope, () => (
                         rawHandleFBXFile(file, null, null, null, { signal: importSignal })
-                    ));
+                    ), {
+                        signal: importSignal,
+                        isCurrent: () => !isStaleLoad(),
+                        abortMessage: 'Room model load superseded',
+                    });
                 } else {
-                    await runImportWithScope(roomImportScope, () => rawHandleZIPFile(file, { signal: importSignal }));
+                    await runImportWithScope(roomImportScope, () => rawHandleZIPFile(file, { signal: importSignal }), {
+                        signal: importSignal,
+                        isCurrent: () => !isStaleLoad(),
+                        abortMessage: 'Room model load superseded',
+                    });
                 }
                 if (isStaleLoad()) {
                     abortImport();
