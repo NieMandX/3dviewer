@@ -6,6 +6,7 @@ export function createRenderLoopController(options = {}) {
 
     const isWebGPU = !!options.isWebGPU;
     const getRendererReady = typeof options.getRendererReady === 'function' ? options.getRendererReady : () => true;
+    const getRendererError = typeof options.getRendererError === 'function' ? options.getRendererError : () => null;
 
     const updateStatsOverlay = typeof options.updateStatsOverlay === 'function' ? options.updateStatsOverlay : () => {};
     const onFrame = typeof options.onFrame === 'function' ? options.onFrame : () => {};
@@ -111,6 +112,11 @@ export function createRenderLoopController(options = {}) {
         if (!isActiveFrame(generation)) return;
 
         if (isWebGPU && !getRendererReady()) {
+            const rendererError = getRendererError();
+            if (rendererError) {
+                reportLoopError(rendererError, 'renderer-init');
+                return;
+            }
             updateStatsSafely();
             return;
         }

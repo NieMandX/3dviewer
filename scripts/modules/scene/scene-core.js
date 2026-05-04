@@ -55,6 +55,7 @@ export function createSceneCore(options = {}) {
     const renderer = rendererInit.renderer;
     const rendererInitPromise = rendererInit.rendererInitPromise;
     const getRendererReady = rendererInit.getRendererReady;
+    const getRendererError = rendererInit.getRendererError;
 
     const backgroundController = createBackgroundController({
         THREE,
@@ -157,6 +158,7 @@ export function createSceneCore(options = {}) {
         renderer,
         rendererInitPromise,
         getRendererReady,
+        getRendererError,
         backgroundController,
         controls,
         flightControls,

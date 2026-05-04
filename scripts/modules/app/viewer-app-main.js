@@ -624,6 +624,7 @@ export class ViewerApp {
 	        const renderer = sceneCore.renderer;
 	        const rendererInitPromise = sceneCore.rendererInitPromise;
 	        const getRendererReady = sceneCore.getRendererReady;
+	        const getRendererError = sceneCore.getRendererError;
 	        const backgroundController = sceneCore.backgroundController;
 	        const controls = sceneCore.controls;
 	        const flightControls = sceneCore.flightControls;
@@ -6334,6 +6335,7 @@ export class ViewerApp {
 	            camera,
 	            isWebGPU: USE_WEBGPU,
 	            getRendererReady,
+	            getRendererError,
 	            updateStatsOverlay,
 	            onFrame: () => {
                 const vrChanged = vrController.update();

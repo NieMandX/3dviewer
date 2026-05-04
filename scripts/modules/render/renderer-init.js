@@ -19,6 +19,7 @@ export function createRenderer(options = {}) {
 
     let disposed = false;
     let rendererReady = !useWebGPU;
+    let rendererInitError = null;
     let rendererInitPromise = Promise.resolve();
 
     if (useWebGPU && typeof renderer.init === 'function') {
@@ -26,13 +27,18 @@ export function createRenderer(options = {}) {
             .then(() => {
                 if (disposed) return;
                 rendererReady = true;
+                rendererInitError = null;
                 requestRender();
             })
             .catch((err) => {
                 if (disposed) return;
+                rendererInitError = err instanceof Error ? err : new Error(err?.message || String(err || 'WebGPU init failed'));
+                rendererReady = false;
                 console.error('WebGPU init failed', err);
                 setStatusMessage('⚠️ WebGPU: не удалось инициализировать рендерер.');
+                throw rendererInitError;
             });
+        rendererInitPromise.catch(() => {});
     } else if (useWebGPU) {
         rendererReady = true;
     }
@@ -77,6 +83,7 @@ export function createRenderer(options = {}) {
         renderer,
         rendererInitPromise,
         getRendererReady: () => rendererReady,
+        getRendererError: () => rendererInitError,
         dispose,
     });
 }

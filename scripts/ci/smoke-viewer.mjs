@@ -1214,7 +1214,9 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
 
 async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
-    const diagnostics = attachPageDiagnostics(page);
+    const diagnostics = attachPageDiagnostics(page, {
+        ignoreConsoleError: (text) => text.includes('WebGPU init failed'),
+    });
     await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
     const result = await page.evaluate(async () => {
@@ -1283,6 +1285,33 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
         resolveInit();
         await webgpu.rendererInitPromise;
 
+        class RejectWebGPURenderer extends FakeWebGLRenderer {
+            init() {
+                this.calls.push('init');
+                return Promise.reject(new Error('init failed'));
+            }
+        }
+        const failingEvents = [];
+        const failingRoot = document.createElement('div');
+        document.body.appendChild(failingRoot);
+        const failingWebgpu = createRenderer({
+            THREE,
+            rootEl: failingRoot,
+            useWebGPU: true,
+            WebGPURendererCtor: RejectWebGPURenderer,
+            requestRender: () => failingEvents.push('render'),
+            setStatusMessage: (message) => failingEvents.push(`status:${message}`),
+        });
+        const failingRenderer = failingWebgpu.renderer;
+        const failingResult = await failingWebgpu.rendererInitPromise.then(
+            () => 'resolved',
+            (err) => err?.message || String(err),
+        );
+        const failingErrorMessage = failingWebgpu.getRendererError()?.message || '';
+        const failingReadyAfterError = failingWebgpu.getRendererReady();
+        const failingStillMountedAfterError = failingRoot.contains(failingRenderer.domElement);
+        failingWebgpu.dispose();
+
         return {
             appendedBeforeDispose,
             webglRemoved: !root.contains(webglRenderer.domElement),
@@ -1294,6 +1323,11 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
             webgpuRemoved: !webgpuRoot.contains(webgpuRenderer.domElement),
             webgpuCalls: webgpuRenderer.calls,
             webgpuEvents,
+            failingResult,
+            failingErrorMessage,
+            failingReadyAfterError,
+            failingStillMountedAfterError,
+            failingEvents,
         };
     });
 
@@ -1320,6 +1354,15 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.webgpuReadyAfterLateInit, false, 'Renderer dispose smoke: disposed WebGPU renderer became ready after late init');
     assert.equal(result.webgpuRemoved, true, 'Renderer dispose smoke: WebGPU canvas stayed in DOM after dispose');
     assert.deepEqual(result.webgpuEvents, [], 'Renderer dispose smoke: disposed late WebGPU init fired callbacks');
+    assert.equal(result.failingResult, 'init failed', 'Renderer dispose smoke: WebGPU init failure did not reject init promise');
+    assert.equal(result.failingErrorMessage, 'init failed', 'Renderer dispose smoke: WebGPU init failure was not retained');
+    assert.equal(result.failingReadyAfterError, false, 'Renderer dispose smoke: failed WebGPU renderer became ready');
+    assert.equal(result.failingStillMountedAfterError, true, 'Renderer dispose smoke: failed WebGPU renderer removed canvas before dispose');
+    assert.deepEqual(
+        result.failingEvents,
+        ['status:⚠️ WebGPU: не удалось инициализировать рендерер.'],
+        'Renderer dispose smoke: WebGPU init failure fired wrong callbacks',
+    );
     assert.deepEqual(
         result.webgpuCalls.filter((entry) => entry === 'dispose'),
         ['dispose'],
@@ -1739,6 +1782,30 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
         const webgpuAfterReady = { renders: webgpuRenders, stats: webgpuStats };
         webgpuLoop.dispose();
 
+        const webgpuInitErrorHarness = createRafHarness();
+        const webgpuInitErrors = [];
+        let webgpuInitErrorStats = 0;
+        let webgpuInitErrorRenders = 0;
+        const webgpuInitErrorLoop = createRenderLoopController({
+            isWebGPU: true,
+            getRendererReady: () => false,
+            getRendererError: () => new Error('init failed'),
+            renderer: {
+                info: { render: {}, memory: {} },
+                render: () => {
+                    webgpuInitErrorRenders += 1;
+                },
+            },
+            requestAnimationFrame: (callback) => webgpuInitErrorHarness.raf(callback),
+            cancelAnimationFrame: (id) => webgpuInitErrorHarness.cancel(id),
+            updateStatsOverlay: () => {
+                webgpuInitErrorStats += 1;
+            },
+            onError: (err, meta) => webgpuInitErrors.push(`${meta?.phase || ''}:${err?.message || err}`),
+        });
+        webgpuInitErrorLoop.start();
+        webgpuInitErrorHarness.flushOne(16);
+
         let animationCallback = null;
         const animationEvents = [];
         let animationRenders = 0;
@@ -1786,6 +1853,11 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
             controlsErrorCanceled: controlsErrorHarness.canceled.length,
             webgpuBeforeReady,
             webgpuAfterReady,
+            webgpuInitErrors,
+            webgpuInitErrorPending: webgpuInitErrorHarness.pendingCount,
+            webgpuInitErrorCanceled: webgpuInitErrorHarness.canceled.length,
+            webgpuInitErrorStats,
+            webgpuInitErrorRenders,
             animationEvents,
             animationAfterFirst,
             animationAfterStaleStopCallback,
@@ -1814,6 +1886,11 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.controlsErrorCanceled, 1, 'Render loop smoke: controls error did not cancel RAF');
     assert.deepEqual(result.webgpuBeforeReady, { renders: 0, stats: 1 }, 'Render loop smoke: WebGPU rendered before ready');
     assert.deepEqual(result.webgpuAfterReady, { renders: 1, stats: 2 }, 'Render loop smoke: WebGPU did not render after ready');
+    assert.deepEqual(result.webgpuInitErrors, ['renderer-init:init failed'], 'Render loop smoke: WebGPU init error was not reported');
+    assert.equal(result.webgpuInitErrorPending, 0, 'Render loop smoke: WebGPU init error left pending RAF');
+    assert.equal(result.webgpuInitErrorCanceled, 1, 'Render loop smoke: WebGPU init error did not cancel RAF');
+    assert.equal(result.webgpuInitErrorStats, 0, 'Render loop smoke: WebGPU init error still updated stats');
+    assert.equal(result.webgpuInitErrorRenders, 0, 'Render loop smoke: WebGPU init error still rendered');
     assert.deepEqual(result.animationEvents, ['set', 'clear', 'set', 'clear'], 'Render loop smoke: setAnimationLoop lifecycle is wrong');
     assert.equal(result.animationAfterFirst, 1, 'Render loop smoke: setAnimationLoop first frame did not render');
     assert.equal(result.animationAfterStaleStopCallback, 1, 'Render loop smoke: stale animation callback rendered after stop');
