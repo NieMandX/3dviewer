@@ -5,9 +5,26 @@ export async function detectRendererMode(options = {}) {
     const locationSearch =
         options.locationSearch ??
         (typeof window !== 'undefined' ? window.location?.search || '' : '');
+    const navigatorGpu =
+        options.navigatorGpu ??
+        (typeof navigator !== 'undefined' && navigator ? navigator.gpu || null : null);
     const webgpuSupported =
         options.webgpuSupported ??
-        (typeof navigator !== 'undefined' && navigator && 'gpu' in navigator);
+        !!navigatorGpu;
+    const requestAdapter =
+        typeof options.requestAdapter === 'function'
+            ? options.requestAdapter
+            : (typeof navigatorGpu?.requestAdapter === 'function'
+                ? navigatorGpu.requestAdapter.bind(navigatorGpu)
+                : null);
+    const loadWebGPUModule =
+        typeof options.loadWebGPUModule === 'function'
+            ? options.loadWebGPUModule
+            : () => import('three/webgpu');
+    const loadTSLModule =
+        typeof options.loadTSLModule === 'function'
+            ? options.loadTSLModule
+            : () => import('three/tsl');
 
     let requestedRendererMode = 'auto';
     if (forced) {
@@ -35,7 +52,13 @@ export async function detectRendererMode(options = {}) {
 
     if (useWebGPU) {
         try {
-            const mod = await import('three/webgpu');
+            if (requestAdapter) {
+                const adapter = await requestAdapter();
+                if (!adapter) {
+                    throw new Error('WebGPU adapter not available');
+                }
+            }
+            const mod = await loadWebGPUModule();
             webgpuModule = mod;
             WebGPURendererCtor = mod.WebGPURenderer || mod.default || null;
             if (!WebGPURendererCtor) {
@@ -54,8 +77,8 @@ export async function detectRendererMode(options = {}) {
     if (useWebGPU) {
         try {
             const [webgpuMod, tslMod] = await Promise.all([
-                webgpuModule ? Promise.resolve(webgpuModule) : import('three/webgpu'),
-                import('three/tsl'),
+                webgpuModule ? Promise.resolve(webgpuModule) : loadWebGPUModule(),
+                loadTSLModule(),
             ]);
 
             if (webgpuMod?.MeshBasicNodeMaterial && tslMod?.normalView && tslMod?.positionViewDirection && tslMod?.float && tslMod?.vec3) {

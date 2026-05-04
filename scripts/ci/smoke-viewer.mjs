@@ -1329,6 +1329,133 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runRendererModeDetectionSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { detectRendererMode } = await import('/scripts/modules/render/renderer-mode.js');
+
+        let noAdapterModuleLoads = 0;
+        let noAdapterRequests = 0;
+        const noAdapter = await detectRendererMode({
+            locationSearch: '?renderer=webgpu',
+            webgpuSupported: true,
+            requestAdapter: async () => {
+                noAdapterRequests += 1;
+                return null;
+            },
+            loadWebGPUModule: async () => {
+                noAdapterModuleLoads += 1;
+                return {};
+            },
+        });
+
+        let adapterErrorRequests = 0;
+        const adapterError = await detectRendererMode({
+            locationSearch: '?renderer=webgpu',
+            webgpuSupported: true,
+            requestAdapter: async () => {
+                adapterErrorRequests += 1;
+                throw new Error('adapter failed');
+            },
+            loadWebGPUModule: async () => ({}),
+        });
+
+        let forcedWebglAdapterRequests = 0;
+        const forcedWebgl = await detectRendererMode({
+            forcedRendererMode: 'webgl',
+            webgpuSupported: true,
+            requestAdapter: async () => {
+                forcedWebglAdapterRequests += 1;
+                return {};
+            },
+            loadWebGPUModule: async () => {
+                throw new Error('forced webgl should not load webgpu');
+            },
+        });
+
+        const success = await detectRendererMode({
+            locationSearch: '?renderer=webgpu',
+            webgpuSupported: true,
+            requestAdapter: async () => ({ name: 'adapter' }),
+            loadWebGPUModule: async () => ({
+                WebGPURenderer: function SmokeWebGPURenderer() {},
+                MeshBasicNodeMaterial: function SmokeNodeMaterial() {},
+            }),
+            loadTSLModule: async () => ({
+                normalView: {},
+                positionViewDirection: {},
+                float: function smokeFloat() {},
+                vec3: function smokeVec3() {},
+            }),
+        });
+
+        return {
+            noAdapter: {
+                activeRendererMode: noAdapter.activeRendererMode,
+                useWebGPU: noAdapter.useWebGPU,
+                note: noAdapter.rendererModeNote,
+                error: noAdapter.webgpuModuleError?.message || '',
+            },
+            noAdapterRequests,
+            noAdapterModuleLoads,
+            adapterError: {
+                activeRendererMode: adapterError.activeRendererMode,
+                useWebGPU: adapterError.useWebGPU,
+                note: adapterError.rendererModeNote,
+                error: adapterError.webgpuModuleError?.message || '',
+            },
+            adapterErrorRequests,
+            forcedWebgl: {
+                activeRendererMode: forcedWebgl.activeRendererMode,
+                useWebGPU: forcedWebgl.useWebGPU,
+                requestedRendererMode: forcedWebgl.requestedRendererMode,
+            },
+            forcedWebglAdapterRequests,
+            success: {
+                activeRendererMode: success.activeRendererMode,
+                useWebGPU: success.useWebGPU,
+                requestedRendererMode: success.requestedRendererMode,
+                hasCtor: typeof success.WebGPURendererCtor === 'function',
+                hasNodeSupport: !!success.backfaceNodeSupport?.MeshBasicNodeMaterial,
+            },
+        };
+    });
+
+    assert.deepEqual(result.noAdapter, {
+        activeRendererMode: 'webgl',
+        useWebGPU: false,
+        note: 'fallback: init failed',
+        error: 'WebGPU adapter not available',
+    }, 'Renderer mode smoke: unavailable WebGPU adapter did not fall back to WebGL');
+    assert.equal(result.noAdapterRequests, 1, 'Renderer mode smoke: WebGPU adapter was not requested');
+    assert.equal(result.noAdapterModuleLoads, 0, 'Renderer mode smoke: WebGPU module loaded despite missing adapter');
+    assert.deepEqual(result.adapterError, {
+        activeRendererMode: 'webgl',
+        useWebGPU: false,
+        note: 'fallback: init failed',
+        error: 'adapter failed',
+    }, 'Renderer mode smoke: WebGPU adapter error did not fall back to WebGL');
+    assert.equal(result.adapterErrorRequests, 1, 'Renderer mode smoke: WebGPU adapter error path was not exercised');
+    assert.deepEqual(result.forcedWebgl, {
+        activeRendererMode: 'webgl',
+        useWebGPU: false,
+        requestedRendererMode: 'webgl',
+    }, 'Renderer mode smoke: forced WebGL did not stay on WebGL');
+    assert.equal(result.forcedWebglAdapterRequests, 0, 'Renderer mode smoke: forced WebGL still requested a WebGPU adapter');
+    assert.deepEqual(result.success, {
+        activeRendererMode: 'webgpu',
+        useWebGPU: true,
+        requestedRendererMode: 'webgpu',
+        hasCtor: true,
+        hasNodeSupport: true,
+    }, 'Renderer mode smoke: WebGPU success path did not initialize mode metadata');
+    diagnostics.assertNoErrors('Renderer mode detection smoke');
+    await page.close();
+}
+
 async function runSceneCoreDisposeLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -8822,6 +8949,8 @@ try {
     console.log('Dispose/reinit smoke passed.');
     await runRendererDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Renderer dispose lifecycle smoke passed.');
+    await runRendererModeDetectionSmoke(browser, smokeServer.baseUrl);
+    console.log('Renderer mode detection smoke passed.');
     await runSceneCoreDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Scene core dispose lifecycle smoke passed.');
     await runRenderLoopLifecycleSmoke(browser, smokeServer.baseUrl);
