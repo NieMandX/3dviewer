@@ -5529,6 +5529,12 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
             const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
             camera.position.set(0, 1.6, 4);
             scene.add(camera);
+            const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
+            loadedModels.forEach((model) => {
+                if (model?.obj && !model.obj.parent) {
+                    scene.add(model.obj);
+                }
+            });
             const sessionRef = { current: null };
             const events = [];
             const controls = {
@@ -5544,14 +5550,38 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
                 renderer: makeRenderer(sessionRef, events),
                 camera,
                 controls,
+                loadedModels,
+                sceneIndex: options.sceneIndex,
                 vrToggleBtn: button,
                 window: { navigator: { xr: xrApi, userAgent: 'Smoke' } },
                 document,
                 requestRender: () => events.push(`${label}:render`),
             });
-            return { scene, camera, controls, button, controller, sessionRef, events };
+            return { scene, camera, controls, button, controller, sessionRef, events, loadedModels };
         }
 
+        function makeCollisionModel(label) {
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+            mesh.name = `${label}:collision`;
+            const originalRaycast = mesh.raycast;
+            const root = new THREE.Group();
+            root.name = `${label}:root`;
+            root.add(mesh);
+            return {
+                model: { obj: root, zipKind: 'SM' },
+                mesh,
+                geometry,
+                originalRaycast,
+            };
+        }
+
+        const activeCollider = makeCollisionModel('active-a');
+        const switchedCollider = makeCollisionModel('active-b');
+        const collisionMap = new Map([
+            [activeCollider.model, [activeCollider.mesh]],
+            [switchedCollider.model, [switchedCollider.mesh]],
+        ]);
         const activeSession = new FakeSession('active');
         let activeRequestCount = 0;
         const active = makeHarness('active', {
@@ -5560,12 +5590,30 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
                 activeRequestCount += 1;
                 return activeSession;
             },
+        }, {
+            loadedModels: [activeCollider.model],
+            sceneIndex: {
+                getModelCollisions: (model) => collisionMap.get(model) || [],
+            },
         });
         const entered = await active.controller.enterVR();
         const activeCameraInRig = active.camera.parent?.name === 'XRUserRig';
         const activeControlsDisabled = active.controls.enabled === false;
         const bodyClassDuringVR = document.body.classList.contains('vr-ui-active');
+        const activeBvhCreated = !!activeCollider.geometry.boundsTree;
+        const activeRaycastPatched = activeCollider.mesh.raycast !== activeCollider.originalRaycast;
+        active.scene.add(switchedCollider.model.obj);
+        active.loadedModels.splice(0, active.loadedModels.length, switchedCollider.model);
+        active.controller.update();
+        const switchOldBvhDisposed = !activeCollider.geometry.boundsTree;
+        const switchOldRaycastRestored = activeCollider.mesh.raycast === activeCollider.originalRaycast;
+        const switchOldMarkerCleared = !activeCollider.mesh.userData?._vrBvhPrepared;
+        const switchNewBvhCreated = !!switchedCollider.geometry.boundsTree;
+        const switchNewRaycastPatched = switchedCollider.mesh.raycast !== switchedCollider.originalRaycast;
         active.controller.dispose();
+        const switchNewBvhDisposed = !switchedCollider.geometry.boundsTree;
+        const switchNewRaycastRestored = switchedCollider.mesh.raycast === switchedCollider.originalRaycast;
+        const switchNewMarkerCleared = !switchedCollider.mesh.userData?._vrBvhPrepared;
         const activeRequestCountBeforeClick = activeRequestCount;
         active.button.click();
         await Promise.resolve();
@@ -5603,6 +5651,16 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
             activeCameraInRig,
             activeControlsDisabled,
             bodyClassDuringVR,
+            activeBvhCreated,
+            activeRaycastPatched,
+            switchOldBvhDisposed,
+            switchOldRaycastRestored,
+            switchOldMarkerCleared,
+            switchNewBvhCreated,
+            switchNewRaycastPatched,
+            switchNewBvhDisposed,
+            switchNewRaycastRestored,
+            switchNewMarkerCleared,
             activeSessionEnded: activeSession.ended,
             activeEndListenerRemoved: activeSession.removedEndListeners > 0,
             activeCameraRestored: active.camera.parent === active.scene,
@@ -5627,6 +5685,16 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.activeCameraInRig, true, 'VR dispose smoke: camera was not attached to XR rig');
     assert.equal(result.activeControlsDisabled, true, 'VR dispose smoke: controls stayed enabled during VR');
     assert.equal(result.bodyClassDuringVR, true, 'VR dispose smoke: body VR class was not set');
+    assert.equal(result.activeBvhCreated, true, 'VR dispose smoke: collider BVH was not created on enter');
+    assert.equal(result.activeRaycastPatched, true, 'VR dispose smoke: collider raycast was not accelerated on enter');
+    assert.equal(result.switchOldBvhDisposed, true, 'VR dispose smoke: stale collider BVH survived model switch');
+    assert.equal(result.switchOldRaycastRestored, true, 'VR dispose smoke: stale collider raycast was not restored on model switch');
+    assert.equal(result.switchOldMarkerCleared, true, 'VR dispose smoke: stale collider VR marker survived model switch');
+    assert.equal(result.switchNewBvhCreated, true, 'VR dispose smoke: replacement collider BVH was not created');
+    assert.equal(result.switchNewRaycastPatched, true, 'VR dispose smoke: replacement collider raycast was not accelerated');
+    assert.equal(result.switchNewBvhDisposed, true, 'VR dispose smoke: active collider BVH survived controller dispose');
+    assert.equal(result.switchNewRaycastRestored, true, 'VR dispose smoke: active collider raycast was not restored on dispose');
+    assert.equal(result.switchNewMarkerCleared, true, 'VR dispose smoke: active collider VR marker survived dispose');
     assert.equal(result.activeSessionEnded, 1, 'VR dispose smoke: active session was not ended on dispose');
     assert.equal(result.activeEndListenerRemoved, true, 'VR dispose smoke: active end listener was not removed on dispose');
     assert.equal(result.activeCameraRestored, true, 'VR dispose smoke: camera stayed attached to XR rig after dispose');

@@ -60,6 +60,25 @@ assert.deepEqual(
     `Three.js CDN version drift: ${uniqueThreeVersions.join(', ')}`
 );
 
+const meshBvhVersion = indexHtml.match(/"three-mesh-bvh"\s*:\s*"https:\/\/cdn\.jsdelivr\.net\/npm\/three-mesh-bvh@([^/]+)\/build\/index\.module\.js"/)?.[1] || '';
+assert.match(meshBvhVersion, /^\d+\.\d+\.\d+$/, 'three-mesh-bvh import-map version must be exact semver.');
+const expectedMeshBvhUrl = `https://cdn.jsdelivr.net/npm/three-mesh-bvh@${meshBvhVersion}/build/index.module.js`;
+assert.ok(
+    smokeViewer.includes(`"three-mesh-bvh": "${expectedMeshBvhUrl}"`),
+    `Smoke blank import map missing exact three-mesh-bvh -> ${expectedMeshBvhUrl}`
+);
+const meshBvhVersions = [
+    ...indexHtml.matchAll(/three-mesh-bvh@([^/"']+)/g),
+    ...smokeViewer.matchAll(/three-mesh-bvh@([^/"']+)/g),
+].map((match) => match[1]);
+assert.ok(meshBvhVersions.length > 0, 'No three-mesh-bvh CDN versions found.');
+const uniqueMeshBvhVersions = [...new Set(meshBvhVersions)];
+assert.deepEqual(
+    uniqueMeshBvhVersions,
+    [meshBvhVersion],
+    `three-mesh-bvh CDN version drift: ${uniqueMeshBvhVersions.join(', ')}`
+);
+
 const supabaseVersion = supabaseClient.match(/@supabase\/supabase-js@([^/]+)\//)?.[1] || '';
 assert.match(supabaseVersion, /^\d+\.\d+\.\d+$/, 'Supabase CDN version must be exact semver, not a floating tag.');
 
@@ -81,4 +100,4 @@ assert.match(uniqueTusVersions[0], /^\d+\.\d+\.\d+$/, 'tus-js-client CDN version
 const livekitVersion = livekitBrowser.match(/livekit-client@([^/]+)\//)?.[1] || '';
 assert.match(livekitVersion, /^\d+\.\d+\.\d+$/, 'livekit-client CDN version must be exact semver, not a floating tag.');
 
-console.log(`Runtime CDN versions OK: three@${importMapThreeVersion}, @supabase/supabase-js@${supabaseVersion}, jszip@${uniqueJszipVersions[0]}, tus-js-client@${uniqueTusVersions[0]}, livekit-client@${livekitVersion}`);
+console.log(`Runtime CDN versions OK: three@${importMapThreeVersion}, three-mesh-bvh@${meshBvhVersion}, @supabase/supabase-js@${supabaseVersion}, jszip@${uniqueJszipVersions[0]}, tus-js-client@${uniqueTusVersions[0]}, livekit-client@${livekitVersion}`);

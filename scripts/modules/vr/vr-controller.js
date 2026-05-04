@@ -1,5 +1,5 @@
 import { createVRMenu3D } from './vr-menu-3d.js';
-import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 
 const QUEST_UA_RX = /(OculusBrowser|Meta Quest|Quest)/i;
@@ -166,6 +166,8 @@ export function createVRController(options = {}) {
         prevFlightEnabled: true,
         collidersSignature: '',
         colliderMeshes: [],
+        preparedColliderMeshes: new Map(),
+        ownedBvhGeometries: new Set(),
         lastUpdateTime: 0,
         xrRig: null,
         desktopCameraParent: null,
@@ -200,8 +202,9 @@ export function createVRController(options = {}) {
 
     function prepareColliderMesh(mesh) {
         if (!mesh?.isMesh || !mesh.geometry?.isBufferGeometry) return;
-        if (!mesh.userData) mesh.userData = {};
-        if (mesh.userData._vrBvhPrepared) return;
+        if (state.preparedColliderMeshes.has(mesh) && mesh.raycast === acceleratedRaycast && mesh.geometry.boundsTree) {
+            return;
+        }
 
         if (!mesh.geometry.boundsTree) {
             try {
@@ -209,10 +212,46 @@ export function createVRController(options = {}) {
             } catch (_) {
                 return;
             }
+            if (mesh.geometry.boundsTree) {
+                state.ownedBvhGeometries.add(mesh.geometry);
+            }
         }
 
+        if (!state.preparedColliderMeshes.has(mesh)) {
+            state.preparedColliderMeshes.set(mesh, mesh.raycast);
+        }
         mesh.raycast = acceleratedRaycast;
+        if (!mesh.userData) mesh.userData = {};
         mesh.userData._vrBvhPrepared = true;
+    }
+
+    function disposeColliderResources({ resetSignature = true } = {}) {
+        for (const [mesh, originalRaycast] of state.preparedColliderMeshes) {
+            if (!mesh) continue;
+            if (mesh.raycast === acceleratedRaycast) {
+                mesh.raycast = typeof originalRaycast === 'function' ? originalRaycast : THREE.Mesh.prototype.raycast;
+            }
+            if (mesh.userData?._vrBvhPrepared) {
+                delete mesh.userData._vrBvhPrepared;
+            }
+        }
+        state.preparedColliderMeshes.clear();
+
+        for (const geometry of state.ownedBvhGeometries) {
+            if (!geometry?.boundsTree) continue;
+            try {
+                disposeBoundsTree.call(geometry);
+            } catch (_) {
+                try {
+                    delete geometry.boundsTree;
+                } catch (_) {}
+            }
+        }
+        state.ownedBvhGeometries.clear();
+        state.colliderMeshes.length = 0;
+        if (resetSignature) {
+            state.collidersSignature = '';
+        }
     }
 
     function detectQuestDevice() {
@@ -676,6 +715,7 @@ export function createVRController(options = {}) {
         state.pendingCalibration = false;
         state.floorSnapSuppressed = false;
         state.menuTogglePrev = false;
+        disposeColliderResources();
         clearAutoStartListeners();
         setVrUiActive(false);
         if (hideMenu) vrMenu?.hide?.();
@@ -706,8 +746,7 @@ export function createVRController(options = {}) {
             state.xrRig.parent.remove(state.xrRig);
         }
         state.xrRig = null;
-        state.colliderMeshes.length = 0;
-        state.collidersSignature = '';
+        disposeColliderResources();
     }
 
     function readInputAxes(session) {
@@ -807,8 +846,8 @@ export function createVRController(options = {}) {
             .join('|');
         if (signature === state.collidersSignature) return;
 
+        disposeColliderResources({ resetSignature: false });
         state.collidersSignature = signature;
-        state.colliderMeshes.length = 0;
 
         loadedModels.forEach((model) => {
             if (!model?.obj) return;
