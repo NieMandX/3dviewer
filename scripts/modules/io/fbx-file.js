@@ -253,6 +253,12 @@ export function createFBXFileHandler(options = {}) {
                     throwIfAborted(parsedObj, embedded);
                 }
             } catch (err) {
+                if (!isAbortError(err)) {
+                    revokeEmbeddedUrls(embedded);
+                    disposeObjectResources(parsedObj);
+                    parsedObj = null;
+                    embedded = [];
+                }
                 if (isAbortError(err)) throw err;
                 setStatusMessage(`Ошибка парсинга: ${file.name}`);
                 logBind(`⚠️ Ошибка парсинга ${file.name}: ${err?.message || String(err)}`, 'warn');

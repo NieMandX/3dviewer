@@ -7768,6 +7768,29 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
             await Promise.resolve();
             URL.createObjectURL = nativeCreateObjectURL;
 
+            const mainEmbeddedFailureWorld = new THREE.Group();
+            const mainEmbeddedFailureLoadedModels = [];
+            const mainEmbeddedFailureRoot = new THREE.Group();
+            const mainEmbeddedFailureGeometry = makeGeometry();
+            mainEmbeddedFailureGeometry.name = 'mainEmbeddedFailureGeometry';
+            const mainEmbeddedFailureMaterial = new THREE.MeshBasicMaterial({ name: 'mainEmbeddedFailureMaterial' });
+            mainEmbeddedFailureRoot.add(new THREE.Mesh(mainEmbeddedFailureGeometry, mainEmbeddedFailureMaterial));
+            const mainEmbeddedFailureHandleFBXFile = createFBXFileHandler({
+                THREE,
+                world: mainEmbeddedFailureWorld,
+                loadedModels: mainEmbeddedFailureLoadedModels,
+                parseFBXOnMainThread: () => ({ obj: mainEmbeddedFailureRoot, duration: 1 }),
+                extractImagesFromFBX: async () => {
+                    throw new Error('main embedded extraction failed');
+                },
+            });
+            const mainEmbeddedFailureResult = await mainEmbeddedFailureHandleFBXFile(
+                new File([new Uint8Array([23, 24, 25])], 'main-embedded-failure.fbx', { type: 'application/octet-stream' }),
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+
             const normalizeWorld = new THREE.Group();
             const normalizeLoadedModels = [];
             const normalizeEmbedded = [];
@@ -7952,6 +7975,11 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 workerEmbeddedDisableCalls,
                 extractRollbackResult,
                 extractRollbackUrlRevoked: revokedUrls.includes('blob:extract-embedded-1'),
+                mainEmbeddedFailureResult,
+                mainEmbeddedFailureWorldChildren: mainEmbeddedFailureWorld.children.length,
+                mainEmbeddedFailureLoadedCount: mainEmbeddedFailureLoadedModels.length,
+                mainEmbeddedFailureGeometryDisposed: disposedGeometries.includes('mainEmbeddedFailureGeometry'),
+                mainEmbeddedFailureMaterialDisposed: disposedMaterials.includes('mainEmbeddedFailureMaterial'),
                 normalizeResult,
                 normalizeWorldChildren: normalizeWorld.children.length,
                 normalizeLoadedCount: normalizeLoadedModels.length,
@@ -8024,6 +8052,11 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.workerEmbeddedDisableCalls, 1, 'FBX cleanup smoke: worker embedded URL failure did not disable worker client');
     assert.equal(result.extractRollbackResult, 'extract url failed', 'FBX cleanup smoke: embedded extractor failure did not propagate');
     assert.equal(result.extractRollbackUrlRevoked, true, 'FBX cleanup smoke: embedded extractor failure leaked a blob URL');
+    assert.equal(result.mainEmbeddedFailureResult, 'main embedded extraction failed', 'FBX cleanup smoke: main embedded extraction failure did not propagate');
+    assert.equal(result.mainEmbeddedFailureWorldChildren, 0, 'FBX cleanup smoke: failed main embedded extraction was added to world');
+    assert.equal(result.mainEmbeddedFailureLoadedCount, 0, 'FBX cleanup smoke: failed main embedded extraction was registered as loaded');
+    assert.equal(result.mainEmbeddedFailureGeometryDisposed, true, 'FBX cleanup smoke: failed main embedded extraction leaked geometry');
+    assert.equal(result.mainEmbeddedFailureMaterialDisposed, true, 'FBX cleanup smoke: failed main embedded extraction leaked material');
     assert.equal(result.normalizeResult, 'normalize failure', 'FBX cleanup smoke: normalize failure did not propagate');
     assert.equal(result.normalizeWorldChildren, 0, 'FBX cleanup smoke: failed normalize FBX was added to world');
     assert.equal(result.normalizeLoadedCount, 0, 'FBX cleanup smoke: failed normalize FBX was registered as loaded');
