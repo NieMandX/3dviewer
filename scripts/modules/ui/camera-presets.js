@@ -448,6 +448,7 @@ export function createCameraPresetsController(options = {}) {
         if (disposed) return false;
         const nextPresets = Array.isArray(state.presets) ? state.presets : null;
         if (!nextPresets) return false;
+        stopPlayback({ updateUi: false });
         cancelScheduledChange();
         suppressChange = true;
         presets.length = 0;

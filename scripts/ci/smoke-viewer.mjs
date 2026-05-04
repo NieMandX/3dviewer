@@ -2824,6 +2824,55 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
             const countAfterRealtimeLoad = staleChangeHarness.controller.getPresets().length;
             staleChangeHarness.controller.dispose();
 
+            rafCallbacks.clear();
+            const reloadPlay = makeHarness();
+            reloadPlay.controller.loadState({
+                presets,
+                transitions: [{
+                    fromId: 'cam-a',
+                    toId: 'cam-b',
+                    seconds: 1,
+                    type: 'linear',
+                    trajectory: 'linear',
+                }],
+                activeId: 'cam-a',
+                lastCreatedId: 'cam-a',
+            });
+            reloadPlay.barList.querySelector('[data-action="play"]')?.click?.();
+            await Promise.resolve();
+            const reloadPendingBeforeLoad = rafCallbacks.size;
+            const staleReloadCallbacks = Array.from(rafCallbacks.values());
+            reloadPlay.events.length = 0;
+            reloadPlay.controller.loadState({
+                presets: [{
+                    id: 'cam-c',
+                    name: 'C',
+                    position: [9, 9, 9],
+                    target: [0, 0, 0],
+                    up: [0, 1, 0],
+                    fov: 50,
+                    zoom: 1,
+                    near: 0.1,
+                    far: 1000,
+                }],
+                transitions: [],
+                activeId: 'cam-c',
+                lastCreatedId: 'cam-c',
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+            const reloadPendingAfterLoad = rafCallbacks.size;
+            const reloadControlsRestored = reloadPlay.controls.enabled === true && reloadPlay.controls.enableDamping === true;
+            const reloadActiveAfterLoad = reloadPlay.controller.getActiveId();
+            const cameraBeforeStaleReload = reloadPlay.camera.position.toArray();
+            const eventsAfterReloadLoad = reloadPlay.events.length;
+            staleReloadCallbacks.forEach((callback, index) => callback(100000 + index));
+            await Promise.resolve();
+            const cameraAfterStaleReload = reloadPlay.camera.position.toArray();
+            const reloadActiveAfterStale = reloadPlay.controller.getActiveId();
+            const reloadStaleDidNotRender = reloadPlay.events.length === eventsAfterReloadLoad;
+            reloadPlay.controller.dispose();
+
             return {
                 controlsDisabledDuringPlay,
                 pendingRafBeforeDispose,
@@ -2848,6 +2897,14 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
                 countBeforeRealtimeLoad,
                 countAfterRealtimeLoad,
                 staleChangeCountAfterRealtimeLoad,
+                reloadPendingBeforeLoad,
+                reloadPendingAfterLoad,
+                reloadControlsRestored,
+                reloadActiveAfterLoad,
+                cameraBeforeStaleReload,
+                cameraAfterStaleReload,
+                reloadActiveAfterStale,
+                reloadStaleDidNotRender,
             };
         } finally {
             globalThis.requestAnimationFrame = nativeRaf;
@@ -2876,6 +2933,13 @@ async function runCameraPresetsLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.countBeforeRealtimeLoad, 2, 'Camera presets smoke: pending local camera setup failed');
     assert.equal(result.countAfterRealtimeLoad, 1, 'Camera presets smoke: realtime load did not replace pending local camera state');
     assert.equal(result.staleChangeCountAfterRealtimeLoad, 0, 'Camera presets smoke: realtime load did not cancel pending onChange debounce');
+    assert.ok(result.reloadPendingBeforeLoad > 0, 'Camera presets smoke: reload-during-play did not schedule a transition RAF');
+    assert.equal(result.reloadPendingAfterLoad, 0, 'Camera presets smoke: realtime load did not cancel active transition RAF');
+    assert.equal(result.reloadControlsRestored, true, 'Camera presets smoke: realtime load during playback left controls disabled');
+    assert.equal(result.reloadActiveAfterLoad, 'cam-c', 'Camera presets smoke: realtime load during playback did not keep the loaded active camera');
+    assert.deepEqual(result.cameraAfterStaleReload, result.cameraBeforeStaleReload, 'Camera presets smoke: stale transition RAF moved camera after realtime load');
+    assert.equal(result.reloadActiveAfterStale, 'cam-c', 'Camera presets smoke: stale transition RAF restored an old active camera after realtime load');
+    assert.equal(result.reloadStaleDidNotRender, true, 'Camera presets smoke: stale transition RAF rendered after realtime load');
     diagnostics.assertNoErrors('Camera presets lifecycle smoke');
     await page.close();
 }
