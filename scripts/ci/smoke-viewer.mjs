@@ -7436,6 +7436,7 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
         const THREE = await import('three');
         const { splitMeshByUDIM } = await import('/scripts/modules/fbx/udim-split.js');
         const { createFBXFileHandler } = await import('/scripts/modules/io/fbx-file.js');
+        const { createEmbeddedImageEntriesFromBuffers } = await import('/scripts/modules/fbx/embedded-images.js');
 
         const disposedGeometries = [];
         const disposedMaterials = [];
@@ -7443,6 +7444,7 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
         let skeletonDisposed = 0;
         const nativeDispose = THREE.BufferGeometry.prototype.dispose;
         const nativeMaterialDispose = THREE.Material.prototype.dispose;
+        const nativeCreateObjectURL = URL.createObjectURL;
         const nativeRevokeObjectURL = URL.revokeObjectURL;
         const debugGlobalDescriptors = {
             loader: Object.getOwnPropertyDescriptor(globalThis, '__fbxLoader'),
@@ -7559,6 +7561,73 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
             abortController.abort();
             releaseParse();
             const abortResult = await abortPromise;
+
+            const workerEmbeddedWorld = new THREE.Group();
+            const workerEmbeddedLoadedModels = [];
+            const workerRoot = new THREE.Group();
+            const workerGeometry = makeGeometry();
+            workerGeometry.name = 'workerEmbeddedGeometry';
+            const workerMaterial = new THREE.MeshBasicMaterial({ name: 'workerEmbeddedMaterial' });
+            workerRoot.add(new THREE.Mesh(workerGeometry, workerMaterial));
+            const workerFallbackRoot = new THREE.Group();
+            const workerFallbackGeometry = makeGeometry();
+            workerFallbackGeometry.name = 'workerEmbeddedFallbackGeometry';
+            const workerFallbackMaterial = new THREE.MeshBasicMaterial({ name: 'workerEmbeddedFallbackMaterial' });
+            workerFallbackRoot.add(new THREE.Mesh(workerFallbackGeometry, workerFallbackMaterial));
+            const workerEmbeddedSetSupported = [];
+            let workerEmbeddedDisableCalls = 0;
+            let workerEmbeddedCreateCount = 0;
+            URL.createObjectURL = () => {
+                workerEmbeddedCreateCount += 1;
+                if (workerEmbeddedCreateCount === 1) return 'blob:worker-embedded-1';
+                throw new Error('worker embedded url failed');
+            };
+            const workerEmbeddedHandleFBXFile = createFBXFileHandler({
+                THREE,
+                world: workerEmbeddedWorld,
+                loadedModels: workerEmbeddedLoadedModels,
+                parseFBXInWorker: async () => ({
+                    obj: workerRoot,
+                    duration: 1,
+                    orientationInfo: { source: 'worker-smoke' },
+                    embedded: [
+                        { short: 'first.png', full: 'textures/first.png', mime: 'image/png', buffer: new ArrayBuffer(4) },
+                        { short: 'second.png', full: 'textures/second.png', mime: 'image/png', buffer: new ArrayBuffer(4) },
+                    ],
+                }),
+                parseFBXOnMainThread: () => ({ obj: workerFallbackRoot, duration: 2 }),
+                isWorkerSupported: () => true,
+                setWorkerSupported: (value) => workerEmbeddedSetSupported.push(!!value),
+                disableWorker: () => {
+                    workerEmbeddedDisableCalls += 1;
+                },
+            });
+            const workerEmbeddedResult = await workerEmbeddedHandleFBXFile(
+                new File([new Uint8Array([20, 21, 22])], 'worker-embedded.fbx', { type: 'application/octet-stream' }),
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+            URL.createObjectURL = nativeCreateObjectURL;
+
+            let extractCreateCount = 0;
+            URL.createObjectURL = () => {
+                extractCreateCount += 1;
+                if (extractCreateCount === 1) return 'blob:extract-embedded-1';
+                throw new Error('extract url failed');
+            };
+            let extractRollbackResult = '';
+            try {
+                createEmbeddedImageEntriesFromBuffers([
+                    { short: 'a.png', full: 'a.png', mime: 'image/png', buffer: new ArrayBuffer(4) },
+                    { short: 'b.png', full: 'b.png', mime: 'image/png', buffer: new ArrayBuffer(4) },
+                ]);
+                extractRollbackResult = 'resolved';
+            } catch (err) {
+                extractRollbackResult = err?.message || String(err);
+            }
+            await Promise.resolve();
+            URL.createObjectURL = nativeCreateObjectURL;
 
             const normalizeWorld = new THREE.Group();
             const normalizeLoadedModels = [];
@@ -7733,6 +7802,17 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 abortGeometryDisposed: disposedGeometries.includes('abortGeometry'),
                 abortMaterialDisposed: disposedMaterials.includes('abortMaterial'),
                 skeletonDisposed,
+                workerEmbeddedResult,
+                workerEmbeddedWorldChildren: workerEmbeddedWorld.children.length,
+                workerEmbeddedLoadedCount: workerEmbeddedLoadedModels.length,
+                workerEmbeddedUrlRevoked: revokedUrls.includes('blob:worker-embedded-1'),
+                workerEmbeddedGeometryDisposed: disposedGeometries.includes('workerEmbeddedGeometry'),
+                workerEmbeddedMaterialDisposed: disposedMaterials.includes('workerEmbeddedMaterial'),
+                workerEmbeddedFallbackGeometryDisposed: disposedGeometries.includes('workerEmbeddedFallbackGeometry'),
+                workerEmbeddedSetSupported,
+                workerEmbeddedDisableCalls,
+                extractRollbackResult,
+                extractRollbackUrlRevoked: revokedUrls.includes('blob:extract-embedded-1'),
                 normalizeResult,
                 normalizeWorldChildren: normalizeWorld.children.length,
                 normalizeLoadedCount: normalizeLoadedModels.length,
@@ -7764,6 +7844,7 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
         } finally {
             THREE.BufferGeometry.prototype.dispose = nativeDispose;
             THREE.Material.prototype.dispose = nativeMaterialDispose;
+            URL.createObjectURL = nativeCreateObjectURL;
             URL.revokeObjectURL = nativeRevokeObjectURL;
             const restoreDebugGlobal = (name, descriptor) => {
                 if (descriptor) Object.defineProperty(globalThis, name, descriptor);
@@ -7793,6 +7874,17 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.abortGeometryDisposed, true, 'FBX cleanup smoke: aborted post-parse geometry was not disposed');
     assert.equal(result.abortMaterialDisposed, true, 'FBX cleanup smoke: aborted post-parse material was not disposed');
     assert.equal(result.skeletonDisposed, 1, 'FBX cleanup smoke: aborted post-parse skeleton was not disposed exactly once');
+    assert.equal(result.workerEmbeddedResult, 'resolved', 'FBX cleanup smoke: worker embedded URL failure did not fall back');
+    assert.equal(result.workerEmbeddedWorldChildren, 1, 'FBX cleanup smoke: fallback object was not added after worker embedded URL failure');
+    assert.equal(result.workerEmbeddedLoadedCount, 1, 'FBX cleanup smoke: fallback model was not registered after worker embedded URL failure');
+    assert.equal(result.workerEmbeddedUrlRevoked, true, 'FBX cleanup smoke: worker embedded URL failure leaked a blob URL');
+    assert.equal(result.workerEmbeddedGeometryDisposed, true, 'FBX cleanup smoke: worker embedded URL failure leaked parsed geometry');
+    assert.equal(result.workerEmbeddedMaterialDisposed, true, 'FBX cleanup smoke: worker embedded URL failure leaked parsed material');
+    assert.equal(result.workerEmbeddedFallbackGeometryDisposed, false, 'FBX cleanup smoke: fallback geometry was disposed after successful fallback');
+    assert.deepEqual(result.workerEmbeddedSetSupported, [false], 'FBX cleanup smoke: worker embedded URL failure did not disable worker fallback');
+    assert.equal(result.workerEmbeddedDisableCalls, 1, 'FBX cleanup smoke: worker embedded URL failure did not disable worker client');
+    assert.equal(result.extractRollbackResult, 'extract url failed', 'FBX cleanup smoke: embedded extractor failure did not propagate');
+    assert.equal(result.extractRollbackUrlRevoked, true, 'FBX cleanup smoke: embedded extractor failure leaked a blob URL');
     assert.equal(result.normalizeResult, 'normalize failure', 'FBX cleanup smoke: normalize failure did not propagate');
     assert.equal(result.normalizeWorldChildren, 0, 'FBX cleanup smoke: failed normalize FBX was added to world');
     assert.equal(result.normalizeLoadedCount, 0, 'FBX cleanup smoke: failed normalize FBX was registered as loaded');

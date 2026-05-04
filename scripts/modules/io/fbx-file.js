@@ -132,6 +132,30 @@ export function createFBXFileHandler(options = {}) {
         });
     }
 
+    function buildEmbeddedEntriesFromWorker(entries, fileName) {
+        const out = [];
+        try {
+            (Array.isArray(entries) ? entries : []).forEach((entry) => {
+                const buf = entry?.buffer;
+                const mime = entry?.mime || (buf && sniffImage ? sniffImage(new Uint8Array(buf)).mime : 'application/octet-stream');
+                const url = buf ? URL.createObjectURL(new Blob([buf], { type: mime })) : null;
+                if (!url) return;
+                out.push({
+                    short: entry?.short || basename(entry?.full || '')?.toLowerCase?.() || '',
+                    url,
+                    full: entry?.full || entry?.short || '',
+                    mime,
+                    source: 'embedded',
+                    fileName,
+                });
+            });
+            return out;
+        } catch (err) {
+            revokeEmbeddedUrls(out);
+            throw err;
+        }
+    }
+
     function setDebugGlobals(root, parsedViaWorker) {
         if (!enableDebugGlobals || typeof globalThis === 'undefined') return;
         globalThis.__fbxLoader = fbxLoader;
@@ -189,21 +213,16 @@ export function createFBXFileHandler(options = {}) {
                 orientationInfo = workerResult.orientationInfo || null;
                 orientationSource = orientationInfo?.source || null;
 
-                const embeddedRaw = Array.isArray(workerResult.embedded) ? workerResult.embedded : [];
-                embedded = embeddedRaw.map((entry) => {
-                    const buf = entry?.buffer;
-                    const mime = entry?.mime || (buf && sniffImage ? sniffImage(new Uint8Array(buf)).mime : 'application/octet-stream');
-                    const url = buf ? URL.createObjectURL(new Blob([buf], { type: mime })) : null;
-                    return {
-                        short: entry?.short || basename(entry?.full || '')?.toLowerCase?.() || '',
-                        url,
-                        full: entry?.full || entry?.short || '',
-                        mime,
-                        source: 'embedded',
-                        fileName: file.name,
-                    };
-                }).filter((e) => e && e.url);
+                embedded = buildEmbeddedEntriesFromWorker(workerResult.embedded, file.name);
             } catch (err) {
+                revokeEmbeddedUrls(embedded);
+                disposeObjectResources(parsedObj);
+                parsedObj = null;
+                embedded = [];
+                parsedViaWorker = false;
+                parseDuration = 0;
+                orientationInfo = null;
+                orientationSource = null;
                 if (isAbortError(err)) throw err;
                 logBind(`FBX: фон. парсер не сработал → ${err?.message || err}`, 'warn');
                 setWorkerSupported(false);
