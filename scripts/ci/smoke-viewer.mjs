@@ -7918,6 +7918,112 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runMosParcelsLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createMosParcelsController } = await import('/scripts/modules/scene/mos-parcels.js');
+
+        const pending = [];
+        const loadEvents = [];
+        const statusEvents = [];
+        const world = new THREE.Scene();
+        const northGrid = {
+            groups: [],
+            setParcelsGroup: (group) => northGrid.groups.push(group ? `set:${group.children.length}` : 'clear'),
+            alignParcelsGroupToNorth: () => northGrid.groups.push('align'),
+        };
+
+        function featureAt(x, y) {
+            return {
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[
+                        [x, y],
+                        [x + 10, y],
+                        [x + 10, y + 10],
+                        [x, y + 10],
+                        [x, y],
+                    ]],
+                },
+            };
+        }
+
+        const controller = createMosParcelsController({
+            world,
+            northGrid,
+            config: { apiKey: 'smoke' },
+            setStatusMessage: (message) => statusEvents.push(message),
+            loadParcels: ({ signal, onProgress }) => {
+                const id = pending.length + 1;
+                loadEvents.push(`start:${id}`);
+                signal?.addEventListener?.('abort', () => loadEvents.push(`abort:${id}`), { once: true });
+                onProgress?.({ collectedCount: id, processedCount: id });
+                return new Promise((resolve) => {
+                    pending.push({ id, resolve });
+                });
+            },
+        });
+
+        const firstLoad = controller.loadMosParcels();
+        await Promise.resolve();
+        const secondLoad = controller.loadMosParcels();
+        await Promise.resolve();
+        pending[1].resolve({ features: [featureAt(2000, 2000)] });
+        const secondResult = await secondLoad;
+        const afterSecond = {
+            worldChildren: world.children.length,
+            originX: world.children[0]?.userData?.originMeters?.x || 0,
+            resultMatchesWorld: secondResult === world.children[0],
+        };
+        pending[0].resolve({ features: [featureAt(1000, 1000)] });
+        const firstResult = await firstLoad;
+        const afterLateFirst = {
+            worldChildren: world.children.length,
+            originX: world.children[0]?.userData?.originMeters?.x || 0,
+            firstResult,
+        };
+
+        const thirdLoad = controller.loadMosParcels();
+        await Promise.resolve();
+        controller.dispose();
+        pending[2].resolve({ features: [featureAt(3000, 3000)] });
+        const thirdResult = await thirdLoad;
+
+        return {
+            loadEvents,
+            statusEvents,
+            afterSecond,
+            afterLateFirst,
+            thirdResult,
+            worldChildrenAfterDispose: world.children.length,
+            northGridEvents: northGrid.groups,
+        };
+    });
+
+    assert.deepEqual(result.loadEvents, ['start:1', 'abort:1', 'start:2', 'start:3', 'abort:3'], 'MOS parcels smoke: stale/dispose abort sequence is wrong');
+    assert.equal(result.afterSecond.worldChildren, 1, 'MOS parcels smoke: current load did not add one parcels group');
+    assert.equal(result.afterSecond.originX, 2000, 'MOS parcels smoke: current load origin is wrong');
+    assert.equal(result.afterSecond.resultMatchesWorld, true, 'MOS parcels smoke: current load did not return the applied group');
+    assert.equal(result.afterLateFirst.worldChildren, 1, 'MOS parcels smoke: stale load changed world children');
+    assert.equal(result.afterLateFirst.originX, 2000, 'MOS parcels smoke: stale load replaced current parcels group');
+    assert.equal(result.afterLateFirst.firstResult, null, 'MOS parcels smoke: stale load returned a group');
+    assert.equal(result.thirdResult, null, 'MOS parcels smoke: disposed load returned a group');
+    assert.equal(result.worldChildrenAfterDispose, 0, 'MOS parcels smoke: dispose left parcels group in world');
+    assert.deepEqual(
+        result.northGridEvents,
+        ['set:1', 'align', 'clear'],
+        'MOS parcels smoke: north grid was updated by stale/disposed loads',
+    );
+    diagnostics.assertNoErrors('MOS parcels lifecycle smoke');
+    await page.close();
+}
+
 async function runMaterialsPanelRemovalSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -9121,6 +9227,8 @@ try {
     console.log('VPM autobind lifecycle smoke passed.');
     await runEnvironmentLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Environment lifecycle smoke passed.');
+    await runMosParcelsLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('MOS parcels lifecycle smoke passed.');
     await runMaterialsPanelRemovalSmoke(browser, smokeServer.baseUrl);
     console.log('Materials panel removal smoke passed.');
     await runCustomSelectLifecycleSmoke(browser, smokeServer.baseUrl);

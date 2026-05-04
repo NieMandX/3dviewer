@@ -15,6 +15,7 @@ export function createMosParcelsController(options = {}) {
     const schedulePanelRefresh = typeof options.schedulePanelRefresh === 'function' ? options.schedulePanelRefresh : () => {};
     const markSceneStatsDirty = typeof options.markSceneStatsDirty === 'function' ? options.markSceneStatsDirty : () => {};
     const setStatusMessage = typeof options.setStatusMessage === 'function' ? options.setStatusMessage : () => {};
+    const loadParcelsImpl = typeof options.loadParcels === 'function' ? options.loadParcels : loadParcels;
 
     const logBind = typeof options.logBind === 'function' ? options.logBind : null;
 
@@ -34,6 +35,8 @@ export function createMosParcelsController(options = {}) {
     let parcelsGroup = null;
     let parcelsOrigin = null;
     let disposed = false;
+    let loadGeneration = 0;
+    let activeLoadController = null;
 
     const uiListeners = [];
     function addUIListener(target, type, handler, options) {
@@ -71,11 +74,9 @@ export function createMosParcelsController(options = {}) {
         });
     }
 
-    function disposeCurrentParcels() {
-        if (!parcelsGroup) return;
-
-        world?.remove?.(parcelsGroup);
-        parcelsGroup.traverse(o => {
+    function disposeParcelsGroup(group) {
+        if (!group?.traverse) return;
+        group.traverse(o => {
             o.geometry?.dispose?.();
             const material = o.material;
             if (Array.isArray(material)) {
@@ -84,6 +85,36 @@ export function createMosParcelsController(options = {}) {
                 material?.dispose?.();
             }
         });
+    }
+
+    function makeAbortError(message = 'MOS parcels load superseded') {
+        try {
+            return new DOMException(message, 'AbortError');
+        } catch (_) {
+            const err = new Error(message);
+            err.name = 'AbortError';
+            return err;
+        }
+    }
+
+    function isAbortError(err) {
+        return err?.name === 'AbortError';
+    }
+
+    function abortActiveLoad() {
+        const controller = activeLoadController;
+        activeLoadController = null;
+        if (!controller || controller.signal?.aborted) return;
+        try {
+            controller.abort(makeAbortError());
+        } catch (_) {}
+    }
+
+    function disposeCurrentParcels() {
+        if (!parcelsGroup) return;
+
+        world?.remove?.(parcelsGroup);
+        disposeParcelsGroup(parcelsGroup);
         parcelsGroup = null;
 
         northGrid?.setParcelsGroup?.(null);
@@ -94,6 +125,8 @@ export function createMosParcelsController(options = {}) {
 
     async function loadMosParcels(options = {}) {
         if (disposed) return null;
+        abortActiveLoad();
+        const generation = ++loadGeneration;
         const {
             fetchAll = true,
             batchSize = 200,
@@ -102,25 +135,49 @@ export function createMosParcelsController(options = {}) {
             filter = defaultFilter,
             targetGlobalId = defaultTargetGlobalId,
             referenceHeight,
+            signal: externalSignal = null,
         } = options;
+        const loadController = typeof AbortController === 'function' ? new AbortController() : null;
+        activeLoadController = loadController;
+        const signal = loadController?.signal || externalSignal || null;
+        let externalAbortHandler = null;
+        const isCurrent = () => (
+            !disposed
+            && generation === loadGeneration
+            && !signal?.aborted
+            && !externalSignal?.aborted
+        );
+
+        if (externalSignal?.addEventListener && loadController) {
+            externalAbortHandler = () => {
+                if (!loadController.signal?.aborted) {
+                    try {
+                        loadController.abort(externalSignal.reason || makeAbortError());
+                    } catch (_) {}
+                }
+            };
+            externalSignal.addEventListener('abort', externalAbortHandler, { once: true });
+            if (externalSignal.aborted) externalAbortHandler();
+        }
 
         try {
             setStatusMessage('Загрузка участков data.mos.ru…');
 
-            const { features } = await loadParcels({
+            const { features } = await loadParcelsImpl({
                 fetchAll,
                 batchSize,
                 initialTop,
                 maxRecords,
                 filter,
                 targetGlobalId,
+                signal,
                 onProgress: ({ collectedCount, processedCount }) => {
-                    if (disposed) return;
+                    if (!isCurrent()) return;
                     setStatusMessage(`Загрузка участков… найдено ${collectedCount} из ${processedCount}`);
                 },
             });
 
-            if (disposed) return null;
+            if (!isCurrent()) return null;
 
             if (!features.length) {
                 setStatusMessage('Участки не найдены');
@@ -134,30 +191,14 @@ export function createMosParcelsController(options = {}) {
                 return null;
             }
 
-            if (disposed) {
-                group.traverse(o => {
-                    o.geometry?.dispose?.();
-                    const material = o.material;
-                    if (Array.isArray(material)) {
-                        material.forEach((entry) => entry?.dispose?.());
-                    } else {
-                        material?.dispose?.();
-                    }
-                });
+            if (!isCurrent()) {
+                disposeParcelsGroup(group);
                 return null;
             }
 
             if (parcelsGroup) {
                 world?.remove?.(parcelsGroup);
-                parcelsGroup.traverse(o => {
-                    o.geometry?.dispose?.();
-                    const material = o.material;
-                    if (Array.isArray(material)) {
-                        material.forEach((entry) => entry?.dispose?.());
-                    } else {
-                        material?.dispose?.();
-                    }
-                });
+                disposeParcelsGroup(parcelsGroup);
                 markSceneStatsDirty();
             }
 
@@ -176,10 +217,15 @@ export function createMosParcelsController(options = {}) {
             setStatusMessage('');
             return group;
         } catch (err) {
-            if (disposed) return null;
+            if (!isCurrent() || isAbortError(err)) return null;
             console.error(err);
             setStatusMessage('Не удалось загрузить участки: ' + (err?.message || err));
             return null;
+        } finally {
+            if (activeLoadController === loadController) activeLoadController = null;
+            if (externalSignal?.removeEventListener && externalAbortHandler) {
+                try { externalSignal.removeEventListener('abort', externalAbortHandler); } catch (_) {}
+            }
         }
     }
 
@@ -192,7 +238,10 @@ export function createMosParcelsController(options = {}) {
     }
 
     function dispose() {
+        if (disposed) return;
         disposed = true;
+        loadGeneration += 1;
+        abortActiveLoad();
         disposeUI();
         disposeCurrentParcels();
     }
