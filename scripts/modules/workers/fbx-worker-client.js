@@ -65,7 +65,13 @@ export function createFBXWorkerClient(options = {}) {
         const geometries = new Set();
         const materials = new Set();
         const textures = new Set();
+        const skeletons = new Set();
         root.traverse((node) => {
+            const skeleton = node?.skeleton || null;
+            if (skeleton?.dispose && !skeletons.has(skeleton)) {
+                skeletons.add(skeleton);
+                skeleton.dispose();
+            }
             if (node?.geometry?.dispose && !geometries.has(node.geometry)) {
                 geometries.add(node.geometry);
                 node.geometry.dispose();

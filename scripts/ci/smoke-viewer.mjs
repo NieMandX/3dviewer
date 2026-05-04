@@ -7269,9 +7269,11 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
             let fbxParseFailureResult = '';
             let fbxParseFailureGeometryDisposed = 0;
             let fbxParseFailureMaterialDisposed = 0;
+            let fbxParseFailureSkeletonDisposed = 0;
             {
                 const nativeGeometryDispose = THREE.BufferGeometry.prototype.dispose;
                 const nativeMaterialDispose = THREE.Material.prototype.dispose;
+                const nativeSkeletonDispose = THREE.Skeleton.prototype.dispose;
                 const nativeObjectLoaderParse = THREE.ObjectLoader.prototype.parse;
                 const failureRoot = new THREE.Group();
                 const failureGeometry = new THREE.BufferGeometry();
@@ -7282,7 +7284,12 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                     0, 1, 0,
                 ], 3));
                 const failureMaterial = new THREE.MeshBasicMaterial({ name: 'fbxParseFailureMaterial' });
-                failureRoot.add(new THREE.Mesh(failureGeometry, failureMaterial));
+                const failureBone = new THREE.Bone();
+                const failureSkeleton = new THREE.Skeleton([failureBone]);
+                const failureMesh = new THREE.SkinnedMesh(failureGeometry, failureMaterial);
+                failureMesh.add(failureBone);
+                failureMesh.bind(failureSkeleton);
+                failureRoot.add(failureMesh);
                 THREE.BufferGeometry.prototype.dispose = function smokeFBXParseFailureGeometryDispose(...args) {
                     if (this.name === 'fbxParseFailureGeometry') {
                         fbxParseFailureGeometryDisposed += 1;
@@ -7294,6 +7301,12 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                         fbxParseFailureMaterialDisposed += 1;
                     }
                     return nativeMaterialDispose.apply(this, args);
+                };
+                THREE.Skeleton.prototype.dispose = function smokeFBXParseFailureSkeletonDispose(...args) {
+                    if (this === failureSkeleton) {
+                        fbxParseFailureSkeletonDisposed += 1;
+                    }
+                    return nativeSkeletonDispose?.apply(this, args);
                 };
                 THREE.ObjectLoader.prototype.parse = function smokeFBXParseFailureObjectParse() {
                     return failureRoot;
@@ -7331,6 +7344,7 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 } finally {
                     THREE.BufferGeometry.prototype.dispose = nativeGeometryDispose;
                     THREE.Material.prototype.dispose = nativeMaterialDispose;
+                    THREE.Skeleton.prototype.dispose = nativeSkeletonDispose;
                     THREE.ObjectLoader.prototype.parse = nativeObjectLoaderParse;
                 }
             }
@@ -7446,6 +7460,7 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 fbxParseFailureResult,
                 fbxParseFailureGeometryDisposed,
                 fbxParseFailureMaterialDisposed,
+                fbxParseFailureSkeletonDisposed,
                 zipHandlerErrorResult,
                 zipHandlerErrorTerminated,
                 zipHandlerErrorAckCount,
@@ -7493,6 +7508,7 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
     assert.equal(result.fbxParseFailureResult, 'Error:clip rebuild failed', 'Worker client dispose smoke: FBX parse failure was not propagated');
     assert.equal(result.fbxParseFailureGeometryDisposed, 1, 'Worker client dispose smoke: FBX parse failure leaked restored geometry');
     assert.equal(result.fbxParseFailureMaterialDisposed, 1, 'Worker client dispose smoke: FBX parse failure leaked restored material');
+    assert.equal(result.fbxParseFailureSkeletonDisposed, 1, 'Worker client dispose smoke: FBX parse failure leaked restored skeleton');
     assert.equal(result.zipHandlerErrorResult, 'Error:handler import failed', 'Worker client dispose smoke: ZIP handler failure did not reject import');
     assert.equal(result.zipHandlerErrorTerminated, 1, 'Worker client dispose smoke: ZIP handler failure left worker alive');
     assert.equal(result.zipHandlerErrorAckCount, 0, 'Worker client dispose smoke: ZIP handler failure still acked the failed chunk');
