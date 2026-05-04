@@ -6829,6 +6829,86 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
             const zipRaceResult = await zipRacePromise;
             const zipRacePostedAfterDispose = zipRaceWorker?.messages?.length || 0;
 
+            const fbxConcurrentStartIndex = workers.length;
+            const fbxConcurrentClient = createFBXWorkerClient({ workerUrl: '/fake-fbx-worker-concurrent.js' });
+            const fbxConcurrentAbort = new AbortController();
+            const fbxConcurrentFirstPromise = fbxConcurrentClient.parseFBXInWorker(
+                new ArrayBuffer(4),
+                { embedded: true, orientation: true },
+                { signal: fbxConcurrentAbort.signal },
+            ).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            const fbxConcurrentSecondPromise = fbxConcurrentClient.parseFBXInWorker(
+                new ArrayBuffer(4),
+                { embedded: true, orientation: true },
+            ).then(
+                (value) => (value?.obj ? 'resolved' : 'empty'),
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            const fbxConcurrentWorker = await waitForWorkerMessage(fbxConcurrentStartIndex, 2);
+            const fbxConcurrentFirstId = fbxConcurrentWorker?.messages?.[0]?.id || 1;
+            const fbxConcurrentSecondId = fbxConcurrentWorker?.messages?.[1]?.id || 2;
+            fbxConcurrentAbort.abort();
+            const fbxConcurrentFirstResult = await fbxConcurrentFirstPromise;
+            const fbxConcurrentTerminatedBeforeSecond = fbxConcurrentWorker?.terminated || 0;
+            fbxConcurrentWorker?.emit?.({
+                id: fbxConcurrentFirstId,
+                ok: true,
+                json: new THREE.Group().toJSON(),
+                duration: 1,
+            });
+            fbxConcurrentWorker?.emit?.({
+                id: fbxConcurrentSecondId,
+                ok: true,
+                json: new THREE.Group().toJSON(),
+                duration: 1,
+            });
+            const fbxConcurrentSecondResult = await fbxConcurrentSecondPromise;
+            fbxConcurrentClient.dispose();
+
+            const zipConcurrentStartIndex = workers.length;
+            const zipConcurrentClient = createZIPWorkerClient({ workerUrl: '/fake-zip-worker-concurrent.js' });
+            const zipConcurrentAbort = new AbortController();
+            const zipConcurrentMeta = [];
+            const zipConcurrentFirstPromise = zipConcurrentClient.unpackZIPInWorker(
+                new File([new Uint8Array([1])], 'first.zip', { type: 'application/zip' }),
+                {
+                    onMeta: () => zipConcurrentMeta.push('first'),
+                    onFBX: () => zipConcurrentMeta.push('first-fbx'),
+                },
+                { signal: zipConcurrentAbort.signal },
+            ).then(
+                () => 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            const zipConcurrentSecondPromise = zipConcurrentClient.unpackZIPInWorker(
+                new File([new Uint8Array([2])], 'second.zip', { type: 'application/zip' }),
+                {
+                    onMeta: () => zipConcurrentMeta.push('second'),
+                },
+            ).then(
+                (msg) => msg?.type || 'resolved',
+                (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+            );
+            const zipConcurrentWorker = await waitForWorkerMessage(zipConcurrentStartIndex, 2);
+            const zipConcurrentFirstId = zipConcurrentWorker?.messages?.[0]?.id || 1;
+            const zipConcurrentSecondId = zipConcurrentWorker?.messages?.[1]?.id || 2;
+            zipConcurrentAbort.abort();
+            const zipConcurrentFirstResult = await zipConcurrentFirstPromise;
+            await Promise.resolve();
+            const zipConcurrentTerminatedBeforeSecond = zipConcurrentWorker?.terminated || 0;
+            const zipConcurrentCancelCount = zipConcurrentWorker?.messages
+                ?.filter((message) => message?.type === 'cancel' && message?.id === zipConcurrentFirstId)
+                .length || 0;
+            zipConcurrentWorker?.emit?.({ id: zipConcurrentFirstId, type: 'meta', counts: { fbx: 1, images: 0, geojson: 0 } });
+            zipConcurrentWorker?.emit?.({ id: zipConcurrentFirstId, type: 'done' });
+            zipConcurrentWorker?.emit?.({ id: zipConcurrentSecondId, type: 'meta', counts: { fbx: 0, images: 0, geojson: 0 } });
+            zipConcurrentWorker?.emit?.({ id: zipConcurrentSecondId, type: 'done' });
+            const zipConcurrentSecondResult = await zipConcurrentSecondPromise;
+            zipConcurrentClient.dispose();
+
             let fbxParseFailureResult = '';
             let fbxParseFailureGeometryDisposed = 0;
             let fbxParseFailureMaterialDisposed = 0;
@@ -6998,6 +7078,14 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 zipRacePostedAfterDispose,
                 zipRaceTerminated: zipRaceWorker?.terminated || 0,
                 zipRaceEvents,
+                fbxConcurrentFirstResult,
+                fbxConcurrentSecondResult,
+                fbxConcurrentTerminatedBeforeSecond,
+                zipConcurrentFirstResult,
+                zipConcurrentSecondResult,
+                zipConcurrentTerminatedBeforeSecond,
+                zipConcurrentCancelCount,
+                zipConcurrentMeta,
                 fbxParseFailureResult,
                 fbxParseFailureGeometryDisposed,
                 fbxParseFailureMaterialDisposed,
@@ -7037,6 +7125,14 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
     assert.equal(result.zipRacePostedAfterDispose, 0, 'Worker client dispose smoke: ZIP posted to worker after dispose');
     assert.equal(result.zipRaceTerminated, 1, 'Worker client dispose smoke: ZIP arrayBuffer race worker was not terminated');
     assert.deepEqual(result.zipRaceEvents, [], 'Worker client dispose smoke: ZIP arrayBuffer race fired onError after dispose');
+    assert.match(result.fbxConcurrentFirstResult, /^AbortError:/, 'Worker client dispose smoke: aborted FBX job did not reject');
+    assert.equal(result.fbxConcurrentSecondResult, 'resolved', 'Worker client dispose smoke: aborting one FBX job rejected a sibling job');
+    assert.equal(result.fbxConcurrentTerminatedBeforeSecond, 0, 'Worker client dispose smoke: aborting one FBX job terminated a worker with pending siblings');
+    assert.match(result.zipConcurrentFirstResult, /^AbortError:/, 'Worker client dispose smoke: aborted ZIP job did not reject');
+    assert.equal(result.zipConcurrentSecondResult, 'done', 'Worker client dispose smoke: aborting one ZIP job rejected a sibling job');
+    assert.equal(result.zipConcurrentTerminatedBeforeSecond, 0, 'Worker client dispose smoke: aborting one ZIP job terminated a worker with pending siblings');
+    assert.equal(result.zipConcurrentCancelCount, 1, 'Worker client dispose smoke: ZIP job abort did not send a scoped cancel');
+    assert.deepEqual(result.zipConcurrentMeta, ['second'], 'Worker client dispose smoke: stale ZIP messages reached aborted job handlers');
     assert.equal(result.fbxParseFailureResult, 'Error:clip rebuild failed', 'Worker client dispose smoke: FBX parse failure was not propagated');
     assert.equal(result.fbxParseFailureGeometryDisposed, 1, 'Worker client dispose smoke: FBX parse failure leaked restored geometry');
     assert.equal(result.fbxParseFailureMaterialDisposed, 1, 'Worker client dispose smoke: FBX parse failure leaked restored material');

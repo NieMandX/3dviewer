@@ -43,6 +43,16 @@ export function createFBXWorkerClient(options = {}) {
         pending.clear();
     }
 
+    function rejectJob(id, job, err) {
+        if (!pending.has(id)) return false;
+        pending.delete(id);
+        cleanupJob(job);
+        try {
+            job.reject(err);
+        } catch (_) {}
+        return true;
+    }
+
     function terminateWorker() {
         try {
             workerInstance?.terminate?.();
@@ -124,8 +134,10 @@ export function createFBXWorkerClient(options = {}) {
             if (signal?.addEventListener) {
                 job.abortHandler = () => {
                     const err = makeAbortError();
-                    rejectPending(err);
-                    terminateWorker();
+                    if (!rejectJob(id, job, err)) return;
+                    if (pending.size === 0) {
+                        terminateWorker();
+                    }
                 };
                 signal.addEventListener('abort', job.abortHandler, { once: true });
             }

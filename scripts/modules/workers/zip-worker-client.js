@@ -41,6 +41,20 @@ export function createZIPWorkerClient(options = {}) {
         pending.clear();
     }
 
+    function isAbortError(error) {
+        return error?.name === 'AbortError';
+    }
+
+    function rejectJob(id, job, err) {
+        if (!pending.has(id)) return false;
+        pending.delete(id);
+        cleanupJob(job);
+        try {
+            job.reject(err);
+        } catch (_) {}
+        return true;
+    }
+
     function terminateWorker() {
         try {
             workerInstance?.terminate?.();
@@ -71,10 +85,8 @@ export function createZIPWorkerClient(options = {}) {
                 job.chain = job.chain
                     .then(() => job.handleMessage(msg))
                     .catch((err) => {
-                        pending.delete(msg.id);
-                        cleanupJob(job);
-                        job.reject(err);
-                        if (!disposed && workerInstance === worker) {
+                        const hadPendingJob = rejectJob(msg.id, job, err);
+                        if (hadPendingJob && !isAbortError(err) && !disposed && workerInstance === worker) {
                             terminateWorker();
                         }
                     });
@@ -160,8 +172,16 @@ export function createZIPWorkerClient(options = {}) {
             if (signal?.addEventListener) {
                 job.abortHandler = () => {
                     const err = makeAbortError();
-                    rejectPending(err);
-                    terminateWorker();
+                    if (!rejectJob(id, job, err)) return;
+                    if (!disposed && workerInstance === worker) {
+                        if (pending.size === 0) {
+                            terminateWorker();
+                        } else {
+                            try {
+                                worker.postMessage({ id, type: 'cancel' });
+                            } catch (_) {}
+                        }
+                    }
                 };
                 signal.addEventListener('abort', job.abortHandler, { once: true });
             }

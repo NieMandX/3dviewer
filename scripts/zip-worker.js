@@ -12,6 +12,7 @@ function mimeFromName(name) {
 }
 
 const ackWaiters = new Map();
+const canceledJobs = new Set();
 
 function ackKey(id, seq) {
     return `${id}:${seq}`;
@@ -41,8 +42,35 @@ function resolveAck(id, seq) {
     return true;
 }
 
+function cleanupAckWaitersForJob(id) {
+    const prefix = `${id}:`;
+    for (const [key, entry] of ackWaiters.entries()) {
+        if (!key.startsWith(prefix)) continue;
+        ackWaiters.delete(key);
+        try {
+            entry.resolve?.();
+        } catch (_) {}
+    }
+}
+
+function cancelJob(id) {
+    if (id == null) return false;
+    canceledJobs.add(id);
+    cleanupAckWaitersForJob(id);
+    return true;
+}
+
+function isCanceled(id) {
+    return canceledJobs.has(id);
+}
+
 self.onmessage = async (event) => {
     const msg = event.data || {};
+
+    if (msg.type === 'cancel') {
+        cancelJob(msg.id);
+        return;
+    }
 
     if (msg.type === 'ack') {
         resolveAck(msg.id, msg.seq);
@@ -56,6 +84,7 @@ self.onmessage = async (event) => {
 
     try {
         const zip = await JSZip.loadAsync(buffer);
+        if (isCanceled(id)) return;
         const entries = Object.values(zip.files || {}).filter((e) => e && !e.dir);
 
         const fbxEntries = entries.filter((e) => /\.fbx$/i.test(e.name));
@@ -72,6 +101,7 @@ self.onmessage = async (event) => {
         if (geoEntries.length) {
             const geoEntry = geoEntries[0];
             const bytes = await geoEntry.async('uint8array');
+            if (isCanceled(id)) return;
             let geoText = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
             geoText = geoText.replace(/^\uFEFF/, '');
             self.postMessage({
@@ -87,6 +117,7 @@ self.onmessage = async (event) => {
 
         for (let i = 0; i < orderedFBXEntries.length; i++) {
             const entry = orderedFBXEntries[i];
+            if (isCanceled(id)) return;
             self.postMessage({
                 id,
                 type: 'progress',
@@ -97,6 +128,7 @@ self.onmessage = async (event) => {
             });
             const blob = await entry.async('blob');
             const typed = blob.slice(0, blob.size, 'model/fbx');
+            if (isCanceled(id)) return;
             seq++;
             const waitAck = waitForAck(id, seq);
             self.postMessage(
@@ -112,10 +144,12 @@ self.onmessage = async (event) => {
                 },
             );
             await waitAck;
+            if (isCanceled(id)) return;
         }
 
         for (let i = 0; i < imageEntries.length; i++) {
             const entry = imageEntries[i];
+            if (isCanceled(id)) return;
             self.postMessage({
                 id,
                 type: 'progress',
@@ -127,6 +161,7 @@ self.onmessage = async (event) => {
             const blob = await entry.async('blob');
             const mime = mimeFromName(entry.name);
             const typed = blob.slice(0, blob.size, mime);
+            if (isCanceled(id)) return;
             seq++;
             const waitAck = waitForAck(id, seq);
             self.postMessage(
@@ -143,6 +178,7 @@ self.onmessage = async (event) => {
                 },
             );
             await waitAck;
+            if (isCanceled(id)) return;
         }
 
         self.postMessage({ id, type: 'done' });
@@ -156,5 +192,6 @@ self.onmessage = async (event) => {
                 ackWaiters.delete(key);
             }
         }
+        canceledJobs.delete(id);
     }
 };
