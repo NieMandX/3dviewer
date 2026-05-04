@@ -3971,6 +3971,70 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runMaterialUndoStackLifecycleSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { pruneMaterialUndoStackForRoots } = await import('/scripts/modules/material/undo-stack.js');
+
+        const rootA = new THREE.Group();
+        const meshA = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+        const meshA2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+        meshA.name = 'mesh-a';
+        meshA2.name = 'mesh-a2';
+        rootA.add(meshA, meshA2);
+
+        const rootB = new THREE.Group();
+        const meshB = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+        meshB.name = 'mesh-b';
+        rootB.add(meshB);
+
+        const undoStack = [
+            { fileName: 'mixed.fbx', bindings: [{ obj: meshA }, { obj: meshB }] },
+            { fileName: 'removed.fbx', bindings: [{ obj: meshA2 }] },
+            { fileName: 'empty.fbx', bindings: [] },
+            { fileName: 'metadata-only.fbx' },
+        ];
+
+        const removed = pruneMaterialUndoStackForRoots(undoStack, [rootA]);
+        const afterFirstPrune = undoStack.map((entry) => ({
+            fileName: entry.fileName,
+            bindings: Array.isArray(entry.bindings)
+                ? entry.bindings.map((binding) => binding.obj?.name || '')
+                : null,
+        }));
+        const noopRemoved = pruneMaterialUndoStackForRoots(undoStack, [new THREE.Group()]);
+
+        rootA.traverse((node) => {
+            node.geometry?.dispose?.();
+            node.material?.dispose?.();
+        });
+        rootB.traverse((node) => {
+            node.geometry?.dispose?.();
+            node.material?.dispose?.();
+        });
+
+        return {
+            removed,
+            noopRemoved,
+            afterFirstPrune,
+        };
+    });
+
+    assert.equal(result.removed, 2, 'Material undo stack smoke: removed model bindings were not pruned');
+    assert.equal(result.noopRemoved, 0, 'Material undo stack smoke: unrelated root pruned bindings');
+    assert.deepEqual(result.afterFirstPrune, [
+        { fileName: 'mixed.fbx', bindings: ['mesh-b'] },
+        { fileName: 'empty.fbx', bindings: [] },
+        { fileName: 'metadata-only.fbx', bindings: null },
+    ], 'Material undo stack smoke: remaining undo stack entries are wrong');
+    diagnostics.assertNoErrors('Material undo stack lifecycle smoke');
+    await page.close();
+}
+
 async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -9189,6 +9253,8 @@ try {
     console.log('Texture modal stale entry smoke passed.');
     await runTextureReplacementLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Texture replacement lifecycle smoke passed.');
+    await runMaterialUndoStackLifecycleSmoke(browser, smokeServer.baseUrl);
+    console.log('Material undo stack lifecycle smoke passed.');
     await runCollabRealtimeDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Collab realtime dispose smoke passed.');
     await runCollabInitFailureCleanupSmoke(browser, smokeServer.baseUrl);

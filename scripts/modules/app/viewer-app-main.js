@@ -77,6 +77,7 @@ import { createGlassMeshOptimizer } from '../material/glass-mesh-optimizer.js';
 import { createMaterialRenamer } from '../material/rename-materials.js';
 import { createAutobindPipeline } from '../material/autobind-pipeline.js';
 import { copyTextureSettings } from '../material/texture-utils.js';
+import { pruneMaterialUndoStackForRoots } from '../material/undo-stack.js';
 import { createToStandard } from '../material/to-standard.js';
 import { installConsoleDiagnosticsGate } from '../utils/console-diagnostics.js';
 import {
@@ -3899,6 +3900,7 @@ export class ViewerApp {
             const safeEmbeddedStart = Math.max(0, Math.min(Number(embeddedStart) || 0, allEmbedded.length));
             const removedModels = loadedModels.splice(safeModelStart);
             const removedEntries = allEmbedded.splice(safeEmbeddedStart);
+            pruneMaterialUndoStackForRoots(undoStack, removedModels.map((record) => record?.obj).filter(Boolean));
             const disposeContext = createImportedObjectDisposeContext({
                 preservedResources: collectLoadedModelResources(loadedModels),
             });
@@ -4203,6 +4205,7 @@ export class ViewerApp {
             if (!roomModelRecords.length && !roomTextureEntries.length) {
                 return false;
             }
+            pruneMaterialUndoStackForRoots(undoStack, roomModelRecords.map((record) => record?.obj).filter(Boolean));
 
             const keptModels = roomModelRecords.length
                 ? loadedModels.filter((record) => !scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId))
@@ -6305,9 +6308,10 @@ export class ViewerApp {
 		            sceneIndex.invalidateAll?.();
 		            allEmbedded.forEach((entry) => revokeEmbeddedEntryUrl(entry));
 		            allEmbedded.length = 0;
+		            undoStack.length = 0;
 
-	            try { sceneCore?.dispose?.(); } catch (_) {}
-	        }
+		            try { sceneCore?.dispose?.(); } catch (_) {}
+		        }
 	        app.dispose = disposeApp;
 
 	        app.api = Object.freeze({
