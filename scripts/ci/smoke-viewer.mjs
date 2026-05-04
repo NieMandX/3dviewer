@@ -1838,6 +1838,25 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
         const animationAfterStaleRestartCallback = animationRenders;
         animationLoop.dispose();
 
+        const asyncAnimationEvents = [];
+        const asyncAnimationErrors = [];
+        const asyncAnimationRenderer = {
+            xr: { isPresenting: false },
+            info: { render: {}, memory: {} },
+            setAnimationLoop: (callback) => {
+                asyncAnimationEvents.push(callback ? 'set' : 'clear');
+                return Promise.reject(new Error('animation init failed'));
+            },
+            render: () => {},
+        };
+        const asyncAnimationLoop = createRenderLoopController({
+            renderer: asyncAnimationRenderer,
+            onError: (err, meta) => asyncAnimationErrors.push(`${meta?.phase || ''}:${err?.message || err}`),
+        });
+        asyncAnimationLoop.start();
+        await Promise.resolve();
+        await Promise.resolve();
+
         return {
             rafPendingAfterStart,
             rafAfterFirst,
@@ -1863,6 +1882,8 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
             animationAfterStaleStopCallback,
             animationAfterRestart,
             animationAfterStaleRestartCallback,
+            asyncAnimationEvents,
+            asyncAnimationErrors,
         };
     });
 
@@ -1896,6 +1917,12 @@ async function runRenderLoopLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.animationAfterStaleStopCallback, 1, 'Render loop smoke: stale animation callback rendered after stop');
     assert.equal(result.animationAfterRestart, 2, 'Render loop smoke: setAnimationLoop restart did not request a fresh render');
     assert.equal(result.animationAfterStaleRestartCallback, 2, 'Render loop smoke: stale animation callback rendered after restart');
+    assert.deepEqual(result.asyncAnimationEvents, ['set', 'clear'], 'Render loop smoke: async setAnimationLoop failure was not cleared');
+    assert.deepEqual(
+        result.asyncAnimationErrors,
+        ['animation-loop:animation init failed'],
+        'Render loop smoke: async setAnimationLoop failure was not reported',
+    );
     diagnostics.assertNoErrors('Render loop lifecycle smoke');
     await page.close();
 }

@@ -67,6 +67,29 @@ export function createRenderLoopController(options = {}) {
         }
     }
 
+    function shouldReportAnimationLoopError(callback, generation) {
+        if (callback) return isActiveFrame(generation);
+        return running && generation === loopGeneration;
+    }
+
+    function setAnimationLoopSafely(callback, generation = loopGeneration, phase = 'animation-loop') {
+        if (!hasAnimationLoop) return;
+        try {
+            const result = renderer.setAnimationLoop(callback);
+            if (result && typeof result.catch === 'function') {
+                result.catch((err) => {
+                    if (shouldReportAnimationLoopError(callback, generation)) {
+                        reportLoopError(err, phase);
+                    }
+                });
+            }
+        } catch (err) {
+            if (shouldReportAnimationLoopError(callback, generation)) {
+                reportLoopError(err, phase);
+            }
+        }
+    }
+
     function updateStatsSafely() {
         try {
             updateStatsOverlay();
@@ -167,7 +190,7 @@ export function createRenderLoopController(options = {}) {
         lastFrameTime = 0;
         const generation = loopGeneration;
         if (hasAnimationLoop) {
-            renderer.setAnimationLoop(() => animate(generation));
+            setAnimationLoopSafely(() => animate(generation), generation);
             return;
         }
         scheduleNextFrame(generation);
@@ -182,7 +205,7 @@ export function createRenderLoopController(options = {}) {
         }
         rafToken = 0;
         if (hasAnimationLoop && wasRunning) {
-            renderer.setAnimationLoop(null);
+            setAnimationLoopSafely(null, loopGeneration, 'animation-loop-stop');
         }
     }
 
