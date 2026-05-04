@@ -3424,6 +3424,57 @@ async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
                 files: ['/late.zip'],
             });
 
+            const guardedSampleEvents = [];
+            let releaseGuardedFinalize = null;
+            let resolveGuardedFinalizeStarted = null;
+            const guardedFinalizeStarted = new Promise((resolve) => {
+                resolveGuardedFinalizeStarted = resolve;
+            });
+            globalThis.fetch = async (_url, options = {}) => {
+                guardedSampleEvents.push(`fetchSignal:${!!options.signal}`);
+                return {
+                    ok: true,
+                    status: 200,
+                    statusText: 'OK',
+                    blob: async () => new Blob([new Uint8Array([9])], { type: 'application/zip' }),
+                };
+            };
+            const guardedStatusEl = document.createElement('div');
+            const guardedSampleSelect = document.createElement('select');
+            guardedSampleSelect.appendChild(new Option('Guarded', '/guarded.zip'));
+            document.body.append(guardedStatusEl, guardedSampleSelect);
+            const guardedSampleLoader = createSampleLoader({
+                statusEl: guardedStatusEl,
+                sampleSelect: guardedSampleSelect,
+                setStatusMessage: (message) => guardedSampleEvents.push(`status:${message}`),
+                setEmptyHintVisible: (visible) => guardedSampleEvents.push(`hint:${!!visible}`),
+                hideSidePanel: () => guardedSampleEvents.push('hide'),
+                handleZIPFile: async (_file, options = {}) => {
+                    guardedSampleEvents.push(`zipSignal:${!!options.signal}`);
+                },
+                finalizeBatchAfterAllFiles: async (options = {}) => {
+                    const hasGuard = typeof options.isCurrent === 'function';
+                    guardedSampleEvents.push(`finalizeGuard:${hasGuard}`);
+                    resolveGuardedFinalizeStarted?.();
+                    await new Promise((resolve) => {
+                        releaseGuardedFinalize = resolve;
+                    });
+                    const currentAfterDispose = hasGuard ? options.isCurrent() : 'missing';
+                    guardedSampleEvents.push(`finalizeCurrent:${currentAfterDispose}`);
+                    if (currentAfterDispose !== false) guardedSampleEvents.push('finalizeMutated');
+                    return currentAfterDispose !== false;
+                },
+                getLoadedModelCount: () => 1,
+            });
+            const guardedSamplePromise = guardedSampleLoader.loadSampleModel({
+                label: 'Guarded',
+                files: ['/guarded.zip'],
+            });
+            await guardedFinalizeStarted;
+            guardedSampleLoader.dispose();
+            releaseGuardedFinalize?.();
+            const guardedSampleResult = await guardedSamplePromise;
+
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
             const openBtn = document.createElement('button');
@@ -3481,6 +3532,56 @@ async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
             fileInput.dispatchEvent(new Event('change'));
             await Promise.resolve();
 
+            const guardedFlowInput = document.createElement('input');
+            guardedFlowInput.type = 'file';
+            const guardedOpenBtn = document.createElement('button');
+            const guardedEmptyHint = document.createElement('button');
+            const guardedRoot = document.createElement('div');
+            const guardedDrop = document.createElement('div');
+            document.body.append(guardedFlowInput, guardedOpenBtn, guardedEmptyHint, guardedRoot, guardedDrop);
+            const guardedFlowEvents = [];
+            let releaseGuardedFlowFinalize = null;
+            let resolveGuardedFlowFinalizeStarted = null;
+            const guardedFlowFinalizeStarted = new Promise((resolve) => {
+                resolveGuardedFlowFinalizeStarted = resolve;
+            });
+            const guardedFileFlow = createFileFlowController({
+                fileInput: guardedFlowInput,
+                openBtn: guardedOpenBtn,
+                emptyHintEl: guardedEmptyHint,
+                rootEl: guardedRoot,
+                dropEl: guardedDrop,
+                sampleSelect: null,
+                sampleModels: [],
+                handleFBXFile: async () => guardedFlowEvents.push('fbx'),
+                handleZIPFile: async () => guardedFlowEvents.push('zip'),
+                finalizeBatchAfterAllFiles: async (options = {}) => {
+                    const hasGuard = typeof options.isCurrent === 'function';
+                    guardedFlowEvents.push(`finalizeGuard:${hasGuard}`);
+                    resolveGuardedFlowFinalizeStarted?.();
+                    await new Promise((resolve) => {
+                        releaseGuardedFlowFinalize = resolve;
+                    });
+                    const currentAfterDispose = hasGuard ? options.isCurrent() : 'missing';
+                    guardedFlowEvents.push(`finalizeCurrent:${currentAfterDispose}`);
+                    if (currentAfterDispose !== false) guardedFlowEvents.push('finalizeMutated');
+                    return currentAfterDispose !== false;
+                },
+                setEmptyHintVisible: (visible) => guardedFlowEvents.push(`hint:${!!visible}`),
+                getLoadedModelCount: () => 1,
+            });
+            Object.defineProperty(guardedFlowInput, 'files', {
+                configurable: true,
+                value: [new File([new Uint8Array([3])], 'guarded.zip', { type: 'application/zip' })],
+            });
+            guardedFlowInput.dispatchEvent(new Event('change'));
+            await guardedFlowFinalizeStarted;
+            guardedFileFlow.dispose();
+            releaseGuardedFlowFinalize?.();
+            for (let i = 0; i < 10; i += 1) {
+                await Promise.resolve();
+            }
+
             return {
                 sampleDisabledDuringLoad,
                 sampleSignalAborted,
@@ -3491,11 +3592,19 @@ async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
                 sampleZipCalled: sampleEvents.includes('zip'),
                 sampleFinalizeCalled: sampleEvents.includes('finalize'),
                 sampleAbortShowedError: sampleEvents.some((entry) => entry.includes('Ошибка загрузки примера')),
+                guardedSampleResult,
+                guardedSampleSelectReenabled: guardedSampleSelect.disabled === false,
+                guardedFinalizeHadGuard: guardedSampleEvents.includes('finalizeGuard:true'),
+                guardedFinalizeCurrentAfterDispose: guardedSampleEvents.includes('finalizeCurrent:false'),
+                guardedFinalizeMutated: guardedSampleEvents.includes('finalizeMutated'),
                 flowSignalAborted,
                 flowDropCleared,
                 flowEventsAfterDispose,
                 flowEvents,
                 flowFinalizeCalled: flowEvents.includes('finalize'),
+                guardedFlowFinalizeHadGuard: guardedFlowEvents.includes('finalizeGuard:true'),
+                guardedFlowFinalizeCurrentAfterDispose: guardedFlowEvents.includes('finalizeCurrent:false'),
+                guardedFlowFinalizeMutated: guardedFlowEvents.includes('finalizeMutated'),
             };
         } finally {
             globalThis.fetch = nativeFetch;
@@ -3511,11 +3620,19 @@ async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.sampleZipCalled, false, 'File-flow dispose smoke: sample ZIP handler ran after dispose');
     assert.equal(result.sampleFinalizeCalled, false, 'File-flow dispose smoke: sample finalize ran after dispose');
     assert.equal(result.sampleAbortShowedError, false, 'File-flow dispose smoke: sample abort showed an error status');
+    assert.equal(result.guardedSampleResult, false, 'File-flow dispose smoke: guarded sample finalize did not resolve false after dispose');
+    assert.equal(result.guardedSampleSelectReenabled, true, 'File-flow dispose smoke: guarded sample select stayed disabled after dispose');
+    assert.equal(result.guardedFinalizeHadGuard, true, 'File-flow dispose smoke: sample finalizer did not receive an isCurrent guard');
+    assert.equal(result.guardedFinalizeCurrentAfterDispose, true, 'File-flow dispose smoke: sample finalizer guard stayed current after dispose');
+    assert.equal(result.guardedFinalizeMutated, false, 'File-flow dispose smoke: stale sample finalizer still mutated after dispose');
     assert.equal(result.flowSignalAborted, true, 'File-flow dispose smoke: active file batch was not aborted on dispose');
     assert.equal(result.flowDropCleared, true, 'File-flow dispose smoke: drop overlay stayed visible after dispose');
     assert.deepEqual(result.flowEventsAfterDispose, ['hint:false', 'zip:start', 'zip:abort'], 'File-flow dispose smoke: unexpected active batch events after dispose');
     assert.deepEqual(result.flowEvents, result.flowEventsAfterDispose, 'File-flow dispose smoke: disposed file input still handled changes');
     assert.equal(result.flowFinalizeCalled, false, 'File-flow dispose smoke: file batch finalize ran after dispose');
+    assert.equal(result.guardedFlowFinalizeHadGuard, true, 'File-flow dispose smoke: file finalizer did not receive an isCurrent guard');
+    assert.equal(result.guardedFlowFinalizeCurrentAfterDispose, true, 'File-flow dispose smoke: file finalizer guard stayed current after dispose');
+    assert.equal(result.guardedFlowFinalizeMutated, false, 'File-flow dispose smoke: stale file finalizer still mutated after dispose');
     diagnostics.assertNoErrors('File-flow dispose lifecycle smoke');
     await page.close();
 }

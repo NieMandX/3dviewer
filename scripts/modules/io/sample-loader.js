@@ -70,7 +70,7 @@ export function createSampleLoader(options = {}) {
                 await handleZIPFile(file, signal ? { signal } : null);
             }
             if (!isCurrent()) return false;
-            await finalizeBatchAfterAllFiles();
+            await finalizeBatchAfterAllFiles({ isCurrent });
             if (!isCurrent()) return false;
 
             setStatusMessage('');

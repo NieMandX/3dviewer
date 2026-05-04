@@ -104,7 +104,9 @@ export function createFileFlowController(options = {}) {
             if (disposed || signal?.aborted) return;
             if (resetInput && fileInput) fileInput.value = '';
             setEmptyHintVisible(getLoadedModelCount() === 0);
-            await finalizeBatchAfterAllFiles();
+            await finalizeBatchAfterAllFiles({
+                isCurrent: () => !disposed && !signal?.aborted,
+            });
         }
     }
 
