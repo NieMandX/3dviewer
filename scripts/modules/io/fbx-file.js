@@ -83,6 +83,7 @@ export function createFBXFileHandler(options = {}) {
         const geometries = new Set();
         const materials = new Set();
         const textures = new Set();
+        const skipTextureKeys = new Set(['envMap', 'matcap']);
         const skeletons = new Set();
         const asMaterialArray = (value) => {
             if (!value) return [];
@@ -92,7 +93,8 @@ export function createFBXFileHandler(options = {}) {
             if (!material || materials.has(material)) return;
             materials.add(material);
             if (disposeTextures) {
-                Object.values(material).forEach((value) => {
+                Object.entries(material).forEach(([key, value]) => {
+                    if (skipTextureKeys.has(key)) return;
                     if (!value?.isTexture || textures.has(value)) return;
                     textures.add(value);
                     value.dispose?.();
