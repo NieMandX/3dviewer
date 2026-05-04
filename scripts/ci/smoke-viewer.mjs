@@ -6783,6 +6783,8 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
             }, {
                 signal: operationAbortController.signal,
                 abortMessage: 'operation superseded',
+                onLateResolve: (value) => events.push(`operation:lateResolve:${value}`),
+                onLateReject: () => events.push('operation:lateReject'),
             }).then(
                 (value) => `resolved:${value}`,
                 (err) => `${err?.name || 'Error'}:${err?.message || err}`,
@@ -6793,6 +6795,8 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
             }).then(() => new Promise((resolve) => setTimeout(resolve, 0))).then(() => 'hung'),
         ]);
         releaseBlockedOperation?.();
+        await Promise.resolve();
+        await Promise.resolve();
 
         return {
             abortResult,
@@ -6810,6 +6814,8 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
     assert.equal(result.successResult, 'resolved', 'Abortable TUS smoke: successful upload did not resolve');
     assert.equal(result.blockedOperationStarted, true, 'Abortable operation smoke: operation did not start');
     assert.equal(result.operationAbortResult, 'AbortError:operation superseded', 'Abortable operation smoke: non-abortable operation did not reject on abort');
+    assert.ok(result.events.includes('operation:lateResolve:late'), 'Abortable operation smoke: late resolve cleanup hook did not fire');
+    assert.equal(result.events.includes('operation:lateReject'), false, 'Abortable operation smoke: late reject hook fired for a late resolve');
     assert.deepEqual(result.progress, ['25/100'], 'Abortable TUS smoke: progress callback did not fire');
     assert.ok(result.events.includes('success:resume'), 'Abortable TUS smoke: previous upload was not resumed');
     assert.ok(result.events.includes('success:start'), 'Abortable TUS smoke: successful upload did not start');

@@ -5061,6 +5061,10 @@ export class ViewerApp {
                 ), {
                     signal: options.signal || null,
                     abortMessage: 'Model sync superseded',
+                    onLateResolve: (result) => {
+                        if (!options.signal?.aborted || result?.error) return;
+                        void cleanupUploadedModelObject(path, supabase);
+                    },
                 });
                 if (uploadError) throw uploadError;
             }

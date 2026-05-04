@@ -25,10 +25,11 @@ export function runAbortableOperation(operation, options = {}) {
             } catch (_) {}
         };
         const finish = (callback, value) => {
-            if (settled) return;
+            if (settled) return false;
             settled = true;
             cleanup();
             callback(value);
+            return true;
         };
         function handleAbort() {
             finish(reject, signal?.reason || makeAbortError(abortMessage));
@@ -45,8 +46,16 @@ export function runAbortableOperation(operation, options = {}) {
         }
 
         Promise.resolve(result).then(
-            (value) => finish(resolve, value),
-            (err) => finish(reject, err),
+            (value) => {
+                if (!finish(resolve, value)) {
+                    try { options.onLateResolve?.(value); } catch (_) {}
+                }
+            },
+            (err) => {
+                if (!finish(reject, err)) {
+                    try { options.onLateReject?.(err); } catch (_) {}
+                }
+            },
         );
     });
 }
