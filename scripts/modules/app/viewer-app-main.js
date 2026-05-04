@@ -48,7 +48,7 @@ import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
 import { createRealtimeChannelStatusHandler } from '../collab/realtime-channel-status.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
-import { isRoomModelIdLinked, promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
+import { createRoomModelLinkTracker, promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
 import { createAuxRealtimeChannelRegistry } from '../collab/aux-realtime-channels.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
 import { createVoiceController } from '../voice/voice-controller.js';
@@ -1014,7 +1014,7 @@ export class ViewerApp {
         const ROOM_CAMERAS_CHANNEL = 'room_cameras';
         const ROOM_TRANSITIONS_CHANNEL = 'room_transitions';
         const roomAuxRealtimeChannels = createAuxRealtimeChannelRegistry();
-        const roomModelIds = new Set();
+        const roomModelLinks = createRoomModelLinkTracker();
         const loadedRoomModelIds = new Set();
         let isLoadingRoomModels = false;
         let loadingRoomModelsGeneration = 0;
@@ -1903,7 +1903,7 @@ export class ViewerApp {
             if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
 
             cleanupRoomScopedAssets(previousRoomId);
-            roomModelIds.clear();
+            roomModelLinks.clear();
             roomModelCount = 0;
             roomCameraCount = 0;
             activeRoomModelId = '';
@@ -3848,31 +3848,33 @@ export class ViewerApp {
         function rememberRoomModelId(modelId) {
             const id = String(modelId || '').trim();
             if (!id) return false;
-            const existed = roomModelIds.has(id);
-            roomModelIds.add(id);
-            roomModelCount = roomModelIds.size;
-            return !existed;
+            const added = roomModelLinks.remember(id);
+            roomModelCount = roomModelLinks.size();
+            return added;
         }
 
-        function forgetRoomModelId(modelId) {
+        function confirmRoomModelId(modelId) {
             const id = String(modelId || '').trim();
             if (!id) return false;
-            const removed = roomModelIds.delete(id);
-            roomModelCount = roomModelIds.size;
+            const added = roomModelLinks.remember(id, { clearTombstone: true });
+            roomModelCount = roomModelLinks.size();
+            return added;
+        }
+
+        function forgetRoomModelId(modelId, options = {}) {
+            const id = String(modelId || '').trim();
+            if (!id) return false;
+            const removed = roomModelLinks.forget(id, options);
+            roomModelCount = roomModelLinks.size();
             return removed;
         }
 
         function replaceRoomModelIds(modelIds = []) {
-            roomModelIds.clear();
-            modelIds.forEach((modelId) => {
-                const id = String(modelId || '').trim();
-                if (id) roomModelIds.add(id);
-            });
-            roomModelCount = roomModelIds.size;
+            roomModelCount = roomModelLinks.replace(modelIds);
         }
 
         function isRoomModelStillLinked(modelId) {
-            return isRoomModelIdLinked(roomModelIds, modelId);
+            return roomModelLinks.has(modelId);
         }
 
         function assignImportScopeToRange({ modelStart = 0, embeddedStart = 0, scope = null } = {}) {
@@ -5213,7 +5215,7 @@ export class ViewerApp {
                 if (!roomModelRow?.model_id) {
                     throw new Error('Room model link was not persisted.');
                 }
-                rememberRoomModelId(modelRow.id);
+                confirmRoomModelId(modelRow.id);
 
                 setSyncStatus('обновление активной модели…');
                 activeRoomModelId = modelRow.id;
@@ -5236,7 +5238,7 @@ export class ViewerApp {
                     roomId,
                     modelId: modelRow.id,
                 });
-                rememberRoomModelId(modelRow.id);
+                confirmRoomModelId(modelRow.id);
                 syncStatus.keep();
                 setStatusMessage('готово: модель синхронизирована');
                 shouldKeepStatusMessage = true;
@@ -5589,7 +5591,7 @@ export class ViewerApp {
                 if (eventType === 'DELETE') {
                     const modelId = String(payload?.old?.model_id || '').trim();
                     if (!modelId) return;
-                    forgetRoomModelId(modelId);
+                    forgetRoomModelId(modelId, { tombstone: true });
                     cleanupRoomModelScopedAssets({ roomId, modelId });
                     return;
                 }
@@ -5597,7 +5599,7 @@ export class ViewerApp {
 
                 const modelId = String(payload?.new?.model_id || '').trim();
                 if (!modelId) return;
-                rememberRoomModelId(modelId);
+                confirmRoomModelId(modelId);
                 if (loadedRoomModelIds.has(modelId)) return;
                 const { data: modelRow, error: modelError } = await controller.supabase
                     .from('project_models')
@@ -6097,6 +6099,7 @@ export class ViewerApp {
                 return;
             }
             rememberRoomModelId(activeModelId);
+            if (!isRoomModelStillLinked(activeModelId)) return;
             if (activeModelId === activeRoomModelId && loadedRoomModelIds.has(activeModelId)) return;
             const { data: modelRow, error } = await collabController.supabase
                 .from('project_models')

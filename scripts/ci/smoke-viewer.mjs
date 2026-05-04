@@ -5917,6 +5917,7 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
 
     const result = await page.evaluate(async () => {
         const {
+            createRoomModelLinkTracker,
             isRoomModelIdLinked,
             promoteLocalImportScopeToRoom,
             pruneLoadedRoomModelIds,
@@ -5978,6 +5979,27 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
         realtimeIds.add('kept');
         const keptStillLinked = isRoomModelIdLinked(realtimeIds, 'kept');
 
+        const linkTracker = createRoomModelLinkTracker();
+        const firstRemember = linkTracker.remember('race-model');
+        const deletedRemembered = linkTracker.forget('race-model', { tombstone: true });
+        const staleRememberAfterDelete = linkTracker.remember('race-model');
+        const linkedAfterStaleRemember = linkTracker.has('race-model');
+        const tombstoneAfterDelete = linkTracker.isTombstoned('race-model');
+        const insertRememberAfterDelete = linkTracker.remember('race-model', { clearTombstone: true });
+        const linkedAfterInsertRemember = linkTracker.has('race-model');
+        const tombstoneAfterInsert = linkTracker.isTombstoned('race-model');
+        linkTracker.forget('race-model', { tombstone: true });
+        const linkedAfterSecondDelete = linkTracker.has('race-model');
+        const replaceCount = linkTracker.replace(['race-model', 'other-model']);
+        const linkedAfterReconcile = linkTracker.has('race-model');
+        const valuesAfterReconcile = linkTracker.values().sort();
+        linkTracker.clear();
+        const clearState = {
+            size: linkTracker.size(),
+            linked: linkTracker.has('race-model'),
+            tombstoned: linkTracker.isTombstoned('race-model'),
+        };
+
         return {
             roomRemoved: roomPrune.removedIds,
             activeAfterRoomPrune: roomPrune.activeRoomModelId,
@@ -5992,6 +6014,19 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
             untouchedEmbeddedScope: allEmbedded[1].scope,
             realtimeLoads,
             keptStillLinked,
+            firstRemember,
+            deletedRemembered,
+            staleRememberAfterDelete,
+            linkedAfterStaleRemember,
+            tombstoneAfterDelete,
+            insertRememberAfterDelete,
+            linkedAfterInsertRemember,
+            tombstoneAfterInsert,
+            linkedAfterSecondDelete,
+            replaceCount,
+            linkedAfterReconcile,
+            valuesAfterReconcile,
+            clearState,
         };
     });
 
@@ -6008,6 +6043,23 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
     assert.equal(result.untouchedEmbeddedScope.kind, 'local', 'Room model state smoke: unrelated embedded scope was changed');
     assert.deepEqual(result.realtimeLoads, [], 'Room model state smoke: deleted realtime INSERT still loaded after async gap');
     assert.equal(result.keptStillLinked, true, 'Room model state smoke: linked model id was not recognized');
+    assert.equal(result.firstRemember, true, 'Room model state smoke: first link tracker remember failed');
+    assert.equal(result.deletedRemembered, true, 'Room model state smoke: link tracker delete did not remove remembered id');
+    assert.equal(result.staleRememberAfterDelete, false, 'Room model state smoke: stale remember revived tombstoned model');
+    assert.equal(result.linkedAfterStaleRemember, false, 'Room model state smoke: tombstoned model stayed linked after stale remember');
+    assert.equal(result.tombstoneAfterDelete, true, 'Room model state smoke: delete did not tombstone model id');
+    assert.equal(result.insertRememberAfterDelete, true, 'Room model state smoke: confirmed insert did not revive tombstoned model');
+    assert.equal(result.linkedAfterInsertRemember, true, 'Room model state smoke: confirmed insert did not restore link');
+    assert.equal(result.tombstoneAfterInsert, false, 'Room model state smoke: confirmed insert did not clear tombstone');
+    assert.equal(result.linkedAfterSecondDelete, false, 'Room model state smoke: second delete left model linked');
+    assert.equal(result.replaceCount, 2, 'Room model state smoke: reconcile replace returned wrong count');
+    assert.equal(result.linkedAfterReconcile, true, 'Room model state smoke: reconcile did not clear tombstone for present row');
+    assert.deepEqual(result.valuesAfterReconcile, ['other-model', 'race-model'], 'Room model state smoke: link tracker values were wrong after reconcile');
+    assert.deepEqual(
+        result.clearState,
+        { size: 0, linked: false, tombstoned: false },
+        'Room model state smoke: link tracker clear did not reset state',
+    );
     diagnostics.assertNoErrors('Room model state smoke');
     await page.close();
 }
