@@ -161,6 +161,7 @@ export function createVRController(options = {}) {
         autoStartTriggered: false,
         autoStartListeners: [],
         currentSession: null,
+        enterPromise: null,
         sessionActive: false,
         prevControlsEnabled: true,
         prevFlightEnabled: true,
@@ -997,7 +998,7 @@ export function createVRController(options = {}) {
         cleanupSessionState();
     }
 
-    async function enterVR({ source = 'manual' } = {}) {
+    async function startEnterVR({ source = 'manual' } = {}) {
         if (state.disposed) return false;
         if (state.sessionActive) return true;
         const xr = win?.navigator?.xr;
@@ -1085,6 +1086,20 @@ export function createVRController(options = {}) {
             }
         }
         return true;
+    }
+
+    async function enterVR({ source = 'manual' } = {}) {
+        if (state.disposed) return false;
+        if (state.sessionActive) return true;
+        if (state.enterPromise) return state.enterPromise;
+
+        const promise = startEnterVR({ source }).finally(() => {
+            if (state.enterPromise === promise) {
+                state.enterPromise = null;
+            }
+        });
+        state.enterPromise = promise;
+        return promise;
     }
 
     async function exitVR() {
@@ -1185,6 +1200,7 @@ export function createVRController(options = {}) {
         cleanupSessionState({ requestFrame: false, hideMenu: false, updateUi: false });
         endSessionQuietly(session);
         disposeXrRig();
+        state.enterPromise = null;
         state.disposed = true;
         clearAutoStartListeners();
         setVrUiActive(false);

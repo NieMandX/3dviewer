@@ -5821,6 +5821,27 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
         active.button.click();
         await Promise.resolve();
 
+        const concurrentSession = new FakeSession('concurrent');
+        let concurrentRequestCount = 0;
+        const concurrent = makeHarness('concurrent', {
+            isSessionSupported: async () => true,
+            requestSession: async () => {
+                concurrentRequestCount += 1;
+                await Promise.resolve();
+                return concurrentSession;
+            },
+        });
+        const concurrentFirstEnter = concurrent.controller.enterVR();
+        const concurrentSecondEnter = concurrent.controller.enterVR();
+        const [concurrentFirstResult, concurrentSecondResult] = await Promise.all([
+            concurrentFirstEnter,
+            concurrentSecondEnter,
+        ]);
+        const concurrentSetSessionCalls = concurrent.events
+            .filter((entry) => entry === 'setSession:concurrent')
+            .length;
+        concurrent.controller.dispose();
+
         let releasePendingSession = null;
         let pendingRequestCount = 0;
         const pendingSession = new FakeSession('pending');
@@ -5873,6 +5894,11 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
             activeRequestCountBeforeClick,
             activeRequestCountAfterClick: activeRequestCount,
             activeIsPresentingAfterDispose: active.controller.isPresenting(),
+            concurrentRequestCount,
+            concurrentFirstResult,
+            concurrentSecondResult,
+            concurrentSetSessionCalls,
+            concurrentSessionEnded: concurrentSession.ended,
             pendingRequestCount,
             pendingCameraInRigBeforeDispose,
             pendingSessionEnded: pendingSession.ended,
@@ -5906,6 +5932,11 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.activeBodyClassCleared, true, 'VR dispose smoke: body VR class stayed after dispose');
     assert.equal(result.activeRequestCountAfterClick, result.activeRequestCountBeforeClick, 'VR dispose smoke: disposed button listener started a new session');
     assert.equal(result.activeIsPresentingAfterDispose, false, 'VR dispose smoke: disposed controller still reports presenting');
+    assert.equal(result.concurrentRequestCount, 1, 'VR dispose smoke: concurrent enterVR calls opened duplicate WebXR sessions');
+    assert.equal(result.concurrentFirstResult, true, 'VR dispose smoke: first concurrent enterVR did not resolve true');
+    assert.equal(result.concurrentSecondResult, true, 'VR dispose smoke: second concurrent enterVR did not share the active enter result');
+    assert.equal(result.concurrentSetSessionCalls, 1, 'VR dispose smoke: concurrent enterVR calls installed duplicate renderer sessions');
+    assert.equal(result.concurrentSessionEnded, 1, 'VR dispose smoke: concurrent session was not ended on dispose');
     assert.equal(result.pendingRequestCount, 1, 'VR dispose smoke: pending session request did not start');
     assert.equal(result.pendingCameraInRigBeforeDispose, true, 'VR dispose smoke: pending enter did not attach camera before request');
     assert.equal(result.pendingSessionEnded, 1, 'VR dispose smoke: pending session was not ended after dispose');
