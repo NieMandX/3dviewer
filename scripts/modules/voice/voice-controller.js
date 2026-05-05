@@ -37,6 +37,7 @@ export function createVoiceController(options = {}) {
     let micEnabled = false;
     let disposed = false;
     let lifecycleGeneration = 0;
+    let activeTokenAbortController = null;
     let nextFallbackTrackId = 0;
     const attachedAudio = new Map();
     const fallbackTrackKeys = new WeakMap();
@@ -170,11 +171,12 @@ export function createVoiceController(options = {}) {
         });
     }
 
-    async function requestToken(session) {
+    async function requestToken(session, signal = null) {
         const response = await fetch(`${voiceApiUrl}/v1/token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(session),
+            signal: signal || undefined,
         });
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.token || !payload?.wsUrl) {
@@ -189,10 +191,12 @@ export function createVoiceController(options = {}) {
         connecting = true;
         emitState();
         let nextRoom = null;
+        const tokenAbortController = typeof AbortController === 'function' ? new AbortController() : null;
+        activeTokenAbortController = tokenAbortController;
         try {
             sdk = sdk || await loadLiveKitClient();
             if (disposed || generation !== lifecycleGeneration) return;
-            const tokenPayload = await requestToken(session);
+            const tokenPayload = await requestToken(session, tokenAbortController?.signal || null);
             if (disposed || generation !== lifecycleGeneration) return;
             nextRoom = new sdk.Room();
             room = nextRoom;
@@ -232,6 +236,9 @@ export function createVoiceController(options = {}) {
             emitState({ error: error instanceof Error ? error.message : 'Voice connect failed' });
             throw error;
         } finally {
+            if (activeTokenAbortController === tokenAbortController) {
+                activeTokenAbortController = null;
+            }
             if (generation === lifecycleGeneration && connecting && room !== nextRoom) {
                 connecting = false;
                 emitState();
@@ -241,6 +248,13 @@ export function createVoiceController(options = {}) {
 
     async function disconnect() {
         lifecycleGeneration += 1;
+        const tokenAbortController = activeTokenAbortController;
+        activeTokenAbortController = null;
+        try {
+            if (tokenAbortController && !tokenAbortController.signal?.aborted) {
+                tokenAbortController.abort();
+            }
+        } catch (_) {}
         connecting = false;
         const activeRoom = room;
         room = null;

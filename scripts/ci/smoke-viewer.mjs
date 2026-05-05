@@ -5734,10 +5734,11 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             Track: { Kind: { Audio: 'audio' } },
         };
 
-        globalThis.fetch = async () => ({
+        const resolvingTokenFetch = async () => ({
             ok: true,
             json: async () => ({ token: 'token', wsUrl: 'wss://voice.example', room: 'voice-room' }),
         });
+        globalThis.fetch = resolvingTokenFetch;
 
         try {
             const { createVoiceController } = await import('/scripts/modules/voice/voice-controller.js');
@@ -5773,6 +5774,34 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             releaseConnect();
             const connectResult = await connectResultPromise;
             const statesAfterRace = states.slice();
+
+            let tokenAbortSignal = null;
+            let resolveTokenFetchStarted = null;
+            const tokenFetchStarted = new Promise((resolve) => {
+                resolveTokenFetchStarted = resolve;
+            });
+            globalThis.fetch = (_url, options = {}) => new Promise((_resolve, reject) => {
+                tokenAbortSignal = options.signal || null;
+                resolveTokenFetchStarted();
+                tokenAbortSignal?.addEventListener?.('abort', () => {
+                    reject(tokenAbortSignal.reason || new DOMException('voice token aborted', 'AbortError'));
+                }, { once: true });
+            });
+            const tokenAbortRoomCountBefore = roomInstances.length;
+            const tokenAbortController = createVoiceController({
+                voiceApiUrl: 'https://voice.example',
+                onState: () => {},
+            });
+            const tokenAbortResultPromise = tokenAbortController
+                .connect({ room: 'room:token-abort', identity: 'local-user', name: 'Local User' })
+                .then(() => 'resolved', (err) => `rejected:${err?.name || ''}:${err?.message || String(err)}`);
+            await tokenFetchStarted;
+            const tokenFetchHadSignal = !!tokenAbortSignal;
+            await tokenAbortController.disconnect();
+            const tokenFetchAborted = !!tokenAbortSignal?.aborted;
+            const tokenAbortResult = await tokenAbortResultPromise;
+            const tokenAbortRoomCreated = roomInstances.length > tokenAbortRoomCountBefore;
+            globalThis.fetch = resolvingTokenFetch;
 
             let rejectStaleConnect = null;
             const staleRejectStarted = new Promise((resolve) => {
@@ -5847,6 +5876,10 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
                 staleDisconnectCalls: staleRoom?.disconnectCalls || 0,
                 staleMicCalls: staleRoom?.micCalls || [],
                 staleStartAudioCalls: staleRoom?.startAudioCalls || 0,
+                tokenFetchHadSignal,
+                tokenFetchAborted,
+                tokenAbortResult,
+                tokenAbortRoomCreated,
                 staleRejectResult,
                 staleRejectAudioBeforeOldFailure,
                 staleRejectAudioAfterOldFailure,
@@ -5871,6 +5904,10 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
         false,
         'Voice controller smoke: stale connect reported connected state after disconnect',
     );
+    assert.equal(result.tokenFetchHadSignal, true, 'Voice controller smoke: token request did not receive an abort signal');
+    assert.equal(result.tokenFetchAborted, true, 'Voice controller smoke: token request was not aborted on disconnect');
+    assert.equal(result.tokenAbortResult, 'resolved', 'Voice controller smoke: aborted token request rejected stale connect');
+    assert.equal(result.tokenAbortRoomCreated, false, 'Voice controller smoke: aborted token request still created a room');
     assert.equal(result.staleRejectResult, 'resolved', 'Voice controller smoke: stale rejected connect propagated after reconnect');
     assert.equal(result.staleRejectAudioBeforeOldFailure, 1, 'Voice controller smoke: current room audio was not attached before stale failure');
     assert.equal(result.staleRejectAudioAfterOldFailure, 1, 'Voice controller smoke: stale connect failure cleared current room audio');
