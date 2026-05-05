@@ -6044,6 +6044,21 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
             .length;
         concurrent.controller.dispose();
 
+        let failedRequestCount = 0;
+        const failed = makeHarness('failed', {
+            isSessionSupported: async () => true,
+            requestSession: async () => {
+                failedRequestCount += 1;
+                throw new Error('denied');
+            },
+        });
+        let failedEnterError = '';
+        try {
+            await failed.controller.enterVR();
+        } catch (err) {
+            failedEnterError = String(err?.message || err || '');
+        }
+
         let releasePendingSession = null;
         let pendingRequestCount = 0;
         const pendingSession = new FakeSession('pending');
@@ -6101,6 +6116,13 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
             concurrentSecondResult,
             concurrentSetSessionCalls,
             concurrentSessionEnded: concurrentSession.ended,
+            failedRequestCount,
+            failedEnterError,
+            failedCameraRestored: failed.camera.parent === failed.scene,
+            failedRigRemoved: failed.scene.getObjectByName('XRUserRig') == null,
+            failedControlsRestored: failed.controls.enabled === true,
+            failedBodyClassCleared: !document.body.classList.contains('vr-ui-active'),
+            failedIsPresenting: failed.controller.isPresenting(),
             pendingRequestCount,
             pendingCameraInRigBeforeDispose,
             pendingSessionEnded: pendingSession.ended,
@@ -6139,6 +6161,13 @@ async function runVRDisposeLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.concurrentSecondResult, true, 'VR dispose smoke: second concurrent enterVR did not share the active enter result');
     assert.equal(result.concurrentSetSessionCalls, 1, 'VR dispose smoke: concurrent enterVR calls installed duplicate renderer sessions');
     assert.equal(result.concurrentSessionEnded, 1, 'VR dispose smoke: concurrent session was not ended on dispose');
+    assert.equal(result.failedRequestCount, 1, 'VR dispose smoke: failed enter did not request a session');
+    assert.equal(result.failedEnterError, 'denied', 'VR dispose smoke: failed enter swallowed the request error');
+    assert.equal(result.failedCameraRestored, true, 'VR dispose smoke: failed enter left camera attached to XR rig');
+    assert.equal(result.failedRigRemoved, true, 'VR dispose smoke: failed enter left XR rig in scene');
+    assert.equal(result.failedControlsRestored, true, 'VR dispose smoke: failed enter did not restore controls');
+    assert.equal(result.failedBodyClassCleared, true, 'VR dispose smoke: failed enter left body VR class active');
+    assert.equal(result.failedIsPresenting, false, 'VR dispose smoke: failed enter reports presenting');
     assert.equal(result.pendingRequestCount, 1, 'VR dispose smoke: pending session request did not start');
     assert.equal(result.pendingCameraInRigBeforeDispose, true, 'VR dispose smoke: pending enter did not attach camera before request');
     assert.equal(result.pendingSessionEnded, 1, 'VR dispose smoke: pending session was not ended after dispose');

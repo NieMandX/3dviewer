@@ -1052,8 +1052,8 @@ export function createVRController(options = {}) {
             if (session) {
                 endSessionQuietly(session);
             }
-            setVrUiActive(false);
-            restoreDesktopCameraParent();
+            cleanupSessionState({ requestFrame: false, hideMenu: true, updateUi: true });
+            disposeXrRig();
             if (state.disposed) return false;
             throw error;
         }
