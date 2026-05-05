@@ -4889,6 +4889,12 @@ export class ViewerApp {
             }
         }
 
+        function clearPendingLocalModelFiles() {
+            pendingLocalModelFiles.length = 0;
+            pendingLocalModelKeys.clear();
+            pendingLocalModelSyncRetryOptions = null;
+        }
+
         function requestPendingLocalModelSyncRetry(options = {}) {
             const nextOnlyIfRoomEmpty = !!options?.onlyIfRoomEmpty;
             pendingLocalModelSyncRetryOptions = pendingLocalModelSyncRetryOptions
@@ -5465,8 +5471,6 @@ export class ViewerApp {
                     throw new Error('Model download returned empty payload.');
                 }
                 const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
-                pendingLocalModelFiles.length = 0;
-                pendingLocalModelKeys.clear();
                 const roomImportScope = {
                     kind: 'room',
                     roomId: expectedRoomId,
@@ -5500,6 +5504,7 @@ export class ViewerApp {
                     cleanupRoomModelScopedAssets({ roomId: expectedRoomId, modelId });
                     return false;
                 }
+                clearPendingLocalModelFiles();
                 loadedRoomModelIds.add(modelId);
                 return true;
             } catch (err) {
