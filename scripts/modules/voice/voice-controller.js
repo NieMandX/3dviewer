@@ -219,16 +219,17 @@ export function createVoiceController(options = {}) {
             connecting = false;
             emitState({ roomName: tokenPayload.room });
         } catch (error) {
-            if (generation === lifecycleGeneration) connecting = false;
-            clearAudioTracks();
+            const isCurrentConnect = !disposed && generation === lifecycleGeneration;
+            const ownsActiveRoom = !!nextRoom && room === nextRoom;
+            if (isCurrentConnect) connecting = false;
+            if (ownsActiveRoom) clearAudioTracks();
             if (nextRoom) {
                 try { nextRoom.disconnect?.(); } catch (_) {}
             }
-            if (generation === lifecycleGeneration) {
-                room = null;
-                micEnabled = false;
-                emitState({ error: error instanceof Error ? error.message : 'Voice connect failed' });
-            }
+            if (!isCurrentConnect) return;
+            room = null;
+            micEnabled = false;
+            emitState({ error: error instanceof Error ? error.message : 'Voice connect failed' });
             throw error;
         } finally {
             if (generation === lifecycleGeneration && connecting && room !== nextRoom) {

@@ -5774,6 +5774,45 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             const connectResult = await connectResultPromise;
             const statesAfterRace = states.slice();
 
+            let rejectStaleConnect = null;
+            const staleRejectStarted = new Promise((resolve) => {
+                connectPlans.push({
+                    started: resolve,
+                    promise: new Promise((_connectResolve, connectReject) => {
+                        rejectStaleConnect = () => connectReject(new Error('stale voice connect failed'));
+                    }),
+                });
+            });
+            const staleRejectAudioMount = document.createElement('div');
+            document.body.appendChild(staleRejectAudioMount);
+            let staleRejectDetachCalls = 0;
+            const staleRejectController = createVoiceController({
+                voiceApiUrl: 'https://voice.example',
+                audioMountEl: staleRejectAudioMount,
+                onState: () => {},
+            });
+            const staleRejectResultPromise = staleRejectController
+                .connect({ room: 'room:stale-reject', identity: 'local-user', name: 'Local User' })
+                .then(() => 'resolved', (err) => `rejected:${err?.message || String(err)}`);
+            await staleRejectStarted;
+            await staleRejectController.disconnect();
+            await staleRejectController.connect({ room: 'room:current', identity: 'local-user', name: 'Local User' });
+            const currentVoiceRoom = roomInstances.at(-1);
+            currentVoiceRoom.emit('TrackSubscribed', {
+                kind: 'audio',
+                attach: () => document.createElement('audio'),
+                detach: () => {
+                    staleRejectDetachCalls += 1;
+                },
+            }, { kind: 'audio', trackSid: 'current-audio' });
+            const staleRejectAudioBeforeOldFailure = staleRejectAudioMount.children.length;
+            rejectStaleConnect?.();
+            const staleRejectResult = await staleRejectResultPromise;
+            await Promise.resolve();
+            const staleRejectAudioAfterOldFailure = staleRejectAudioMount.children.length;
+            const staleRejectDetachBeforeDispose = staleRejectDetachCalls;
+            await staleRejectController.dispose();
+
             const audioMount = document.createElement('div');
             document.body.appendChild(audioMount);
             let detachCalls = 0;
@@ -5784,7 +5823,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
                 onState: () => {},
             });
             await controllerWithAudio.connect({ room: 'room:two', identity: 'local-user', name: 'Local User' });
-            const audioRoom = roomInstances[1];
+            const audioRoom = roomInstances.at(-1);
             const publicationWithoutSid = { kind: 'audio' };
             const trackWithoutSid = {
                 kind: 'audio',
@@ -5808,6 +5847,10 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
                 staleDisconnectCalls: staleRoom?.disconnectCalls || 0,
                 staleMicCalls: staleRoom?.micCalls || [],
                 staleStartAudioCalls: staleRoom?.startAudioCalls || 0,
+                staleRejectResult,
+                staleRejectAudioBeforeOldFailure,
+                staleRejectAudioAfterOldFailure,
+                staleRejectDetachBeforeDispose,
                 audioChildrenAfterAttach,
                 audioChildrenAfterDetach,
                 attachCalls,
@@ -5828,6 +5871,10 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
         false,
         'Voice controller smoke: stale connect reported connected state after disconnect',
     );
+    assert.equal(result.staleRejectResult, 'resolved', 'Voice controller smoke: stale rejected connect propagated after reconnect');
+    assert.equal(result.staleRejectAudioBeforeOldFailure, 1, 'Voice controller smoke: current room audio was not attached before stale failure');
+    assert.equal(result.staleRejectAudioAfterOldFailure, 1, 'Voice controller smoke: stale connect failure cleared current room audio');
+    assert.equal(result.staleRejectDetachBeforeDispose, 0, 'Voice controller smoke: stale connect failure detached current room audio');
     assert.equal(result.audioChildrenAfterAttach, 1, 'Voice controller smoke: audio track was not attached');
     assert.equal(result.audioChildrenAfterDetach, 0, 'Voice controller smoke: fallback track key leaked attached audio element');
     assert.equal(result.attachCalls, 1, 'Voice controller smoke: audio track attach count mismatch');
