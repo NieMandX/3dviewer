@@ -8176,6 +8176,76 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 (err) => err?.message || String(err),
             );
 
+            const emptyParserWorld = new THREE.Group();
+            const emptyParserLoadedModels = [];
+            const emptyParserEmbedded = [];
+            const emptyParserUrl = URL.createObjectURL(new Blob(['png'], { type: 'image/png' }));
+            const emptyParserHandleFBXFile = createFBXFileHandler({
+                THREE,
+                world: emptyParserWorld,
+                loadedModels: emptyParserLoadedModels,
+                allEmbedded: emptyParserEmbedded,
+                parseFBXOnMainThread: () => ({ obj: null, duration: 1 }),
+                extractImagesFromFBX: async () => [{
+                    short: 'empty-parser.png',
+                    full: 'empty-parser.png',
+                    url: emptyParserUrl,
+                    mime: 'image/png',
+                    source: 'embedded',
+                }],
+            });
+            const emptyParserResult = await emptyParserHandleFBXFile(
+                new File([new Uint8Array([26, 27, 28])], 'empty-parser.fbx', { type: 'application/octet-stream' }),
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+
+            const workerReplaceWorld = new THREE.Group();
+            const workerReplaceLoadedModels = [];
+            const workerReplaceEmbedded = [];
+            const workerReplaceRoot = new THREE.Group();
+            const workerReplaceGeometry = makeGeometry();
+            workerReplaceGeometry.name = 'workerReplaceGeometry';
+            const workerReplaceMaterial = new THREE.MeshBasicMaterial({ name: 'workerReplaceMaterial' });
+            workerReplaceRoot.add(new THREE.Mesh(workerReplaceGeometry, workerReplaceMaterial));
+            const workerReplaceMainUrl = URL.createObjectURL(new Blob(['png'], { type: 'image/png' }));
+            let workerReplaceCreateCount = 0;
+            URL.createObjectURL = (blob) => {
+                workerReplaceCreateCount += 1;
+                if (workerReplaceCreateCount === 1) return 'blob:worker-replaced-embedded';
+                return nativeCreateObjectURL.call(URL, blob);
+            };
+            const workerReplaceHandleFBXFile = createFBXFileHandler({
+                THREE,
+                world: workerReplaceWorld,
+                loadedModels: workerReplaceLoadedModels,
+                allEmbedded: workerReplaceEmbedded,
+                parseFBXInWorker: async () => ({
+                    obj: null,
+                    duration: 1,
+                    embedded: [
+                        { short: 'worker.png', full: 'textures/worker.png', mime: 'image/png', buffer: new ArrayBuffer(4) },
+                    ],
+                }),
+                parseFBXOnMainThread: () => ({ obj: workerReplaceRoot, duration: 2 }),
+                extractImagesFromFBX: async () => [{
+                    short: 'main.png',
+                    full: 'textures/main.png',
+                    url: workerReplaceMainUrl,
+                    mime: 'image/png',
+                    source: 'embedded',
+                }],
+                isWorkerSupported: () => true,
+            });
+            const workerReplaceResult = await workerReplaceHandleFBXFile(
+                new File([new Uint8Array([29, 30, 31])], 'worker-replace.fbx', { type: 'application/octet-stream' }),
+            ).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            );
+            URL.createObjectURL = nativeCreateObjectURL;
+
             const normalizeWorld = new THREE.Group();
             const normalizeLoadedModels = [];
             const normalizeEmbedded = [];
@@ -8365,6 +8435,18 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 mainEmbeddedFailureLoadedCount: mainEmbeddedFailureLoadedModels.length,
                 mainEmbeddedFailureGeometryDisposed: disposedGeometries.includes('mainEmbeddedFailureGeometry'),
                 mainEmbeddedFailureMaterialDisposed: disposedMaterials.includes('mainEmbeddedFailureMaterial'),
+                emptyParserResult,
+                emptyParserWorldChildren: emptyParserWorld.children.length,
+                emptyParserLoadedCount: emptyParserLoadedModels.length,
+                emptyParserEmbeddedCount: emptyParserEmbedded.length,
+                emptyParserUrlRevoked: revokedUrls.includes(emptyParserUrl),
+                workerReplaceResult,
+                workerReplaceWorldChildren: workerReplaceWorld.children.length,
+                workerReplaceLoadedCount: workerReplaceLoadedModels.length,
+                workerReplaceEmbeddedCount: workerReplaceEmbedded.length,
+                workerReplaceEmbeddedUrl: workerReplaceEmbedded[0]?.url || '',
+                workerReplaceWorkerUrlRevoked: revokedUrls.includes('blob:worker-replaced-embedded'),
+                workerReplaceMainUrlRevoked: revokedUrls.includes(workerReplaceMainUrl),
                 normalizeResult,
                 normalizeWorldChildren: normalizeWorld.children.length,
                 normalizeLoadedCount: normalizeLoadedModels.length,
@@ -8442,6 +8524,18 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.mainEmbeddedFailureLoadedCount, 0, 'FBX cleanup smoke: failed main embedded extraction was registered as loaded');
     assert.equal(result.mainEmbeddedFailureGeometryDisposed, true, 'FBX cleanup smoke: failed main embedded extraction leaked geometry');
     assert.equal(result.mainEmbeddedFailureMaterialDisposed, true, 'FBX cleanup smoke: failed main embedded extraction leaked material');
+    assert.equal(result.emptyParserResult, 'FBX parser returned empty object for empty-parser.fbx', 'FBX cleanup smoke: empty parser result did not propagate');
+    assert.equal(result.emptyParserWorldChildren, 0, 'FBX cleanup smoke: empty parser object changed world');
+    assert.equal(result.emptyParserLoadedCount, 0, 'FBX cleanup smoke: empty parser object was registered as loaded');
+    assert.equal(result.emptyParserEmbeddedCount, 0, 'FBX cleanup smoke: empty parser embedded entry leaked');
+    assert.equal(result.emptyParserUrlRevoked, true, 'FBX cleanup smoke: empty parser embedded blob URL was not revoked');
+    assert.equal(result.workerReplaceResult, 'resolved', 'FBX cleanup smoke: worker-empty fallback did not resolve');
+    assert.equal(result.workerReplaceWorldChildren, 1, 'FBX cleanup smoke: worker-empty fallback object was not added');
+    assert.equal(result.workerReplaceLoadedCount, 1, 'FBX cleanup smoke: worker-empty fallback model was not registered');
+    assert.equal(result.workerReplaceEmbeddedCount, 1, 'FBX cleanup smoke: worker-empty fallback did not keep main embedded texture');
+    assert.ok(result.workerReplaceEmbeddedUrl.includes('blob:'), 'FBX cleanup smoke: worker-empty fallback embedded texture missing blob URL');
+    assert.equal(result.workerReplaceWorkerUrlRevoked, true, 'FBX cleanup smoke: replaced worker embedded blob URL leaked');
+    assert.equal(result.workerReplaceMainUrlRevoked, false, 'FBX cleanup smoke: current main embedded blob URL was revoked');
     assert.equal(result.normalizeResult, 'normalize failure', 'FBX cleanup smoke: normalize failure did not propagate');
     assert.equal(result.normalizeWorldChildren, 0, 'FBX cleanup smoke: failed normalize FBX was added to world');
     assert.equal(result.normalizeLoadedCount, 0, 'FBX cleanup smoke: failed normalize FBX was registered as loaded');

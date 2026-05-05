@@ -239,6 +239,7 @@ export function createFBXFileHandler(options = {}) {
 
         if (!parsedObj) {
             try {
+                parsedViaWorker = false;
                 if (!parseFBXOnMainThread) throw new Error('parseFBXOnMainThread not available');
                 throwIfAborted();
                 const mainResult = await Promise.resolve(parseFBXOnMainThread(ab));
@@ -248,7 +249,9 @@ export function createFBXFileHandler(options = {}) {
 
                 // embedded-извлечение (fallback на UI-потоке)
                 if (extractImagesFromFBX) {
+                    const previousEmbedded = embedded;
                     embedded = await extractImagesFromFBX(ab);
+                    if (previousEmbedded !== embedded) revokeEmbeddedUrls(previousEmbedded);
                     embedded.forEach(e => e.fileName = file.name);
                     throwIfAborted(parsedObj, embedded);
                 }
@@ -268,17 +271,17 @@ export function createFBXFileHandler(options = {}) {
 
         let embeddedPushed = false;
         throwIfAborted(parsedObj, embedded);
+        const obj = parsedObj;
+        if (!obj) {
+            revokeEmbeddedUrls(embedded);
+            setStatusMessage(`Ошибка парсинга: ${file.name}`);
+            logBind(`⚠️ Парсер FBX вернул пустой объект для ${file.name}`, 'warn');
+            throw new Error(`FBX parser returned empty object for ${file.name}`);
+        }
         if (embedded.length) {
             allEmbedded.push(...embedded);
             embeddedPushed = true;
             markGalleryNeedsRefresh();
-        }
-
-        const obj = parsedObj;
-        if (!obj) {
-            setStatusMessage(`Ошибка парсинга: ${file.name}`);
-            logBind(`⚠️ Парсер FBX вернул пустой объект для ${file.name}`, 'warn');
-            throw new Error(`FBX parser returned empty object for ${file.name}`);
         }
 
         let modelRecord = null;
