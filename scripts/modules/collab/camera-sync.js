@@ -6,6 +6,18 @@ function toArray(vec) {
     return vec?.toArray?.() || [0, 0, 0];
 }
 
+function normalizeVec3(value) {
+    if (!Array.isArray(value) || value.length < 3) return null;
+    const out = [Number(value[0]), Number(value[1]), Number(value[2])];
+    return out.every((entry) => Number.isFinite(entry)) ? out : null;
+}
+
+function normalizeOptionalNumber(value) {
+    if (value == null || value === '') return null;
+    const next = Number(value);
+    return Number.isFinite(next) ? next : null;
+}
+
 export function createCameraSyncController(options = {}) {
     const camera = options.camera || null;
     const controls = options.controls || null;
@@ -44,9 +56,9 @@ export function createCameraSyncController(options = {}) {
 
     function applyCameraState(state) {
         if (!camera || !controls || !state) return false;
-        const pos = Array.isArray(state.position) ? state.position : null;
-        const tgt = Array.isArray(state.target) ? state.target : null;
-        const up = Array.isArray(state.up) ? state.up : null;
+        const pos = normalizeVec3(state.position);
+        const tgt = normalizeVec3(state.target);
+        const up = normalizeVec3(state.up);
         if (!pos || !tgt) return false;
 
         applyingRemote = true;
@@ -54,10 +66,14 @@ export function createCameraSyncController(options = {}) {
             camera.position.set(pos[0], pos[1], pos[2]);
             controls.target.set(tgt[0], tgt[1], tgt[2]);
             if (up && up.length >= 3) camera.up.set(up[0], up[1], up[2]);
-            if (Number.isFinite(state.fov)) camera.fov = state.fov;
-            if (Number.isFinite(state.zoom)) camera.zoom = state.zoom;
-            if (Number.isFinite(state.near)) camera.near = state.near;
-            if (Number.isFinite(state.far)) camera.far = state.far;
+            const fov = normalizeOptionalNumber(state.fov);
+            const zoom = normalizeOptionalNumber(state.zoom);
+            const near = normalizeOptionalNumber(state.near);
+            const far = normalizeOptionalNumber(state.far);
+            if (fov != null) camera.fov = fov;
+            if (zoom != null) camera.zoom = zoom;
+            if (near != null) camera.near = near;
+            if (far != null) camera.far = far;
             camera.updateProjectionMatrix();
             controls.update();
             requestRender();

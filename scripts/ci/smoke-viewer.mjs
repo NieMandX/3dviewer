@@ -5705,6 +5705,19 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
         controller.setOwner('peer-user');
         controller.handleRemoteState({
             sender: 'peer-user',
+            ts: 500,
+            position: ['bad', 5, 6],
+            target: [1, 1, 1],
+            up: [0, 1, 0],
+            fov: 'bad',
+        });
+        const afterInvalidRemote = {
+            position: camera.position.toArray(),
+            target: controls.target.toArray(),
+            fov: camera.fov,
+        };
+        controller.handleRemoteState({
+            sender: 'peer-user',
             ts: 200,
             position: [4, 5, 6],
             target: [1, 1, 1],
@@ -5752,6 +5765,7 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
             unhandled,
             afterImmediateRemote,
             afterBusyRemote,
+            afterInvalidRemote,
             afterFreshRemote,
             afterStaleRemote,
             afterNewerRemote,
@@ -5763,6 +5777,11 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
     assert.deepEqual(result.unhandled, [], 'Camera sync smoke: rejected camera sync promises became unhandled');
     assert.deepEqual(result.afterImmediateRemote, [10, 11, 12], 'Camera sync smoke: initial remote state was blocked by idle delay');
     assert.deepEqual(result.afterBusyRemote, [10, 11, 12], 'Camera sync smoke: active local interaction did not block remote state');
+    assert.deepEqual(
+        result.afterInvalidRemote,
+        { position: [1, 2, 3], target: [0, 0, 0], fov: 50 },
+        'Camera sync smoke: invalid remote camera payload mutated camera state',
+    );
     assert.deepEqual(result.afterFreshRemote, [4, 5, 6], 'Camera sync smoke: fresh remote state was not applied');
     assert.deepEqual(result.afterStaleRemote, [4, 5, 6], 'Camera sync smoke: stale remote state overwrote newer camera state');
     assert.deepEqual(result.afterNewerRemote, [7, 7, 7], 'Camera sync smoke: newer remote state was ignored after stale state');
