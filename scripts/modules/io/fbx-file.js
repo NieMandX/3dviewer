@@ -1,3 +1,5 @@
+import { collectMaterialTextures } from '../material/texture-utils.js';
+
 export function createFBXFileHandler(options = {}) {
     const THREE = options.THREE;
     const fbxLoader = options.fbxLoader || null;
@@ -93,8 +95,7 @@ export function createFBXFileHandler(options = {}) {
             if (!material || materials.has(material)) return;
             materials.add(material);
             if (disposeTextures) {
-                Object.entries(material).forEach(([key, value]) => {
-                    if (skipTextureKeys.has(key)) return;
+                collectMaterialTextures(material, { skipTextureKeys }).forEach((value) => {
                     if (!value?.isTexture || textures.has(value)) return;
                     textures.add(value);
                     value.dispose?.();

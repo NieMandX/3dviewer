@@ -8484,13 +8484,25 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
             sharedEnvMap.name = 'sharedEnvMap';
             const ownedAutoTexture = new THREE.Texture();
             ownedAutoTexture.name = 'ownedAutoTexture';
+            const ownedUniformTexture = new THREE.Texture();
+            ownedUniformTexture.name = 'ownedUniformTexture';
+            const ownedUniformArrayTexture = new THREE.Texture();
+            ownedUniformArrayTexture.name = 'ownedUniformArrayTexture';
             let sharedEnvDisposed = 0;
             let ownedAutoTextureDisposed = 0;
+            let ownedUniformTextureDisposed = 0;
+            let ownedUniformArrayTextureDisposed = 0;
             sharedEnvMap.addEventListener('dispose', () => {
                 sharedEnvDisposed += 1;
             });
             ownedAutoTexture.addEventListener('dispose', () => {
                 ownedAutoTextureDisposed += 1;
+            });
+            ownedUniformTexture.addEventListener('dispose', () => {
+                ownedUniformTextureDisposed += 1;
+            });
+            ownedUniformArrayTexture.addEventListener('dispose', () => {
+                ownedUniformArrayTextureDisposed += 1;
             });
             const envRollbackHandleFBXFile = createFBXFileHandler({
                 THREE,
@@ -8501,6 +8513,10 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                     const mesh = obj.children[0];
                     mesh.material.map = ownedAutoTexture;
                     mesh.material.envMap = sharedEnvMap;
+                    mesh.material.uniforms = {
+                        smokeMap: { value: ownedUniformTexture },
+                        smokeArray: { value: [ownedUniformArrayTexture] },
+                    };
                 },
                 setImportedLightsEnabled: () => {
                     throw new Error('post-autobind failure');
@@ -8627,6 +8643,8 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 envRollbackGeometryDisposed: disposedGeometries.includes('envRollbackGeometry'),
                 envRollbackMaterialDisposed: disposedMaterials.includes('envRollbackMaterial'),
                 envRollbackOwnedTextureDisposed: ownedAutoTextureDisposed,
+                envRollbackOwnedUniformTextureDisposed: ownedUniformTextureDisposed,
+                envRollbackOwnedUniformArrayTextureDisposed: ownedUniformArrayTextureDisposed,
                 envRollbackSharedEnvDisposed: sharedEnvDisposed,
                 debugDefaultResult,
                 debugGlobalUnchanged,
@@ -8716,6 +8734,8 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.envRollbackGeometryDisposed, true, 'FBX cleanup smoke: failed post-autobind geometry was not disposed');
     assert.equal(result.envRollbackMaterialDisposed, true, 'FBX cleanup smoke: failed post-autobind material was not disposed');
     assert.equal(result.envRollbackOwnedTextureDisposed, 1, 'FBX cleanup smoke: failed post-autobind owned texture was not disposed');
+    assert.equal(result.envRollbackOwnedUniformTextureDisposed, 1, 'FBX cleanup smoke: failed post-autobind uniform texture was not disposed');
+    assert.equal(result.envRollbackOwnedUniformArrayTextureDisposed, 1, 'FBX cleanup smoke: failed post-autobind uniform texture array was not disposed');
     assert.equal(result.envRollbackSharedEnvDisposed, 0, 'FBX cleanup smoke: failed post-autobind disposed shared envMap');
     assert.equal(result.debugDefaultResult, 'resolved', 'FBX cleanup smoke: debug-global default import failed');
     assert.equal(result.debugGlobalUnchanged, true, 'FBX cleanup smoke: production import retained Object3D in debug global');
