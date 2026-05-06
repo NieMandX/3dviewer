@@ -3851,14 +3851,6 @@ export class ViewerApp {
             return String(scope.modelId || '').trim();
         }
 
-        function rememberRoomModelId(modelId) {
-            const id = String(modelId || '').trim();
-            if (!id) return false;
-            const added = roomModelLinks.remember(id);
-            roomModelCount = roomModelLinks.size();
-            return added;
-        }
-
         function confirmRoomModelId(modelId) {
             const id = String(modelId || '').trim();
             if (!id) return false;
@@ -6143,7 +6135,7 @@ export class ViewerApp {
                 });
                 return;
             }
-            rememberRoomModelId(activeModelId);
+            confirmRoomModelId(activeModelId);
             if (!isRoomModelStillLinked(activeModelId)) return;
             if (activeModelId === activeRoomModelId && loadedRoomModelIds.has(activeModelId)) return;
             const { data: modelRow, error } = await collabController.supabase
