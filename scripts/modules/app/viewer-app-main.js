@@ -5398,7 +5398,7 @@ export class ViewerApp {
 
         async function loadProjectModel(model, options = {}) {
             if (!model) return;
-            const expectedRoomId = String(options.roomId || controller?.room?.id || '');
+            const expectedRoomId = String(options.roomId || collabController?.room?.id || '');
             const expectedGeneration = Number.isFinite(options.generation)
                 ? options.generation
                 : roomLoadGeneration;
