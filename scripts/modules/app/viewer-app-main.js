@@ -5636,6 +5636,10 @@ export class ViewerApp {
 
                 const modelId = String(payload?.new?.model_id || '').trim();
                 if (!modelId) return;
+                // Realtime INSERT can arrive after a DELETE for the same model id.
+                // Check the DB before clearing the delete tombstone.
+                const linked = await queryRoomModelLinkExists(controller, roomId, modelId);
+                if (!isCurrent() || !linked) return;
                 confirmRoomModelId(modelId);
                 if (loadedRoomModelIds.has(modelId)) return;
                 const { data: modelRow, error: modelError } = await controller.supabase

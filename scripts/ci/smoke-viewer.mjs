@@ -6661,6 +6661,21 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
             linked: linkTracker.has('race-model'),
             tombstoned: linkTracker.isTombstoned('race-model'),
         };
+        const outOfOrderTracker = createRoomModelLinkTracker();
+        outOfOrderTracker.remember('out-of-order-model');
+        outOfOrderTracker.forget('out-of-order-model', { tombstone: true });
+        const staleInsertLinkExists = false;
+        if (staleInsertLinkExists) {
+            outOfOrderTracker.remember('out-of-order-model', { clearTombstone: true });
+        }
+        const staleInsertRevived = outOfOrderTracker.has('out-of-order-model');
+        const tombstoneAfterIgnoredStaleInsert = outOfOrderTracker.isTombstoned('out-of-order-model');
+        const freshInsertLinkExists = true;
+        if (freshInsertLinkExists) {
+            outOfOrderTracker.remember('out-of-order-model', { clearTombstone: true });
+        }
+        const freshInsertRevived = outOfOrderTracker.has('out-of-order-model');
+        const tombstoneAfterFreshInsert = outOfOrderTracker.isTombstoned('out-of-order-model');
 
         return {
             roomRemoved: roomPrune.removedIds,
@@ -6689,6 +6704,10 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
             linkedAfterReconcile,
             valuesAfterReconcile,
             clearState,
+            staleInsertRevived,
+            tombstoneAfterIgnoredStaleInsert,
+            freshInsertRevived,
+            tombstoneAfterFreshInsert,
         };
     });
 
@@ -6722,6 +6741,10 @@ async function runRoomModelStateSmoke(browser, baseUrl) {
         { size: 0, linked: false, tombstoned: false },
         'Room model state smoke: link tracker clear did not reset state',
     );
+    assert.equal(result.staleInsertRevived, false, 'Room model state smoke: stale INSERT without DB link revived tombstoned model');
+    assert.equal(result.tombstoneAfterIgnoredStaleInsert, true, 'Room model state smoke: stale INSERT without DB link cleared tombstone');
+    assert.equal(result.freshInsertRevived, true, 'Room model state smoke: confirmed INSERT did not revive tombstoned model');
+    assert.equal(result.tombstoneAfterFreshInsert, false, 'Room model state smoke: confirmed INSERT did not clear tombstone');
     diagnostics.assertNoErrors('Room model state smoke');
     await page.close();
 }
