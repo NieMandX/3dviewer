@@ -5693,6 +5693,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
                 this.disconnectCalls = 0;
                 this.startAudioCalls = 0;
                 this.connectCalls = 0;
+                this.offCalls = 0;
                 this.micCalls = [];
                 this.localParticipant = {
                     identity: 'local-user',
@@ -5707,6 +5708,20 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             on(event, handler) {
                 if (!this.handlers.has(event)) this.handlers.set(event, []);
                 this.handlers.get(event).push(handler);
+            }
+
+            off(event, handler) {
+                this.offCalls += 1;
+                const handlers = this.handlers.get(event) || [];
+                this.handlers.set(event, handlers.filter((entry) => entry !== handler));
+            }
+
+            handlerCount() {
+                let count = 0;
+                this.handlers.forEach((handlers) => {
+                    count += handlers.length;
+                });
+                return count;
             }
 
             emit(event, ...args) {
@@ -5787,6 +5802,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             await connectStarted;
             const staleRoom = roomInstances[0];
             await controller.disconnect();
+            const staleHandlersAfterDisconnect = staleRoom?.handlerCount?.() ?? -1;
             releaseConnect();
             const connectResult = await connectResultPromise;
             const statesAfterRace = states.slice();
@@ -5840,7 +5856,9 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
                 .connect({ room: 'room:stale-reject', identity: 'local-user', name: 'Local User' })
                 .then(() => 'resolved', (err) => `rejected:${err?.message || String(err)}`);
             await staleRejectStarted;
+            const staleRejectOldRoom = roomInstances.at(-1);
             await staleRejectController.disconnect();
+            const staleRejectOldHandlersAfterDisconnect = staleRejectOldRoom?.handlerCount?.() ?? -1;
             await staleRejectController.connect({ room: 'room:current', identity: 'local-user', name: 'Local User' });
             const currentVoiceRoom = roomInstances.at(-1);
             currentVoiceRoom.emit('TrackSubscribed', {
@@ -5857,6 +5875,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             const staleRejectAudioAfterOldFailure = staleRejectAudioMount.children.length;
             const staleRejectDetachBeforeDispose = staleRejectDetachCalls;
             await staleRejectController.dispose();
+            const staleRejectCurrentHandlersAfterDispose = currentVoiceRoom?.handlerCount?.() ?? -1;
 
             const audioMount = document.createElement('div');
             document.body.appendChild(audioMount);
@@ -5885,11 +5904,13 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             audioRoom.emit('TrackUnsubscribed', trackWithoutSid, publicationWithoutSid);
             const audioChildrenAfterDetach = audioMount.children.length;
             await controllerWithAudio.dispose();
+            const audioRoomHandlersAfterDispose = audioRoom?.handlerCount?.() ?? -1;
 
             return {
                 connectResult,
                 statesAfterRace,
                 staleDisconnectCalls: staleRoom?.disconnectCalls || 0,
+                staleHandlersAfterDisconnect,
                 staleMicCalls: staleRoom?.micCalls || [],
                 staleStartAudioCalls: staleRoom?.startAudioCalls || 0,
                 tokenFetchHadSignal,
@@ -5900,8 +5921,11 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
                 staleRejectAudioBeforeOldFailure,
                 staleRejectAudioAfterOldFailure,
                 staleRejectDetachBeforeDispose,
+                staleRejectOldHandlersAfterDisconnect,
+                staleRejectCurrentHandlersAfterDispose,
                 audioChildrenAfterAttach,
                 audioChildrenAfterDetach,
+                audioRoomHandlersAfterDispose,
                 attachCalls,
                 detachCalls,
             };
@@ -5913,6 +5937,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
 
     assert.equal(result.connectResult, 'resolved', 'Voice controller smoke: cancelled connect rejected');
     assert.equal(result.staleDisconnectCalls >= 1, true, 'Voice controller smoke: stale connecting room was not disconnected');
+    assert.equal(result.staleHandlersAfterDisconnect, 0, 'Voice controller smoke: stale room event handlers leaked after disconnect');
     assert.deepEqual(result.staleMicCalls, [], 'Voice controller smoke: stale connect enabled the microphone');
     assert.equal(result.staleStartAudioCalls, 0, 'Voice controller smoke: stale connect started audio');
     assert.equal(
@@ -5928,8 +5953,11 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.staleRejectAudioBeforeOldFailure, 1, 'Voice controller smoke: current room audio was not attached before stale failure');
     assert.equal(result.staleRejectAudioAfterOldFailure, 1, 'Voice controller smoke: stale connect failure cleared current room audio');
     assert.equal(result.staleRejectDetachBeforeDispose, 0, 'Voice controller smoke: stale connect failure detached current room audio');
+    assert.equal(result.staleRejectOldHandlersAfterDisconnect, 0, 'Voice controller smoke: stale rejected room handlers leaked after disconnect');
+    assert.equal(result.staleRejectCurrentHandlersAfterDispose, 0, 'Voice controller smoke: current room handlers leaked after dispose');
     assert.equal(result.audioChildrenAfterAttach, 1, 'Voice controller smoke: audio track was not attached');
     assert.equal(result.audioChildrenAfterDetach, 0, 'Voice controller smoke: fallback track key leaked attached audio element');
+    assert.equal(result.audioRoomHandlersAfterDispose, 0, 'Voice controller smoke: audio room handlers leaked after dispose');
     assert.equal(result.attachCalls, 1, 'Voice controller smoke: audio track attach count mismatch');
     assert.equal(result.detachCalls, 1, 'Voice controller smoke: audio track detach count mismatch');
     diagnostics.assertNoErrors('Voice controller lifecycle smoke');

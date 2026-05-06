@@ -41,6 +41,7 @@ export function createVoiceController(options = {}) {
     let nextFallbackTrackId = 0;
     const attachedAudio = new Map();
     const fallbackTrackKeys = new WeakMap();
+    const roomEventCleanups = new WeakMap();
 
     function emitState(extra = {}) {
         if (disposed) return;
@@ -129,46 +130,74 @@ export function createVoiceController(options = {}) {
         return !disposed && generation === lifecycleGeneration && room === nextRoom;
     }
 
+    function bindRoomEvent(nextRoom, event, handler, cleanups) {
+        if (!nextRoom?.on || !event || typeof handler !== 'function') return;
+        nextRoom.on(event, handler);
+        cleanups.push(() => {
+            try {
+                if (typeof nextRoom.off === 'function') {
+                    nextRoom.off(event, handler);
+                } else if (typeof nextRoom.removeListener === 'function') {
+                    nextRoom.removeListener(event, handler);
+                } else if (typeof nextRoom.removeEventListener === 'function') {
+                    nextRoom.removeEventListener(event, handler);
+                }
+            } catch (_) {}
+        });
+    }
+
+    function unbindRoomEvents(nextRoom) {
+        if (!nextRoom || (typeof nextRoom !== 'object' && typeof nextRoom !== 'function')) return;
+        const cleanups = roomEventCleanups.get(nextRoom);
+        if (!cleanups) return;
+        roomEventCleanups.delete(nextRoom);
+        cleanups.forEach((cleanup) => cleanup());
+    }
+
     function bindRoomEvents(nextRoom, generation) {
         const RoomEvent = sdk?.RoomEvent || {};
         const TrackKind = sdk?.Track?.Kind || {};
         const audioKind = TrackKind.Audio || 'audio';
+        const cleanups = [];
         const refresh = () => {
             if (!isCurrentRoom(nextRoom, generation)) return;
             emitState();
         };
 
-        nextRoom.on(RoomEvent.ParticipantConnected, refresh);
-        nextRoom.on(RoomEvent.ParticipantDisconnected, refresh);
-        nextRoom.on(RoomEvent.ActiveSpeakersChanged, refresh);
-        nextRoom.on(RoomEvent.LocalTrackPublished, refresh);
-        nextRoom.on(RoomEvent.LocalTrackUnpublished, refresh);
-        nextRoom.on(RoomEvent.TrackMuted, refresh);
-        nextRoom.on(RoomEvent.TrackUnmuted, refresh);
-        nextRoom.on(RoomEvent.ConnectionStateChanged, refresh);
+        unbindRoomEvents(nextRoom);
+        bindRoomEvent(nextRoom, RoomEvent.ParticipantConnected, refresh, cleanups);
+        bindRoomEvent(nextRoom, RoomEvent.ParticipantDisconnected, refresh, cleanups);
+        bindRoomEvent(nextRoom, RoomEvent.ActiveSpeakersChanged, refresh, cleanups);
+        bindRoomEvent(nextRoom, RoomEvent.LocalTrackPublished, refresh, cleanups);
+        bindRoomEvent(nextRoom, RoomEvent.LocalTrackUnpublished, refresh, cleanups);
+        bindRoomEvent(nextRoom, RoomEvent.TrackMuted, refresh, cleanups);
+        bindRoomEvent(nextRoom, RoomEvent.TrackUnmuted, refresh, cleanups);
+        bindRoomEvent(nextRoom, RoomEvent.ConnectionStateChanged, refresh, cleanups);
 
-        nextRoom.on(RoomEvent.TrackSubscribed, (track, publication) => {
+        bindRoomEvent(nextRoom, RoomEvent.TrackSubscribed, (track, publication) => {
             if (!isCurrentRoom(nextRoom, generation)) return;
             const kind = track?.kind || publication?.kind || '';
             if (kind === audioKind) attachAudioTrack(publication, track);
             refresh();
-        });
+        }, cleanups);
 
-        nextRoom.on(RoomEvent.TrackUnsubscribed, (track, publication) => {
+        bindRoomEvent(nextRoom, RoomEvent.TrackUnsubscribed, (track, publication) => {
             if (!isCurrentRoom(nextRoom, generation)) return;
             const kind = track?.kind || publication?.kind || '';
             if (kind === audioKind) detachAudioTrack(publication, track);
             refresh();
-        });
+        }, cleanups);
 
-        nextRoom.on(RoomEvent.Disconnected, () => {
+        bindRoomEvent(nextRoom, RoomEvent.Disconnected, () => {
             if (!isCurrentRoom(nextRoom, generation)) return;
+            unbindRoomEvents(nextRoom);
             clearAudioTracks();
             room = null;
             connecting = false;
             micEnabled = false;
             emitState({ reason: 'disconnected' });
-        });
+        }, cleanups);
+        roomEventCleanups.set(nextRoom, cleanups);
     }
 
     async function requestToken(session, signal = null) {
@@ -203,6 +232,7 @@ export function createVoiceController(options = {}) {
             bindRoomEvents(nextRoom, generation);
             await nextRoom.connect(tokenPayload.wsUrl, tokenPayload.token);
             if (disposed || generation !== lifecycleGeneration || room !== nextRoom) {
+                unbindRoomEvents(nextRoom);
                 try { await nextRoom.disconnect?.(); } catch (_) {}
                 return;
             }
@@ -210,12 +240,14 @@ export function createVoiceController(options = {}) {
                 try { await nextRoom.startAudio(); } catch (_) {}
             }
             if (disposed || generation !== lifecycleGeneration || room !== nextRoom) {
+                unbindRoomEvents(nextRoom);
                 try { await nextRoom.disconnect?.(); } catch (_) {}
                 return;
             }
             await nextRoom.localParticipant.setMicrophoneEnabled(true);
             if (disposed || generation !== lifecycleGeneration || room !== nextRoom) {
                 try { await nextRoom.localParticipant?.setMicrophoneEnabled?.(false); } catch (_) {}
+                unbindRoomEvents(nextRoom);
                 try { await nextRoom.disconnect?.(); } catch (_) {}
                 return;
             }
@@ -228,7 +260,8 @@ export function createVoiceController(options = {}) {
             if (isCurrentConnect) connecting = false;
             if (ownsActiveRoom) clearAudioTracks();
             if (nextRoom) {
-                try { nextRoom.disconnect?.(); } catch (_) {}
+                unbindRoomEvents(nextRoom);
+                try { await nextRoom.disconnect?.(); } catch (_) {}
             }
             if (!isCurrentConnect) return;
             room = null;
@@ -260,6 +293,7 @@ export function createVoiceController(options = {}) {
         room = null;
         micEnabled = false;
         clearAudioTracks();
+        unbindRoomEvents(activeRoom);
         if (activeRoom?.disconnect) {
             try {
                 await activeRoom.disconnect();
