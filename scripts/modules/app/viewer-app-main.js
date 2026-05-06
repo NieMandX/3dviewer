@@ -3818,6 +3818,7 @@ export class ViewerApp {
         const sceneIndex = createLoadedModelSceneIndex({ loadedModels });
         app.sceneIndex = sceneIndex;
         environmentWiring.setMaterialSources?.({ loadedModels, sceneIndex });
+        let pruneNonGlassSuppressionForRoots = () => ({ objects: 0, materials: 0 });
 
         /**
          * Список всех изображений, извлечённых из FBX или ZIP (включая embedded).
@@ -3907,7 +3908,9 @@ export class ViewerApp {
             const safeEmbeddedStart = Math.max(0, Math.min(Number(embeddedStart) || 0, allEmbedded.length));
             const removedModels = loadedModels.splice(safeModelStart);
             const removedEntries = allEmbedded.splice(safeEmbeddedStart);
-            pruneMaterialUndoStackForRoots(undoStack, removedModels.map((record) => record?.obj).filter(Boolean));
+            const removedRoots = removedModels.map((record) => record?.obj).filter(Boolean);
+            pruneMaterialUndoStackForRoots(undoStack, removedRoots);
+            pruneNonGlassSuppressionForRoots?.(removedRoots);
             const disposeContext = createImportedObjectDisposeContext({
                 preservedResources: collectLoadedModelResources(loadedModels),
             });
@@ -4228,7 +4231,9 @@ export class ViewerApp {
             if (!roomModelRecords.length && !roomTextureEntries.length) {
                 return false;
             }
-            pruneMaterialUndoStackForRoots(undoStack, roomModelRecords.map((record) => record?.obj).filter(Boolean));
+            const removedRoots = roomModelRecords.map((record) => record?.obj).filter(Boolean);
+            pruneMaterialUndoStackForRoots(undoStack, removedRoots);
+            pruneNonGlassSuppressionForRoots?.(removedRoots);
 
             const keptModels = roomModelRecords.length
                 ? loadedModels.filter((record) => !scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId))
@@ -4457,6 +4462,7 @@ export class ViewerApp {
 			            toggleCollisionsVisible,
 			            getNonGlassState,
 			            toggleNonGlassSuppressed,
+			            pruneNonGlassSuppressionForRoots: pruneNonGlassSuppressionForRootsImpl,
 			            applyNonGlassSuppression,
 			            getVPMModelsState,
 			            toggleVPMModelsVisible,
@@ -4472,6 +4478,7 @@ export class ViewerApp {
 		            schedulePanelRefresh,
 				            syncCollisionButtons,
 				        });
+				        pruneNonGlassSuppressionForRoots = pruneNonGlassSuppressionForRootsImpl;
 
 				        appbarVisibilityToggles = createAppbarVisibilityTogglesController({
 				            solidToggleBtn,
@@ -6338,6 +6345,8 @@ export class ViewerApp {
 	            try { customSelects?.dispose?.(); } catch (_) {}
 	            try { statusUI?.dispose?.(); } catch (_) {}
 
+		            const disposedRoots = loadedModels.map((record) => record?.obj).filter(Boolean);
+		            pruneNonGlassSuppressionForRoots?.(disposedRoots);
 		            const disposeContext = createImportedObjectDisposeContext();
 		            loadedModels.forEach((record) => {
 		                const obj = record?.obj || null;

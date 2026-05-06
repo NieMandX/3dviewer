@@ -4576,6 +4576,103 @@ async function runMaterialUndoStackLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runVisibilitySuppressionPruneSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createVisibilityAndCollisions } = await import('/scripts/modules/ui/visibility-collisions.js');
+
+        const world = new THREE.Group();
+        const materialA = new THREE.MeshBasicMaterial({ name: 'solid-a' });
+        const materialB = new THREE.MeshBasicMaterial({ name: 'solid-b' });
+        const meshA = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), materialA);
+        const meshB = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), materialB);
+        meshA.name = 'solid-a';
+        meshB.name = 'solid-b';
+        const rootA = new THREE.Group();
+        const rootB = new THREE.Group();
+        rootA.add(meshA);
+        rootB.add(meshB);
+        world.add(rootA, rootB);
+
+        const loadedModels = [
+            { obj: rootA, name: 'a.fbx' },
+            { obj: rootB, name: 'b.fbx' },
+        ];
+        let renderRequests = 0;
+        let statsDirty = 0;
+        const controller = createVisibilityAndCollisions({
+            world,
+            loadedModels,
+            requestRender: () => { renderRequests += 1; },
+            markSceneStatsDirty: () => { statsDirty += 1; },
+        });
+
+        controller.setNonGlassSuppressed(true);
+        const afterSuppress = {
+            meshA: meshA.visible,
+            matA: materialA.visible,
+            meshB: meshB.visible,
+            matB: materialB.visible,
+        };
+
+        loadedModels.splice(0, 1);
+        world.remove(rootA);
+        const pruned = controller.pruneNonGlassSuppressionForRoots([rootA]);
+        controller.setNonGlassSuppressed(false);
+
+        const afterRestore = {
+            meshA: meshA.visible,
+            matA: materialA.visible,
+            meshB: meshB.visible,
+            matB: materialB.visible,
+        };
+
+        rootA.traverse((node) => {
+            node.geometry?.dispose?.();
+            const materials = Array.isArray(node.material) ? node.material : [node.material];
+            materials.filter(Boolean).forEach((material) => material.dispose?.());
+        });
+        rootB.traverse((node) => {
+            node.geometry?.dispose?.();
+            const materials = Array.isArray(node.material) ? node.material : [node.material];
+            materials.filter(Boolean).forEach((material) => material.dispose?.());
+        });
+
+        return {
+            afterSuppress,
+            pruned,
+            afterRestore,
+            renderRequests,
+            statsDirty,
+        };
+    });
+
+    assert.deepEqual(result.afterSuppress, {
+        meshA: false,
+        matA: false,
+        meshB: false,
+        matB: false,
+    }, 'Visibility suppression smoke: non-glass objects were not suppressed');
+    assert.deepEqual(result.pruned, {
+        objects: 1,
+        materials: 1,
+    }, 'Visibility suppression smoke: removed model suppression state was not pruned');
+    assert.deepEqual(result.afterRestore, {
+        meshA: false,
+        matA: false,
+        meshB: true,
+        matB: true,
+    }, 'Visibility suppression smoke: removed model visibility was restored or kept model visibility was not restored');
+    assert.equal(result.renderRequests >= 2, true, 'Visibility suppression smoke: visibility changes did not request render');
+    assert.equal(result.statsDirty >= 2, true, 'Visibility suppression smoke: visibility changes did not mark stats dirty');
+    diagnostics.assertNoErrors('Visibility suppression prune smoke');
+    await page.close();
+}
+
 async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -10520,6 +10617,8 @@ try {
     console.log('Texture replacement lifecycle smoke passed.');
     await runMaterialUndoStackLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Material undo stack lifecycle smoke passed.');
+    await runVisibilitySuppressionPruneSmoke(browser, smokeServer.baseUrl);
+    console.log('Visibility suppression prune smoke passed.');
     await runCollabRealtimeDisposeSmoke(browser, smokeServer.baseUrl);
     console.log('Collab realtime dispose smoke passed.');
     await runCollabInitFailureCleanupSmoke(browser, smokeServer.baseUrl);

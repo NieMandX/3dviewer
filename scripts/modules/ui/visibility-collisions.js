@@ -142,6 +142,41 @@ export function createVisibilityAndCollisions(options = {}) {
     const savedNonGlassObjectVisibility = new Map();
     const savedNonGlassMaterialVisibility = new Map();
 
+    function collectObjectMaterials(obj, targetSet) {
+        if (!obj || !targetSet) return;
+        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+        materials.filter(Boolean).forEach((material) => targetSet.add(material));
+    }
+
+    function pruneNonGlassSuppressionForRoots(roots = []) {
+        const removedRoots = Array.isArray(roots) ? roots.filter(Boolean) : [roots].filter(Boolean);
+        if (!removedRoots.length) return { objects: 0, materials: 0 };
+
+        const removedObjects = new Set();
+        const removedMaterials = new Set();
+        removedRoots.forEach((root) => {
+            if (!root) return;
+            removedObjects.add(root);
+            collectObjectMaterials(root, removedMaterials);
+            root.traverse?.((node) => {
+                if (!node) return;
+                removedObjects.add(node);
+                collectObjectMaterials(node, removedMaterials);
+            });
+        });
+
+        let objectCount = 0;
+        let materialCount = 0;
+        removedObjects.forEach((obj) => {
+            if (savedNonGlassObjectVisibility.delete(obj)) objectCount += 1;
+        });
+        removedMaterials.forEach((material) => {
+            if (savedNonGlassMaterialVisibility.delete(material)) materialCount += 1;
+        });
+
+        return { objects: objectCount, materials: materialCount };
+    }
+
     function applyNonGlassSuppression({ captureNew = false } = {}) {
         if (!world) return { ...getNonGlassState(), changed: false };
 
@@ -378,6 +413,7 @@ export function createVisibilityAndCollisions(options = {}) {
         getNonGlassState,
         setNonGlassSuppressed,
         toggleNonGlassSuppressed,
+        pruneNonGlassSuppressionForRoots,
         applyNonGlassSuppression,
         getVPMModelsState,
         setVPMModelsVisible,
