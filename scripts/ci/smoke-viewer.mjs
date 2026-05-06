@@ -4019,6 +4019,7 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        const { createFilenameBinder } = await import('/scripts/modules/material/filename-autobind.js');
 	        const { createToStandard } = await import('/scripts/modules/material/to-standard.js');
 	        const { createTextureModalController } = await import('/scripts/modules/ui/texture-modal.js');
+	        const { createSelectedMaterialLinkResolver } = await import('/scripts/modules/ui/texture-helpers.js');
 	        const { createVPMBinder } = await import('/scripts/modules/material/vpm-autobind.js');
 	        const toStandard = createToStandard();
 
@@ -4240,6 +4241,37 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        controller.bindSelected();
 	        const modalConvertedMaterialAfterBind = modalConvertedMaterialDisposed();
 	        const modalConvertedTextureAfterBind = modalConvertedTextureDisposed();
+
+	        const modalShadingOldTexture = new THREE.Texture();
+	        modalShadingOldTexture.name = 'modal-shading-old';
+	        const modalShadingOldTextureDisposed = trackDispose(modalShadingOldTexture);
+	        const modalShadingOriginalMaterial = new THREE.MeshStandardMaterial({
+	            name: 'modal-shading-original',
+	            map: modalShadingOldTexture,
+	        });
+	        const modalShadingGeneratedMaterial = new THREE.MeshBasicMaterial({ name: 'modal-shading-generated' });
+	        modalShadingGeneratedMaterial.userData.viewerGeneratedMaterial = 'shading-variant';
+	        const modalShadingRoot = new THREE.Group();
+	        const modalShadingMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), modalShadingGeneratedMaterial);
+	        modalShadingMesh.userData._origMaterial = modalShadingOriginalMaterial;
+	        modalShadingRoot.add(modalShadingMesh);
+	        loadedModels.push({ obj: modalShadingRoot, name: 'modal-shading.fbx' });
+	        const modalShadingSelect = document.createElement('select');
+	        modalShadingSelect.appendChild(new Option('original', '0'));
+	        modalShadingSelect.value = '0';
+	        modalShadingSelect.dataset._map = JSON.stringify([{ idx: 0, path: `${modalShadingMesh.uuid}:0` }]);
+	        const modalShadingResolver = createSelectedMaterialLinkResolver({
+	            matSelectEl: modalShadingSelect,
+	            world: modalShadingRoot,
+	        });
+	        selectedLink = modalShadingResolver();
+	        controller.open({ short: 'shading.png', full: 'textures/shading.png', url: 'blob:shading', mime: 'image/png' });
+	        controller.bindSelected();
+	        const modalShadingResolverSource = selectedLink?.source || '';
+	        const modalShadingVisiblePreserved = modalShadingMesh.material === modalShadingGeneratedMaterial;
+	        const modalShadingOriginalUpdated = modalShadingMesh.userData._origMaterial?.map?.name === 'shading.png';
+	        const modalShadingGeneratedUntouched = !modalShadingGeneratedMaterial.map;
+	        const modalShadingOldTextureAfterBind = modalShadingOldTextureDisposed();
 	        controller.dispose();
 
 	        const modalDeferred = createDeferredTextureLoader();
@@ -4456,6 +4488,11 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            modalAfterSecondBind,
 	            modalConvertedMaterialAfterBind,
 	            modalConvertedTextureAfterBind,
+	            modalShadingResolverSource,
+	            modalShadingVisiblePreserved,
+	            modalShadingOriginalUpdated,
+	            modalShadingGeneratedUntouched,
+	            modalShadingOldTextureAfterBind,
 	            modalRenderBeforeLoad,
 	            modalRenderAfterLoad,
 	            modalStaleRenderCount,
@@ -4486,6 +4523,11 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.modalAfterSecondBind, 1, 'Texture replacement smoke: texture modal did not dispose texture after last reference was replaced');
 	    assert.equal(result.modalConvertedMaterialAfterBind, 1, 'Texture replacement smoke: texture modal leaked converted source material');
 	    assert.equal(result.modalConvertedTextureAfterBind, 1, 'Texture replacement smoke: texture modal leaked converted source texture');
+	    assert.equal(result.modalShadingResolverSource, 'original', 'Texture replacement smoke: texture modal did not resolve original material while shading variant was visible');
+	    assert.equal(result.modalShadingVisiblePreserved, true, 'Texture replacement smoke: texture modal replaced visible shading material');
+	    assert.equal(result.modalShadingOriginalUpdated, true, 'Texture replacement smoke: texture modal did not update original material under shading mode');
+	    assert.equal(result.modalShadingGeneratedUntouched, true, 'Texture replacement smoke: texture modal bound texture to generated shading material');
+	    assert.equal(result.modalShadingOldTextureAfterBind, 1, 'Texture replacement smoke: texture modal leaked replaced original texture under shading mode');
 	    assert.equal(result.modalRenderBeforeLoad, 0, 'Texture replacement smoke: texture modal requested render before image decode');
 	    assert.equal(result.modalRenderAfterLoad, 1, 'Texture replacement smoke: texture modal did not request render after image decode');
 	    assert.equal(result.modalStaleRenderCount, 0, 'Texture replacement smoke: stale modal texture requested render after model removal');

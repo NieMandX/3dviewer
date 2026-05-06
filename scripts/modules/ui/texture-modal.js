@@ -57,7 +57,11 @@ export function createTextureModalController(options = {}) {
     function isTextureStillBound(obj, material, slot, texture) {
         if (!texture?.isTexture) return false;
         const materials = Array.isArray(obj?.material) ? obj.material : [obj?.material];
-        return materials.includes(material) && material?.[slot] === texture && isTextureStillUsed(texture);
+        const originalMaterials = Array.isArray(obj?.userData?._origMaterial)
+            ? obj.userData._origMaterial
+            : [obj?.userData?._origMaterial];
+        const materialStillOwned = materials.includes(material) || originalMaterials.includes(material);
+        return materialStillOwned && material?.[slot] === texture && isTextureStillUsed(texture);
     }
 
     function handleTextureLoaded(obj, material, slot, texture) {
@@ -174,6 +178,12 @@ export function createTextureModalController(options = {}) {
         }
 
         const { obj, index } = link;
+        const originalMaterials = Array.isArray(obj?.userData?._origMaterial)
+            ? obj.userData._origMaterial
+            : [obj?.userData?._origMaterial].filter(Boolean);
+        const currentMaterials = Array.isArray(obj?.material) ? obj.material : [obj?.material].filter(Boolean);
+        const bindOriginalMaterial = link.source === 'original'
+            || (!currentMaterials.includes(previousMaterial) && originalMaterials.includes(previousMaterial));
         let t = null;
         t = textureLoader.load(
             modalTex.url,
@@ -202,7 +212,11 @@ export function createTextureModalController(options = {}) {
         std.needsUpdate = true;
 
         // ВАЖНО: подменяем материал у меша
-        if (Array.isArray(obj.material)) {
+        if (bindOriginalMaterial && Array.isArray(obj.userData?._origMaterial)) {
+            obj.userData._origMaterial[index] = std;
+        } else if (bindOriginalMaterial && obj.userData) {
+            obj.userData._origMaterial = std;
+        } else if (Array.isArray(obj.material)) {
             obj.material[index] = std;
         } else {
             obj.material = std;

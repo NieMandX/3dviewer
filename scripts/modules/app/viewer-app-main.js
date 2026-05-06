@@ -4705,9 +4705,20 @@ export class ViewerApp {
         // =====================
 	        function cacheOriginalMaterialFor(obj, force = false) {
 	            if (!obj) return;
+	            const currentMaterials = Array.isArray(obj.material) ? obj.material : [obj.material].filter(Boolean);
+	            const currentIsGeneratedDisplay = currentMaterials.some((material) => (
+	                material?.userData?.viewerGeneratedMaterial === 'shading-variant' ||
+	                material === obj.userData?._bfFront ||
+	                material === obj.userData?._bfBack ||
+	                material === obj.userData?._wireBase ||
+	                material === obj.userData?._beautyBase
+	            ));
 	            if (shadingController.getCurrentMode() !== 'pbr') {
 	                // Не затираем исходный PBR-материал временными материалами из режимов (beautywire/backface/wire и т.п.).
-	                if (obj.userData?._origMaterial) return;
+	                if (obj.userData?._origMaterial && currentIsGeneratedDisplay) {
+	                    environmentWiring.invalidateMaterialRegistry?.();
+	                    return;
+	                }
 	                if (!force) return;
 	            }
 	            obj.userData._origMaterial = obj.material;

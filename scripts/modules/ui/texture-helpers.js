@@ -42,6 +42,21 @@ export function createSelectedMaterialLinkResolver(options = {}) {
     const matSelectEl = options.matSelectEl || null;
     const world = options.world || null;
 
+    const asMaterialArray = (value) => {
+        if (!value) return [];
+        return Array.isArray(value) ? value.filter(Boolean) : [value];
+    };
+
+    const isGeneratedDisplayMaterial = (obj, material) => (
+        !!material && (
+            material?.userData?.viewerGeneratedMaterial === 'shading-variant' ||
+            material === obj?.userData?._bfFront ||
+            material === obj?.userData?._bfBack ||
+            material === obj?.userData?._wireBase ||
+            material === obj?.userData?._beautyBase
+        )
+    );
+
     return function getSelectedMaterialLink() {
         if (!matSelectEl) return null;
         const val = matSelectEl.value;
@@ -63,9 +78,23 @@ export function createSelectedMaterialLinkResolver(options = {}) {
             if (link || !o?.isMesh) return;
             if (o.uuid !== uuid) return;
             const mats = Array.isArray(o.material) ? o.material : [o.material];
-            link = { obj: o, index: targetIndex, mat: mats[targetIndex] || null };
+            const originalMats = asMaterialArray(o.userData?._origMaterial);
+            const currentMat = mats[targetIndex] || null;
+            const shouldEditOriginal = originalMats.length > 0 && (
+                !currentMat ||
+                isGeneratedDisplayMaterial(o, currentMat)
+            );
+            if (shouldEditOriginal) {
+                link = {
+                    obj: o,
+                    index: targetIndex,
+                    mat: originalMats[targetIndex] || originalMats[0] || null,
+                    source: 'original',
+                };
+                return;
+            }
+            link = { obj: o, index: targetIndex, mat: currentMat, source: 'current' };
         });
         return link;
     };
 }
-
