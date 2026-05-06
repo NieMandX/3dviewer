@@ -1063,6 +1063,9 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
             replacementTexture: 0,
             originalMaterial: 0,
             replacementMaterial: 0,
+            uniformTexture: 0,
+            uniformArrayTexture: 0,
+            uniformMaterial: 0,
             sharedCrossRootTexture: 0,
             sharedCrossRootMaterialTexture: 0,
             sharedCrossRootMaterial: 0,
@@ -1081,6 +1084,15 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
         mesh.userData._origMaterial = originalMaterial;
         const root = new THREE.Group();
         root.add(mesh);
+        const uniformTexture = track(new THREE.Texture(), 'uniformTexture');
+        const uniformArrayTexture = track(new THREE.Texture(), 'uniformArrayTexture');
+        const uniformMaterial = track(new THREE.MeshBasicMaterial(), 'uniformMaterial');
+        uniformMaterial.uniforms = {
+            smokeMap: { value: uniformTexture },
+            smokeArray: { value: [uniformArrayTexture] },
+        };
+        const uniformRoot = new THREE.Group();
+        uniformRoot.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), uniformMaterial));
         const sharedCrossRootTexture = track(new THREE.Texture(), 'sharedCrossRootTexture');
         const sharedTextureRootA = new THREE.Group();
         const sharedTextureRootB = new THREE.Group();
@@ -1104,6 +1116,7 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
         globalThis.__lpmDisposeMaterialTextureCounts = disposeCounts;
         globalThis.viewerApp.loadedModels.push(
             { obj: root, name: 'dispose-replacement-texture.fbx' },
+            { obj: uniformRoot, name: 'dispose-uniform-texture.fbx' },
             { obj: sharedTextureRootA, name: 'shared-texture-a.fbx' },
             { obj: sharedTextureRootB, name: 'shared-texture-b.fbx' },
             { obj: sharedMaterialRootA, name: 'shared-material-a.fbx' },
@@ -1120,6 +1133,9 @@ async function runDisposeReinitSmoke(browser, baseUrl) {
     assert.equal(disposeResourceCounts.replacementTexture, 1, 'Dispose smoke: replacement material texture leaked when _origMaterial exists');
     assert.equal(disposeResourceCounts.originalMaterial, 1, 'Dispose smoke: original material was not disposed');
     assert.equal(disposeResourceCounts.replacementMaterial, 1, 'Dispose smoke: replacement material was not disposed');
+    assert.equal(disposeResourceCounts.uniformTexture, 1, 'Dispose smoke: material uniform texture leaked');
+    assert.equal(disposeResourceCounts.uniformArrayTexture, 1, 'Dispose smoke: material uniform texture array leaked');
+    assert.equal(disposeResourceCounts.uniformMaterial, 1, 'Dispose smoke: material with uniforms was not disposed');
     assert.equal(disposeResourceCounts.sharedCrossRootTexture, 1, 'Dispose smoke: shared cross-model texture was disposed more than once');
     assert.equal(disposeResourceCounts.sharedCrossRootMaterialTexture, 1, 'Dispose smoke: shared cross-model material texture was disposed more than once');
     assert.equal(disposeResourceCounts.sharedCrossRootMaterial, 1, 'Dispose smoke: shared cross-model material was disposed more than once');

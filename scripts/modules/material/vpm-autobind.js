@@ -1,4 +1,4 @@
-import { disposeUnusedMaterialTree } from './texture-utils.js';
+import { collectMaterialTextures, disposeUnusedMaterialTree } from './texture-utils.js';
 
 export function createVPMBinder(options = {}) {
     const THREE = options.THREE || null;
@@ -75,17 +75,6 @@ export function createVPMBinder(options = {}) {
         return loadedModels.some((model) => model?.obj === root);
     }
 
-    function collectMaterialTextures(material) {
-        const textures = new Set();
-        const materials = Array.isArray(material) ? material.filter(Boolean) : [material].filter(Boolean);
-        materials.forEach((mat) => {
-            Object.values(mat).forEach((value) => {
-                if (value?.isTexture) textures.add(value);
-            });
-        });
-        return textures;
-    }
-
     function disposeMaterialTree(material, options = {}) {
         if (!material) return;
         const materials = Array.isArray(material) ? material.filter(Boolean) : [material];
@@ -93,8 +82,8 @@ export function createVPMBinder(options = {}) {
         const skipTextureKeys = new Set(options.skipTextureKeys || ['envMap', 'matcap']);
         const textures = new Set();
         materials.forEach((mat) => {
-            Object.entries(mat).forEach(([key, value]) => {
-                if (skipTextureKeys.has(key) || !value?.isTexture || sharedTextures.has(value) || textures.has(value)) return;
+            collectMaterialTextures(mat, { skipTextureKeys, sharedTextures }).forEach((value) => {
+                if (textures.has(value)) return;
                 textures.add(value);
                 value.dispose?.();
             });

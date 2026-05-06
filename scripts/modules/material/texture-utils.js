@@ -26,14 +26,58 @@ export function asMaterialArray(value) {
     return Array.isArray(value) ? value.filter(Boolean) : [value];
 }
 
+function toResourceSet(value) {
+    if (value instanceof Set) return value;
+    if (Array.isArray(value)) return new Set(value.filter(Boolean));
+    return new Set();
+}
+
+export function collectMaterialTextures(material, options = {}) {
+    const textures = new Set();
+    const skipTextureKeys = new Set(options.skipTextureKeys || []);
+    const sharedTextures = toResourceSet(options.sharedTextures);
+
+    const addTexture = (texture) => {
+        if (!texture?.isTexture || sharedTextures.has(texture)) return;
+        textures.add(texture);
+    };
+
+    const scanValue = (value) => {
+        if (!value) return;
+        if (value.isTexture) {
+            addTexture(value);
+            return;
+        }
+        if (Array.isArray(value)) {
+            value.forEach(scanValue);
+            return;
+        }
+        if (value.value?.isTexture) {
+            addTexture(value.value);
+            return;
+        }
+        if (Array.isArray(value.value)) {
+            value.value.forEach(scanValue);
+        }
+    };
+
+    asMaterialArray(material).forEach((mat) => {
+        Object.entries(mat).forEach(([key, value]) => {
+            if (!skipTextureKeys.has(key)) scanValue(value);
+        });
+        const uniforms = mat.uniforms && typeof mat.uniforms === 'object' ? mat.uniforms : null;
+        if (!uniforms) return;
+        Object.entries(uniforms).forEach(([key, value]) => {
+            if (!skipTextureKeys.has(key)) scanValue(value);
+        });
+    });
+
+    return textures;
+}
+
 export function materialUsesTexture(material, texture) {
     if (!material || !texture?.isTexture) return false;
-    return Object.values(material).some((value) => {
-        if (value === texture) return true;
-        if (value?.value === texture) return true;
-        if (Array.isArray(value)) return value.includes(texture);
-        return false;
-    });
+    return collectMaterialTextures(material).has(texture);
 }
 
 export function materialReferencesMaterial(materialValue, material) {
@@ -161,9 +205,8 @@ export function disposeUnusedMaterialTree(material, options = {}) {
         if (!mat || disposedMaterials.has(mat)) return;
         if (rootsUseMaterial(roots, mat)) return;
         disposedMaterials.add(mat);
-        Object.entries(mat).forEach(([key, value]) => {
-            if (skipTextureKeys.has(key) || !value?.isTexture || sharedTextures.has(value)) return;
-            candidateTextures.add(value);
+        collectMaterialTextures(mat, { skipTextureKeys, sharedTextures }).forEach((texture) => {
+            candidateTextures.add(texture);
         });
         mat.dispose?.();
     });

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { collectMaterialTextures } from '../material/texture-utils.js';
 
 export function createFBXWorkerClient(options = {}) {
     const workerUrl = (() => {
@@ -80,8 +81,8 @@ export function createFBXWorkerClient(options = {}) {
             mats.filter(Boolean).forEach((material) => {
                 if (materials.has(material)) return;
                 materials.add(material);
-                Object.values(material).forEach((value) => {
-                    if (!value?.isTexture || textures.has(value)) return;
+                collectMaterialTextures(material).forEach((value) => {
+                    if (textures.has(value)) return;
                     textures.add(value);
                     value.dispose?.();
                 });

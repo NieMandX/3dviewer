@@ -1,3 +1,5 @@
+import { collectMaterialTextures } from '../material/texture-utils.js';
+
 function safePrompt(promptFn, message, fallback = '') {
     if (typeof promptFn !== 'function') return fallback;
     try {
@@ -1088,8 +1090,8 @@ export function createAnnotations3DController(options = {}) {
             if (!material || disposedMaterials.has(material)) return;
             disposedMaterials.add(material);
             // Annotation materials can own canvased textures (labels/hatch).
-            Object.values(material).forEach((value) => {
-                if (!value?.isTexture || disposedTextures.has(value)) return;
+            collectMaterialTextures(material).forEach((value) => {
+                if (disposedTextures.has(value)) return;
                 disposedTextures.add(value);
                 value.dispose?.();
             });

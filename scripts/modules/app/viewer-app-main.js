@@ -77,7 +77,7 @@ import { createGlassController } from '../material/glass-controller.js';
 import { createGlassMeshOptimizer } from '../material/glass-mesh-optimizer.js';
 import { createMaterialRenamer } from '../material/rename-materials.js';
 import { createAutobindPipeline } from '../material/autobind-pipeline.js';
-import { copyTextureSettings } from '../material/texture-utils.js';
+import { collectMaterialTextures, copyTextureSettings } from '../material/texture-utils.js';
 import { pruneMaterialUndoStackForRoots } from '../material/undo-stack.js';
 import { createToStandard } from '../material/to-standard.js';
 import { installConsoleDiagnosticsGate } from '../utils/console-diagnostics.js';
@@ -4006,8 +4006,8 @@ export class ViewerApp {
         function addImportedMaterialResources(resources, material) {
             if (!resources || !material || resources.materials.has(material)) return;
             resources.materials.add(material);
-            Object.values(material).forEach((value) => {
-                if (value?.isTexture) resources.textures.add(value);
+            collectMaterialTextures(material).forEach((texture) => {
+                resources.textures.add(texture);
             });
         }
 
@@ -4111,9 +4111,8 @@ export class ViewerApp {
                 if (preservedMaterials.has(material)) return;
                 disposedMaterials.add(material);
                 if (disposeTextures) {
-                    Object.values(material).forEach((value) => {
+                    collectMaterialTextures(material).forEach((value) => {
                         if (
-                            !value?.isTexture ||
                             sharedTextures.has(value) ||
                             preservedTextures.has(value) ||
                             disposedTextures.has(value)
