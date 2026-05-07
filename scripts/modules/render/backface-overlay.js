@@ -1,3 +1,5 @@
+import { asMaterialArray } from '../material/texture-utils.js';
+
 export function createBackfaceOverlayController(options = {}) {
     const THREE = options.THREE || null;
     const world = options.world || null;
@@ -112,6 +114,8 @@ export function createBackfaceOverlayController(options = {}) {
         if (!origMat) origMat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
 
         if (!mesh.userData._origMaterial) mesh.userData._origMaterial = mesh.material;
+        const sourceVisible = asMaterialArray(mesh.userData._origMaterial || origMat)
+            .some((material) => material ? material.visible !== false : false);
 
         // Общие параметры (уважаем альфу исходника)
         const baseParams = {
@@ -139,6 +143,7 @@ export function createBackfaceOverlayController(options = {}) {
             );
             mesh.userData._bfFront = front;
         }
+        mesh.userData._bfFront.visible = sourceVisible;
 
         // BACK: красный
         if (!mesh.userData._bfBack) {
@@ -147,6 +152,7 @@ export function createBackfaceOverlayController(options = {}) {
             );
             mesh.userData._bfBack = back;
         }
+        mesh.userData._bfBack.visible = sourceVisible;
 
         // применяем
         mesh.material = mesh.userData._bfFront;
@@ -156,10 +162,11 @@ export function createBackfaceOverlayController(options = {}) {
             child.renderOrder = (mesh.renderOrder || 0);
             child.userData.excludeFromBounds = true;
             child.userData._isBackfaceOverlay = true;
+            child.visible = sourceVisible;
             mesh.add(child);
             mesh.userData._bfChild = child;
         } else {
-            mesh.userData._bfChild.visible = true;
+            mesh.userData._bfChild.visible = sourceVisible;
         }
     }
 

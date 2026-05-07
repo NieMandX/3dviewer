@@ -4801,6 +4801,187 @@ async function runGlassGeneratedDisplayMaterialSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runMaterialVisibilityDisplayModeSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createBackfaceOverlayController } = await import('/scripts/modules/render/backface-overlay.js');
+        const { createShadingController } = await import('/scripts/modules/render/shading-controller.js');
+        const {
+            clearBeautyWire,
+            clearWireframeOverlay,
+            ensureBeautyWire,
+            ensureWireframeOverlay,
+        } = await import('/scripts/modules/render/wire-overlays.js');
+        const { createVisibilityController } = await import('/scripts/modules/ui/visibility.js');
+
+        let renderRequests = 0;
+        let statsDirty = 0;
+
+        const world = new THREE.Group();
+        const multiMatA = new THREE.MeshStandardMaterial({ name: 'multi-a' });
+        const multiMatB = new THREE.MeshStandardMaterial({ name: 'multi-b' });
+        const multiMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [multiMatA, multiMatB]);
+        world.add(multiMesh);
+
+        const singleMat = new THREE.MeshStandardMaterial({ name: 'single' });
+        const singleMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), singleMat);
+        world.add(singleMesh);
+
+        const visibility = createVisibilityController({
+            world,
+            loadedModels: [],
+            outEl: document.createElement('div'),
+            requestRender: () => { renderRequests += 1; },
+            markSceneStatsDirty: () => { statsDirty += 1; },
+        });
+        const shading = createShadingController({
+            THREE,
+            world,
+            scene: new THREE.Scene(),
+            clearBeautyWire,
+            clearWireframeOverlay,
+            ensureBeautyWire,
+            ensureWireframeOverlay,
+            setBackfaceMode: () => {},
+        });
+
+        shading.applyShading('basic');
+        const multiGeneratedBeforeToggle = multiMesh.material;
+        visibility.toggleObjectVisibility(multiMesh.uuid, 1);
+        const multiAfterToggle = {
+            originalA: multiMatA.visible,
+            originalB: multiMatB.visible,
+            generatedA: multiGeneratedBeforeToggle[0]?.visible,
+            generatedB: multiGeneratedBeforeToggle[1]?.visible,
+            meshVisible: multiMesh.visible,
+        };
+
+        shading.applyShading('pbr');
+        const multiPbrPreserved = multiMesh.material[1]?.visible === false;
+        shading.applyShading('normal');
+        const multiGeneratedAfterModeSwitch = multiMesh.material;
+        const multiGeneratedPreserved = multiGeneratedAfterModeSwitch[1]?.visible === false;
+
+        visibility.toggleObjectVisibility(singleMesh.uuid, 0);
+        const singleAfterToggle = {
+            original: singleMat.visible,
+            generated: singleMesh.material?.visible,
+            meshVisible: singleMesh.visible,
+        };
+        shading.dispose();
+
+        const beautyWorld = new THREE.Group();
+        const beautyMat = new THREE.MeshStandardMaterial({ name: 'beauty-source' });
+        const beautyMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), beautyMat);
+        beautyWorld.add(beautyMesh);
+        let beautyRenderRequests = 0;
+        let beautyStatsDirty = 0;
+        const beautyVisibility = createVisibilityController({
+            world: beautyWorld,
+            loadedModels: [],
+            outEl: document.createElement('div'),
+            requestRender: () => { beautyRenderRequests += 1; },
+            markSceneStatsDirty: () => { beautyStatsDirty += 1; },
+        });
+        const beautyShading = createShadingController({
+            THREE,
+            world: beautyWorld,
+            scene: new THREE.Scene(),
+            clearBeautyWire,
+            ensureBeautyWire,
+            setBackfaceMode: () => {},
+        });
+        beautyShading.applyShading('beautywire');
+        beautyVisibility.toggleObjectVisibility(beautyMesh.uuid, 0);
+        const beautyAfterToggle = {
+            original: beautyMat.visible,
+            base: beautyMesh.userData._beautyBase?.visible,
+            line: beautyMesh.userData._beautyWire?.visible,
+            meshVisible: beautyMesh.visible,
+        };
+        beautyShading.dispose();
+
+        const backfaceWorld = new THREE.Group();
+        const backfaceMat = new THREE.MeshStandardMaterial({ name: 'backface-source' });
+        backfaceMat.visible = false;
+        const backfaceMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), backfaceMat);
+        backfaceWorld.add(backfaceMesh);
+        const backface = createBackfaceOverlayController({ THREE, world: backfaceWorld });
+        const backfaceShading = createShadingController({
+            THREE,
+            world: backfaceWorld,
+            scene: new THREE.Scene(),
+            clearBeautyWire,
+            setBackfaceMode: backface.setBackfaceMode,
+        });
+        backfaceShading.applyShading('backface');
+        const backfaceAfterApply = {
+            front: backfaceMesh.userData._bfFront?.visible,
+            back: backfaceMesh.userData._bfBack?.visible,
+            child: backfaceMesh.userData._bfChild?.visible,
+        };
+        backfaceShading.dispose();
+        backface.dispose();
+
+        [world, beautyWorld, backfaceWorld].forEach((root) => {
+            root.traverse((node) => {
+                node.geometry?.dispose?.();
+                const materials = Array.isArray(node.material) ? node.material : [node.material];
+                materials.filter(Boolean).forEach((material) => material.dispose?.());
+            });
+        });
+
+        return {
+            multiAfterToggle,
+            multiPbrPreserved,
+            multiGeneratedPreserved,
+            singleAfterToggle,
+            beautyAfterToggle,
+            beautyRenderRequests,
+            beautyStatsDirty,
+            backfaceAfterApply,
+            renderRequests,
+            statsDirty,
+        };
+    });
+
+    assert.deepEqual(result.multiAfterToggle, {
+        originalA: true,
+        originalB: false,
+        generatedA: true,
+        generatedB: false,
+        meshVisible: true,
+    }, 'Material visibility smoke: multi-material toggle did not sync original and generated materials');
+    assert.equal(result.multiPbrPreserved, true, 'Material visibility smoke: hidden material was not preserved after returning to PBR');
+    assert.equal(result.multiGeneratedPreserved, true, 'Material visibility smoke: hidden material was not copied into generated shading variant');
+    assert.deepEqual(result.singleAfterToggle, {
+        original: false,
+        generated: false,
+        meshVisible: false,
+    }, 'Material visibility smoke: single-material generated toggle did not hide original/current material');
+    assert.deepEqual(result.beautyAfterToggle, {
+        original: false,
+        base: false,
+        line: false,
+        meshVisible: false,
+    }, 'Material visibility smoke: BeautyWire overlay did not follow material visibility');
+    assert.ok(result.beautyRenderRequests >= 1, 'Material visibility smoke: BeautyWire visibility did not request render');
+    assert.ok(result.beautyStatsDirty >= 1, 'Material visibility smoke: BeautyWire visibility did not mark stats dirty');
+    assert.deepEqual(result.backfaceAfterApply, {
+        front: false,
+        back: false,
+        child: false,
+    }, 'Material visibility smoke: Backface overlay ignored hidden source material');
+    assert.ok(result.renderRequests >= 1, 'Material visibility smoke: visibility changes did not request render');
+    assert.ok(result.statsDirty >= 1, 'Material visibility smoke: visibility changes did not mark stats dirty');
+    diagnostics.assertNoErrors('Material visibility display-mode smoke');
+    await page.close();
+}
+
 async function runMaterialUndoStackLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -10968,6 +11149,8 @@ try {
     console.log('Texture replacement lifecycle smoke passed.');
     await runGlassGeneratedDisplayMaterialSmoke(browser, smokeServer.baseUrl);
     console.log('Glass generated display material smoke passed.');
+    await runMaterialVisibilityDisplayModeSmoke(browser, smokeServer.baseUrl);
+    console.log('Material visibility display-mode smoke passed.');
     await runMaterialUndoStackLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Material undo stack lifecycle smoke passed.');
     await runVisibilitySuppressionPruneSmoke(browser, smokeServer.baseUrl);

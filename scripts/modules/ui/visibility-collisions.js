@@ -1,5 +1,6 @@
 import { createCollisionVisibilityHelpers } from '../fbx/collisions.js';
 import { findGeomSuffix, isGlassByName, isGlassGeomSuffix } from '../material/naming.js';
+import { asMaterialArray } from '../material/texture-utils.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 import { createVisibilityController } from './visibility.js';
 
@@ -28,6 +29,13 @@ export function createVisibilityAndCollisions(options = {}) {
         syncCollisionButtons,
     });
 
+    function collectVisibilityMaterials(obj) {
+        const materials = new Set();
+        asMaterialArray(obj?.material).forEach((material) => materials.add(material));
+        asMaterialArray(obj?.userData?._origMaterial).forEach((material) => materials.add(material));
+        return Array.from(materials).filter(Boolean);
+    }
+
     function getCollisionsState() {
         let hasAny = false;
         let anyVisible = false;
@@ -48,8 +56,7 @@ export function createVisibilityAndCollisions(options = {}) {
         loadedModels.forEach((model) => {
             sceneIndex.getModelCollisions(model).forEach((o) => {
                 hasAny = true;
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
-                mats.forEach((m) => {
+                collectVisibilityMaterials(o).forEach((m) => {
                     if (!m) return;
                     if (m.visible !== next) {
                         m.visible = next;
@@ -129,7 +136,7 @@ export function createVisibilityAndCollisions(options = {}) {
                 if (isGlassRenderable(o)) return;
                 hasAny = true;
 
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
+                const mats = collectVisibilityMaterials(o);
                 const anyMatVisible = mats.some((m) => (m ? m.visible !== false : false));
                 if (o.visible !== false && anyMatVisible) anyVisible = true;
             });
@@ -144,8 +151,7 @@ export function createVisibilityAndCollisions(options = {}) {
 
     function collectObjectMaterials(obj, targetSet) {
         if (!obj || !targetSet) return;
-        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
-        materials.filter(Boolean).forEach((material) => targetSet.add(material));
+        collectVisibilityMaterials(obj).forEach((material) => targetSet.add(material));
     }
 
     function pruneNonGlassSuppressionForRoots(roots = []) {
@@ -193,8 +199,7 @@ export function createVisibilityAndCollisions(options = {}) {
                     changed = true;
                 }
 
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
-                mats.forEach((m) => {
+                collectVisibilityMaterials(o).forEach((m) => {
                     if (!m) return;
                     if (captureNew && !savedNonGlassMaterialVisibility.has(m)) {
                         savedNonGlassMaterialVisibility.set(m, m.visible !== false);
@@ -307,8 +312,7 @@ export function createVisibilityAndCollisions(options = {}) {
             const root = model?.obj;
             if (!root) return;
             sceneIndex.getModelRenderables(model, { excludeRoot: true }).forEach((o) => {
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
-                mats.forEach((m) => {
+                collectVisibilityMaterials(o).forEach((m) => {
                     if (!m) return;
                     if (m.visible !== next) {
                         m.visible = next;
@@ -367,8 +371,7 @@ export function createVisibilityAndCollisions(options = {}) {
             const root = model?.obj;
             if (!root) return;
             sceneIndex.getModelRenderables(model, { excludeRoot: true }).forEach((o) => {
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
-                mats.forEach((m) => {
+                collectVisibilityMaterials(o).forEach((m) => {
                     if (!m) return;
                     if (m.visible !== next) {
                         m.visible = next;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { asMaterialArray } from '../material/texture-utils.js';
 
 export const BEAUTY_WIRE_ANGLE_DEG = 25;
 export const BEAUTY_WIRE_COLOR = 0x111111;
@@ -6,6 +7,11 @@ export const BEAUTY_WIRE_OPACITY = 0.9;
 
 export const WIREFRAME_COLOR = 0x666666;
 export const WIREFRAME_OPACITY = 0.3;
+
+function hasVisibleSourceMaterial(mesh) {
+    const materials = asMaterialArray(mesh?.userData?._origMaterial || mesh?.material);
+    return materials.some((material) => material ? material.visible !== false : false);
+}
 
 export function ensureWireframeOverlay(mesh) {
     if (!mesh.isMesh || !mesh.geometry) return null;
@@ -48,8 +54,10 @@ export function ensureWireframeOverlay(mesh) {
         line.userData._geoId = mesh.geometry.id;
     }
 
+    const sourceVisible = hasVisibleSourceMaterial(mesh);
+    mesh.userData._wireBase.visible = sourceVisible;
     mesh.material = mesh.userData._wireBase;
-    line.visible = true;
+    line.visible = sourceVisible;
     return line;
 }
 
@@ -103,8 +111,10 @@ export function ensureBeautyWire(mesh, angleDeg = BEAUTY_WIRE_ANGLE_DEG) {
         line.userData._geoId = mesh.geometry.id;
     }
 
+    const sourceVisible = hasVisibleSourceMaterial(mesh);
+    mesh.userData._beautyBase.visible = sourceVisible;
     mesh.material = mesh.userData._beautyBase;
-    line.visible = true;
+    line.visible = sourceVisible;
     return line;
 }
 

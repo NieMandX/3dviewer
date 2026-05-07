@@ -1,3 +1,5 @@
+import { asMaterialArray } from '../material/texture-utils.js';
+
 export function createShadingController(options = {}) {
     const THREE = options.THREE || null;
     const world = options.world || null;
@@ -163,11 +165,6 @@ export function createShadingController(options = {}) {
         }
     }
 
-    function asMaterialArray(value) {
-        if (!value) return [];
-        return Array.isArray(value) ? value.filter(Boolean) : [value];
-    }
-
     function disposeCurrentShadingVariant(obj) {
         if (!obj?.material || !obj.userData?._origMaterial) return;
         const originalSet = new Set(asMaterialArray(obj.userData._origMaterial));
@@ -267,7 +264,11 @@ export function createShadingController(options = {}) {
             if (mode === 'pbr') {
                 obj.material = obj.userData._origMaterial;
             } else {
-                const variants = origArray.map(m => makeVariantFrom(m, mode));
+                const variants = origArray.map((m) => {
+                    const variant = makeVariantFrom(m, mode);
+                    if (variant && variant !== m) variant.visible = m.visible !== false;
+                    return variant;
+                });
                 obj.material = variants.length === 1 ? variants[0] : variants;
             }
         });

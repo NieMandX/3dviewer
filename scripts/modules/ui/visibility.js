@@ -1,4 +1,5 @@
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
+import { asMaterialArray, resolveEditableMaterialState } from '../material/texture-utils.js';
 
 export function createVisibilityController(options = {}) {
     const world = options.world || null;
@@ -33,9 +34,50 @@ export function createVisibilityController(options = {}) {
         outEl.querySelectorAll(`.eye[data-target="${target}"]`).forEach(btn => setEyeIcon(btn, visible));
     }
 
+    function collectVisibilityMaterials(target) {
+        const materials = new Set();
+        asMaterialArray(target?.material).forEach((material) => materials.add(material));
+        asMaterialArray(target?.userData?._origMaterial).forEach((material) => materials.add(material));
+        return Array.from(materials).filter(Boolean);
+    }
+
+    function getIndexedVisibilityMaterials(target, matIndex) {
+        const materials = new Set();
+        const currentMaterials = asMaterialArray(target?.material);
+        const editableState = resolveEditableMaterialState(target);
+        const currentMaterial = currentMaterials[matIndex] || null;
+        const editableMaterial = editableState.materials[matIndex] || null;
+        if (currentMaterial) materials.add(currentMaterial);
+        if (editableMaterial) materials.add(editableMaterial);
+        return { materials: Array.from(materials).filter(Boolean), editableMaterial };
+    }
+
+    function hasAnyEditableMaterialVisible(target) {
+        const editableState = resolveEditableMaterialState(target);
+        const materials = editableState.materials.length ? editableState.materials : asMaterialArray(target?.material);
+        return materials.some((material) => material ? material.visible !== false : false);
+    }
+
+    function syncGeneratedDisplayVisibility(target) {
+        if (!target?.userData) return;
+        const visible = hasAnyEditableMaterialVisible(target);
+        [
+            target.userData._wireBase,
+            target.userData._wireOverlay,
+            target.userData._beautyBase,
+            target.userData._beautyWire,
+            target.userData._bfFront,
+            target.userData._bfBack,
+            target.userData._bfChild,
+        ].forEach((entry) => {
+            if (!entry) return;
+            if (entry.visible !== visible) entry.visible = visible;
+        });
+    }
+
     function setMeshAndMaterialsVisibility(target, visible) {
         if (!target) return;
-        const materials = Array.isArray(target.material) ? target.material : [target.material];
+        const materials = collectVisibilityMaterials(target);
         let changed = false;
         materials.forEach(mat => {
             if (!mat) return;
@@ -48,13 +90,14 @@ export function createVisibilityController(options = {}) {
             target.visible = visible;
             changed = true;
         }
+        syncGeneratedDisplayVisibility(target);
         if (changed) markSceneStatsDirty();
         requestRender();
     }
 
     function updateMeshVisibilityFromMaterials(target) {
         if (!target) return;
-        const materials = Array.isArray(target.material) ? target.material : [target.material];
+        const materials = asMaterialArray(target.material);
         const anyVisible = materials.some(mat => mat ? mat.visible !== false : false);
         if (target.visible !== anyVisible) {
             target.visible = anyVisible;
@@ -67,16 +110,22 @@ export function createVisibilityController(options = {}) {
         const target = world.getObjectByProperty('uuid', uuid);
         if (!target) return;
 
-        if (matIndex !== null && Array.isArray(target.material)) {
-            const materials = target.material;
-            const mat = materials[matIndex];
-            if (!mat) return;
-            const nextVisible = !(mat.visible !== false);
-            if (mat.visible !== nextVisible) {
-                mat.visible = nextVisible;
-                markSceneStatsDirty();
-            }
-            if ('needsUpdate' in mat) mat.needsUpdate = true;
+        if (matIndex !== null) {
+            const { materials, editableMaterial } = getIndexedVisibilityMaterials(target, matIndex);
+            if (!materials.length) return;
+            const visibilitySource = editableMaterial || materials[0];
+            const nextVisible = !(visibilitySource.visible !== false);
+            let changed = false;
+            materials.forEach((mat) => {
+                if (!mat) return;
+                if (mat.visible !== nextVisible) {
+                    mat.visible = nextVisible;
+                    changed = true;
+                }
+                if ('needsUpdate' in mat) mat.needsUpdate = true;
+            });
+            syncGeneratedDisplayVisibility(target);
+            if (changed) markSceneStatsDirty();
             updateMeshVisibilityFromMaterials(target);
             requestRender();
             syncEyeIconsForObject(uuid, nextVisible, matIndex);
