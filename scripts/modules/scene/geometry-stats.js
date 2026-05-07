@@ -1,3 +1,5 @@
+import { asMaterialArray, resolveEditableMaterialState } from '../material/texture-utils.js';
+
 function isObjectGloballyVisible(obj) {
     let current = obj;
     while (current) {
@@ -7,17 +9,23 @@ function isObjectGloballyVisible(obj) {
     return true;
 }
 
+function getStatsMaterials(mesh) {
+    const editableState = resolveEditableMaterialState(mesh);
+    return editableState.materials.length ? editableState.materials : asMaterialArray(mesh?.material);
+}
+
 function estimateTrianglesForMesh(mesh) {
     const geometry = mesh.geometry;
     if (!geometry) return 0;
 
     const instanceMultiplier = mesh.isInstancedMesh ? Math.max(0, mesh.count || 0) : 1;
+    const materials = getStatsMaterials(mesh);
 
-    if (Array.isArray(mesh.material) && geometry.groups?.length) {
+    if (materials.length > 1 && geometry.groups?.length) {
         let grouped = 0;
         geometry.groups.forEach((group) => {
             if (!group || typeof group.count !== 'number' || group.count <= 0) return;
-            const mat = mesh.material[group.materialIndex];
+            const mat = materials[group.materialIndex];
             if (!mat || mat.visible === false) return;
             grouped += group.count / 3;
         });
@@ -63,8 +71,8 @@ export function createSceneGeometryStats(options = {}) {
             if (!obj?.isMesh) return;
             if (isExcluded(obj)) return;
             if (!isObjectGloballyVisible(obj)) return;
-            if (obj.material && Array.isArray(obj.material) && obj.material.every((mat) => mat && mat.visible === false)) return;
-            if (obj.material && !Array.isArray(obj.material) && obj.material.visible === false) return;
+            const materials = getStatsMaterials(obj);
+            if (materials.length && materials.every((mat) => mat && mat.visible === false)) return;
 
             const triCount = estimateTrianglesForMesh(obj);
             if (triCount > 0) stats.triangles += triCount;
@@ -80,4 +88,3 @@ export function createSceneGeometryStats(options = {}) {
         getStats,
     });
 }
-

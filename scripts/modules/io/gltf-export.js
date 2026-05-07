@@ -1,3 +1,5 @@
+import { resolveEditableMaterialState } from '../material/texture-utils.js';
+
 function downloadBlob(documentRef, blob, filename) {
     const doc = documentRef || (typeof document !== 'undefined' ? document : null);
     if (!doc) return;
@@ -81,6 +83,15 @@ function shouldSkipObjectForExport(obj) {
     );
 }
 
+function getExportMaterialForSource(src) {
+    if (!src?.material) return null;
+    const editableState = resolveEditableMaterialState(src);
+    if (editableState.source === 'original' && editableState.originalValue) {
+        return editableState.originalValue;
+    }
+    return src.material;
+}
+
 function cloneObject3DFiltered(root, shouldSkipFn) {
     if (!root || typeof root !== 'object') return null;
     if (shouldSkipFn && shouldSkipFn(root)) return null;
@@ -95,6 +106,7 @@ function cloneObject3DFiltered(root, shouldSkipFn) {
 
         let cloned = null;
         try {
+            const exportMaterial = getExportMaterialForSource(src);
             // Avoid copying viewer-internal userData into the export clone.
             // (Object3D.copy() deep-copies userData via JSON.stringify, which can be huge/cyclic.)
             const prevUserData = src.userData;
@@ -105,6 +117,9 @@ function cloneObject3DFiltered(root, shouldSkipFn) {
                     didClear = true;
                 }
                 cloned = src.clone(false);
+                if (exportMaterial && cloned && 'material' in cloned) {
+                    cloned.material = exportMaterial;
+                }
                 if (cloned && typeof cloned === 'object' && cloned.userData && Object.keys(cloned.userData).length > 0) {
                     cloned.userData = {};
                 }
@@ -405,6 +420,29 @@ function restoreDetachedObjects(removed) {
     }
 }
 
+function temporarilyUseOriginalDisplayMaterials(root) {
+    const saved = [];
+    if (!root || typeof root.traverse !== 'function') return saved;
+
+    root.traverse((obj) => {
+        if (!obj?.material) return;
+        const editableState = resolveEditableMaterialState(obj);
+        if (editableState.source !== 'original' || !editableState.originalValue) return;
+        saved.push({ obj, material: obj.material });
+        obj.material = editableState.originalValue;
+    });
+
+    return saved;
+}
+
+function restoreDisplayMaterials(saved) {
+    const list = Array.isArray(saved) ? saved : [];
+    for (const item of list) {
+        if (!item?.obj) continue;
+        item.obj.material = item.material;
+    }
+}
+
 function splitGLB(arrayBuffer) {
     const buf = arrayBuffer;
     const dv = new DataView(buf);
@@ -542,6 +580,7 @@ export async function exportWorldAsGLTF(options = {}) {
         if (!canMutateWorldPos) throw cloneError || new Error('GLTF export: cannot mutate world for export');
 
         const removed = detachObjectsForExport(world);
+        const savedDisplayMaterials = temporarilyUseOriginalDisplayMaterials(world);
         const savedObjUserData = temporarilyClearObjectUserData(world);
         const savedMatUserData = temporarilyClearMaterialUserData(world);
         const bakedLights = bakeLightTargetsForExport(world);
@@ -558,6 +597,7 @@ export async function exportWorldAsGLTF(options = {}) {
             restoreBakedLightTargets(bakedLights);
             restoreMaterialUserData(savedMatUserData);
             restoreObjectUserData(savedObjUserData);
+            restoreDisplayMaterials(savedDisplayMaterials);
             restoreDetachedObjects(removed);
             world.updateMatrixWorld(true);
         }

@@ -4810,6 +4810,7 @@ async function runMaterialVisibilityDisplayModeSmoke(browser, baseUrl) {
         const THREE = await import('three');
         const { createBackfaceOverlayController } = await import('/scripts/modules/render/backface-overlay.js');
         const { createShadingController } = await import('/scripts/modules/render/shading-controller.js');
+        const { createSceneGeometryStats } = await import('/scripts/modules/scene/geometry-stats.js');
         const {
             clearBeautyWire,
             clearWireframeOverlay,
@@ -4927,7 +4928,32 @@ async function runMaterialVisibilityDisplayModeSmoke(browser, baseUrl) {
         backfaceShading.dispose();
         backface.dispose();
 
-        [world, beautyWorld, backfaceWorld].forEach((root) => {
+        const statsWorld = new THREE.Group();
+        const statsGeometry = new THREE.BufferGeometry();
+        statsGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+            0, 0, 0,
+            1, 0, 0,
+            0, 1, 0,
+            0, 0, 0,
+            1, 0, 0,
+            1, 1, 0,
+        ]), 3));
+        statsGeometry.addGroup(0, 3, 0);
+        statsGeometry.addGroup(3, 3, 1);
+        const statsOriginalA = new THREE.MeshStandardMaterial({ name: 'stats-original-a' });
+        const statsOriginalB = new THREE.MeshStandardMaterial({ name: 'stats-original-b' });
+        statsOriginalB.visible = false;
+        const statsGeneratedA = new THREE.MeshBasicMaterial({ name: 'stats-generated-a' });
+        const statsGeneratedB = new THREE.MeshBasicMaterial({ name: 'stats-generated-b' });
+        statsGeneratedA.userData.viewerGeneratedMaterial = 'shading-variant';
+        statsGeneratedB.userData.viewerGeneratedMaterial = 'shading-variant';
+        statsGeneratedB.visible = true;
+        const statsMesh = new THREE.Mesh(statsGeometry, [statsGeneratedA, statsGeneratedB]);
+        statsMesh.userData._origMaterial = [statsOriginalA, statsOriginalB];
+        statsWorld.add(statsMesh);
+        const statsTriangles = createSceneGeometryStats({ world: statsWorld }).getStats().triangles;
+
+        [world, beautyWorld, backfaceWorld, statsWorld].forEach((root) => {
             root.traverse((node) => {
                 node.geometry?.dispose?.();
                 const materials = Array.isArray(node.material) ? node.material : [node.material];
@@ -4944,6 +4970,7 @@ async function runMaterialVisibilityDisplayModeSmoke(browser, baseUrl) {
             beautyRenderRequests,
             beautyStatsDirty,
             backfaceAfterApply,
+            statsTriangles,
             renderRequests,
             statsDirty,
         };
@@ -4976,6 +5003,7 @@ async function runMaterialVisibilityDisplayModeSmoke(browser, baseUrl) {
         back: false,
         child: false,
     }, 'Material visibility smoke: Backface overlay ignored hidden source material');
+    assert.equal(result.statsTriangles, 1, 'Material visibility smoke: geometry stats ignored hidden original material under generated shading');
     assert.ok(result.renderRequests >= 1, 'Material visibility smoke: visibility changes did not request render');
     assert.ok(result.statsDirty >= 1, 'Material visibility smoke: visibility changes did not mark stats dirty');
     diagnostics.assertNoErrors('Material visibility display-mode smoke');
@@ -9266,20 +9294,43 @@ async function runGLTFExportCleanupSmoke(browser, baseUrl) {
         material.userData.smokeOriginalMaterial = true;
         material.userData.viewerTransient = { shouldNotExport: true };
         const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = 'export-source-mesh';
         world.add(mesh);
 
+        const displayOriginal = new THREE.MeshStandardMaterial({ name: 'export-display-original' });
+        displayOriginal.userData.smokeOriginalMaterial = true;
+        const displayGenerated = new THREE.MeshBasicMaterial({ name: 'export-display-generated' });
+        displayGenerated.userData.viewerGeneratedMaterial = 'shading-variant';
+        const displayMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), displayGenerated);
+        displayMesh.name = 'export-display-mesh';
+        displayMesh.userData._origMaterial = displayOriginal;
+        world.add(displayMesh);
+
+        const nativeParse = GLTFExporter.prototype.parse;
+
         try {
+            const exportDisplayMaterialNames = [];
+            GLTFExporter.prototype.parse = function patchedDisplayParse(rootArg, onDone, onError, options) {
+                rootArg?.traverse?.((obj) => {
+                    if (obj?.name !== 'export-display-mesh') return;
+                    const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+                    materials.filter(Boolean).forEach((mat) => {
+                        exportDisplayMaterialNames.push(mat.name || '');
+                    });
+                });
+                return nativeParse.call(this, rootArg, onDone, onError, options);
+            };
             const exportResult = await exportWorldAsGLTF({
                 world,
                 format: 'glb',
                 coords: 'rebased',
                 returnBlob: true,
             });
+            GLTFExporter.prototype.parse = nativeParse;
 
             let lateAbortResult = 'not-run';
             let lateAbortDownloadCount = 0;
             const lateAbortController = new AbortController();
-            const nativeParse = GLTFExporter.prototype.parse;
             const fakeDocument = {
                 body: {
                     appendChild() {},
@@ -9327,13 +9378,18 @@ async function runGLTFExportCleanupSmoke(browser, baseUrl) {
                 originalUserDataPreserved: material.userData.viewerTransient?.shouldNotExport === true,
                 blobType: exportResult?.blob?.type || '',
                 format: exportResult?.format || '',
+                exportDisplayMaterialNames,
                 lateAbortResult,
                 lateAbortDownloadCount,
             };
         } finally {
             THREE.Material.prototype.dispose = nativeMaterialDispose;
+            GLTFExporter.prototype.parse = nativeParse;
             geometry.dispose();
             material.dispose();
+            displayMesh.geometry.dispose();
+            displayOriginal.dispose();
+            displayGenerated.dispose();
         }
     });
 
@@ -9341,6 +9397,11 @@ async function runGLTFExportCleanupSmoke(browser, baseUrl) {
     assert.equal(result.blobType, 'model/gltf-binary', 'GLTF export cleanup smoke: export did not produce a GLB blob');
     assert.equal(result.materialStillAttached, true, 'GLTF export cleanup smoke: export detached original material');
     assert.equal(result.originalUserDataPreserved, true, 'GLTF export cleanup smoke: export mutated original material userData');
+    assert.deepEqual(
+        result.exportDisplayMaterialNames,
+        ['export-display-original'],
+        'GLTF export cleanup smoke: display-mode export used generated material instead of original material',
+    );
     assert.equal(
         result.disposedMaterials.some((entry) => entry.name === 'export-material' && !entry.isOriginal),
         true,
