@@ -6216,6 +6216,32 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
         };
         controller.handleRemoteState({
             sender: 'peer-user',
+            ts: 501,
+            position: [11, 11, 11],
+            target: [1, 1, 1],
+            up: [0, 1, 0],
+            fov: 0,
+        });
+        const afterInvalidFovRemote = {
+            position: camera.position.toArray(),
+            fov: camera.fov,
+        };
+        controller.handleRemoteState({
+            sender: 'peer-user',
+            ts: 502,
+            position: [12, 12, 12],
+            target: [1, 1, 1],
+            up: [0, 1, 0],
+            near: 10,
+            far: 1,
+        });
+        const afterInvalidClipRemote = {
+            position: camera.position.toArray(),
+            near: camera.near,
+            far: camera.far,
+        };
+        controller.handleRemoteState({
+            sender: 'peer-user',
             ts: 200,
             position: [4, 5, 6],
             target: [1, 1, 1],
@@ -6241,6 +6267,14 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
             fov: 40,
         });
         const afterNewerRemote = camera.position.toArray();
+        controller.handleRemoteState({
+            sender: 'peer-user',
+            position: [13, 13, 13],
+            target: [4, 4, 4],
+            up: [0, 1, 0],
+            fov: 35,
+        });
+        const afterUntimestampedRemote = camera.position.toArray();
         const beforeDisposeWithRemoteCalls = calls.slice();
 
         controller.dispose();
@@ -6264,9 +6298,12 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
             afterImmediateRemote,
             afterBusyRemote,
             afterInvalidRemote,
+            afterInvalidFovRemote,
+            afterInvalidClipRemote,
             afterFreshRemote,
             afterStaleRemote,
             afterNewerRemote,
+            afterUntimestampedRemote,
             cameraPosition: camera.position.toArray(),
         };
     });
@@ -6280,9 +6317,20 @@ async function runCameraSyncLifecycleSmoke(browser, baseUrl) {
         { position: [1, 2, 3], target: [0, 0, 0], fov: 50 },
         'Camera sync smoke: invalid remote camera payload mutated camera state',
     );
+    assert.deepEqual(
+        result.afterInvalidFovRemote,
+        { position: [1, 2, 3], fov: 50 },
+        'Camera sync smoke: invalid remote fov partially mutated camera state',
+    );
+    assert.deepEqual(
+        result.afterInvalidClipRemote,
+        { position: [1, 2, 3], near: 0.1, far: 1000 },
+        'Camera sync smoke: invalid remote clipping planes partially mutated camera state',
+    );
     assert.deepEqual(result.afterFreshRemote, [4, 5, 6], 'Camera sync smoke: fresh remote state was not applied');
     assert.deepEqual(result.afterStaleRemote, [4, 5, 6], 'Camera sync smoke: stale remote state overwrote newer camera state');
     assert.deepEqual(result.afterNewerRemote, [7, 7, 7], 'Camera sync smoke: newer remote state was ignored after stale state');
+    assert.deepEqual(result.afterUntimestampedRemote, [7, 7, 7], 'Camera sync smoke: untimestamped stale remote state overwrote timestamped camera state');
     assert.deepEqual(result.afterDisposeCalls, result.beforeDisposeWithRemoteCalls, 'Camera sync smoke: disposed controller still reacted to controls/remote state');
     assert.deepEqual(result.cameraPosition, [7, 7, 7], 'Camera sync smoke: disposed controller applied remote camera state');
     diagnostics.assertNoErrors('Camera sync lifecycle smoke');
