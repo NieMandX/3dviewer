@@ -2,7 +2,11 @@ import { clamp01 } from '../utils/math.js';
 import { geoColorToHex, normalizeHexColor } from '../utils/color.js';
 import { findGeoGlassParams } from '../geo/glass-params.js';
 import { findGeomSuffix, isGlassByName, isGlassGeomSuffix } from './naming.js';
-import { asMaterialArray, disposeUnusedMaterialTree } from './texture-utils.js';
+import {
+    assignEditableMaterial,
+    disposeUnusedMaterialTree,
+    resolveEditableMaterialState,
+} from './texture-utils.js';
 
 export function createGlassController(options = {}) {
     const THREE = options.THREE || null;
@@ -30,44 +34,6 @@ export function createGlassController(options = {}) {
 
     const glassValueDisplays = new Map();
     const listeners = [];
-
-    function isGeneratedDisplayMaterial(obj, material) {
-        return !!material && (
-            material?.userData?.viewerGeneratedMaterial === 'shading-variant' ||
-            material === obj?.userData?._bfFront ||
-            material === obj?.userData?._bfBack ||
-            material === obj?.userData?._wireBase ||
-            material === obj?.userData?._beautyBase
-        );
-    }
-
-    function resolveEditableMaterials(obj) {
-        const currentMaterials = asMaterialArray(obj?.material);
-        const originalMaterials = asMaterialArray(obj?.userData?._origMaterial);
-        const currentIsGeneratedDisplay = currentMaterials.some((material) => isGeneratedDisplayMaterial(obj, material));
-        if (originalMaterials.length > 0 && currentIsGeneratedDisplay) {
-            return { materials: originalMaterials, source: 'original' };
-        }
-        return { materials: currentMaterials, source: 'current' };
-    }
-
-    function assignEditableMaterial(obj, state, index, material) {
-        if (!obj || !state || !material) return;
-        if (state.source === 'original') {
-            obj.userData ||= {};
-            if (Array.isArray(obj.userData._origMaterial)) {
-                obj.userData._origMaterial[index] = material;
-            } else {
-                obj.userData._origMaterial = material;
-            }
-            return;
-        }
-        if (Array.isArray(obj.material)) {
-            obj.material[index] = material;
-        } else {
-            obj.material = material;
-        }
-    }
 
     function addListener(target, type, handler, options) {
         if (!target?.addEventListener || typeof handler !== 'function') return;
@@ -192,7 +158,7 @@ export function createGlassController(options = {}) {
         world.traverse(o => {
             if (o.userData?.isCollision) return;
             if (!o.isMesh || !o.material) return;
-            const materialState = resolveEditableMaterials(o);
+            const materialState = resolveEditableMaterialState(o);
             materialState.materials.forEach((m, i) => {
                 const nameStr = `${m.name || ''} ${o.name || ''}`;
                 const geomSuffix = findGeomSuffix(nameStr);
@@ -415,7 +381,7 @@ export function createGlassController(options = {}) {
         world.traverse(o => {
             if (o.userData?.isCollision) return;
             if (!o.isMesh || !o.material) return;
-            const materialState = resolveEditableMaterials(o);
+            const materialState = resolveEditableMaterialState(o);
             materialState.materials.forEach((m, i) => {
                 const nameStr = `${m.name || ''} ${o.name || ''}`;
                 const geomSuffix = findGeomSuffix(nameStr);

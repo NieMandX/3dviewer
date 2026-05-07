@@ -1,3 +1,5 @@
+import { asMaterialArray, isGeneratedDisplayMaterial } from '../material/texture-utils.js';
+
 export function guessKindFromName(name) {
     const n = (name || '').toLowerCase();
     if (/(rough|rgh|_rough|\br_)/.test(n)) return 'roughness';
@@ -41,21 +43,6 @@ export function createTextureInfoFormatter(options = {}) {
 export function createSelectedMaterialLinkResolver(options = {}) {
     const matSelectEl = options.matSelectEl || null;
     const world = options.world || null;
-
-    const asMaterialArray = (value) => {
-        if (!value) return [];
-        return Array.isArray(value) ? value.filter(Boolean) : [value];
-    };
-
-    const isGeneratedDisplayMaterial = (obj, material) => (
-        !!material && (
-            material?.userData?.viewerGeneratedMaterial === 'shading-variant' ||
-            material === obj?.userData?._bfFront ||
-            material === obj?.userData?._bfBack ||
-            material === obj?.userData?._wireBase ||
-            material === obj?.userData?._beautyBase
-        )
-    );
 
     return function getSelectedMaterialLink() {
         if (!matSelectEl) return null;

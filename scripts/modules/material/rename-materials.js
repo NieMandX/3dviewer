@@ -1,4 +1,8 @@
-import { disposeUnusedMaterialTree } from './texture-utils.js';
+import {
+    assignEditableMaterial,
+    disposeUnusedMaterialTree,
+    resolveEditableMaterialState,
+} from './texture-utils.js';
 
 export function createMaterialRenamer(options = {}) {
     const logBind = typeof options.logBind === 'function' ? options.logBind : null;
@@ -24,7 +28,8 @@ export function createMaterialRenamer(options = {}) {
             if (!mesh?.isMesh || !mesh.material) return;
 
             const ucx = nearestUCX(mesh);
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            const materialState = resolveEditableMaterialState(mesh);
+            const mats = materialState.materials;
             let changed = false;
 
             for (let i = 0; i < mats.length; i++) {
@@ -40,8 +45,7 @@ export function createMaterialRenamer(options = {}) {
                 const cloned = mat.clone(); // свой инстанс для этого меша
                 cloned.name = mats.length > 1 ? `${base}_${i + 1}` : base;
 
-                if (Array.isArray(mesh.material)) mesh.material[i] = cloned;
-                else mesh.material = cloned;
+                assignEditableMaterial(mesh, materialState, i, cloned);
                 disposeUnusedMaterialTree(mat, { root });
 
                 renamed++;

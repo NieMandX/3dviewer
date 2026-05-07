@@ -4167,6 +4167,39 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        filenameRootLive = false;
 	        filenameStaleDeferred.loads[0].onLoad?.(filenameStaleDeferred.loads[0].texture);
 
+	        const filenameShadingOldTexture = new THREE.Texture();
+	        filenameShadingOldTexture.name = 'filename-shading-old';
+	        const filenameShadingOldTextureDisposed = trackDispose(filenameShadingOldTexture);
+	        const filenameShadingOriginalMaterial = new THREE.MeshStandardMaterial({
+	            name: 'wall material',
+	            map: filenameShadingOldTexture,
+	        });
+	        const filenameShadingGeneratedMaterial = new THREE.MeshBasicMaterial({ name: 'display material' });
+	        filenameShadingGeneratedMaterial.userData.viewerGeneratedMaterial = 'shading-variant';
+	        const filenameShadingRoot = new THREE.Group();
+	        const filenameShadingMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), filenameShadingGeneratedMaterial);
+	        filenameShadingMesh.name = 'mesh_wall';
+	        filenameShadingMesh.userData._origMaterial = filenameShadingOriginalMaterial;
+	        filenameShadingRoot.add(filenameShadingMesh);
+	        let filenameShadingCacheCalls = 0;
+	        const filenameShadingBinder = createFilenameBinder({
+	            THREE,
+	            geomSuffixes: ['wall'],
+	            guessKindFromName: () => 'base',
+	            findGeomSuffix: (label) => (String(label || '').toLowerCase().includes('wall') ? 'wall' : null),
+	            textureLoader: { load: () => new THREE.Texture() },
+	            toStandard: (material) => material,
+	            copyTextureSettings: () => {},
+	            cacheOriginalMaterialFor: () => { filenameShadingCacheCalls += 1; },
+	        });
+	        filenameShadingBinder.autoBindByNamesForModel(filenameShadingRoot, 'model.fbx', [
+	            { short: 'T_wall_d_1.png', full: 'T_wall_d_1.png', url: 'blob:filename-shading-new' },
+	        ]);
+	        const filenameShadingVisiblePreserved = filenameShadingMesh.material === filenameShadingGeneratedMaterial;
+	        const filenameShadingOriginalUpdated = filenameShadingMesh.userData._origMaterial?.map?.name === 'T_wall_d_1.png';
+	        const filenameShadingGeneratedUntouched = !filenameShadingGeneratedMaterial.map;
+	        const filenameShadingOldTextureAfterBind = filenameShadingOldTextureDisposed();
+
         const modalShared = new THREE.Texture();
         modalShared.name = 'modal-shared';
         const modalSharedDisposed = trackDispose(modalShared);
@@ -4354,6 +4387,43 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        const vpmOldMaterialAfterBind = vpmOldMaterialDisposed();
 	        const vpmOldTextureAfterBind = vpmOldTextureDisposed();
 
+	        const vpmShadingOldTexture = new THREE.Texture();
+	        vpmShadingOldTexture.name = 'vpm-shading-old';
+	        const vpmShadingOldTextureDisposed = trackDispose(vpmShadingOldTexture);
+	        const vpmShadingOldMaterial = new THREE.MeshStandardMaterial({
+	            name: 'vpm shading old',
+	            map: vpmShadingOldTexture,
+	        });
+	        const vpmShadingOldMaterialDisposed = trackDispose(vpmShadingOldMaterial);
+	        const vpmShadingGeneratedMaterial = new THREE.MeshBasicMaterial({ name: 'vpm generated display' });
+	        vpmShadingGeneratedMaterial.userData.viewerGeneratedMaterial = 'shading-variant';
+	        const vpmShadingMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), vpmShadingGeneratedMaterial);
+	        vpmShadingMesh.name = 'vpm_shading_mesh';
+	        vpmShadingMesh.userData._origMaterial = vpmShadingOldMaterial;
+	        const vpmShadingRoot = new THREE.Group();
+	        vpmShadingRoot.userData._fbxFileName = 'SM_shading_case.fbx';
+	        vpmShadingRoot.add(vpmShadingMesh);
+	        const vpmShadingLoadedModels = [{ obj: vpmShadingRoot, name: 'SM_shading_case.fbx', zipKind: 'SM' }];
+	        const shadingLabels = new Map([['blob:vpm-shading-diffuse', 'T_shading_case_Diffuse_1.1001.png']]);
+	        let vpmShadingCacheCalls = 0;
+	        const vpmShadingBinder = createVPMBinder({
+	            THREE,
+	            loadedModels: vpmShadingLoadedModels,
+	            labelFromURL: (url) => shadingLabels.get(url) || '',
+	            toStandard,
+	            textureLoader: { load: () => new THREE.Texture() },
+	            detectSlotFromMatOrObj: () => 1,
+	            copyTextureSettings: () => {},
+	            cacheOriginalMaterialFor: () => { vpmShadingCacheCalls += 1; },
+	        });
+	        const vpmShadingIndex = vpmShadingBinder.buildVPMIndex([{ url: 'blob:vpm-shading-diffuse' }]);
+	        await vpmShadingBinder.autoBindVPMForModel(vpmShadingRoot, vpmShadingIndex);
+	        const vpmShadingVisiblePreserved = vpmShadingMesh.material === vpmShadingGeneratedMaterial;
+	        const vpmShadingOriginalUpdated = vpmShadingMesh.userData._origMaterial?.map?.name === 'T_shading_case_Diffuse_1.1001.png';
+	        const vpmShadingGeneratedUntouched = !vpmShadingGeneratedMaterial.map;
+	        const vpmShadingOldMaterialAfterBind = vpmShadingOldMaterialDisposed();
+	        const vpmShadingOldTextureAfterBind = vpmShadingOldTextureDisposed();
+
 	        const vpmDeferred = createDeferredTextureLoader();
 	        let vpmRenderCount = 0;
 	        const vpmRenderMesh = new THREE.Mesh(
@@ -4484,6 +4554,11 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            filenameRenderAfterLoad,
 	            filenameStaleRenderCount,
 	            filenameStaleDisposed: filenameStaleDisposed(),
+	            filenameShadingVisiblePreserved,
+	            filenameShadingOriginalUpdated,
+	            filenameShadingGeneratedUntouched,
+	            filenameShadingOldTextureAfterBind,
+	            filenameShadingCacheCalls,
 	            modalAfterFirstBind,
 	            modalAfterSecondBind,
 	            modalConvertedMaterialAfterBind,
@@ -4499,6 +4574,12 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            modalStaleDisposed: modalStaleDisposed(),
 	            vpmOldMaterialAfterBind,
 	            vpmOldTextureAfterBind,
+	            vpmShadingVisiblePreserved,
+	            vpmShadingOriginalUpdated,
+	            vpmShadingGeneratedUntouched,
+	            vpmShadingOldMaterialAfterBind,
+	            vpmShadingOldTextureAfterBind,
+	            vpmShadingCacheCalls,
 	            vpmRenderAfterBind,
 	            vpmRenderAfterLoad,
 	            vpmStaleRenderAfterBind,
@@ -4519,6 +4600,11 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.filenameRenderAfterLoad, 1, 'Texture replacement smoke: filename binder did not request render after image decode');
 	    assert.equal(result.filenameStaleRenderCount, 0, 'Texture replacement smoke: stale filename texture requested render after model removal');
 	    assert.equal(result.filenameStaleDisposed, 1, 'Texture replacement smoke: stale filename texture was not disposed after late decode');
+	    assert.equal(result.filenameShadingVisiblePreserved, true, 'Texture replacement smoke: filename binder replaced visible shading material');
+	    assert.equal(result.filenameShadingOriginalUpdated, true, 'Texture replacement smoke: filename binder did not update original material under shading mode');
+	    assert.equal(result.filenameShadingGeneratedUntouched, true, 'Texture replacement smoke: filename binder bound texture to generated shading material');
+	    assert.equal(result.filenameShadingOldTextureAfterBind, 1, 'Texture replacement smoke: filename binder leaked replaced original texture under shading mode');
+	    assert.equal(result.filenameShadingCacheCalls, 1, 'Texture replacement smoke: filename binder did not invalidate original material cache under shading mode');
 	    assert.equal(result.modalAfterFirstBind, 0, 'Texture replacement smoke: texture modal disposed texture still used by another mesh');
 	    assert.equal(result.modalAfterSecondBind, 1, 'Texture replacement smoke: texture modal did not dispose texture after last reference was replaced');
 	    assert.equal(result.modalConvertedMaterialAfterBind, 1, 'Texture replacement smoke: texture modal leaked converted source material');
@@ -4534,6 +4620,12 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.modalStaleDisposed, 1, 'Texture replacement smoke: stale modal texture was not disposed after late decode');
 	    assert.equal(result.vpmOldMaterialAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source material');
 	    assert.equal(result.vpmOldTextureAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source texture');
+	    assert.equal(result.vpmShadingVisiblePreserved, true, 'Texture replacement smoke: VPM bind replaced visible shading material');
+	    assert.equal(result.vpmShadingOriginalUpdated, true, 'Texture replacement smoke: VPM bind did not update original material under shading mode');
+	    assert.equal(result.vpmShadingGeneratedUntouched, true, 'Texture replacement smoke: VPM bind bound texture to generated shading material');
+	    assert.equal(result.vpmShadingOldMaterialAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced original material under shading mode');
+	    assert.equal(result.vpmShadingOldTextureAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced original texture under shading mode');
+	    assert.equal(result.vpmShadingCacheCalls, 1, 'Texture replacement smoke: VPM bind did not invalidate original material cache under shading mode');
 	    assert.equal(result.vpmRenderAfterBind, 1, 'Texture replacement smoke: VPM bind did not request initial render');
 	    assert.equal(result.vpmRenderAfterLoad, 2, 'Texture replacement smoke: VPM bind did not request render after diffuse decode');
 	    assert.equal(result.vpmStaleRenderAfterLoad, result.vpmStaleRenderAfterBind, 'Texture replacement smoke: stale VPM texture requested render after model removal');

@@ -26,6 +26,70 @@ export function asMaterialArray(value) {
     return Array.isArray(value) ? value.filter(Boolean) : [value];
 }
 
+export function isGeneratedDisplayMaterial(obj, material) {
+    return !!material && (
+        material?.userData?.viewerGeneratedMaterial === 'shading-variant' ||
+        material === obj?.userData?._bfFront ||
+        material === obj?.userData?._bfBack ||
+        material === obj?.userData?._wireBase ||
+        material === obj?.userData?._beautyBase
+    );
+}
+
+export function resolveEditableMaterialState(obj) {
+    const currentMaterials = asMaterialArray(obj?.material);
+    const originalMaterials = asMaterialArray(obj?.userData?._origMaterial);
+    const currentIsGeneratedDisplay = currentMaterials.some((material) => isGeneratedDisplayMaterial(obj, material));
+    if (originalMaterials.length > 0 && currentIsGeneratedDisplay) {
+        return {
+            source: 'original',
+            materials: originalMaterials,
+            originalValue: obj.userData._origMaterial,
+            currentValue: obj.material,
+        };
+    }
+    return {
+        source: 'current',
+        materials: currentMaterials,
+        originalValue: obj?.userData?._origMaterial,
+        currentValue: obj?.material,
+    };
+}
+
+export function assignEditableMaterial(obj, state, index, material) {
+    if (!obj || !state || !material) return;
+    const previousMaterial = state.materials?.[index] || null;
+    if (state.source === 'original') {
+        obj.userData ||= {};
+        if (Array.isArray(obj.userData._origMaterial)) {
+            obj.userData._origMaterial[index] = material;
+        } else {
+            obj.userData._origMaterial = material;
+        }
+        if (obj.material === previousMaterial) {
+            obj.material = material;
+        } else if (
+            Array.isArray(obj.material) &&
+            obj.material[index] === previousMaterial &&
+            !isGeneratedDisplayMaterial(obj, previousMaterial)
+        ) {
+            obj.material[index] = material;
+        }
+        return;
+    }
+    if (Array.isArray(obj.material)) {
+        obj.material[index] = material;
+    } else {
+        obj.material = material;
+    }
+}
+
+export function editableMaterialIsAssigned(obj, state, material) {
+    if (!obj || !state || !material) return false;
+    const value = state.source === 'original' ? obj.userData?._origMaterial : obj.material;
+    return asMaterialArray(value).includes(material);
+}
+
 function toResourceSet(value) {
     if (value instanceof Set) return value;
     if (Array.isArray(value)) return new Set(value.filter(Boolean));

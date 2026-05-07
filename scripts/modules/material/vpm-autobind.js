@@ -1,4 +1,10 @@
-import { collectMaterialTextures, disposeUnusedMaterialTree } from './texture-utils.js';
+import {
+    assignEditableMaterial,
+    collectMaterialTextures,
+    disposeUnusedMaterialTree,
+    editableMaterialIsAssigned,
+    resolveEditableMaterialState,
+} from './texture-utils.js';
 
 export function createVPMBinder(options = {}) {
     const THREE = options.THREE || null;
@@ -221,12 +227,14 @@ export function createVPMBinder(options = {}) {
             if (!isRootLive(root)) return;
             if (!o.isMesh || !o.geometry) return;
             if (o.userData?.isCollision) return;
+            const materialState = resolveEditableMaterialState(o);
+            if (!materialState.materials.length) return;
 
             // 2) UDIM и SLOT для текущего меша
             const udim = o.userData?.udim || detectUDIMfromGeo(o.geometry);
-            const slot = detectSlotFromMatOrObj(o, Array.isArray(o.material) ? o.material[0] : o.material);
+            const primaryMat = materialState.materials[0];
+            const slot = detectSlotFromMatOrObj(o, primaryMat);
 
-            const primaryMat = Array.isArray(o.material) ? o.material[0] : o.material;
             const label = `${primaryMat?.name || ''} ${o.name || ''}`;
             const geomSuffix = findGeomSuffix(label);
             if (isGlassByName(label) || isGlassGeomSuffix(geomSuffix)) {
@@ -255,8 +263,8 @@ export function createVPMBinder(options = {}) {
             }
 
             // 4) Базовый материал → Standard-клон
-            const previousMaterial = o.material;
-            const sourceMaterial = Array.isArray(previousMaterial) ? previousMaterial[0] : previousMaterial;
+            const previousMaterial = materialState.source === 'original' ? materialState.originalValue : o.material;
+            const sourceMaterial = primaryMat;
             const bindGeneration = (Number(o.userData?._vpmBindGeneration) || 0) + 1;
             (o.userData ||= {})._vpmBindGeneration = bindGeneration;
             let bindActive = true;
@@ -264,7 +272,14 @@ export function createVPMBinder(options = {}) {
                 bindActive &&
                 isRootLive(root) &&
                 o.userData?._vpmBindGeneration === bindGeneration &&
-                o.material === previousMaterial
+                (
+                    materialState.source === 'original'
+                        ? (
+                            o.userData?._origMaterial === materialState.originalValue ||
+                            editableMaterialIsAssigned(o, materialState, mat)
+                        )
+                        : (o.material === previousMaterial || o.material === mat)
+                )
             );
             const base = toStandard(sourceMaterial);
             const mat = base.clone();
@@ -282,7 +297,12 @@ export function createVPMBinder(options = {}) {
                 if (!bindActive) return false;
                 if (!isRootLive(root)) return false;
                 if (o.userData?._vpmBindGeneration !== bindGeneration) return false;
-                if (o.material !== previousMaterial && o.material !== mat) return false;
+                if (materialState.source === 'original') {
+                    const originalUnchanged = o.userData?._origMaterial === materialState.originalValue;
+                    if (!originalUnchanged && !editableMaterialIsAssigned(o, materialState, mat)) return false;
+                } else if (o.material !== previousMaterial && o.material !== mat) {
+                    return false;
+                }
                 return mat?.[materialSlot] === texture;
             }
 
@@ -411,7 +431,7 @@ export function createVPMBinder(options = {}) {
                             mat.envMapIntensity = envInt;
                         }
                         applyPendingShadowMaterials();
-                        o.material = mat;
+                        assignEditableMaterial(o, materialState, 0, mat);
                         cacheOriginalMaterialFor(o, true);
                         disposeUnusedMaterialTree(previousMaterial, { root });
                         appliedCount += 1;
@@ -435,7 +455,7 @@ export function createVPMBinder(options = {}) {
                     mat.envMapIntensity = envInt;
                 }
                 applyPendingShadowMaterials();
-                o.material = mat;
+                assignEditableMaterial(o, materialState, 0, mat);
                 cacheOriginalMaterialFor(o, true);
                 disposeUnusedMaterialTree(previousMaterial, { root });
                 appliedCount += 1;

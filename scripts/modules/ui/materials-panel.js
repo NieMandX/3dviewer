@@ -1,5 +1,6 @@
 import { clamp01 } from '../utils/math.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
+import { asMaterialArray, isGeneratedDisplayMaterial } from '../material/texture-utils.js';
 
 const PANEL_TEX_KEYS = [
     'map',
@@ -12,21 +13,6 @@ const PANEL_TEX_KEYS = [
     'roughnessMap',
     'metalnessMap',
 ];
-
-function asMaterialArray(value) {
-    if (!value) return [];
-    return Array.isArray(value) ? value.filter(Boolean) : [value];
-}
-
-function isGeneratedDisplayMaterial(obj, material) {
-    return !!material && (
-        material?.userData?.viewerGeneratedMaterial === 'shading-variant' ||
-        material === obj?.userData?._bfFront ||
-        material === obj?.userData?._bfBack ||
-        material === obj?.userData?._wireBase ||
-        material === obj?.userData?._beautyBase
-    );
-}
 
 export function createMaterialsPanelController(options = {}) {
     const world = options.world || null;

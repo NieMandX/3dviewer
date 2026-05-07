@@ -1,4 +1,10 @@
-import { disposeUnusedMaterialTree, objectTreeUsesTexture } from './texture-utils.js';
+import {
+    assignEditableMaterial,
+    disposeUnusedMaterialTree,
+    editableMaterialIsAssigned,
+    objectTreeUsesTexture,
+    resolveEditableMaterialState,
+} from './texture-utils.js';
 
 export function createFilenameBinder(options = {}) {
     const THREE = options.THREE || null;
@@ -86,7 +92,8 @@ export function createFilenameBinder(options = {}) {
         root.traverse(o => {
             if (!o.isMesh || !o.material) return;
             if (o.userData?.isCollision) return;
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            const materialState = resolveEditableMaterialState(o);
+            const mats = materialState.materials;
             mats.forEach((m, i) => {
                 const materialId = i + 1;
                 const label = `${m.name || ''} ${o.name || ''}`.toLowerCase();
@@ -110,23 +117,22 @@ export function createFilenameBinder(options = {}) {
         return idx;
     }
 
-    function isTextureStillBound(root, obj, material, slot, texture) {
+    function isTextureStillBound(root, obj, materialState, material, slot, texture) {
         if (!texture?.isTexture) return false;
         if (!isRootLive(root)) return false;
-        const materials = Array.isArray(obj?.material) ? obj.material : [obj?.material];
-        return materials.includes(material) && material?.[slot] === texture;
+        return editableMaterialIsAssigned(obj, materialState, material) && material?.[slot] === texture;
     }
 
-    function handleTextureLoaded(root, obj, material, slot, texture) {
-        if (isTextureStillBound(root, obj, material, slot, texture)) {
+    function handleTextureLoaded(root, obj, materialState, material, slot, texture) {
+        if (isTextureStillBound(root, obj, materialState, material, slot, texture)) {
             requestRender();
             return;
         }
         texture?.dispose?.();
     }
 
-    function handleTextureLoadError(root, obj, material, slot, texture, label, err) {
-        if (!isTextureStillBound(root, obj, material, slot, texture)) {
+    function handleTextureLoadError(root, obj, materialState, material, slot, texture, label, err) {
+        if (!isTextureStillBound(root, obj, materialState, material, slot, texture)) {
             texture?.dispose?.();
             return;
         }
@@ -184,11 +190,11 @@ export function createFilenameBinder(options = {}) {
                 return;
             }
 
-            const mats = Array.isArray(target.obj.material) ? target.obj.material : [target.obj.material];
-            const previousMaterial = mats[target.slotIndex];
+            const materialState = resolveEditableMaterialState(target.obj);
+            const previousMaterial = materialState.materials[target.slotIndex];
+            if (!previousMaterial) return;
             let m = toStandard(previousMaterial);
-            mats[target.slotIndex] = m;
-            target.obj.material = Array.isArray(target.obj.material) ? mats : m;
+            assignEditableMaterial(target.obj, materialState, target.slotIndex, m);
             cacheOriginalMaterialFor(target.obj, true);
 
             const currentTexture = m[slot] || null;
@@ -212,9 +218,9 @@ export function createFilenameBinder(options = {}) {
             let t = null;
             t = textureLoader.load(
                 tex.url,
-                () => handleTextureLoaded(root, target.obj, m, slot, t),
+                () => handleTextureLoaded(root, target.obj, materialState, m, slot, t),
                 undefined,
-                (err) => handleTextureLoadError(root, target.obj, m, slot, t, tex.short, err),
+                (err) => handleTextureLoadError(root, target.obj, materialState, m, slot, t, tex.short, err),
             );
             t.name = humanName;
             (t.userData ||= {}).origName = humanName;
