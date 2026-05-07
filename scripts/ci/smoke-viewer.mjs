@@ -4554,6 +4554,161 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runGlassGeneratedDisplayMaterialSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { createGlassController } = await import('/scripts/modules/material/glass-controller.js');
+        const { createToStandard } = await import('/scripts/modules/material/to-standard.js');
+        const { createGlassOverridesController } = await import('/scripts/modules/ui/glass-overrides.js');
+        const { createMaterialsPanelController } = await import('/scripts/modules/ui/materials-panel.js');
+
+        const makeRange = (value, min = 0, max = 1, step = 0.01) => {
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.min = String(min);
+            input.max = String(max);
+            input.step = String(step);
+            input.value = String(value);
+            return input;
+        };
+
+        const world = new THREE.Group();
+        const scene = new THREE.Scene();
+        const originalMaterial = new THREE.MeshPhysicalMaterial({
+            name: 'mainglass window',
+            transparent: true,
+            opacity: 0.88,
+            roughness: 0.2,
+            metalness: 0.05,
+            transmission: 0.15,
+            color: 0xffffff,
+        });
+        const generatedMaterial = new THREE.MeshBasicMaterial({
+            name: 'mainglass display variant',
+            opacity: 1,
+        });
+        generatedMaterial.userData.viewerGeneratedMaterial = 'shading-variant';
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), generatedMaterial);
+        mesh.name = 'displayed mainglass mesh';
+        mesh.userData._origMaterial = originalMaterial;
+        world.add(mesh);
+
+        const panel = createMaterialsPanelController({
+            world,
+            loadedModels: [],
+            outEl: document.createElement('div'),
+            matSelect: document.createElement('select'),
+            requestRender: () => {},
+        });
+        const panelMaterials = panel.getPanelMaterials(mesh);
+        const resolvedBefore = panel.resolveGlassMaterial(mesh.uuid, 0);
+
+        let cacheCalls = 0;
+        let renderCalls = 0;
+        let panelRefreshCalls = 0;
+        const glassOpacityEl = makeRange(0.42);
+        glassOpacityEl.dataset.userSet = '1';
+        const glassController = createGlassController({
+            THREE,
+            world,
+            scene,
+            toStandard: createToStandard(),
+            cacheOriginalMaterialFor: () => { cacheCalls += 1; },
+            requestRender: () => { renderCalls += 1; },
+            schedulePanelRefresh: () => { panelRefreshCalls += 1; },
+            elements: {
+                glassOpacityEl,
+                glassIorEl: makeRange(1.5, 1, 4),
+                glassTransmissionEl: makeRange(1),
+                glassReflectEl: makeRange(1, 0, 5, 0.05),
+                glassRoughEl: makeRange(0.05),
+                glassMetalEl: makeRange(0.05),
+                glassAttenDistEl: makeRange(0.2, 0, 5),
+                glassAttenColorEl: (() => {
+                    const input = document.createElement('input');
+                    input.type = 'color';
+                    input.value = '#ffffff';
+                    return input;
+                })(),
+                glassColorEl: (() => {
+                    const input = document.createElement('input');
+                    input.type = 'color';
+                    input.value = '#ffffff';
+                    return input;
+                })(),
+            },
+        });
+
+        glassController.applyToScene();
+        const originalAfterApply = mesh.userData._origMaterial;
+        const originalOpacityAfterApply = originalAfterApply?.opacity;
+
+        const glassOverrides = createGlassOverridesController({
+            resolveGlassMaterial: (uuid, matIndex) => panel.resolveGlassMaterial(uuid, matIndex),
+            applyGlassControlsToScene: () => glassController.applyToScene(),
+            requestRender: () => { renderCalls += 1; },
+        });
+        const roughnessInput = makeRange(0.77);
+        roughnessInput.dataset.prop = 'roughness';
+        roughnessInput.dataset.uuid = mesh.uuid;
+        roughnessInput.dataset.matIndex = '0';
+        glassOverrides.handleGlassSliderInput({ currentTarget: roughnessInput });
+        const originalAfterOverride = mesh.userData._origMaterial;
+        const originalRoughnessAfterOverride = originalAfterOverride?.roughness;
+        const originalOverrideRoughness = originalAfterOverride?.userData?.glassOverrides?.roughness;
+
+        glassController.resetToOriginal();
+        const originalAfterReset = mesh.userData._origMaterial;
+        const originalRoughnessAfterReset = originalAfterReset?.roughness;
+        const overridesClearedAfterReset = !originalAfterReset?.userData?.glassOverrides;
+
+        glassController.dispose();
+        panel.dispose();
+
+        return {
+            panelUsesOriginal: panelMaterials[0] === originalMaterial,
+            resolverSource: resolvedBefore?.source || '',
+            resolverUsesOriginal: resolvedBefore?.mat === originalMaterial,
+            visibleMaterialPreservedAfterApply: mesh.material === generatedMaterial,
+            visibleMaterialPreservedAfterOverride: mesh.material === generatedMaterial,
+            visibleMaterialPreservedAfterReset: mesh.material === generatedMaterial,
+            generatedUntouched: generatedMaterial.opacity === 1
+                && !generatedMaterial.userData.glassInfo
+                && !generatedMaterial.userData.glassOverrides,
+            originalOpacityAfterApply,
+            originalRoughnessAfterOverride,
+            originalOverrideRoughness,
+            originalRoughnessAfterReset,
+            overridesClearedAfterReset,
+            cacheCalls,
+            renderCalls,
+            panelRefreshCalls,
+        };
+    });
+
+    assert.equal(result.panelUsesOriginal, true, 'Glass generated material smoke: panel did not expose original material under shading mode');
+    assert.equal(result.resolverSource, 'original', 'Glass generated material smoke: glass resolver did not select original material under shading mode');
+    assert.equal(result.resolverUsesOriginal, true, 'Glass generated material smoke: glass resolver returned generated material');
+    assert.equal(result.visibleMaterialPreservedAfterApply, true, 'Glass generated material smoke: global glass apply replaced visible shading material');
+    assert.equal(result.visibleMaterialPreservedAfterOverride, true, 'Glass generated material smoke: glass override replaced visible shading material');
+    assert.equal(result.visibleMaterialPreservedAfterReset, true, 'Glass generated material smoke: reset replaced visible shading material');
+    assert.equal(result.generatedUntouched, true, 'Glass generated material smoke: glass controls mutated generated display material');
+    assert.ok(Math.abs(result.originalOpacityAfterApply - 0.42) < 0.001, 'Glass generated material smoke: global glass opacity was not applied to original material');
+    assert.ok(Math.abs(result.originalRoughnessAfterOverride - 0.77) < 0.001, 'Glass generated material smoke: override roughness was not applied to original material');
+    assert.ok(Math.abs(result.originalOverrideRoughness - 0.77) < 0.001, 'Glass generated material smoke: override state was not stored on original material');
+    assert.ok(Math.abs(result.originalRoughnessAfterReset - 0.2) < 0.001, 'Glass generated material smoke: reset did not restore original roughness');
+    assert.equal(result.overridesClearedAfterReset, true, 'Glass generated material smoke: reset did not clear original material overrides');
+    assert.ok(result.cacheCalls >= 2, 'Glass generated material smoke: original material cache was not invalidated');
+    assert.ok(result.renderCalls >= 4, 'Glass generated material smoke: glass changes did not request renders');
+    assert.ok(result.panelRefreshCalls >= 1, 'Glass generated material smoke: reset did not schedule panel refresh');
+    diagnostics.assertNoErrors('Glass generated display material smoke');
+    await page.close();
+}
+
 async function runMaterialUndoStackLifecycleSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -10719,6 +10874,8 @@ try {
     console.log('Texture modal stale entry smoke passed.');
     await runTextureReplacementLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Texture replacement lifecycle smoke passed.');
+    await runGlassGeneratedDisplayMaterialSmoke(browser, smokeServer.baseUrl);
+    console.log('Glass generated display material smoke passed.');
     await runMaterialUndoStackLifecycleSmoke(browser, smokeServer.baseUrl);
     console.log('Material undo stack lifecycle smoke passed.');
     await runVisibilitySuppressionPruneSmoke(browser, smokeServer.baseUrl);

@@ -13,6 +13,21 @@ const PANEL_TEX_KEYS = [
     'metalnessMap',
 ];
 
+function asMaterialArray(value) {
+    if (!value) return [];
+    return Array.isArray(value) ? value.filter(Boolean) : [value];
+}
+
+function isGeneratedDisplayMaterial(obj, material) {
+    return !!material && (
+        material?.userData?.viewerGeneratedMaterial === 'shading-variant' ||
+        material === obj?.userData?._bfFront ||
+        material === obj?.userData?._bfBack ||
+        material === obj?.userData?._wireBase ||
+        material === obj?.userData?._beautyBase
+    );
+}
+
 export function createMaterialsPanelController(options = {}) {
     const world = options.world || null;
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
@@ -100,14 +115,15 @@ export function createMaterialsPanelController(options = {}) {
 
     function getPanelMaterials(obj) {
         if (!obj) return [];
-        const orig = obj.userData?._origMaterial;
-        if (orig) {
-            const mats = Array.isArray(orig) ? orig : [orig];
-            const hasTex = mats.some(m => PANEL_TEX_KEYS.some(k => !!m?.[k]));
-            if (hasTex) return mats;
+        const origMats = asMaterialArray(obj.userData?._origMaterial);
+        if (origMats.length) {
+            const currentMats = asMaterialArray(obj.material);
+            const currentIsGeneratedDisplay = currentMats.some(m => isGeneratedDisplayMaterial(obj, m));
+            if (currentIsGeneratedDisplay) return origMats;
+            const hasTex = origMats.some(m => PANEL_TEX_KEYS.some(k => !!m?.[k]));
+            if (hasTex) return origMats;
         }
-        const mat = obj.material;
-        return Array.isArray(mat) ? mat : mat ? [mat] : [];
+        return asMaterialArray(obj.material);
     }
 
     function formatPanelLabel(label, maxChars = 36, dots = '....') {
@@ -572,17 +588,22 @@ export function createMaterialsPanelController(options = {}) {
         syncCollisionButtons();
     }
 
-    /** Возвращает { mesh, mat, index } по UUID и индексу материала для стеклянных контролов. */
+    /** Возвращает { mesh, mat, index, source } по UUID и индексу материала для стеклянных контролов. */
     function resolveGlassMaterial(uuid, matIndex) {
         if (!uuid) return null;
         const mesh = world?.getObjectByProperty?.('uuid', uuid);
-        if (!mesh || !mesh.material) return null;
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        if (!mesh) return null;
+        const currentMats = asMaterialArray(mesh.material);
+        const originalMats = asMaterialArray(mesh.userData?._origMaterial);
+        const currentIsGeneratedDisplay = currentMats.some(m => isGeneratedDisplayMaterial(mesh, m));
+        const useOriginal = originalMats.length > 0 && currentIsGeneratedDisplay;
+        const mats = useOriginal ? originalMats : currentMats;
+        if (!mats.length) return null;
         const index = Number.isInteger(matIndex) ? matIndex : (Number.isFinite(matIndex) ? matIndex : 0);
         const safeIndex = (index >= 0 && index < mats.length) ? index : 0;
         const mat = mats[safeIndex];
         if (!mat) return null;
-        return { mesh, mat, index: safeIndex };
+        return { mesh, mat, index: safeIndex, source: useOriginal ? 'original' : 'current' };
     }
 
     /** Синхронизирует состояние кнопок «Коллизии» (по файлам и группам) с текущей видимостью. */
