@@ -5408,7 +5408,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             supabase,
             user: { id: 'local-user' },
             project: { id: 'project-1', slug: 'project' },
-            room: { id: 'room-1', slug: 'room', camera_owner_id: null, camera_state: null },
+            room: { id: 'room-1', slug: 'room', camera_owner_id: null, camera_state: null, active_model_id: 'initial-model' },
             displayName: 'Local',
             onParticipants: (list) => calls.push(`participants:${list.length}`),
             onMessage: (record, meta) => calls.push(`message:${meta?.source || ''}:${record?.id || ''}`),
@@ -5416,7 +5416,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             onAnnotationDelete: (record) => calls.push(`annotation-delete:${record?.id || ''}`),
             onCameraState: (state) => calls.push(`camera:${state?.source || 'broadcast'}`),
             onCameraOwner: (ownerId) => calls.push(`owner:${ownerId || ''}`),
-            onRoomUpdate: (room) => calls.push(`room:${room?.id || ''}`),
+            onRoomUpdate: (room) => calls.push(`room:${room?.id || ''}:${room?.active_model_id || ''}`),
             onConnectionState: ({ connected, reason }) => calls.push(`connection:${connected ? 'on' : 'off'}:${reason}`),
         });
 
@@ -5432,7 +5432,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         roomChannel.emit('broadcast', 'camera', { payload: { sender: 'peer-user' } });
         roomChannel.emit('broadcast', 'camera-lock', { payload: { ownerId: 'peer-user', sender: 'peer-user' } });
         updatesChannel.emit('postgres_changes', 'UPDATE', {
-            new: { id: 'room-1', camera_owner_id: 'db-owner', camera_state: { position: [1, 2, 3] } },
+            new: { id: 'room-1', camera_owner_id: 'db-owner', camera_state: { position: [1, 2, 3] }, active_model_id: 'db-model' },
         });
         annotationsChannel.emit('postgres_changes', 'INSERT', { new: { id: 'annotation-row' } });
         annotationsChannel.emit('postgres_changes', 'DELETE', { old: { id: 'annotation-old' } });
@@ -5447,6 +5447,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
         annotationsChannel.emit('postgres_changes', 'INSERT', { new: { id: 'delete-before-insert' } });
 
         await Promise.resolve();
+        const controllerRoomActiveModelAfterUpdate = controller.room?.active_model_id || '';
         annotationsChannel.emitStatus('CHANNEL_ERROR');
         await Promise.resolve();
         const afterChannelFailure = calls.slice();
@@ -5528,6 +5529,7 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             historyMessageDuplicateCalls: calls.filter((entry) => entry === 'message:realtime:history-message').length,
             tombstoneDeleteCalls: calls.filter((entry) => entry === 'annotation-delete:delete-before-insert').length,
             tombstoneInsertCalls: calls.filter((entry) => entry === 'annotation:realtime:delete-before-insert').length,
+            controllerRoomActiveModelAfterUpdate,
             removedChannels,
             channelNames: channels.map((channel) => channel.name),
         };
@@ -5541,7 +5543,8 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     ], 'Collab smoke: unexpected realtime channel set');
     assert.ok(result.beforeDispose.includes('message:broadcast:broadcast-message'), 'Collab smoke: broadcast message did not fire before dispose');
     assert.ok(result.beforeDispose.includes('annotation:realtime:annotation-row'), 'Collab smoke: realtime annotation did not fire before dispose');
-    assert.ok(result.beforeDispose.includes('room:room-1'), 'Collab smoke: room update did not fire before dispose');
+    assert.ok(result.beforeDispose.includes('room:room-1:db-model'), 'Collab smoke: room update did not fire before dispose');
+    assert.equal(result.controllerRoomActiveModelAfterUpdate, 'db-model', 'Collab smoke: room update did not refresh controller room state');
     assert.equal(result.historyAnnotationCalls, 1, 'Collab smoke: history annotation was not delivered once');
     assert.equal(result.historyAnnotationDuplicateCalls, 0, 'Collab smoke: duplicate realtime annotation was delivered after history');
     assert.equal(result.historyMessageCalls, 1, 'Collab smoke: history message was not delivered once');

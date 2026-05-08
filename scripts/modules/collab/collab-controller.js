@@ -486,8 +486,13 @@ export async function createCollabController(options = {}) {
             { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${room.id}` },
             (payload) => {
                 if (disposed) return;
-                if (typeof onRoomUpdate === 'function') onRoomUpdate(payload.new);
                 const next = payload.new || {};
+                if (next && typeof next === 'object') {
+                    try {
+                        Object.assign(room, next);
+                    } catch (_) {}
+                }
+                if (typeof onRoomUpdate === 'function') onRoomUpdate(room);
                 if (typeof onCameraOwner === 'function') onCameraOwner(next.camera_owner_id || null);
                 if (next.camera_state && typeof onCameraState === 'function') {
                     onCameraState({

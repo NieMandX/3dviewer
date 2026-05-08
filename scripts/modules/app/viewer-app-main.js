@@ -5641,8 +5641,20 @@ export class ViewerApp {
                 if (eventType === 'DELETE') {
                     const modelId = String(payload?.old?.model_id || '').trim();
                     if (!modelId) return;
+                    const linked = await queryRoomModelLinkExists(controller, roomId, modelId);
+                    if (!isCurrent()) return;
+                    if (linked) {
+                        confirmRoomModelId(modelId);
+                        return;
+                    }
                     forgetRoomModelId(modelId, { tombstone: true });
                     cleanupRoomModelScopedAssets({ roomId, modelId });
+                    await clearRoomActiveModelIfCurrent({
+                        controller,
+                        roomId,
+                        modelId,
+                        isCurrent,
+                    });
                     return;
                 }
                 if (eventType !== 'INSERT') return;
