@@ -2616,6 +2616,8 @@ export class ViewerApp {
             updateCollabFooter();
         }
 
+        const ROOM_SELECT_FIELDS = 'id, slug, project_id, owner_id, created_at, active_model_id';
+
         async function loadProjects(options = {}) {
             const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => !appDisposed;
             if (!collabSupabase) return [];
@@ -2635,7 +2637,7 @@ export class ViewerApp {
             if (!collabSupabase || !projectId) return [];
             const { data, error } = await collabSupabase
                 .from('rooms')
-                .select('id, slug, owner_id, created_at')
+                .select(ROOM_SELECT_FIELDS)
                 .eq('project_id', projectId)
                 .order('created_at', { ascending: true });
             if (!isCurrent()) return collabRooms;
@@ -2721,7 +2723,7 @@ export class ViewerApp {
                         slug: nextSlug,
                         owner_id: userId,
                     })
-                    .select('id, slug, owner_id, created_at')
+                    .select(ROOM_SELECT_FIELDS)
                     .single();
                 if (!isCurrent()) return false;
                 if (!error) {
@@ -2779,7 +2781,7 @@ export class ViewerApp {
             if (!collabSupabase || !projectId || !slug) return null;
             const { data: existing, error: findError } = await collabSupabase
                 .from('rooms')
-                .select('id, slug, project_id, owner_id, created_at')
+                .select(ROOM_SELECT_FIELDS)
                 .eq('project_id', projectId)
                 .eq('slug', slug)
                 .limit(1)
@@ -2804,7 +2806,7 @@ export class ViewerApp {
             if (!collabSupabase || !roomId) return null;
             const { data, error } = await collabSupabase
                 .from('rooms')
-                .select('id, slug, project_id, owner_id, created_at')
+                .select(ROOM_SELECT_FIELDS)
                 .eq('id', roomId)
                 .limit(1)
                 .maybeSingle();
