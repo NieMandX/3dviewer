@@ -71,7 +71,9 @@ export async function runAbortableTusUpload(options = {}) {
 
     let upload = null;
     let settled = false;
+    let settledWithSuccess = false;
     let aborting = false;
+    let lateSuccessNotified = false;
 
     return new Promise((resolve, reject) => {
         const cleanup = () => {
@@ -80,11 +82,21 @@ export async function runAbortableTusUpload(options = {}) {
             } catch (_) {}
         };
 
-        const finish = (callback, value) => {
-            if (settled) return;
+        const finish = (callback, value, meta = {}) => {
+            if (settled) return false;
             settled = true;
+            settledWithSuccess = meta.success === true;
             cleanup();
             callback(value);
+            return true;
+        };
+
+        const notifyLateSuccess = () => {
+            if (lateSuccessNotified) return;
+            lateSuccessNotified = true;
+            try {
+                options.onLateSuccess?.();
+            } catch (_) {}
         };
 
         const rejectAbort = () => finish(reject, makeAbortError(abortMessage));
@@ -134,10 +146,11 @@ export async function runAbortableTusUpload(options = {}) {
             },
             onSuccess: () => {
                 if (signal?.aborted) {
+                    notifyLateSuccess();
                     handleAbort();
                     return;
                 }
-                finish(resolve, true);
+                if (!finish(resolve, true, { success: true }) && !settledWithSuccess) notifyLateSuccess();
             },
         };
 

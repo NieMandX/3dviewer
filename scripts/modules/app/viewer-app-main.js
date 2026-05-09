@@ -5049,6 +5049,10 @@ export class ViewerApp {
                     lastProgressPercent = percent;
                     onProgress(percent);
                 },
+                onLateSuccess: () => {
+                    if (!signal?.aborted) return;
+                    void cleanupUploadedModelObject(path, supabase);
+                },
             });
         }
 

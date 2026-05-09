@@ -7654,6 +7654,50 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
             onProgress: (bytesUploaded, bytesTotal) => progress.push(`${bytesUploaded}/${bytesTotal}`),
         }).then(() => 'resolved');
 
+        class LateSuccessAfterAbortUpload {
+            constructor(file, options) {
+                this.file = file;
+                this.options = options;
+                events.push(`late:create:${file.name}`);
+            }
+            findPreviousUploads() {
+                events.push('late:findPreviousUploads');
+                return Promise.resolve([]);
+            }
+            start() {
+                events.push('late:start');
+            }
+            abort(shouldTerminate) {
+                events.push(`late:abort:${shouldTerminate ? 'terminate' : 'keep'}`);
+                return Promise.resolve().then(() => {
+                    events.push('late:onSuccess-after-abort');
+                    this.options.onSuccess();
+                });
+            }
+        }
+
+        const lateSuccessAbortController = new AbortController();
+        let lateSuccessCleanupCount = 0;
+        const lateSuccessAbortPromise = runAbortableTusUpload({
+            UploadCtor: LateSuccessAfterAbortUpload,
+            file: new File([new Uint8Array([9])], 'late.zip'),
+            endpoint: '/upload',
+            signal: lateSuccessAbortController.signal,
+            abortMessage: 'late sync superseded',
+            onLateSuccess: () => {
+                lateSuccessCleanupCount += 1;
+                events.push('late:cleanup');
+            },
+        }).then(
+            () => 'resolved',
+            (err) => `${err?.name || 'Error'}:${err?.message || err}`,
+        );
+        for (let i = 0; i < 20 && !events.includes('late:start'); i += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        lateSuccessAbortController.abort(new DOMException('late sync superseded', 'AbortError'));
+        const lateSuccessAbortResult = await lateSuccessAbortPromise;
+
         let blockedOperationStarted = false;
         let releaseBlockedOperation = null;
         const operationAbortController = new AbortController();
@@ -7684,6 +7728,8 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
         return {
             abortResult,
             successResult,
+            lateSuccessAbortResult,
+            lateSuccessCleanupCount,
             operationAbortResult,
             blockedOperationStarted,
             progress,
@@ -7695,6 +7741,8 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
     assert.equal(result.events.includes('start'), false, 'Abortable TUS smoke: aborted upload started after abort');
     assert.ok(result.events.includes('abort:terminate'), 'Abortable TUS smoke: upload.abort(true) was not called');
     assert.equal(result.successResult, 'resolved', 'Abortable TUS smoke: successful upload did not resolve');
+    assert.equal(result.lateSuccessAbortResult, 'AbortError:late sync superseded', 'Abortable TUS smoke: late-success abort did not reject');
+    assert.equal(result.lateSuccessCleanupCount, 1, 'Abortable TUS smoke: late-success cleanup did not run once');
     assert.equal(result.blockedOperationStarted, true, 'Abortable operation smoke: operation did not start');
     assert.equal(result.operationAbortResult, 'AbortError:operation superseded', 'Abortable operation smoke: non-abortable operation did not reject on abort');
     assert.ok(result.events.includes('operation:lateResolve:late'), 'Abortable operation smoke: late resolve cleanup hook did not fire');
@@ -7702,6 +7750,7 @@ async function runAbortableTusUploadSmoke(browser, baseUrl) {
     assert.deepEqual(result.progress, ['25/100'], 'Abortable TUS smoke: progress callback did not fire');
     assert.ok(result.events.includes('success:resume'), 'Abortable TUS smoke: previous upload was not resumed');
     assert.ok(result.events.includes('success:start'), 'Abortable TUS smoke: successful upload did not start');
+    assert.ok(result.events.includes('late:cleanup'), 'Abortable TUS smoke: late success did not invoke cleanup hook');
     diagnostics.assertNoErrors('Abortable TUS upload smoke');
     await page.close();
 }
