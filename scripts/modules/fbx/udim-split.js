@@ -21,6 +21,36 @@ export function splitMeshByUDIM(mesh) {
     if (/^ucx/.test(nm)) return false;
 
     const g = g0.index ? g0.toNonIndexed() : g0.clone();
+    let holder = null;
+    let committed = false;
+    const rollbackGeometries = new Set();
+    const rollbackMaterials = new Set();
+
+    const disposeUncommittedHolder = () => {
+        const geometries = new Set();
+        const materials = new Set();
+        const asMaterialArray = (value) => {
+            if (!value) return [];
+            return Array.isArray(value) ? value.filter(Boolean) : [value];
+        };
+        const disposeGeometry = (geometry) => {
+            if (!geometry?.dispose || geometries.has(geometry)) return;
+            geometries.add(geometry);
+            geometry.dispose();
+        };
+        const disposeMaterial = (material) => {
+            if (!material || materials.has(material)) return;
+            materials.add(material);
+            material.dispose?.();
+        };
+        holder?.traverse?.((node) => {
+            disposeGeometry(node?.geometry);
+            asMaterialArray(node?.material).forEach(disposeMaterial);
+        });
+        rollbackGeometries.forEach(disposeGeometry);
+        rollbackMaterials.forEach(disposeMaterial);
+    };
+
     try {
         const posAttr = g.getAttribute('position');
         const uvAttr = g.getAttribute('uv');
@@ -78,7 +108,7 @@ export function splitMeshByUDIM(mesh) {
         const meshIndex = parent.children.indexOf(mesh);
         if (meshIndex < 0) return false;
 
-        const holder = new THREE.Group();
+        holder = new THREE.Group();
         holder.name = 'UDIM';
         holder.userData.udimHolder = true;
         holder.userData._removedMaterials = mesh.material || null;
@@ -91,6 +121,7 @@ export function splitMeshByUDIM(mesh) {
 
         for (const [ud, b] of buckets) {
             const gg = new THREE.BufferGeometry();
+            rollbackGeometries.add(gg);
             gg.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
             gg.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
             if (b.nrm.length) gg.setAttribute('normal', new THREE.Float32BufferAttribute(b.nrm, 3));
@@ -105,11 +136,13 @@ export function splitMeshByUDIM(mesh) {
             if (Array.isArray(srcMat)) {
                 childMat = srcMat.map((m, i) => {
                     const c = m.clone();
+                    rollbackMaterials.add(c);
                     c.name = (m.name || mesh.name || 'Material') + ` · UDIM ${ud}` + (srcMat.length > 1 ? `_${i + 1}` : '');
                     return c;
                 });
             } else {
                 childMat = srcMat.clone();
+                rollbackMaterials.add(childMat);
                 childMat.name = (srcMat.name || mesh.name || 'Material') + ` · UDIM ${ud}`;
             }
 
@@ -128,8 +161,11 @@ export function splitMeshByUDIM(mesh) {
         const holderIndex = parent.children.indexOf(holder);
         if (holderIndex >= 0) parent.children.splice(holderIndex, 1);
         parent.children.splice(Math.min(meshIndex, parent.children.length), 0, holder);
+        committed = true;
 
-        g0.dispose?.();
+        try {
+            g0.dispose?.();
+        } catch (_) {}
         mesh.geometry = null;
         mesh.material = null;
         mesh.customDepthMaterial = undefined;
@@ -137,6 +173,7 @@ export function splitMeshByUDIM(mesh) {
 
         return true;
     } finally {
+        if (!committed) disposeUncommittedHolder();
         if (g && g !== g0) g.dispose?.();
     }
 }

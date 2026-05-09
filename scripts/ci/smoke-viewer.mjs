@@ -8820,6 +8820,40 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
             const splitDisposed = disposedGeometries.length - beforeSplit;
             const holder = splitParent.children[0] || null;
 
+            const failingParent = new THREE.Group();
+            const failingSourceGeometry = makeGeometry({ split: true });
+            failingSourceGeometry.name = 'failingSplitSource';
+            const failingSourceMaterial = new THREE.MeshBasicMaterial({ name: 'failingSourceMaterial' });
+            let failingSourceGeometryDisposed = 0;
+            let failingCloneMaterialDisposed = 0;
+            failingSourceGeometry.addEventListener('dispose', () => {
+                failingSourceGeometryDisposed += 1;
+            });
+            let cloneCount = 0;
+            failingSourceMaterial.clone = function cloneWithFailure() {
+                cloneCount += 1;
+                if (cloneCount > 1) throw new Error('clone failure');
+                const material = new THREE.MeshBasicMaterial({ name: 'failingCloneMaterial' });
+                material.addEventListener('dispose', () => {
+                    failingCloneMaterialDisposed += 1;
+                });
+                return material;
+            };
+            const failingMesh = new THREE.Mesh(failingSourceGeometry, failingSourceMaterial);
+            failingParent.add(failingMesh);
+            const beforeFailingSplitGeometries = disposedGeometries.length;
+            const beforeFailingSplitMaterials = disposedMaterials.length;
+            const failingSplitResult = (() => {
+                try {
+                    splitMeshByUDIM(failingMesh);
+                    return 'resolved';
+                } catch (err) {
+                    return err?.message || String(err);
+                }
+            })();
+            const failingSplitDisposedGeometries = disposedGeometries.length - beforeFailingSplitGeometries;
+            const failingSplitDisposedMaterials = disposedMaterials.length - beforeFailingSplitMaterials;
+
             const abortWorld = new THREE.Group();
             const abortLoadedModels = [];
             const abortRoot = new THREE.Group();
@@ -9210,6 +9244,15 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
                 childTileCount: holder?.children?.length || 0,
                 oldMeshDetached: splitMesh.parent == null,
                 oldMeshCleared: splitMesh.geometry == null && splitMesh.material == null,
+                failingSplitResult,
+                failingSplitOriginalKept: failingParent.children[0] === failingMesh
+                    && failingMesh.geometry === failingSourceGeometry
+                    && failingMesh.material === failingSourceMaterial,
+                failingSplitSourceGeometryDisposed: failingSourceGeometryDisposed > 0,
+                failingSplitSourceMaterialDisposed: disposedMaterials.includes('failingSourceMaterial'),
+                failingSplitCloneDisposed: failingCloneMaterialDisposed > 0,
+                failingSplitDisposedGeometries,
+                failingSplitDisposedMaterials,
                 abortResult,
                 abortWorldChildren: abortWorld.children.length,
                 abortLoadedCount: abortLoadedModels.length,
@@ -9301,6 +9344,13 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.childTileCount, 2, 'FBX cleanup smoke: expected two UDIM tile groups');
     assert.equal(result.oldMeshDetached, true, 'FBX cleanup smoke: original split mesh stayed attached');
     assert.equal(result.oldMeshCleared, true, 'FBX cleanup smoke: original split mesh retained disposed resources');
+    assert.equal(result.failingSplitResult, 'clone failure', 'FBX cleanup smoke: UDIM split clone failure did not propagate');
+    assert.equal(result.failingSplitOriginalKept, true, 'FBX cleanup smoke: failed UDIM split detached or mutated original mesh');
+    assert.equal(result.failingSplitSourceGeometryDisposed, false, 'FBX cleanup smoke: failed UDIM split disposed live source geometry');
+    assert.equal(result.failingSplitSourceMaterialDisposed, false, 'FBX cleanup smoke: failed UDIM split disposed live source material');
+    assert.equal(result.failingSplitCloneDisposed, true, 'FBX cleanup smoke: failed UDIM split leaked cloned material');
+    assert.equal(result.failingSplitDisposedGeometries, 3, 'FBX cleanup smoke: failed UDIM split leaked temp/generated geometry');
+    assert.equal(result.failingSplitDisposedMaterials, 1, 'FBX cleanup smoke: failed UDIM split disposed wrong number of materials');
     assert.equal(result.abortResult, 'AbortError', 'FBX cleanup smoke: aborted post-parse FBX did not reject with AbortError');
     assert.equal(result.abortWorldChildren, 0, 'FBX cleanup smoke: aborted post-parse FBX was added to world');
     assert.equal(result.abortLoadedCount, 0, 'FBX cleanup smoke: aborted post-parse FBX was registered as loaded');
