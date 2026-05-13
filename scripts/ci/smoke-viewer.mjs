@@ -5403,6 +5403,45 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             .reduce((sum, channel) => sum + channel.tracked.length, 0);
         unhandled.length = 0;
 
+        const boundedCalls = [];
+        const boundedChannels = [];
+        const boundedRemovedChannels = [];
+        const boundedSupabase = {
+            ...supabase,
+            channel: (name) => {
+                const channel = new FakeChannel(name);
+                boundedChannels.push(channel);
+                return channel;
+            },
+            removeChannel: async (channel) => {
+                boundedRemovedChannels.push(channel.name);
+                return 'ok';
+            },
+        };
+        const boundedController = await createCollabController({
+            supabase: boundedSupabase,
+            user: { id: 'bounded-user' },
+            project: { id: 'bounded-project', slug: 'bounded-project' },
+            room: { id: 'bounded-room', slug: 'bounded-room', camera_owner_id: null, camera_state: null },
+            displayName: 'Bounded',
+            dedupeIdLimit: 3,
+            onMessage: (record, meta) => boundedCalls.push(`message:${meta?.source || ''}:${record?.id || ''}`),
+        });
+        const boundedMessagesChannel = boundedChannels.find((channel) => channel.name === 'room:bounded-room:messages');
+        ['bounded-1', 'bounded-2', 'bounded-3', 'bounded-4'].forEach((id) => {
+            boundedMessagesChannel.emit('postgres_changes', 'INSERT', { new: { id } });
+        });
+        boundedMessagesChannel.emit('postgres_changes', 'INSERT', { new: { id: 'bounded-4' } });
+        boundedMessagesChannel.emit('postgres_changes', 'INSERT', { new: { id: 'bounded-1' } });
+        await Promise.resolve();
+        await boundedController.dispose();
+        const boundedMessageCounts = {
+            history: boundedCalls.filter((entry) => entry === 'message:history:history-message').length,
+            first: boundedCalls.filter((entry) => entry === 'message:realtime:bounded-1').length,
+            second: boundedCalls.filter((entry) => entry === 'message:realtime:bounded-2').length,
+            fourth: boundedCalls.filter((entry) => entry === 'message:realtime:bounded-4').length,
+        };
+
         const calls = [];
         const controller = await createCollabController({
             supabase,
@@ -5532,6 +5571,9 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
             controllerRoomActiveModelAfterUpdate,
             removedChannels,
             channelNames: channels.map((channel) => channel.name),
+            boundedMessageCounts,
+            boundedRemovedChannels,
+            boundedChannelNames: boundedChannels.map((channel) => channel.name),
         };
     });
 
@@ -5549,6 +5591,13 @@ async function runCollabRealtimeDisposeSmoke(browser, baseUrl) {
     assert.equal(result.historyAnnotationDuplicateCalls, 0, 'Collab smoke: duplicate realtime annotation was delivered after history');
     assert.equal(result.historyMessageCalls, 1, 'Collab smoke: history message was not delivered once');
     assert.equal(result.historyMessageDuplicateCalls, 0, 'Collab smoke: duplicate realtime message was delivered after history');
+    assert.deepEqual(result.boundedMessageCounts, {
+        history: 1,
+        first: 2,
+        second: 1,
+        fourth: 1,
+    }, 'Collab smoke: bounded message dedupe did not prune only the oldest ids');
+    assert.deepEqual(result.boundedRemovedChannels, result.boundedChannelNames, 'Collab smoke: bounded dedupe controller did not remove realtime channels');
     assert.equal(result.tombstoneDeleteCalls, 1, 'Collab smoke: realtime annotation delete was not delivered once');
     assert.equal(result.tombstoneInsertCalls, 0, 'Collab smoke: stale annotation insert was delivered after delete');
     assert.ok(result.afterChannelFailure.includes('connection:off:annotations:CHANNEL_ERROR'), 'Collab smoke: auxiliary channel failure did not emit offline state');

@@ -155,6 +155,7 @@ export async function createCollabController(options = {}) {
         onRoomUpdate,
         onConnectionState,
         signal,
+        dedupeIdLimit: dedupeIdLimitOption,
     } = options;
 
     const status = typeof onStatus === 'function' ? onStatus : () => {};
@@ -257,9 +258,24 @@ export async function createCollabController(options = {}) {
     const deliveredAnnotationIds = new Set();
     const deletedAnnotationIds = new Set();
     const deliveredMessageIds = new Set();
+    const dedupeIdLimit = (() => {
+        const value = Number(dedupeIdLimitOption);
+        return Number.isFinite(value) && value > 0 ? Math.floor(value) : 5000;
+    })();
 
     function getRecordId(record) {
         return String(record?.id || record?.message_id || '').trim();
+    }
+
+    function rememberDedupeId(set, id) {
+        if (!set || !id) return;
+        if (set.has(id)) set.delete(id);
+        set.add(id);
+        while (set.size > dedupeIdLimit) {
+            const oldest = set.values().next().value;
+            if (oldest == null) break;
+            set.delete(oldest);
+        }
     }
 
     function deliverAnnotation(record, meta) {
@@ -267,8 +283,15 @@ export async function createCollabController(options = {}) {
         if (typeof onAnnotation !== 'function') return;
         const id = getRecordId(record);
         if (id) {
-            if (deletedAnnotationIds.has(id) || deliveredAnnotationIds.has(id)) return;
-            deliveredAnnotationIds.add(id);
+            if (deletedAnnotationIds.has(id)) {
+                rememberDedupeId(deletedAnnotationIds, id);
+                return;
+            }
+            if (deliveredAnnotationIds.has(id)) {
+                rememberDedupeId(deliveredAnnotationIds, id);
+                return;
+            }
+            rememberDedupeId(deliveredAnnotationIds, id);
         }
         onAnnotation(record, meta);
     }
@@ -278,8 +301,11 @@ export async function createCollabController(options = {}) {
         if (typeof onAnnotationDelete !== 'function') return;
         const id = getRecordId(record);
         if (id) {
-            if (deletedAnnotationIds.has(id)) return;
-            deletedAnnotationIds.add(id);
+            if (deletedAnnotationIds.has(id)) {
+                rememberDedupeId(deletedAnnotationIds, id);
+                return;
+            }
+            rememberDedupeId(deletedAnnotationIds, id);
             deliveredAnnotationIds.delete(id);
         }
         onAnnotationDelete(record, meta);
@@ -290,8 +316,11 @@ export async function createCollabController(options = {}) {
         if (typeof onMessage !== 'function') return;
         const id = getRecordId(record);
         if (id) {
-            if (deliveredMessageIds.has(id)) return;
-            deliveredMessageIds.add(id);
+            if (deliveredMessageIds.has(id)) {
+                rememberDedupeId(deliveredMessageIds, id);
+                return;
+            }
+            rememberDedupeId(deliveredMessageIds, id);
         }
         onMessage(record, meta);
     }
