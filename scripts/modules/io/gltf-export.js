@@ -511,10 +511,18 @@ export async function exportWorldAsGLTF(options = {}) {
     const documentRef = options.document || (typeof document !== 'undefined' ? document : null);
     const renderer = options.renderer || null;
     const signal = options.signal || null;
-    const JSZipCtor =
-        options.JSZip ||
-        (typeof globalThis !== 'undefined' ? globalThis.JSZip : null) ||
-        null;
+    const getJSZip = typeof options.getJSZip === 'function'
+        ? options.getJSZip
+        : async () => {
+            if (options.JSZip) return options.JSZip;
+            if (typeof globalThis !== 'undefined') {
+                if (globalThis.JSZip) return globalThis.JSZip;
+                if (typeof globalThis.__LPMVIEW_LOAD_JSZIP === 'function') {
+                    return globalThis.__LPMVIEW_LOAD_JSZIP();
+                }
+            }
+            return null;
+        };
 
     const format = normalizeFormat(options.format);
     const coords = normalizeCoords(options.coords);
@@ -616,6 +624,8 @@ export async function exportWorldAsGLTF(options = {}) {
         return { filename, format, coords };
     }
 
+    assertExportNotAborted(signal);
+    const JSZipCtor = await getJSZip();
     assertExportNotAborted(signal);
     const zipBlob = await buildGLTFZip({ glbArrayBuffer, baseName, JSZipCtor });
     assertExportNotAborted(signal);

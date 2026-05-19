@@ -19,8 +19,9 @@
             const ua = String((typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '');
             const isQuest = /(OculusBrowser|Meta Quest|Quest)/i.test(ua);
             const runtime = window.__LPMVIEW_RUNTIME || {};
+            const isFileProtocol = typeof location !== 'undefined' && location.protocol === 'file:';
             window.__LPMVIEW_QUEST_DEVICE = isQuest;
-            window.__LPMVIEW_RENDERER = isQuest ? 'webgl' : 'webgpu';
+            window.__LPMVIEW_RENDERER = (isQuest || isFileProtocol) ? 'webgl' : 'webgpu';
             window.__SUPABASE_URL = window.__SUPABASE_URL || runtime.supabaseUrl || 'https://xlajjnmxvlkygixamyam.supabase.co';
             window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || runtime.supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsYWpqbm14dmxreWdpeGFteWFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NjY2MzEsImV4cCI6MjA4MjA0MjYzMX0.02uAo7lQq8UNVB3yL45WudQ8WSR4opNlZ2frTZNRl8Q';
             window.__VOICE_API_URL = window.__VOICE_API_URL || runtime.voiceApiUrl || 'https://voice-api.agr.vision';
@@ -895,7 +896,7 @@
             function getTimeoutMs() {
                 var fromQuery = params ? Number(params.get('bootTimeoutMs') || 0) : 0;
                 var fromGlobal = Number(window.__LPMVIEW_BOOT_TIMEOUT_MS || 0);
-                var value = fromQuery || fromGlobal || 12000;
+                var value = fromQuery || fromGlobal || 45000;
                 return Math.max(1000, Math.min(60000, value));
             }
 
@@ -934,11 +935,47 @@
                 if (bar) bar.style.width = '100%';
             }
 
+            function resetBootTimer() {
+                if (timer) {
+                    window.clearTimeout(timer);
+                    timer = 0;
+                }
+                timer = window.setTimeout(function () {
+                    if (bootReady) return;
+                    showBootFailure('Viewer не стартовал.', 'Проверьте подключение к CDN и обновите страницу.');
+                }, getTimeoutMs());
+            }
+
+            window.__LPMVIEW_BOOT_MARK_ENTRY = function () {
+                if (bootReady || bootFailed) return;
+                resetBootTimer();
+                var text = document.getElementById('bootLoaderText');
+                var pct = document.getElementById('bootLoaderPct');
+                var bar = document.getElementById('bootLoaderBar');
+                if (text) text.textContent = 'Загрузка runtime viewer...';
+                if (pct) pct.textContent = '10%';
+                if (bar) bar.style.width = '10%';
+            };
+
+            window.__LPMVIEW_BOOT_MARK_FAILED = function (reason) {
+                if (bootReady) return;
+                var message = reason?.message || reason || '';
+                if (isRuntimeLoadError(message)) {
+                    showBootFailure('Не удалось загрузить runtime viewer.', 'Проверьте сеть и CDN-доступ, затем обновите страницу.');
+                    return;
+                }
+                showBootFailure('Viewer не стартовал.', 'Проверьте консоль браузера и обновите страницу.');
+            };
+
             window.__LPMVIEW_BOOT_MARK_READY = function () {
                 bootReady = true;
                 if (timer) {
                     window.clearTimeout(timer);
                     timer = 0;
+                }
+                if (bootFailed) {
+                    bootFailed = false;
+                    document.body.classList.remove('app-boot-error');
                 }
             };
 
@@ -959,10 +996,7 @@
                 event.preventDefault?.();
             });
 
-            timer = window.setTimeout(function () {
-                if (bootReady) return;
-                showBootFailure('Viewer не стартовал.', 'Проверьте подключение к CDN и обновите страницу.');
-            }, getTimeoutMs());
+            resetBootTimer();
         })();
     </script>
     <script type="importmap">
@@ -977,7 +1011,90 @@
             }
         }
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        (function () {
+            var jsZipPromise = null;
+            var defaultUrls = [
+                'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
+                'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+            ];
+
+            function getTimeoutMs() {
+                var value = Number(window.__LPMVIEW_JSZIP_CDN_TIMEOUT_MS || 0) || 15000;
+                return Math.max(1000, Math.min(60000, value));
+            }
+
+            function getUrls() {
+                var custom = Array.isArray(window.__LPMVIEW_JSZIP_URLS)
+                    ? window.__LPMVIEW_JSZIP_URLS.map(String).filter(Boolean)
+                    : [];
+                return custom.length ? custom : defaultUrls;
+            }
+
+            function loadScript(url) {
+                return new Promise(function (resolve, reject) {
+                    var script = document.createElement('script');
+                    var settled = false;
+                    var timeout = window.setTimeout(function () {
+                        if (settled) return;
+                        settled = true;
+                        script.onload = null;
+                        script.onerror = null;
+                        script.remove();
+                        reject(new Error('JSZip CDN load timed out: ' + url));
+                    }, getTimeoutMs());
+
+                    function cleanup() {
+                        window.clearTimeout(timeout);
+                        script.onload = null;
+                        script.onerror = null;
+                    }
+
+                    script.async = true;
+                    script.src = url;
+                    script.onload = function () {
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
+                        if (window.JSZip) {
+                            resolve(window.JSZip);
+                        } else {
+                            reject(new Error('JSZip CDN loaded without JSZip global: ' + url));
+                        }
+                    };
+                    script.onerror = function () {
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
+                        script.remove();
+                        reject(new Error('JSZip CDN load failed: ' + url));
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+
+            window.__LPMVIEW_LOAD_JSZIP = function () {
+                if (window.JSZip) return Promise.resolve(window.JSZip);
+                if (jsZipPromise) return jsZipPromise;
+
+                var urls = getUrls();
+                var index = 0;
+                function tryNext(lastError) {
+                    if (window.JSZip) return Promise.resolve(window.JSZip);
+                    if (index >= urls.length) {
+                        throw lastError || new Error('JSZip CDN load failed');
+                    }
+                    return loadScript(urls[index++]).catch(tryNext);
+                }
+
+                jsZipPromise = tryNext().catch(function (err) {
+                    jsZipPromise = null;
+                    throw err;
+                });
+                return jsZipPromise;
+            };
+        })();
+    </script>
     <script>
         (function () {
             try {

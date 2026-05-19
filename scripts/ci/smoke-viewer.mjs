@@ -328,21 +328,21 @@ async function runBootRuntimeFailureSmoke(browser, baseUrl) {
     }
 }
 
-async function runBootBlockingScriptTimeoutSmoke(browser, baseUrl) {
+async function runBootJSZipCdnNonBlockingSmoke(browser, baseUrl) {
     const rootBrowser = typeof browser.browser === 'function' ? browser.browser() : browser;
     const context = await rootBrowser.newContext();
     let releaseBlockedScript = null;
     const blockedScript = new Promise((resolve) => {
         releaseBlockedScript = resolve;
     });
-    await context.route('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', async (route) => {
+    await context.route(/\/jszip(?:@|\/)3\.10\.1\/.*jszip\.min\.js$/, async (route) => {
         await blockedScript;
         await route.abort('failed').catch(() => {});
     });
     const page = await context.newPage();
     try {
-        await page.goto(`${baseUrl}/?renderer=webgl&bootTimeoutMs=1000`, { waitUntil: 'commit', timeout: 15000 });
-        await page.waitForFunction(() => document.body.classList.contains('app-boot-error'), null, { timeout: 5000 });
+        await page.goto(`${baseUrl}/?renderer=webgl&bootTimeoutMs=1000`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await page.waitForFunction(() => !!globalThis.viewerApp, null, { timeout: 15000 });
         const state = await page.evaluate(() => ({
             hasViewerApp: !!globalThis.viewerApp,
             loading: document.body.classList.contains('app-loading'),
@@ -350,14 +350,12 @@ async function runBootBlockingScriptTimeoutSmoke(browser, baseUrl) {
             text: document.getElementById('bootLoaderText')?.textContent || '',
             pct: document.getElementById('bootLoaderPct')?.textContent || '',
             barWidth: document.getElementById('bootLoaderBar')?.style?.width || '',
+            hasJSZip: !!globalThis.JSZip,
         }));
 
-        assert.equal(state.hasViewerApp, false, 'Boot blocking script smoke: viewerApp started while parser-blocking CDN script was stalled');
-        assert.equal(state.loading, true, 'Boot blocking script smoke: app-loading was cleared during stalled boot');
-        assert.equal(state.bootError, true, 'Boot blocking script smoke: boot error state was not set');
-        assert.match(state.text, /Viewer не стартовал|CDN/i, 'Boot blocking script smoke: boot timeout text did not explain CDN failure');
-        assert.equal(state.pct, 'ошибка', 'Boot blocking script smoke: boot error status was not shown');
-        assert.equal(state.barWidth, '100%', 'Boot blocking script smoke: boot progress bar was not completed on error');
+        assert.equal(state.hasViewerApp, true, 'Boot JSZip CDN smoke: viewerApp did not start while JSZip CDN was stalled');
+        assert.equal(state.bootError, false, 'Boot JSZip CDN smoke: non-critical JSZip load triggered boot failure');
+        assert.equal(state.hasJSZip, false, 'Boot JSZip CDN smoke: JSZip should not be eagerly loaded during boot');
     } finally {
         releaseBlockedScript?.();
         await page.close();
@@ -1789,6 +1787,20 @@ async function runRendererModeDetectionSmoke(browser, baseUrl) {
             loadWebGPUModule: async () => ({}),
         });
 
+        let hungAdapterRequests = 0;
+        const hungAdapter = await detectRendererMode({
+            locationSearch: '?renderer=webgpu',
+            webgpuSupported: true,
+            webgpuDetectionTimeoutMs: 25,
+            requestAdapter: async () => {
+                hungAdapterRequests += 1;
+                return new Promise(() => {});
+            },
+            loadWebGPUModule: async () => {
+                throw new Error('hung adapter should not load webgpu');
+            },
+        });
+
         let forcedWebglAdapterRequests = 0;
         const forcedWebgl = await detectRendererMode({
             forcedRendererMode: 'webgl',
@@ -1834,6 +1846,14 @@ async function runRendererModeDetectionSmoke(browser, baseUrl) {
                 error: adapterError.webgpuModuleError?.message || '',
             },
             adapterErrorRequests,
+            hungAdapter: {
+                activeRendererMode: hungAdapter.activeRendererMode,
+                useWebGPU: hungAdapter.useWebGPU,
+                note: hungAdapter.rendererModeNote,
+                errorName: hungAdapter.webgpuModuleError?.name || '',
+                error: hungAdapter.webgpuModuleError?.message || '',
+            },
+            hungAdapterRequests,
             forcedWebgl: {
                 activeRendererMode: forcedWebgl.activeRendererMode,
                 useWebGPU: forcedWebgl.useWebGPU,
@@ -1865,6 +1885,14 @@ async function runRendererModeDetectionSmoke(browser, baseUrl) {
         error: 'adapter failed',
     }, 'Renderer mode smoke: WebGPU adapter error did not fall back to WebGL');
     assert.equal(result.adapterErrorRequests, 1, 'Renderer mode smoke: WebGPU adapter error path was not exercised');
+    assert.deepEqual(result.hungAdapter, {
+        activeRendererMode: 'webgl',
+        useWebGPU: false,
+        note: 'fallback: init failed',
+        errorName: 'TimeoutError',
+        error: 'WebGPU adapter request timed out',
+    }, 'Renderer mode smoke: hung WebGPU adapter did not time out and fall back');
+    assert.equal(result.hungAdapterRequests, 1, 'Renderer mode smoke: hung WebGPU adapter path was not exercised');
     assert.deepEqual(result.forcedWebgl, {
         activeRendererMode: 'webgl',
         useWebGPU: false,
@@ -11948,8 +11976,8 @@ try {
     console.log('Boot smoke passed.');
     await runBootRuntimeFailureSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot runtime failure smoke passed.');
-    await runBootBlockingScriptTimeoutSmoke(browserContext, smokeServer.baseUrl);
-    console.log('Boot blocking script timeout smoke passed.');
+    await runBootJSZipCdnNonBlockingSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Boot JSZip CDN non-blocking smoke passed.');
     await runRoomEntrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Room-entry smoke passed.');
     await runAuthAsyncDisposeSmoke(browserContext, smokeServer.baseUrl);

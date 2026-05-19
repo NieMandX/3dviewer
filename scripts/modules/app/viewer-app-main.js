@@ -3670,6 +3670,14 @@ export class ViewerApp {
                         coords: selection.coords,
                         document,
                         signal: abortController?.signal || null,
+                        getJSZip: () => {
+                            if (typeof globalThis === 'undefined') return null;
+                            if (globalThis.JSZip) return globalThis.JSZip;
+                            if (typeof globalThis.__LPMVIEW_LOAD_JSZIP === 'function') {
+                                return globalThis.__LPMVIEW_LOAD_JSZIP();
+                            }
+                            return null;
+                        },
                     });
                     if (!isCurrentExportRun(runId)) return;
                     setStatusMessage('');
@@ -4876,7 +4884,14 @@ export class ViewerApp {
             makeGeoJsonMeta,
             ensureZipCollisionsHidden,
             cleanupImportedRange,
-            JSZip: (typeof globalThis !== 'undefined' ? globalThis.JSZip : null),
+            getJSZip: () => {
+                if (typeof globalThis === 'undefined') return null;
+                if (globalThis.JSZip) return globalThis.JSZip;
+                if (typeof globalThis.__LPMVIEW_LOAD_JSZIP === 'function') {
+                    return globalThis.__LPMVIEW_LOAD_JSZIP();
+                }
+                return null;
+            },
         });
         const rawHandleFBXFile = importHandlers.handleFBXFile;
         const rawHandleZIPFile = importHandlers.handleZIPFile;

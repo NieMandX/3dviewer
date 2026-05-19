@@ -21,7 +21,19 @@ export function createZIPFileHandler(options = {}) {
     const markGalleryNeedsRefresh = typeof options.markGalleryNeedsRefresh === 'function' ? options.markGalleryNeedsRefresh : () => {};
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : [];
 
-    const JSZip = options.JSZip || (typeof globalThis !== 'undefined' ? globalThis.JSZip : null);
+    const initialJSZip = options.JSZip || null;
+    const getJSZip = typeof options.getJSZip === 'function'
+        ? options.getJSZip
+        : async () => {
+            if (initialJSZip) return initialJSZip;
+            if (typeof globalThis !== 'undefined') {
+                if (globalThis.JSZip) return globalThis.JSZip;
+                if (typeof globalThis.__LPMVIEW_LOAD_JSZIP === 'function') {
+                    return globalThis.__LPMVIEW_LOAD_JSZIP();
+                }
+            }
+            return null;
+        };
 
     function isAbortError(error) {
         return error?.name === 'AbortError';
@@ -175,6 +187,7 @@ export function createZIPFileHandler(options = {}) {
 
         try {
             throwIfAborted();
+            const JSZip = await getJSZip();
             if (!JSZip) {
                 throw new Error('JSZip not available for main-thread ZIP fallback');
             }

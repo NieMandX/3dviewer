@@ -81,7 +81,7 @@ export function createImportHandlers(options = {}) {
     const makeGeoJsonMeta = typeof options.makeGeoJsonMeta === 'function' ? options.makeGeoJsonMeta : null;
     const ensureZipCollisionsHidden =
         typeof options.ensureZipCollisionsHidden === 'function' ? options.ensureZipCollisionsHidden : () => {};
-    const JSZip = options.JSZip || (typeof globalThis !== 'undefined' ? globalThis.JSZip : null);
+    const getJSZip = typeof options.getJSZip === 'function' ? options.getJSZip : null;
 
     const handleFBXFileImpl = createFBXFileHandler({
         THREE,
@@ -144,7 +144,8 @@ export function createImportHandlers(options = {}) {
         allEmbedded,
         markGalleryNeedsRefresh,
         loadedModels,
-        JSZip,
+        JSZip: options.JSZip,
+        getJSZip,
     });
 
     async function handleFBXFile(file, groupName = null, zipKind = null, zipMeta = null, callOptions = null) {
