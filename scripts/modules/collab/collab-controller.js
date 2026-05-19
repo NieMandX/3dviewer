@@ -2,6 +2,8 @@ import { createSupabaseClient } from './supabase-client.js';
 import { createRealtimeChannelStatusHandler } from './realtime-channel-status.js';
 import { makeAbortError, runAbortableOperation } from './abortable-tus-upload.js';
 
+const DEFAULT_REALTIME_SUBSCRIBE_TIMEOUT_MS = 15000;
+
 function makeSlug(length = 8) {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     let out = '';
@@ -156,12 +158,20 @@ export async function createCollabController(options = {}) {
         onConnectionState,
         signal,
         dedupeIdLimit: dedupeIdLimitOption,
+        realtimeSubscribeTimeoutMs: realtimeSubscribeTimeoutMsOption,
     } = options;
 
     const status = typeof onStatus === 'function' ? onStatus : () => {};
     const connectionStateCallback = typeof onConnectionState === 'function' ? onConnectionState : null;
     status('Connecting…');
     const abortMessage = 'Collab controller init aborted';
+    const realtimeSubscribeTimeoutMs = (() => {
+        const value = Number(realtimeSubscribeTimeoutMsOption);
+        if (Number.isFinite(value) && value > 0) {
+            return Math.min(60000, Math.max(10, value));
+        }
+        return DEFAULT_REALTIME_SUBSCRIBE_TIMEOUT_MS;
+    })();
 
     function throwIfAborted() {
         if (signal?.aborted) throw signal.reason || makeAbortError(abortMessage);
@@ -349,16 +359,31 @@ export async function createCollabController(options = {}) {
     function subscribeTrackedChannel(channel, label) {
         return new Promise((resolve, reject) => {
             let settled = false;
+            let timeoutId = 0;
+            const cleanup = () => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = 0;
+                }
+                try {
+                    signal?.removeEventListener?.('abort', handleAbort);
+                } catch (_) {}
+            };
             const finishResolve = () => {
                 if (settled) return;
                 settled = true;
+                cleanup();
                 resolve();
             };
             const finishReject = (err, reason) => {
                 if (settled) return;
                 settled = true;
+                cleanup();
                 reject(err || new Error(`${label} realtime subscribe ${reason || 'failed'}`));
             };
+            function handleAbort() {
+                finishReject(signal?.reason || makeAbortError(abortMessage), 'ABORTED');
+            }
             const handleStatus = createRealtimeChannelStatusHandler({
                 label,
                 isCurrent: () => !disposed,
@@ -368,6 +393,12 @@ export async function createCollabController(options = {}) {
                     finishReject(error, reason);
                 },
             });
+
+            signal?.addEventListener?.('abort', handleAbort, { once: true });
+            timeoutId = setTimeout(() => {
+                emitConnectionState(false, `${label}:SUBSCRIBE_TIMEOUT`);
+                finishReject(null, 'SUBSCRIBE_TIMEOUT');
+            }, realtimeSubscribeTimeoutMs);
 
             let result = null;
             try {
@@ -465,11 +496,37 @@ export async function createCollabController(options = {}) {
     try {
         await awaitCurrent(() => new Promise((resolve, reject) => {
             let settled = false;
+            let timeoutId = 0;
+            const cleanup = () => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = 0;
+                }
+                try {
+                    signal?.removeEventListener?.('abort', handleAbort);
+                } catch (_) {}
+            };
             const rejectInitialSubscribe = (reason, fallbackMessage) => {
                 if (settled) return;
                 settled = true;
+                cleanup();
                 reject(reason || new Error(fallbackMessage));
             };
+            const resolveInitialSubscribe = () => {
+                if (settled) return false;
+                settled = true;
+                cleanup();
+                resolve();
+                return true;
+            };
+            function handleAbort() {
+                rejectInitialSubscribe(signal?.reason || makeAbortError(abortMessage), 'Room realtime subscribe aborted');
+            }
+            signal?.addEventListener?.('abort', handleAbort, { once: true });
+            timeoutId = setTimeout(() => {
+                emitConnectionState(false, 'SUBSCRIBE_TIMEOUT');
+                rejectInitialSubscribe(null, 'Room realtime subscribe SUBSCRIBE_TIMEOUT');
+            }, realtimeSubscribeTimeoutMs);
             roomChannel.subscribe((statusValue, err) => {
                 const nextStatus = String(statusValue || '');
                 if (disposed) return;
@@ -479,11 +536,9 @@ export async function createCollabController(options = {}) {
                     return;
                 }
                 if (nextStatus === 'SUBSCRIBED') {
-                    if (settled) return;
-                    settled = true;
+                    if (!resolveInitialSubscribe()) return;
                     emitConnectionState(true, nextStatus);
                     void trackPresenceMeta();
-                    resolve();
                     return;
                 }
                 if (nextStatus === 'CLOSED' || nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') {

@@ -262,7 +262,14 @@ export function createFilenameBinder(options = {}) {
                 m.envMapIntensity = parseFloat(getEnvMapIntensity());
             }
             m.needsUpdate = true;
-            history.push({ obj: target.obj, matIndex: target.slotIndex, slot, prev: currentTexture || null, url: tex.url, tex: t });
+            history.push({
+                obj: target.obj,
+                matIndex: target.slotIndex,
+                slot,
+                prevName: currentTexture?.userData?.origName || currentTexture?.name || '',
+                url: tex.url,
+                texName: t.userData?.origName || t.name || '',
+            });
             logBind(`✅ ${tex.short} → ${m.name || 'материал'}.${slot}`, 'ok');
         });
         if (history.length && undoStack) undoStack.push({ fileName, bindings: history });

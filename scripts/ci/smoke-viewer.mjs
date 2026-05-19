@@ -1,13 +1,20 @@
 import { createServer } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const roomProject = process.env.LPMVIEW_SMOKE_PROJECT || 'shmit';
 const roomSlug = process.env.LPMVIEW_SMOKE_ROOM || '1';
+const smokeCdnCacheDir = process.env.LPMVIEW_SMOKE_CDN_CACHE
+    || join(tmpdir(), 'lpmview-smoke-cdn-cache-v1');
+const smokeCdnRetryCount = Math.max(1, Number(process.env.LPMVIEW_SMOKE_CDN_RETRIES || 4) || 4);
+const smokeCdnRetryDelayMs = Math.max(0, Number(process.env.LPMVIEW_SMOKE_CDN_RETRY_DELAY_MS || 350) || 350);
+const SMOKE_CDN_HOSTS = new Set(['cdn.jsdelivr.net', 'cdnjs.cloudflare.com']);
 
 const MIME_TYPES = new Map([
     ['.css', 'text/css; charset=utf-8'],
@@ -25,6 +32,122 @@ const MIME_TYPES = new Map([
     ['.webp', 'image/webp'],
     ['.zip', 'application/zip'],
 ]);
+
+function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isSmokeCdnUrl(value) {
+    try {
+        return SMOKE_CDN_HOSTS.has(new URL(value).hostname);
+    } catch (_) {
+        return false;
+    }
+}
+
+function getSmokeCdnCacheKey(url) {
+    return createHash('sha256').update(String(url || '')).digest('hex');
+}
+
+function normalizeFulfillHeaders(headers = {}) {
+    const out = {};
+    Object.entries(headers || {}).forEach(([key, value]) => {
+        const lower = String(key || '').toLowerCase();
+        if (!lower) return;
+        if (lower === 'content-length' || lower === 'content-encoding' || lower === 'transfer-encoding' || lower === 'connection') return;
+        out[lower] = String(value || '');
+    });
+    out['access-control-allow-origin'] = '*';
+    return out;
+}
+
+async function readSmokeCdnCache(url) {
+    const key = getSmokeCdnCacheKey(url);
+    try {
+        const [body, metaRaw] = await Promise.all([
+            readFile(join(smokeCdnCacheDir, `${key}.body`)),
+            readFile(join(smokeCdnCacheDir, `${key}.json`), 'utf8'),
+        ]);
+        const meta = JSON.parse(metaRaw);
+        return {
+            body,
+            status: Number(meta.status || 200),
+            headers: normalizeFulfillHeaders(meta.headers || {}),
+        };
+    } catch (_) {
+        return null;
+    }
+}
+
+async function writeSmokeCdnCache(url, response, body) {
+    if (!response || response.status() < 200 || response.status() >= 300) return;
+    const key = getSmokeCdnCacheKey(url);
+    try {
+        await mkdir(smokeCdnCacheDir, { recursive: true });
+        await Promise.all([
+            writeFile(join(smokeCdnCacheDir, `${key}.body`), body),
+            writeFile(join(smokeCdnCacheDir, `${key}.json`), JSON.stringify({
+                url,
+                status: response.status(),
+                headers: normalizeFulfillHeaders(response.headers()),
+            })),
+        ]);
+    } catch (_) {
+        // Cache writes are best-effort; smoke should still run from the live response.
+    }
+}
+
+async function installSmokeCdnRoute(context, options = {}) {
+    const memoryCache = new Map();
+    const blockedUrls = new Set(Array.isArray(options.blockedUrls) ? options.blockedUrls.map(String) : []);
+    const handleSmokeCdnRoute = async (route, request) => {
+        const url = request.url();
+        if (!isSmokeCdnUrl(url)) {
+            await route.continue();
+            return;
+        }
+        if (blockedUrls.has(url)) {
+            await route.abort('failed');
+            return;
+        }
+
+        const cached = memoryCache.get(url) || await readSmokeCdnCache(url);
+        if (cached) {
+            memoryCache.set(url, cached);
+            await route.fulfill(cached);
+            return;
+        }
+
+        let lastError = null;
+        for (let attempt = 1; attempt <= smokeCdnRetryCount; attempt += 1) {
+            try {
+                const response = await route.fetch({ timeout: 30000 });
+                const body = await response.body();
+                const cachedResponse = {
+                    body,
+                    status: response.status(),
+                    headers: normalizeFulfillHeaders(response.headers()),
+                };
+                if (response.status() >= 200 && response.status() < 300) {
+                    memoryCache.set(url, cachedResponse);
+                    await writeSmokeCdnCache(url, response, body);
+                }
+                await route.fulfill(cachedResponse);
+                return;
+            } catch (err) {
+                lastError = err;
+                if (attempt < smokeCdnRetryCount) {
+                    await wait(smokeCdnRetryDelayMs * attempt);
+                }
+            }
+        }
+
+        console.warn(`Smoke CDN fetch failed after ${smokeCdnRetryCount} attempts: ${url}`, lastError?.message || lastError || '');
+        await route.abort('failed');
+    };
+    await context.route('https://cdn.jsdelivr.net/**', handleSmokeCdnRoute);
+    await context.route('https://cdnjs.cloudflare.com/**', handleSmokeCdnRoute);
+}
 
 function resolveFsPath(urlPathname) {
     const normalizedPath = normalize(decodeURIComponent(urlPathname.split('?')[0] || '/'));
@@ -172,6 +295,74 @@ async function runBootSmoke(browser, baseUrl) {
     assert.equal(webgpuImports.positionViewDirection, true, 'Boot smoke: three/tsl positionViewDirection export missing');
     diagnostics.assertNoErrors('Boot smoke');
     await page.close();
+}
+
+async function runBootRuntimeFailureSmoke(browser, baseUrl) {
+    const rootBrowser = typeof browser.browser === 'function' ? browser.browser() : browser;
+    const context = await rootBrowser.newContext();
+    await installSmokeCdnRoute(context, {
+        blockedUrls: ['https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js'],
+    });
+    const page = await context.newPage();
+    try {
+        await page.goto(`${baseUrl}/?renderer=webgl&bootTimeoutMs=1000`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await page.waitForFunction(() => document.body.classList.contains('app-boot-error'), null, { timeout: 5000 });
+        const state = await page.evaluate(() => ({
+            hasViewerApp: !!globalThis.viewerApp,
+            loading: document.body.classList.contains('app-loading'),
+            bootError: document.body.classList.contains('app-boot-error'),
+            text: document.getElementById('bootLoaderText')?.textContent || '',
+            pct: document.getElementById('bootLoaderPct')?.textContent || '',
+            barWidth: document.getElementById('bootLoaderBar')?.style?.width || '',
+        }));
+
+        assert.equal(state.hasViewerApp, false, 'Boot runtime failure smoke: viewerApp started after blocked runtime module');
+        assert.equal(state.loading, true, 'Boot runtime failure smoke: app-loading was cleared after boot failure');
+        assert.equal(state.bootError, true, 'Boot runtime failure smoke: boot error state was not set');
+        assert.match(state.text, /runtime viewer|Viewer не стартовал|CDN/i, 'Boot runtime failure smoke: boot error text did not explain runtime/CDN failure');
+        assert.equal(state.pct, 'ошибка', 'Boot runtime failure smoke: boot error status was not shown');
+        assert.equal(state.barWidth, '100%', 'Boot runtime failure smoke: boot progress bar was not completed on error');
+    } finally {
+        await page.close();
+        await context.close();
+    }
+}
+
+async function runBootBlockingScriptTimeoutSmoke(browser, baseUrl) {
+    const rootBrowser = typeof browser.browser === 'function' ? browser.browser() : browser;
+    const context = await rootBrowser.newContext();
+    let releaseBlockedScript = null;
+    const blockedScript = new Promise((resolve) => {
+        releaseBlockedScript = resolve;
+    });
+    await context.route('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', async (route) => {
+        await blockedScript;
+        await route.abort('failed').catch(() => {});
+    });
+    const page = await context.newPage();
+    try {
+        await page.goto(`${baseUrl}/?renderer=webgl&bootTimeoutMs=1000`, { waitUntil: 'commit', timeout: 15000 });
+        await page.waitForFunction(() => document.body.classList.contains('app-boot-error'), null, { timeout: 5000 });
+        const state = await page.evaluate(() => ({
+            hasViewerApp: !!globalThis.viewerApp,
+            loading: document.body.classList.contains('app-loading'),
+            bootError: document.body.classList.contains('app-boot-error'),
+            text: document.getElementById('bootLoaderText')?.textContent || '',
+            pct: document.getElementById('bootLoaderPct')?.textContent || '',
+            barWidth: document.getElementById('bootLoaderBar')?.style?.width || '',
+        }));
+
+        assert.equal(state.hasViewerApp, false, 'Boot blocking script smoke: viewerApp started while parser-blocking CDN script was stalled');
+        assert.equal(state.loading, true, 'Boot blocking script smoke: app-loading was cleared during stalled boot');
+        assert.equal(state.bootError, true, 'Boot blocking script smoke: boot error state was not set');
+        assert.match(state.text, /Viewer не стартовал|CDN/i, 'Boot blocking script smoke: boot timeout text did not explain CDN failure');
+        assert.equal(state.pct, 'ошибка', 'Boot blocking script smoke: boot error status was not shown');
+        assert.equal(state.barWidth, '100%', 'Boot blocking script smoke: boot progress bar was not completed on error');
+    } finally {
+        releaseBlockedScript?.();
+        await page.close();
+        await context.close();
+    }
 }
 
 async function runRoomEntrySmoke(browser, baseUrl) {
@@ -514,16 +705,174 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
             };
         }
 
+        async function smokeSupabaseTimeoutRetry() {
+            delete window.supabase;
+            window.__LPMVIEW_SUPABASE_CDN_TIMEOUT_MS = 30;
+            let scriptAttempts = 0;
+            let scriptRemovals = 0;
+            let firstNode = null;
+            let firstHandlersCleared = false;
+            let secondHandlersCleared = false;
+            document.head.appendChild = (node) => {
+                const src = String(node?.src || '');
+                if (node?.tagName === 'SCRIPT' && src.includes('@supabase/supabase-js')) {
+                    scriptAttempts += 1;
+                    const nativeRemove = node.remove?.bind(node);
+                    node.remove = () => {
+                        scriptRemovals += 1;
+                        nativeRemove?.();
+                    };
+                    if (scriptAttempts === 1) {
+                        firstNode = node;
+                        return node;
+                    }
+                    queueMicrotask(() => {
+                        window.supabase = {
+                            createClient: (url, anonKey, options) => ({ url, anonKey, options }),
+                        };
+                        node.onload?.(new Event('load'));
+                        secondHandlersCleared = node.onload === null && node.onerror === null;
+                    });
+                    return node;
+                }
+                return nativeAppendChild(node);
+            };
+
+            const { createSupabaseClient } = await import(`/scripts/modules/collab/supabase-client.js?timeout=${Date.now()}-${Math.random()}`);
+            let firstError = '';
+            try {
+                await createSupabaseClient({ url: 'https://timeout.supabase.co', anonKey: 'anon' });
+            } catch (err) {
+                firstError = err?.message || String(err);
+            }
+            firstHandlersCleared = firstNode?.onload === null && firstNode?.onerror === null;
+            const client = await createSupabaseClient({ url: 'https://timeout.supabase.co', anonKey: 'anon' });
+            return {
+                firstError,
+                scriptAttempts,
+                scriptRemovals,
+                firstHandlersCleared,
+                secondHandlersCleared,
+                secondUrl: client?.url || '',
+            };
+        }
+
+        async function smokeLiveKitTimeoutRetry() {
+            delete window.LivekitClient;
+            window.__LPMVIEW_LIVEKIT_CDN_TIMEOUT_MS = 30;
+            let scriptAttempts = 0;
+            let scriptRemovals = 0;
+            let firstNode = null;
+            let firstHandlersCleared = false;
+            let secondHandlersCleared = false;
+            document.head.appendChild = (node) => {
+                const src = String(node?.src || '');
+                if (node?.tagName === 'SCRIPT' && src.includes('livekit-client')) {
+                    scriptAttempts += 1;
+                    const nativeRemove = node.remove?.bind(node);
+                    node.remove = () => {
+                        scriptRemovals += 1;
+                        nativeRemove?.();
+                    };
+                    if (scriptAttempts === 1) {
+                        firstNode = node;
+                        return node;
+                    }
+                    queueMicrotask(() => {
+                        window.LivekitClient = { Room: function TimeoutRetryRoom() {} };
+                        node.onload?.(new Event('load'));
+                        secondHandlersCleared = node.onload === null && node.onerror === null;
+                    });
+                    return node;
+                }
+                return nativeAppendChild(node);
+            };
+
+            const { loadLiveKitClient } = await import(`/scripts/modules/voice/livekit-browser.js?timeout=${Date.now()}-${Math.random()}`);
+            let firstError = '';
+            try {
+                await loadLiveKitClient();
+            } catch (err) {
+                firstError = err?.message || String(err);
+            }
+            firstHandlersCleared = firstNode?.onload === null && firstNode?.onerror === null;
+            const sdk = await loadLiveKitClient();
+            return {
+                firstError,
+                scriptAttempts,
+                scriptRemovals,
+                firstHandlersCleared,
+                secondHandlersCleared,
+                hasRoom: typeof sdk?.Room === 'function',
+            };
+        }
+
+        async function smokeTusTimeoutRetry() {
+            delete window.tus;
+            window.__LPMVIEW_TUS_CDN_TIMEOUT_MS = 30;
+            let scriptAttempts = 0;
+            let scriptRemovals = 0;
+            let firstNode = null;
+            let firstHandlersCleared = false;
+            let secondHandlersCleared = false;
+            document.head.appendChild = (node) => {
+                const src = String(node?.src || '');
+                if (node?.tagName === 'SCRIPT' && src.includes('tus-js-client')) {
+                    scriptAttempts += 1;
+                    const nativeRemove = node.remove?.bind(node);
+                    node.remove = () => {
+                        scriptRemovals += 1;
+                        nativeRemove?.();
+                    };
+                    if (scriptAttempts === 1) {
+                        firstNode = node;
+                        return node;
+                    }
+                    queueMicrotask(() => {
+                        window.tus = { Upload: function TimeoutRetryUpload() {} };
+                        node.onload?.(new Event('load'));
+                        secondHandlersCleared = node.onload === null && node.onerror === null;
+                    });
+                    return node;
+                }
+                return nativeAppendChild(node);
+            };
+
+            const { loadTusClient } = await import(`/scripts/modules/collab/tus-client.js?timeout=${Date.now()}-${Math.random()}`);
+            let firstError = '';
+            try {
+                await loadTusClient();
+            } catch (err) {
+                firstError = err?.message || String(err);
+            }
+            firstHandlersCleared = firstNode?.onload === null && firstNode?.onerror === null;
+            const tus = await loadTusClient();
+            return {
+                firstError,
+                scriptAttempts,
+                scriptRemovals,
+                firstHandlersCleared,
+                secondHandlersCleared,
+                hasUpload: typeof tus?.Upload === 'function',
+            };
+        }
+
         try {
             const supabase = await smokeSupabaseRetry();
             const livekit = await smokeLiveKitRetry();
             const tus = await smokeTusRetry();
-            return { supabase, livekit, tus };
+            const supabaseTimeout = await smokeSupabaseTimeoutRetry();
+            const livekitTimeout = await smokeLiveKitTimeoutRetry();
+            const tusTimeout = await smokeTusTimeoutRetry();
+            return { supabase, livekit, tus, supabaseTimeout, livekitTimeout, tusTimeout };
         } finally {
             document.head.appendChild = nativeAppendChild;
             delete window.supabase;
             delete window.LivekitClient;
             delete window.tus;
+            delete window.__LPMVIEW_SUPABASE_CDN_TIMEOUT_MS;
+            delete window.__LPMVIEW_LIVEKIT_CDN_TIMEOUT_MS;
+            delete window.__LPMVIEW_TUS_CDN_TIMEOUT_MS;
         }
     });
 
@@ -546,6 +895,24 @@ async function runBrowserSdkRetrySmoke(browser, baseUrl) {
     assert.equal(result.tus.firstHandlersCleared, true, 'SDK retry smoke: TUS failed script handlers were not cleared');
     assert.equal(result.tus.secondHandlersCleared, true, 'SDK retry smoke: TUS loaded script handlers were not cleared');
     assert.equal(result.tus.hasUpload, true, 'SDK retry smoke: TUS retry did not resolve Upload API');
+    assert.equal(result.supabaseTimeout.firstError, 'Supabase UMD load timed out.', 'SDK retry smoke: expected hanging Supabase load to time out');
+    assert.equal(result.supabaseTimeout.scriptAttempts, 2, 'SDK retry smoke: Supabase loader did not retry after timed-out script');
+    assert.equal(result.supabaseTimeout.scriptRemovals, 1, 'SDK retry smoke: Supabase timed-out script was not removed');
+    assert.equal(result.supabaseTimeout.firstHandlersCleared, true, 'SDK retry smoke: Supabase timed-out script handlers were not cleared');
+    assert.equal(result.supabaseTimeout.secondHandlersCleared, true, 'SDK retry smoke: Supabase post-timeout script handlers were not cleared');
+    assert.equal(result.supabaseTimeout.secondUrl, 'https://timeout.supabase.co', 'SDK retry smoke: Supabase timeout retry did not create client');
+    assert.equal(result.livekitTimeout.firstError, 'LiveKit browser SDK load timed out.', 'SDK retry smoke: expected hanging LiveKit load to time out');
+    assert.equal(result.livekitTimeout.scriptAttempts, 2, 'SDK retry smoke: LiveKit loader did not retry after timed-out script');
+    assert.equal(result.livekitTimeout.scriptRemovals, 1, 'SDK retry smoke: LiveKit timed-out script was not removed');
+    assert.equal(result.livekitTimeout.firstHandlersCleared, true, 'SDK retry smoke: LiveKit timed-out script handlers were not cleared');
+    assert.equal(result.livekitTimeout.secondHandlersCleared, true, 'SDK retry smoke: LiveKit post-timeout script handlers were not cleared');
+    assert.equal(result.livekitTimeout.hasRoom, true, 'SDK retry smoke: LiveKit timeout retry did not resolve SDK');
+    assert.equal(result.tusTimeout.firstError, 'tus-js-client CDN load timed out.', 'SDK retry smoke: expected hanging TUS load to time out');
+    assert.equal(result.tusTimeout.scriptAttempts, 2, 'SDK retry smoke: TUS loader did not retry after timed-out script');
+    assert.equal(result.tusTimeout.scriptRemovals, 1, 'SDK retry smoke: TUS timed-out script was not removed');
+    assert.equal(result.tusTimeout.firstHandlersCleared, true, 'SDK retry smoke: TUS timed-out script handlers were not cleared');
+    assert.equal(result.tusTimeout.secondHandlersCleared, true, 'SDK retry smoke: TUS post-timeout script handlers were not cleared');
+    assert.equal(result.tusTimeout.hasUpload, true, 'SDK retry smoke: TUS timeout retry did not resolve Upload API');
     diagnostics.assertNoErrors('Browser SDK retry smoke');
     await page.close();
 }
@@ -5017,6 +5384,7 @@ async function runMaterialUndoStackLifecycleSmoke(browser, baseUrl) {
 
     const result = await page.evaluate(async () => {
         const THREE = await import('three');
+        const { createFilenameBinder } = await import('/scripts/modules/material/filename-autobind.js');
         const { pruneMaterialUndoStackForRoots } = await import('/scripts/modules/material/undo-stack.js');
 
         const rootA = new THREE.Group();
@@ -5047,6 +5415,44 @@ async function runMaterialUndoStackLifecycleSmoke(browser, baseUrl) {
         }));
         const noopRemoved = pruneMaterialUndoStackForRoots(undoStack, [new THREE.Group()]);
 
+        const bindRoot = new THREE.Group();
+        const previousTexture = new THREE.Texture();
+        previousTexture.name = 'previous-texture';
+        const bindMaterial = new THREE.MeshBasicMaterial({ name: 'M_001_wall', map: previousTexture });
+        const bindMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), bindMaterial);
+        bindMesh.name = 'G_001_wall';
+        bindRoot.add(bindMesh);
+        const bindUndoStack = [];
+        const loadedTextures = [];
+        const textureLoader = {
+            load(url, onLoad) {
+                const texture = new THREE.Texture();
+                texture.name = 'loaded-texture';
+                texture.image = { width: 1, height: 1 };
+                texture.needsUpdate = true;
+                loadedTextures.push(texture);
+                queueMicrotask(() => onLoad?.(texture));
+                return texture;
+            },
+        };
+        const binder = createFilenameBinder({
+            THREE,
+            geomSuffixes: ['wall'],
+            textureLoader,
+            undoStack: bindUndoStack,
+            isRootLive: (root) => root === bindRoot,
+            findGeomSuffix: (label) => (String(label || '').includes('wall') ? 'wall' : null),
+        });
+        binder.autoBindByNamesForModel(bindRoot, 'bound.fbx', [{
+            short: '001_wall_d_1.png',
+            full: '001_wall_d_1.png',
+            url: 'blob:bound-texture',
+        }]);
+        await Promise.resolve();
+        const bindHistory = bindUndoStack[0]?.bindings?.[0] || {};
+        const bindHistoryRetainsTextures = bindHistory.prev === previousTexture || loadedTextures.includes(bindHistory.tex);
+        const bindHistoryKeys = Object.keys(bindHistory).sort();
+
         rootA.traverse((node) => {
             node.geometry?.dispose?.();
             node.material?.dispose?.();
@@ -5055,11 +5461,23 @@ async function runMaterialUndoStackLifecycleSmoke(browser, baseUrl) {
             node.geometry?.dispose?.();
             node.material?.dispose?.();
         });
+        bindRoot.traverse((node) => {
+            node.geometry?.dispose?.();
+            const materials = Array.isArray(node.material) ? node.material : [node.material];
+            materials.filter(Boolean).forEach((material) => {
+                material.map?.dispose?.();
+                material.dispose?.();
+            });
+        });
 
         return {
             removed,
             noopRemoved,
             afterFirstPrune,
+            bindHistoryRetainsTextures,
+            bindHistoryKeys,
+            bindHistoryPrevName: bindHistory.prevName || '',
+            bindHistoryTexName: bindHistory.texName || '',
         };
     });
 
@@ -5070,6 +5488,10 @@ async function runMaterialUndoStackLifecycleSmoke(browser, baseUrl) {
         { fileName: 'empty.fbx', bindings: [] },
         { fileName: 'metadata-only.fbx', bindings: null },
     ], 'Material undo stack smoke: remaining undo stack entries are wrong');
+    assert.equal(result.bindHistoryRetainsTextures, false, 'Material undo stack smoke: filename autobind history retained texture object references');
+    assert.deepEqual(result.bindHistoryKeys, ['matIndex', 'obj', 'prevName', 'slot', 'texName', 'url'], 'Material undo stack smoke: filename autobind history stores unexpected fields');
+    assert.equal(result.bindHistoryPrevName, 'previous-texture', 'Material undo stack smoke: filename autobind history lost previous texture label');
+    assert.equal(result.bindHistoryTexName, '001_wall_d_1.png', 'Material undo stack smoke: filename autobind history lost new texture label');
     diagnostics.assertNoErrors('Material undo stack lifecycle smoke');
     await page.close();
 }
@@ -5786,6 +6208,102 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
         await Promise.resolve();
         const timeoutCallsAfterLateStatus = timeoutCalls.slice();
 
+        class SilentInitialChannel extends FakeChannel {
+            subscribe(callback) {
+                this.statusCallback = typeof callback === 'function' ? callback : null;
+                return new Promise(() => {});
+            }
+            emitStatus(status, err = null) {
+                this.statusCallback?.(status, err);
+            }
+        }
+        const silentInitialChannels = [];
+        const silentInitialRemovedChannels = [];
+        const silentInitialCalls = [];
+        const silentInitialSupabase = {
+            from: (table) => new FakeQuery(table),
+            channel: (name) => {
+                const channel = new SilentInitialChannel(name);
+                silentInitialChannels.push(channel);
+                return channel;
+            },
+            removeChannel: async (channel) => {
+                silentInitialRemovedChannels.push(channel.name);
+                return 'ok';
+            },
+            rpc: async () => ({ data: null, error: null }),
+        };
+        const silentInitialThrown = await Promise.race([
+            createCollabController({
+                supabase: silentInitialSupabase,
+                user: { id: 'silent-initial-user' },
+                project: { id: 'project-silent-initial', slug: 'project-silent-initial' },
+                room: { id: 'room-silent-initial', slug: 'room-silent-initial', camera_owner_id: null, camera_state: null },
+                displayName: 'Silent Initial',
+                realtimeSubscribeTimeoutMs: 20,
+                onConnectionState: ({ connected, reason }) => silentInitialCalls.push(`connection:${connected ? 'on' : 'off'}:${reason}`),
+            }).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            ),
+            new Promise((resolve) => setTimeout(() => resolve('hung'), 80)),
+        ]);
+        const silentInitialCallsAfterFailure = silentInitialCalls.slice();
+        silentInitialChannels[0]?.emitStatus('SUBSCRIBED');
+        await Promise.resolve();
+        const silentInitialCallsAfterLateStatus = silentInitialCalls.slice();
+
+        class SilentTrackedChannel extends FakeChannel {
+            subscribe(callback) {
+                this.statusCallback = typeof callback === 'function' ? callback : null;
+                if (this.name.endsWith(':updates')) {
+                    return new Promise(() => {});
+                }
+                if (typeof callback === 'function') {
+                    Promise.resolve().then(() => callback('SUBSCRIBED'));
+                }
+                return Promise.resolve('SUBSCRIBED');
+            }
+            emitStatus(status, err = null) {
+                this.statusCallback?.(status, err);
+            }
+        }
+        const silentTrackedChannels = [];
+        const silentTrackedRemovedChannels = [];
+        const silentTrackedCalls = [];
+        const silentTrackedSupabase = {
+            from: (table) => new FakeQuery(table),
+            channel: (name) => {
+                const channel = new SilentTrackedChannel(name);
+                silentTrackedChannels.push(channel);
+                return channel;
+            },
+            removeChannel: async (channel) => {
+                silentTrackedRemovedChannels.push(channel.name);
+                return 'ok';
+            },
+            rpc: async () => ({ data: null, error: null }),
+        };
+        const silentTrackedThrown = await Promise.race([
+            createCollabController({
+                supabase: silentTrackedSupabase,
+                user: { id: 'silent-tracked-user' },
+                project: { id: 'project-silent-tracked', slug: 'project-silent-tracked' },
+                room: { id: 'room-silent-tracked', slug: 'room-silent-tracked', camera_owner_id: null, camera_state: null },
+                displayName: 'Silent Tracked',
+                realtimeSubscribeTimeoutMs: 20,
+                onConnectionState: ({ connected, reason }) => silentTrackedCalls.push(`connection:${connected ? 'on' : 'off'}:${reason}`),
+            }).then(
+                () => 'resolved',
+                (err) => err?.message || String(err),
+            ),
+            new Promise((resolve) => setTimeout(() => resolve('hung'), 80)),
+        ]);
+        const silentTrackedCallsAfterFailure = silentTrackedCalls.slice();
+        silentTrackedChannels[1]?.emitStatus('SUBSCRIBED');
+        await Promise.resolve();
+        const silentTrackedCallsAfterLateStatus = silentTrackedCalls.slice();
+
         let abortHistoryStartedResolve = null;
         let abortHistoryResolve = null;
         const abortHistoryStarted = new Promise((resolve) => {
@@ -5878,6 +6396,18 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
             timeoutCallsAfterLateStatus,
             timeoutChannelNames: timeoutChannels.map((channel) => channel.name),
             timeoutRemovedChannels,
+            silentInitialThrown,
+            silentInitialCalls,
+            silentInitialCallsAfterFailure,
+            silentInitialCallsAfterLateStatus,
+            silentInitialChannelNames: silentInitialChannels.map((channel) => channel.name),
+            silentInitialRemovedChannels,
+            silentTrackedThrown,
+            silentTrackedCalls,
+            silentTrackedCallsAfterFailure,
+            silentTrackedCallsAfterLateStatus,
+            silentTrackedChannelNames: silentTrackedChannels.map((channel) => channel.name),
+            silentTrackedRemovedChannels,
             abortThrown,
             abortCalls,
             abortChannelNames: abortChannels.map((channel) => channel.name),
@@ -5894,13 +6424,23 @@ async function runCollabInitFailureCleanupSmoke(browser, baseUrl) {
     assert.deepEqual(result.removedChannels, result.channelNames, 'Collab init-failure smoke: failed init did not remove opened channels');
     assert.ok(result.afterFailure.includes('connection:on:SUBSCRIBED'), 'Collab init-failure smoke: room channel did not subscribe before failure');
     assert.deepEqual(result.afterLateEvents, result.afterFailure, 'Collab init-failure smoke: stale callbacks fired after failed init cleanup');
-    assert.equal(result.intervalCount, 2, 'Collab init-failure smoke: expected failed and aborted init heartbeats');
+    assert.equal(result.intervalCount, 3, 'Collab init-failure smoke: expected failed and aborted init heartbeats');
     assert.equal(result.heartbeatCleared, true, 'Collab init-failure smoke: presence heartbeat leaked after failed init');
     assert.equal(result.timeoutThrown, 'Room realtime subscribe TIMED_OUT', 'Collab init-failure smoke: initial subscribe timeout hung');
     assert.ok(result.timeoutCalls.includes('connection:off:TIMED_OUT'), 'Collab init-failure smoke: timeout status was not emitted');
     assert.deepEqual(result.timeoutCallsAfterLateStatus, result.timeoutCallsAfterFailure, 'Collab init-failure smoke: late subscribed status revived a failed room channel');
     assert.deepEqual(result.timeoutChannelNames, ['room:room-timeout'], 'Collab init-failure smoke: timeout opened unexpected channels');
     assert.deepEqual(result.timeoutRemovedChannels, result.timeoutChannelNames, 'Collab init-failure smoke: timeout channel was not removed');
+    assert.equal(result.silentInitialThrown, 'Room realtime subscribe SUBSCRIBE_TIMEOUT', 'Collab init-failure smoke: silent initial subscribe hung');
+    assert.ok(result.silentInitialCalls.includes('connection:off:SUBSCRIBE_TIMEOUT'), 'Collab init-failure smoke: silent initial timeout status was not emitted');
+    assert.deepEqual(result.silentInitialCallsAfterLateStatus, result.silentInitialCallsAfterFailure, 'Collab init-failure smoke: late status revived a silent initial channel');
+    assert.deepEqual(result.silentInitialChannelNames, ['room:room-silent-initial'], 'Collab init-failure smoke: silent initial opened unexpected channels');
+    assert.deepEqual(result.silentInitialRemovedChannels, result.silentInitialChannelNames, 'Collab init-failure smoke: silent initial channel was not removed');
+    assert.equal(result.silentTrackedThrown, 'room_updates realtime subscribe SUBSCRIBE_TIMEOUT', 'Collab init-failure smoke: silent tracked subscribe hung');
+    assert.ok(result.silentTrackedCalls.includes('connection:off:room_updates:SUBSCRIBE_TIMEOUT'), 'Collab init-failure smoke: silent tracked timeout status was not emitted');
+    assert.deepEqual(result.silentTrackedCallsAfterLateStatus, result.silentTrackedCallsAfterFailure, 'Collab init-failure smoke: late status revived a silent tracked channel');
+    assert.deepEqual(result.silentTrackedChannelNames, ['room:room-silent-tracked', 'room:room-silent-tracked:updates'], 'Collab init-failure smoke: silent tracked opened unexpected channels');
+    assert.deepEqual(result.silentTrackedRemovedChannels, result.silentTrackedChannelNames, 'Collab init-failure smoke: silent tracked channels were not removed');
     assert.equal(result.abortThrown, 'AbortError:init switched', 'Collab init-failure smoke: aborted init did not reject promptly');
     assert.ok(result.abortCalls.includes('connection:on:SUBSCRIBED'), 'Collab init-failure smoke: aborted init did not subscribe before abort');
     assert.deepEqual(result.abortChannelNames, [
@@ -7004,6 +7544,12 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             if (!starts.has(id)) void waitForStart(id);
             starts.get(id).resolve();
         };
+        const eventCount = (entry) => events.filter((value) => value === entry).length;
+        const waitForEventCount = async (entry, count) => {
+            for (let i = 0; i < 20 && eventCount(entry) < count; i += 1) {
+                await Promise.resolve();
+            }
+        };
 
         const queue = createRoomModelLoadQueue({
             isCurrent: ({ generation, roomId, activeRequestGeneration = 0 }) => (
@@ -7021,6 +7567,7 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
                     || id === 'BLOCKED'
                     || id === 'AFTER_RESET'
                     || id === 'ACTIVE_STALE'
+                    || id === 'SAME_KEY'
                     || id === 'STALE_ERROR'
                     || id === 'AFTER_STALE_ERROR'
                 ) {
@@ -7087,20 +7634,40 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             { id: 'ACTIVE_FRESH' },
             { roomId: 'room-1', generation: 5, activeRequestGeneration: 2 },
         );
+
+        currentGeneration = 6;
+        currentActiveRequestGeneration = 10;
+        const sameKeyStaleLoad = queue.load(
+            { id: 'SAME_KEY' },
+            { roomId: 'room-1', generation: 6, activeRequestGeneration: 10 },
+        );
+        await waitForStart('SAME_KEY');
+        currentActiveRequestGeneration = 11;
+        const sameKeyFreshQueuedResult = await queue.load(
+            { id: 'SAME_KEY' },
+            { roomId: 'room-1', generation: 6, activeRequestGeneration: 11 },
+        );
+        const sameKeyPendingDuringStale = queue.getPendingModelIds();
+        releases.get('SAME_KEY')();
+        await waitForEventCount('start:SAME_KEY', 2);
+        const sameKeyStartCount = eventCount('start:SAME_KEY');
+        releases.get('SAME_KEY')?.();
+        const sameKeyStaleLoadResult = await sameKeyStaleLoad;
+
         const eventsBeforeStaleErrorScenario = events.slice();
         const errorsBeforeStaleErrorScenario = errors.slice();
 
-        currentGeneration = 6;
+        currentGeneration = 7;
         const staleErrorLoad = queue.load(
             { id: 'STALE_ERROR' },
-            { roomId: 'room-1', generation: 6 },
+            { roomId: 'room-1', generation: 7 },
         );
         await waitForStart('STALE_ERROR');
-        currentGeneration = 7;
+        currentGeneration = 8;
         queue.reset();
         const afterStaleErrorLoad = queue.load(
             { id: 'AFTER_STALE_ERROR' },
-            { roomId: 'room-1', generation: 7 },
+            { roomId: 'room-1', generation: 8 },
         );
         await waitForStart('AFTER_STALE_ERROR');
         const afterStaleErrorStartedBeforeFailure = events.includes('start:AFTER_STALE_ERROR')
@@ -7125,6 +7692,10 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             afterResetLoadResult,
             activeStaleLoadResult,
             activeFreshLoadResult,
+            sameKeyFreshQueuedResult,
+            sameKeyPendingDuringStale,
+            sameKeyStartCount,
+            sameKeyStaleLoadResult,
             staleErrorLoadResult,
             afterStaleErrorLoadResult,
             afterResetStartedBeforeBlockedDone,
@@ -7146,6 +7717,10 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
     assert.equal(result.afterResetLoadResult, true, 'Room model queue smoke: reset generation load did not finish');
     assert.equal(result.activeStaleLoadResult, false, 'Room model queue smoke: stale active-model request still reported success');
     assert.equal(result.activeFreshLoadResult, true, 'Room model queue smoke: fresh active-model request did not load');
+    assert.equal(result.sameKeyFreshQueuedResult, false, 'Room model queue smoke: same-key fresh active request should queue behind stale active load');
+    assert.equal(result.sameKeyStaleLoadResult, false, 'Room model queue smoke: same-key stale active load still reported success');
+    assert.deepEqual(result.sameKeyPendingDuringStale, ['SAME_KEY'], 'Room model queue smoke: same-key fresh active request was not queued');
+    assert.equal(result.sameKeyStartCount, 2, 'Room model queue smoke: same-key fresh active request was lost behind stale active load');
     assert.equal(result.staleErrorLoadResult, false, 'Room model queue smoke: stale failing load should resolve false');
     assert.equal(result.afterStaleErrorLoadResult, true, 'Room model queue smoke: post-reset load did not finish after stale failure');
     assert.equal(result.afterResetStartedBeforeBlockedDone, true, 'Room model queue smoke: reset did not release active stale load slot');
@@ -7163,6 +7738,7 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             'start:BLOCKED', 'start:AFTER_RESET', 'done:BLOCKED', 'done:AFTER_RESET',
             'start:ACTIVE_STALE', 'done:ACTIVE_STALE',
             'start:ACTIVE_FRESH', 'done:ACTIVE_FRESH',
+            'start:SAME_KEY', 'done:SAME_KEY', 'start:SAME_KEY', 'done:SAME_KEY',
         ],
         'Room model queue smoke: queued/stale/deleted model order is wrong',
     );
@@ -8191,6 +8767,9 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
             fbxConcurrentAbort.abort();
             const fbxConcurrentFirstResult = await fbxConcurrentFirstPromise;
             const fbxConcurrentTerminatedBeforeSecond = fbxConcurrentWorker?.terminated || 0;
+            const fbxConcurrentCancelCount = fbxConcurrentWorker?.messages
+                ?.filter((message) => message?.type === 'cancel' && message?.id === fbxConcurrentFirstId)
+                .length || 0;
             fbxConcurrentWorker?.emit?.({
                 id: fbxConcurrentFirstId,
                 ok: true,
@@ -8433,6 +9012,7 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
                 fbxConcurrentFirstResult,
                 fbxConcurrentSecondResult,
                 fbxConcurrentTerminatedBeforeSecond,
+                fbxConcurrentCancelCount,
                 zipConcurrentFirstResult,
                 zipConcurrentSecondResult,
                 zipConcurrentTerminatedBeforeSecond,
@@ -8481,6 +9061,7 @@ async function runWorkerClientDisposeSmoke(browser, baseUrl) {
     assert.match(result.fbxConcurrentFirstResult, /^AbortError:/, 'Worker client dispose smoke: aborted FBX job did not reject');
     assert.equal(result.fbxConcurrentSecondResult, 'resolved', 'Worker client dispose smoke: aborting one FBX job rejected a sibling job');
     assert.equal(result.fbxConcurrentTerminatedBeforeSecond, 0, 'Worker client dispose smoke: aborting one FBX job terminated a worker with pending siblings');
+    assert.equal(result.fbxConcurrentCancelCount, 1, 'Worker client dispose smoke: FBX job abort did not send a scoped cancel');
     assert.match(result.zipConcurrentFirstResult, /^AbortError:/, 'Worker client dispose smoke: aborted ZIP job did not reject');
     assert.equal(result.zipConcurrentSecondResult, 'done', 'Worker client dispose smoke: aborting one ZIP job rejected a sibling job');
     assert.equal(result.zipConcurrentTerminatedBeforeSecond, 0, 'Worker client dispose smoke: aborting one ZIP job terminated a worker with pending siblings');
@@ -11358,118 +11939,125 @@ const browser = await chromium.launch({
         '--ignore-gpu-blocklist',
     ],
 });
+const browserContext = await browser.newContext();
+await installSmokeCdnRoute(browserContext);
 
 try {
     console.log(`Smoke server: ${smokeServer.baseUrl}`);
-    await runBootSmoke(browser, smokeServer.baseUrl);
+    await runBootSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot smoke passed.');
-    await runRoomEntrySmoke(browser, smokeServer.baseUrl);
+    await runBootRuntimeFailureSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Boot runtime failure smoke passed.');
+    await runBootBlockingScriptTimeoutSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Boot blocking script timeout smoke passed.');
+    await runRoomEntrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Room-entry smoke passed.');
-    await runAuthAsyncDisposeSmoke(browser, smokeServer.baseUrl);
+    await runAuthAsyncDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Auth async dispose smoke passed.');
-    await runBrowserSdkRetrySmoke(browser, smokeServer.baseUrl);
+    await runBrowserSdkRetrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Browser SDK retry smoke passed.');
-    await runCollabCrudStaleSmoke(browser, smokeServer.baseUrl);
+    await runCollabCrudStaleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Collab CRUD stale smoke passed.');
-    await runDisposeReinitSmoke(browser, smokeServer.baseUrl);
+    await runDisposeReinitSmoke(browserContext, smokeServer.baseUrl);
     console.log('Dispose/reinit smoke passed.');
-    await runRendererDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runRendererDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Renderer dispose lifecycle smoke passed.');
-    await runRendererModeDetectionSmoke(browser, smokeServer.baseUrl);
+    await runRendererModeDetectionSmoke(browserContext, smokeServer.baseUrl);
     console.log('Renderer mode detection smoke passed.');
-    await runSceneCoreDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runSceneCoreDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Scene core dispose lifecycle smoke passed.');
-    await runRenderLoopLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runRenderLoopLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Render loop lifecycle smoke passed.');
-    await runWASDFlightLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runWASDFlightLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('WASD flight lifecycle smoke passed.');
-    await runShadingControllersLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runShadingControllersLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Shading controllers lifecycle smoke passed.');
-    await runAnnotationsDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runAnnotationsDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Annotations dispose lifecycle smoke passed.');
-    await runCameraPresetsLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runCameraPresetsLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Camera presets lifecycle smoke passed.');
-    await runCameraPickLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runCameraPickLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Camera pick lifecycle smoke passed.');
-    await runFileFlowFailureSmoke(browser, smokeServer.baseUrl);
+    await runFileFlowFailureSmoke(browserContext, smokeServer.baseUrl);
     console.log('File-flow failure smoke passed.');
-    await runFileFlowSerializationSmoke(browser, smokeServer.baseUrl);
+    await runFileFlowSerializationSmoke(browserContext, smokeServer.baseUrl);
     console.log('File-flow serialization smoke passed.');
-    await runImportPipelineQueueSmoke(browser, smokeServer.baseUrl);
+    await runImportPipelineQueueSmoke(browserContext, smokeServer.baseUrl);
     console.log('Import pipeline queue smoke passed.');
-    await runFileFlowDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runFileFlowDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('File-flow dispose lifecycle smoke passed.');
-    await runBatchFinalizerDisposeSmoke(browser, smokeServer.baseUrl);
+    await runBatchFinalizerDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Batch finalizer dispose smoke passed.');
-    await runTextureGalleryLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runTextureGalleryLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Texture gallery lifecycle smoke passed.');
-    await runTextureModalStaleEntrySmoke(browser, smokeServer.baseUrl);
+    await runTextureModalStaleEntrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Texture modal stale entry smoke passed.');
-    await runTextureReplacementLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runTextureReplacementLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Texture replacement lifecycle smoke passed.');
-    await runGlassGeneratedDisplayMaterialSmoke(browser, smokeServer.baseUrl);
+    await runGlassGeneratedDisplayMaterialSmoke(browserContext, smokeServer.baseUrl);
     console.log('Glass generated display material smoke passed.');
-    await runMaterialVisibilityDisplayModeSmoke(browser, smokeServer.baseUrl);
+    await runMaterialVisibilityDisplayModeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Material visibility display-mode smoke passed.');
-    await runMaterialUndoStackLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runMaterialUndoStackLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Material undo stack lifecycle smoke passed.');
-    await runVisibilitySuppressionPruneSmoke(browser, smokeServer.baseUrl);
+    await runVisibilitySuppressionPruneSmoke(browserContext, smokeServer.baseUrl);
     console.log('Visibility suppression prune smoke passed.');
-    await runCollabRealtimeDisposeSmoke(browser, smokeServer.baseUrl);
+    await runCollabRealtimeDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Collab realtime dispose smoke passed.');
-    await runCollabInitFailureCleanupSmoke(browser, smokeServer.baseUrl);
+    await runCollabInitFailureCleanupSmoke(browserContext, smokeServer.baseUrl);
     console.log('Collab init-failure cleanup smoke passed.');
-    await runCollabDeleteQueueDisposeSmoke(browser, smokeServer.baseUrl);
+    await runCollabDeleteQueueDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Collab delete queue dispose smoke passed.');
-    await runCameraSyncLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runCameraSyncLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Camera sync lifecycle smoke passed.');
-    await runVoiceControllerLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runVoiceControllerLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Voice controller lifecycle smoke passed.');
-    await runVRDisposeLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runVRDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('VR dispose lifecycle smoke passed.');
-    await runRoomModelLoadQueueSmoke(browser, smokeServer.baseUrl);
+    await runRoomModelLoadQueueSmoke(browserContext, smokeServer.baseUrl);
     console.log('Room model load queue smoke passed.');
-    await runRoomModelStateSmoke(browser, smokeServer.baseUrl);
+    await runRoomModelStateSmoke(browserContext, smokeServer.baseUrl);
     console.log('Room model state smoke passed.');
-    await runDeferredRealtimeReloadSmoke(browser, smokeServer.baseUrl);
+    await runDeferredRealtimeReloadSmoke(browserContext, smokeServer.baseUrl);
     console.log('Deferred realtime reload smoke passed.');
-    await runAuxRealtimeChannelRegistrySmoke(browser, smokeServer.baseUrl);
+    await runAuxRealtimeChannelRegistrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Aux realtime channel registry smoke passed.');
-    await runAbortableTusUploadSmoke(browser, smokeServer.baseUrl);
+    await runAbortableTusUploadSmoke(browserContext, smokeServer.baseUrl);
     console.log('Abortable TUS upload smoke passed.');
-    await runWorkerLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runWorkerLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Worker lifecycle smoke passed.');
-    await runWorkerClientDisposeSmoke(browser, smokeServer.baseUrl);
+    await runWorkerClientDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Worker client dispose smoke passed.');
-    await runZIPFallbackCleanupSmoke(browser, smokeServer.baseUrl);
+    await runZIPFallbackCleanupSmoke(browserContext, smokeServer.baseUrl);
     console.log('ZIP fallback cleanup smoke passed.');
-    await runGeoJsonMetaLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runGeoJsonMetaLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('GeoJSON meta lifecycle smoke passed.');
-    await runFBXCleanupLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runFBXCleanupLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('FBX cleanup lifecycle smoke passed.');
-    await runGLTFExportCleanupSmoke(browser, smokeServer.baseUrl);
+    await runGLTFExportCleanupSmoke(browserContext, smokeServer.baseUrl);
     console.log('GLTF export cleanup smoke passed.');
-    await runVPMAutobindLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runVPMAutobindLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('VPM autobind lifecycle smoke passed.');
-    await runEnvironmentLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runEnvironmentLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Environment lifecycle smoke passed.');
-    await runMosParcelsLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runMosParcelsLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('MOS parcels lifecycle smoke passed.');
-    await runMaterialsPanelRemovalSmoke(browser, smokeServer.baseUrl);
+    await runMaterialsPanelRemovalSmoke(browserContext, smokeServer.baseUrl);
     console.log('Materials panel removal smoke passed.');
-    await runCustomSelectLifecycleSmoke(browser, smokeServer.baseUrl);
+    await runCustomSelectLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Custom select lifecycle smoke passed.');
-    await runAppbarControllersDisposeSmoke(browser, smokeServer.baseUrl);
+    await runAppbarControllersDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Appbar/layout dispose smoke passed.');
-    await runLightControlsDisposeSmoke(browser, smokeServer.baseUrl);
+    await runLightControlsDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Light controls dispose smoke passed.');
-    await runTransientStatusSmoke(browser, smokeServer.baseUrl);
+    await runTransientStatusSmoke(browserContext, smokeServer.baseUrl);
     console.log('Transient status smoke passed.');
-    await runModalControllersDisposeSmoke(browser, smokeServer.baseUrl);
+    await runModalControllersDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Modal controllers dispose smoke passed.');
-    await runStatusUIDisposeSmoke(browser, smokeServer.baseUrl);
+    await runStatusUIDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Status UI dispose smoke passed.');
 } finally {
+    await browserContext.close();
     await browser.close();
     await smokeServer.close();
 }

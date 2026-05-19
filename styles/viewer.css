@@ -84,6 +84,7 @@ body.app-loading {
 .boot-loader-text {
     font-size: 13px;
     color: #5f6470;
+    max-width: 38rem;
 }
 
 .boot-loader-track {
@@ -109,6 +110,20 @@ body.app-loading {
     color: #364055;
     text-align: right;
     font-variant-numeric: tabular-nums;
+}
+
+body.app-boot-error .boot-loader-title,
+body.app-boot-error .boot-loader-text,
+body.app-boot-error .boot-loader-pct {
+    color: #111;
+}
+
+body.app-boot-error .boot-loader-track {
+    border-color: #b42318;
+}
+
+body.app-boot-error .boot-loader-bar {
+    background: #b42318;
 }
 
 /* Enforce native `hidden` attribute behavior across browsers. */

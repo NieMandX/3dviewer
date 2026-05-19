@@ -30,7 +30,7 @@ export function createRoomModelLoadQueue(options = {}) {
     function enqueue(model, context = {}) {
         const nextContext = normalizeContext(model, context);
         if (!model || !isContextCurrent(nextContext)) return false;
-        if (activeKey && activeKey === nextContext.key) return false;
+        if (activeKey && activeKey === nextContext.key && isContextCurrent(activeContext)) return false;
         pending.set(nextContext.key, { model, context: nextContext });
         return true;
     }

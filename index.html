@@ -30,9 +30,11 @@
     <div id="bootLoader" class="boot-loader" aria-live="polite" aria-label="Загрузка приложения">
         <div class="boot-loader-card">
             <div class="boot-loader-title">agr.vision</div>
+            <div id="bootLoaderText" class="boot-loader-text">Загрузка приложения...</div>
             <div class="boot-loader-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                 <div id="bootLoaderBar" class="boot-loader-bar"></div>
             </div>
+            <div id="bootLoaderPct" class="boot-loader-pct">0%</div>
         </div>
     </div>
 
@@ -877,6 +879,92 @@
         </div>
     </footer>
 
+    <script>
+        (function () {
+            var bootReady = false;
+            var bootFailed = false;
+            var timer = 0;
+            var params = null;
+
+            try {
+                params = new URLSearchParams(window.location.search);
+            } catch (_) {
+                params = null;
+            }
+
+            function getTimeoutMs() {
+                var fromQuery = params ? Number(params.get('bootTimeoutMs') || 0) : 0;
+                var fromGlobal = Number(window.__LPMVIEW_BOOT_TIMEOUT_MS || 0);
+                var value = fromQuery || fromGlobal || 12000;
+                return Math.max(1000, Math.min(60000, value));
+            }
+
+            function isRuntimeLoadError(value) {
+                var text = String(value || '').toLowerCase();
+                if (!text) return false;
+                return text.indexOf('failed to fetch dynamically imported module') !== -1
+                    || text.indexOf('error loading dynamically imported module') !== -1
+                    || text.indexOf('failed to load module script') !== -1
+                    || text.indexOf('importing a module script failed') !== -1
+                    || text.indexOf('cdn.jsdelivr.net') !== -1
+                    || text.indexOf('cdnjs.cloudflare.com') !== -1;
+            }
+
+            function showBootFailure(message, detail) {
+                if (bootReady || bootFailed) return;
+                bootFailed = true;
+                if (timer) {
+                    window.clearTimeout(timer);
+                    timer = 0;
+                }
+                var loader = document.getElementById('bootLoader');
+                var text = document.getElementById('bootLoaderText');
+                var pct = document.getElementById('bootLoaderPct');
+                var bar = document.getElementById('bootLoaderBar');
+                document.body.classList.add('app-boot-error');
+                if (loader) {
+                    loader.hidden = false;
+                    loader.classList.remove('is-leaving');
+                    loader.querySelector('.boot-loader-track')?.setAttribute('aria-valuenow', '100');
+                }
+                if (text) {
+                    text.textContent = message + (detail ? ' ' + detail : '');
+                }
+                if (pct) pct.textContent = 'ошибка';
+                if (bar) bar.style.width = '100%';
+            }
+
+            window.__LPMVIEW_BOOT_MARK_READY = function () {
+                bootReady = true;
+                if (timer) {
+                    window.clearTimeout(timer);
+                    timer = 0;
+                }
+            };
+
+            window.addEventListener('error', function (event) {
+                if (bootReady) return;
+                var src = event?.target?.src || event?.filename || '';
+                var message = event?.message || src;
+                if (!isRuntimeLoadError(message) && !isRuntimeLoadError(src)) return;
+                showBootFailure('Не удалось загрузить runtime viewer.', 'Проверьте сеть и CDN-доступ, затем обновите страницу.');
+            }, true);
+
+            window.addEventListener('unhandledrejection', function (event) {
+                if (bootReady) return;
+                var reason = event?.reason;
+                var message = reason?.message || reason;
+                if (!isRuntimeLoadError(message)) return;
+                showBootFailure('Не удалось загрузить runtime viewer.', 'Проверьте сеть и CDN-доступ, затем обновите страницу.');
+                event.preventDefault?.();
+            });
+
+            timer = window.setTimeout(function () {
+                if (bootReady) return;
+                showBootFailure('Viewer не стартовал.', 'Проверьте подключение к CDN и обновите страницу.');
+            }, getTimeoutMs());
+        })();
+    </script>
     <script type="importmap">
         {
                 "imports": {

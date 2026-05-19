@@ -1022,6 +1022,7 @@ export class ViewerApp {
         let roomModelCount = 0;
         let roomLoadGeneration = 0;
         const activeRoomImportControllers = new Set();
+        const activeRoomImportRequestGenerations = new WeakMap();
         const activeRoomModelSyncControllers = new Set();
         let roomModelLoadQueue = null;
         let remoteModelLoadRoomId = '';
@@ -1248,21 +1249,34 @@ export class ViewerApp {
             makeAbortError: makeRoomLoadAbortError,
         });
 
-        function abortActiveRoomImports() {
-            if (!activeRoomImportControllers.size && !activeRoomModelSyncControllers.size) return;
+        function abortActiveRoomImports(predicate = null) {
+            const hasPredicate = typeof predicate === 'function';
+            if (!activeRoomImportControllers.size && (!activeRoomModelSyncControllers.size || hasPredicate)) return;
             const reason = makeRoomLoadAbortError();
             activeRoomImportControllers.forEach((controller) => {
+                if (hasPredicate && !predicate(controller)) return;
                 try {
                     if (!controller.signal?.aborted) controller.abort(reason);
                 } catch (_) {}
+                activeRoomImportControllers.delete(controller);
+                activeRoomImportRequestGenerations.delete(controller);
             });
-            activeRoomModelSyncControllers.forEach((controller) => {
-                try {
-                    if (!controller.signal?.aborted) controller.abort(reason);
-                } catch (_) {}
+            if (!hasPredicate) {
+                activeRoomImportControllers.clear();
+                activeRoomModelSyncControllers.forEach((controller) => {
+                    try {
+                        if (!controller.signal?.aborted) controller.abort(reason);
+                    } catch (_) {}
+                });
+                activeRoomModelSyncControllers.clear();
+            }
+        }
+
+        function abortSupersededActiveRoomModelImports(activeRequestGeneration) {
+            abortActiveRoomImports((controller) => {
+                const generation = Number(activeRoomImportRequestGenerations.get(controller) || 0);
+                return generation > 0 && generation !== activeRequestGeneration;
             });
-            activeRoomImportControllers.clear();
-            activeRoomModelSyncControllers.clear();
         }
 
         function getRoomModelLoadQueue() {
@@ -1279,6 +1293,7 @@ export class ViewerApp {
         function bumpRoomLoadGeneration() {
             roomLoadGeneration += 1;
             activeRoomModelRequestGeneration += 1;
+            activeRoomModelRequestId = '';
             if (roomModelLoadQueue?.reset) roomModelLoadQueue.reset();
             else roomModelLoadQueue?.clear?.();
             abortActiveRoomImports();
@@ -4874,6 +4889,7 @@ export class ViewerApp {
         let pendingLocalModelSyncRetryOptions = null;
         let activeRoomModelId = '';
         let activeRoomModelRequestGeneration = 0;
+        let activeRoomModelRequestId = '';
         const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 16 * 1024 * 1024;
         const RESUMABLE_UPLOAD_CHUNK_BYTES = 6 * 1024 * 1024;
 
@@ -5286,6 +5302,7 @@ export class ViewerApp {
                     modelId: modelRow.id,
                 });
                 confirmRoomModelId(modelRow.id);
+                activeRoomModelRequestId = modelRow.id;
                 syncStatus.keep();
                 setStatusMessage('готово: модель синхронизирована');
                 shouldKeepStatusMessage = true;
@@ -5454,7 +5471,10 @@ export class ViewerApp {
                 } catch (_) {}
             };
             const loadStatus = transientStatus.begin();
-            if (importAbortController) activeRoomImportControllers.add(importAbortController);
+            if (importAbortController) {
+                activeRoomImportRequestGenerations.set(importAbortController, expectedActiveRequestGeneration);
+                activeRoomImportControllers.add(importAbortController);
+            }
             try {
                 isRemoteModelLoad = true;
                 remoteModelLoadGeneration = expectedGeneration;
@@ -5530,7 +5550,10 @@ export class ViewerApp {
                 console.error('Room model load failed', err);
                 return false;
             } finally {
-                if (importAbortController) activeRoomImportControllers.delete(importAbortController);
+                if (importAbortController) {
+                    activeRoomImportControllers.delete(importAbortController);
+                    activeRoomImportRequestGenerations.delete(importAbortController);
+                }
                 if (remoteModelLoadGeneration === expectedGeneration && remoteModelLoadModelId === modelId) {
                     isRemoteModelLoad = false;
                     remoteModelLoadGeneration = 0;
@@ -5566,11 +5589,13 @@ export class ViewerApp {
             const id = String(modelId || '').trim();
             if (!id) {
                 activeRoomModelId = '';
+                activeRoomModelRequestId = '';
                 return;
             }
             forgetRoomModelId(id);
             cleanupRoomModelScopedAssets({ roomId, modelId: id });
             if (activeRoomModelId === id) activeRoomModelId = '';
+            if (activeRoomModelRequestId === id) activeRoomModelRequestId = '';
         }
 
         async function clearRoomActiveModelIfCurrent({ controller, roomId = '', modelId = '', isCurrent = null } = {}) {
@@ -6136,16 +6161,20 @@ export class ViewerApp {
 
         async function loadModelFromRoom(room) {
             if (!room || !collabController) return;
-            const activeRequestGeneration = activeRoomModelRequestGeneration + 1;
-            activeRoomModelRequestGeneration = activeRequestGeneration;
             const roomId = String(room.id || collabController.room?.id || '');
             const generation = roomLoadGeneration;
+            const activeModelId = String(room?.active_model_id || '').trim();
+            if (activeModelId !== activeRoomModelRequestId) {
+                activeRoomModelRequestGeneration += 1;
+                activeRoomModelRequestId = activeModelId;
+                abortSupersededActiveRoomModelImports(activeRoomModelRequestGeneration);
+            }
+            const activeRequestGeneration = activeRoomModelRequestGeneration;
             const isCurrentActiveRequest = () => (
                 activeRequestGeneration === activeRoomModelRequestGeneration
                 && isActiveRoomLoad(generation, roomId)
             );
             if (!isCurrentActiveRequest()) return;
-            const activeModelId = String(room?.active_model_id || '').trim();
             if (!activeModelId) {
                 activeRoomModelId = '';
                 return;
@@ -6480,6 +6509,9 @@ export class ViewerApp {
 const viewerApp = new ViewerApp();
 if (typeof globalThis !== 'undefined') {
     globalThis.viewerApp = viewerApp;
+    try {
+        globalThis.__LPMVIEW_BOOT_MARK_READY?.();
+    } catch (_) {}
 }
 
 export default viewerApp;

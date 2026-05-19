@@ -144,6 +144,10 @@ export function createFBXWorkerClient(options = {}) {
                     if (!rejectJob(id, job, err)) return;
                     if (pending.size === 0) {
                         terminateWorker();
+                    } else if (!disposed && workerInstance === worker) {
+                        try {
+                            worker.postMessage({ id, type: 'cancel' });
+                        } catch (_) {}
                     }
                 };
                 signal.addEventListener('abort', job.abortHandler, { once: true });
