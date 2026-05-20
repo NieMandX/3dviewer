@@ -1502,7 +1502,11 @@ export class ViewerApp {
                     await teardownCollabSession({ preserveAutoResume: true });
                     if (appDisposed || !collabAutoResumeEnabled) return;
                 }
-                await connectToRoom(displayName, { isAutoReconnect: true, throwOnError: true });
+                await connectToRoom(displayName, {
+                    isAutoReconnect: true,
+                    preserveRoomLoad: true,
+                    throwOnError: true,
+                });
                 if (appDisposed || !collabAutoResumeEnabled) return;
                 if (collabConnectionOnline) {
                     collabAutoResumeAttempt = 0;
@@ -1533,7 +1537,10 @@ export class ViewerApp {
             if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
             if (collabAutoResumeInFlight) return;
             clearCollabAutoResumeTimer();
-            const delay = Math.min(15000, 1000 * (2 ** Math.min(collabAutoResumeAttempt, 4)));
+            const realtimeDegraded = collabController?.isRealtimeConnected?.() === false;
+            const baseDelay = realtimeDegraded ? 30000 : 1000;
+            const maxDelay = realtimeDegraded ? 120000 : 15000;
+            const delay = Math.min(maxDelay, baseDelay * (2 ** Math.min(collabAutoResumeAttempt, 4)));
             collabAutoResumeTimer = setAppTimeout(() => {
                 collabAutoResumeTimer = null;
                 if (appDisposed) return;
@@ -1926,7 +1933,7 @@ export class ViewerApp {
             const preserveAutoResume = !!options?.preserveAutoResume;
             const previousRoomId = String(collabController?.room?.id || collabRoom?.id || '');
             bumpCollabSessionGeneration();
-            bumpRoomLoadGeneration();
+            if (!preserveAutoResume) bumpRoomLoadGeneration();
             await disconnectVoiceRoom({ preserveIntent: preserveAutoResume && voiceAutoJoinRequested });
             stopPresenceRefresh();
             cancelContributorsRender();
@@ -1960,22 +1967,26 @@ export class ViewerApp {
             collabController = null;
             collabOwnerId = null;
             pendingCollabCameraState = null;
-            collabParticipants = [];
-            renderParticipants(collabParticipants);
-            updateOwnerLabel();
-            updateReserveButton();
-            setCollabSessionEnabled(false);
-            setCollabToolsEnabled(false);
+            if (!preserveAutoResume) {
+                collabParticipants = [];
+                renderParticipants(collabParticipants);
+                updateOwnerLabel();
+                updateReserveButton();
+                setCollabSessionEnabled(false);
+                setCollabToolsEnabled(false);
+            }
             setCollabConnectionState(false, preserveAutoResume ? 'reconnect' : 'session-closed');
-            setCollabStatus('off');
+            setCollabStatus(preserveAutoResume ? 'reconnecting' : 'off');
             updateCollabStatusButton();
-            setChatPanelAvailability(false);
-            seenChatMessageIds.clear();
-            if (collabChatLogEl) collabChatLogEl.innerHTML = '';
-            collabContributors.clear();
-            if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
+            if (!preserveAutoResume) {
+                setChatPanelAvailability(false);
+                seenChatMessageIds.clear();
+                if (collabChatLogEl) collabChatLogEl.innerHTML = '';
+                collabContributors.clear();
+                if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
+            }
 
-            roomCameraCount = 0;
+            if (!preserveAutoResume) roomCameraCount = 0;
             if (!preserveAutoResume) {
                 cleanupRoomScopedAssets(previousRoomId);
                 roomModelLinks.clear();
@@ -2931,6 +2942,7 @@ export class ViewerApp {
         async function connectToRoom(name, options = {}) {
             if (appDisposed || !collabSupabase || !collabUser || !collabProject || !collabRoom) return;
             const isAutoReconnect = !!options?.isAutoReconnect;
+            const preserveRoomLoad = !!options?.preserveRoomLoad;
             const throwOnError = !!options?.throwOnError;
             const requestedProject = collabProject;
             const requestedRoom = collabRoom;
@@ -2943,7 +2955,7 @@ export class ViewerApp {
                 && String(collabProject?.id || '') === requestedProjectId
                 && String(collabRoom?.id || '') === requestedRoomId
             );
-            bumpRoomLoadGeneration();
+            if (!preserveRoomLoad) bumpRoomLoadGeneration();
             const initAbortController = typeof AbortController === 'function' ? new AbortController() : null;
             collabInitAbortController = initAbortController;
             collabJoinBtn.disabled = true;
