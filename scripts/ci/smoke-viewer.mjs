@@ -1115,6 +1115,265 @@ async function runCollabCrudStaleSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.addInitScript(() => {
+        window.__SUPABASE_URL = 'https://smoke.supabase.co';
+        window.__SUPABASE_ANON_KEY = 'smoke-key';
+
+        const project = {
+            id: 'project-1',
+            name: 'Smoke Project',
+            slug: 'smoke-project',
+            owner_id: 'registered-user',
+            created_at: '2026-01-01T00:00:00Z',
+        };
+        const room = {
+            id: 'room-1',
+            slug: 'smoke-room',
+            project_id: 'project-1',
+            owner_id: 'registered-user',
+            created_at: '2026-01-01T00:00:00Z',
+            active_model_id: '',
+        };
+        const user = {
+            id: 'registered-user',
+            email: 'resume@example.com',
+            user_metadata: { display_name: 'Resume User' },
+        };
+        const roomModelId = 'room-model-1';
+        const calls = {
+            createClient: 0,
+            signIn: 0,
+            removeChannel: 0,
+            roomChannelCreates: 0,
+            roomModelQueries: 0,
+        };
+        window.__lpmResumeSmoke = calls;
+
+        class FakeQuery {
+            constructor(table) {
+                this.table = table;
+                this.filters = [];
+                this.payload = null;
+                this.operation = 'select';
+            }
+            select() { return this; }
+            order() { return this; }
+            limit() { return this; }
+            eq(column, value) {
+                this.filters.push({ column: String(column || ''), value: String(value || '') });
+                return this;
+            }
+            insert(payload) {
+                this.operation = 'insert';
+                this.payload = payload;
+                return this;
+            }
+            upsert(payload) {
+                this.operation = 'upsert';
+                this.payload = payload;
+                return this;
+            }
+            update(payload) {
+                this.operation = 'update';
+                this.payload = payload;
+                return this;
+            }
+            delete() {
+                this.operation = 'delete';
+                return this;
+            }
+            hasFilter(column, value) {
+                const expected = String(value || '');
+                return this.filters.some((entry) => entry.column === column && entry.value === expected);
+            }
+            async execute() {
+                if (this.operation !== 'select') return { data: this.payload || null, error: null };
+                if (this.table === 'profiles') return { data: [], error: null };
+                if (this.table === 'projects') return { data: [project], error: null };
+                if (this.table === 'rooms') return { data: [room], error: null };
+                if (this.table === 'room_models') {
+                    calls.roomModelQueries += 1;
+                    const row = {
+                        model_id: roomModelId,
+                        sort_order: 0,
+                        project_models: null,
+                    };
+                    if (this.hasFilter('model_id', roomModelId)) {
+                        return { data: [row], error: null };
+                    }
+                    return { data: [row], error: null };
+                }
+                if (this.table === 'room_cameras') return { data: [], error: null };
+                if (this.table === 'annotations') return { data: [], error: null };
+                if (this.table === 'messages') return { data: [], error: null };
+                return { data: [], error: null };
+            }
+            async maybeSingle() {
+                if (this.table === 'profiles') {
+                    return { data: { display_name: 'Resume User' }, error: null };
+                }
+                if (this.table === 'room_models' && this.hasFilter('model_id', roomModelId)) {
+                    calls.roomModelQueries += 1;
+                    return { data: { model_id: roomModelId }, error: null };
+                }
+                if (this.table === 'project_models') {
+                    return { data: null, error: null };
+                }
+                if (this.table === 'rooms') return { data: room, error: null };
+                if (this.table === 'projects') return { data: project, error: null };
+                return { data: null, error: null };
+            }
+            async single() {
+                return { data: { id: `${this.table}-row`, ...(this.payload || {}) }, error: null };
+            }
+            then(resolve, reject) {
+                return this.execute().then(resolve, reject);
+            }
+        }
+
+        class FakeChannel {
+            constructor(name) {
+                this.name = name;
+                this.state = 'closed';
+                this.socket = { isConnected: () => this.state === 'joined' };
+            }
+            on() { return this; }
+            subscribe(callback) {
+                this.state = 'joined';
+                if (this.name === 'room:room-1') calls.roomChannelCreates += 1;
+                queueMicrotask(() => callback?.('SUBSCRIBED'));
+                return this;
+            }
+            presenceState() {
+                return { [user.id]: [{ name: 'Resume User', joinedAt: '2026-01-01T00:00:00Z' }] };
+            }
+            track() { return Promise.resolve('ok'); }
+            send() { return Promise.resolve('ok'); }
+            httpSend() { return Promise.resolve('ok'); }
+        }
+
+        const client = {
+            auth: {
+                getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+                signInWithPassword: () => {
+                    calls.signIn += 1;
+                    return Promise.resolve({ data: { user }, error: null });
+                },
+                signOut: () => Promise.resolve({ error: null }),
+                getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+                resetPasswordForEmail: () => Promise.resolve({ error: null }),
+                resend: () => Promise.resolve({ error: null }),
+            },
+            from: (table) => new FakeQuery(table),
+            rpc: (name) => {
+                if (name === 'is_superuser') return Promise.resolve({ data: false, error: null });
+                if (name === 'ensure_room_invite') return Promise.resolve({ data: { token: 'resume-token' }, error: null });
+                return Promise.resolve({ data: null, error: null });
+            },
+            channel: (name) => new FakeChannel(String(name || '')),
+            removeChannel: () => {
+                calls.removeChannel += 1;
+                return Promise.resolve({ error: null });
+            },
+            storage: {
+                from: () => ({
+                    download: () => Promise.resolve({ data: null, error: null }),
+                }),
+            },
+        };
+
+        window.supabase = {
+            createClient() {
+                calls.createClient += 1;
+                return client;
+            },
+        };
+    });
+    await page.goto(`${baseUrl}/?renderer=webgl`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+
+    const result = await page.evaluate(async () => {
+        const waitFor = async (predicate, timeoutMs = 8000) => {
+            const started = performance.now();
+            while (performance.now() - started < timeoutMs) {
+                if (predicate()) return true;
+                await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            return false;
+        };
+
+        document.querySelector('#collabName').value = 'Resume User';
+        document.querySelector('#collabEmail').value = 'resume@example.com';
+        document.querySelector('#collabPassword').value = 'secret123';
+        document.querySelector('#collabJoinBtn').click();
+        await waitFor(() => (globalThis.__lpmResumeSmoke?.signIn || 0) >= 1);
+        await waitFor(() => Array.from(document.querySelector('#collabRoomSelect')?.options || [])
+            .some((option) => option.value === 'room-1'));
+
+        const roomSelect = document.querySelector('#collabRoomSelect');
+        roomSelect.value = 'room-1';
+        roomSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        await waitFor(() => (globalThis.__lpmResumeSmoke?.roomChannelCreates || 0) >= 1);
+
+        const THREE = await import('three');
+        const root = new THREE.Group();
+        root.name = 'resume-preserved-room-model';
+        root.userData.importScope = {
+            kind: 'room',
+            roomId: 'room-1',
+            modelId: 'room-model-1',
+        };
+        globalThis.viewerApp.scene.add(root);
+        globalThis.viewerApp.loadedModels.push({
+            obj: root,
+            name: 'resume-preserved-room-model.fbx',
+            scope: { ...root.userData.importScope },
+        });
+        const before = {
+            loadedCount: globalThis.viewerApp.loadedModels.length,
+            inScene: root.parent === globalThis.viewerApp.scene,
+            roomChannelCreates: globalThis.__lpmResumeSmoke.roomChannelCreates,
+        };
+
+        window.dispatchEvent(new Event('offline'));
+        window.dispatchEvent(new Event('online'));
+        await waitFor(() => (globalThis.__lpmResumeSmoke?.roomChannelCreates || 0) >= 2, 5000);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const afterRecord = globalThis.viewerApp.loadedModels.find((record) => record?.obj === root) || null;
+        const after = {
+            loadedCount: globalThis.viewerApp.loadedModels.length,
+            preservedRecord: !!afterRecord,
+            inScene: root.parent === globalThis.viewerApp.scene,
+            roomChannelCreates: globalThis.__lpmResumeSmoke.roomChannelCreates,
+            removeChannel: globalThis.__lpmResumeSmoke.removeChannel,
+        };
+
+        await globalThis.viewerApp.dispose();
+        return {
+            before,
+            after,
+            calls: { ...globalThis.__lpmResumeSmoke },
+        };
+    });
+
+    assert.equal(result.calls.signIn, 1, 'Collab auto-resume smoke: login did not start');
+    assert.equal(result.before.loadedCount, 1, 'Collab auto-resume smoke: seeded room model missing before reconnect');
+    assert.equal(result.before.inScene, true, 'Collab auto-resume smoke: seeded room model was not in scene');
+    assert.equal(result.after.roomChannelCreates >= 2, true, 'Collab auto-resume smoke: reconnect did not create a new room channel');
+    assert.equal(result.after.removeChannel > 0, true, 'Collab auto-resume smoke: old realtime channels were not disposed');
+    assert.equal(result.after.loadedCount, 1, 'Collab auto-resume smoke: reconnect removed loaded room model');
+    assert.equal(result.after.preservedRecord, true, 'Collab auto-resume smoke: loaded model record was not preserved');
+    assert.equal(result.after.inScene, true, 'Collab auto-resume smoke: loaded room model was removed from scene');
+    diagnostics.assertNoErrors('Collab auto-resume keeps models smoke');
+    await page.close();
+}
+
 async function runDisposeReinitSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     await page.addInitScript(() => {
@@ -12136,6 +12395,8 @@ try {
     console.log('Browser SDK retry smoke passed.');
     await runCollabCrudStaleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Collab CRUD stale smoke passed.');
+    await runCollabAutoResumeKeepsModelsSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Collab auto-resume keeps models smoke passed.');
     await runDisposeReinitSmoke(browserContext, smokeServer.baseUrl);
     console.log('Dispose/reinit smoke passed.');
     await runRendererDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);

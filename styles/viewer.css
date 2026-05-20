@@ -1054,7 +1054,8 @@ body.bg-black button.status-overlay {
 .status-progress-track {
     position: relative;
     width: 100%;
-    height: 9px;
+    height: 7px;
+    margin-top: 3mm;
     border-radius: 999px;
     border: 1px solid #111;
     background: #fff;

@@ -1945,12 +1945,14 @@ export class ViewerApp {
             collabContributors.clear();
             if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
 
-            cleanupRoomScopedAssets(previousRoomId);
-            roomModelLinks.clear();
-            roomModelCount = 0;
             roomCameraCount = 0;
-            activeRoomModelId = '';
-            loadedRoomModelIds.clear();
+            if (!preserveAutoResume) {
+                cleanupRoomScopedAssets(previousRoomId);
+                roomModelLinks.clear();
+                roomModelCount = 0;
+                activeRoomModelId = '';
+                loadedRoomModelIds.clear();
+            }
             if (collabRoomLinkEl) collabRoomLinkEl.value = '';
         }
 
