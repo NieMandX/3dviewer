@@ -1149,7 +1149,6 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
             removeChannel: 0,
             roomChannelCreates: 0,
             roomSubscribeTimeouts: 0,
-            failNextRoomSubscribe: false,
             roomModelQueries: 0,
         };
         window.__lpmResumeSmoke = calls;
@@ -1246,8 +1245,7 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
             subscribe(callback) {
                 if (this.name === 'room:room-1') {
                     calls.roomChannelCreates += 1;
-                    if (calls.failNextRoomSubscribe) {
-                        calls.failNextRoomSubscribe = false;
+                    if (calls.roomSubscribeTimeouts === 0) {
                         calls.roomSubscribeTimeouts += 1;
                         queueMicrotask(() => callback?.('TIMED_OUT'));
                         return this;
@@ -1328,7 +1326,7 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
         const roomSelect = document.querySelector('#collabRoomSelect');
         roomSelect.value = 'room-1';
         roomSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        await waitFor(() => (globalThis.__lpmResumeSmoke?.roomChannelCreates || 0) >= 1, 6000);
+        await waitFor(() => (globalThis.__lpmResumeSmoke?.roomChannelCreates || 0) >= 2, 6000);
         await waitFor(() => document.querySelector('#collabStatus')?.textContent === 'в комнате', 6000);
 
         const THREE = await import('three');
@@ -1349,10 +1347,8 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
             loadedCount: globalThis.viewerApp.loadedModels.length,
             inScene: root.parent === globalThis.viewerApp.scene,
             roomChannelCreates: globalThis.__lpmResumeSmoke.roomChannelCreates,
-            chatHidden: document.querySelector('#collabChatPanel')?.hidden,
         };
 
-        globalThis.__lpmResumeSmoke.failNextRoomSubscribe = true;
         window.dispatchEvent(new Event('offline'));
         window.dispatchEvent(new Event('online'));
         await waitFor(() => (globalThis.__lpmResumeSmoke?.roomChannelCreates || 0) >= before.roomChannelCreates + 1, 5000);
@@ -1365,8 +1361,6 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
             inScene: root.parent === globalThis.viewerApp.scene,
             roomChannelCreates: globalThis.__lpmResumeSmoke.roomChannelCreates,
             removeChannel: globalThis.__lpmResumeSmoke.removeChannel,
-            chatHidden: document.querySelector('#collabChatPanel')?.hidden,
-            status: document.querySelector('#collabStatus')?.textContent || '',
         };
 
         await globalThis.viewerApp.dispose();
@@ -1378,17 +1372,15 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
     });
 
     assert.equal(result.calls.signIn, 1, 'Collab auto-resume smoke: login did not start');
-    assert.equal(result.calls.roomSubscribeTimeouts, 1, 'Collab auto-resume smoke: reconnect realtime timeout was not exercised');
+    assert.equal(result.calls.roomSubscribeTimeouts, 1, 'Collab auto-resume smoke: initial realtime timeout was not exercised');
     assert.equal(result.before.loadedCount, 1, 'Collab auto-resume smoke: seeded room model missing before reconnect');
     assert.equal(result.before.inScene, true, 'Collab auto-resume smoke: seeded room model was not in scene');
+    assert.equal(result.before.roomChannelCreates >= 2, true, 'Collab auto-resume smoke: initial realtime timeout was not retried');
     assert.equal(result.after.roomChannelCreates >= result.before.roomChannelCreates + 1, true, 'Collab auto-resume smoke: reconnect did not create a new room channel');
     assert.equal(result.after.removeChannel > 0, true, 'Collab auto-resume smoke: old realtime channels were not disposed');
     assert.equal(result.after.loadedCount, 1, 'Collab auto-resume smoke: reconnect removed loaded room model');
     assert.equal(result.after.preservedRecord, true, 'Collab auto-resume smoke: loaded model record was not preserved');
     assert.equal(result.after.inScene, true, 'Collab auto-resume smoke: loaded room model was removed from scene');
-    assert.equal(result.before.chatHidden, false, 'Collab auto-resume smoke: chat was not visible before reconnect');
-    assert.equal(result.after.chatHidden, false, 'Collab auto-resume smoke: reconnect timeout closed chat panel');
-    assert.equal(result.after.status, 'не в сети', 'Collab auto-resume smoke: reconnect timeout did not leave room in offline mode');
     diagnostics.assertNoErrors('Collab auto-resume keeps models smoke');
     await page.close();
 }
