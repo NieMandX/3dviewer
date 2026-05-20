@@ -10474,6 +10474,7 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         const THREE = await import('three');
         const { createBackgroundController } = await import('/scripts/modules/render/background-controller.js');
         const { createEnvironmentManager, loadEnvironmentEquirectTexture } = await import('/scripts/modules/render/environment-manager.js');
+        const { createGlassController } = await import('/scripts/modules/material/glass-controller.js');
 
         const data = new Float32Array([1, 1, 1, 1]);
         const sourceTex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat, THREE.FloatType);
@@ -10571,6 +10572,34 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         const webgpuMaterialEnvClearedOnDispose = webgpuToggleMaterial.envMap == null;
         webgpuToggleMesh.geometry.dispose();
         webgpuToggleMaterial.dispose();
+
+        const webgpuGlassScene = new THREE.Scene();
+        webgpuGlassScene.environment = new THREE.DataTexture(new Float32Array([0.9, 0.9, 0.9, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
+        webgpuGlassScene.environment.mapping = THREE.EquirectangularReflectionMapping;
+        webgpuGlassScene.environmentIntensity = 0;
+        const webgpuGlassWorld = new THREE.Group();
+        const webgpuGlassMaterial = new THREE.MeshPhysicalMaterial({ name: 'MainGlass' });
+        webgpuGlassMaterial.envMapIntensity = 3;
+        const webgpuGlassMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), webgpuGlassMaterial);
+        webgpuGlassMesh.name = 'MainGlass';
+        webgpuGlassWorld.add(webgpuGlassMesh);
+        const webgpuGlassController = createGlassController({
+            THREE,
+            world: webgpuGlassWorld,
+            scene: webgpuGlassScene,
+            toStandard: (material) => material,
+            isEnvironmentEnabled: () => false,
+        });
+        webgpuGlassController.applyToScene();
+        const webgpuGlassDisabledState = {
+            envMapPreserved: webgpuGlassMaterial.envMap === webgpuGlassScene.environment,
+            envIntensityDisabled: webgpuGlassMaterial.envMapIntensity === 0,
+            storedOriginalReflect: webgpuGlassMaterial.userData?.glassOriginal?.envIntensity === 3,
+        };
+        webgpuGlassController.dispose();
+        webgpuGlassMesh.geometry.dispose();
+        webgpuGlassMaterial.dispose();
+        webgpuGlassScene.environment.dispose();
 
         const environmentUnhandled = [];
         const onEnvironmentUnhandled = (event) => {
@@ -10710,6 +10739,7 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
             concurrentBaseDisposed,
             webgpuToggleState,
             webgpuMaterialEnvClearedOnDispose,
+            webgpuGlassDisabledState,
             failingLoadCount,
             failingRebuildResult,
             failingPresetResult,
@@ -10752,6 +10782,11 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         sceneIntensityDisabled: true,
     }, 'Environment smoke: WebGPU HDRI disable cleared envMap texture instead of zeroing intensity');
     assert.equal(result.webgpuMaterialEnvClearedOnDispose, true, 'Environment smoke: disposed WebGPU manager retained material envMap');
+    assert.deepEqual(result.webgpuGlassDisabledState, {
+        envMapPreserved: true,
+        envIntensityDisabled: true,
+        storedOriginalReflect: true,
+    }, 'Environment smoke: WebGPU glass ignored disabled HDRI state');
     assert.equal(result.failingLoadCount, 5, 'Environment smoke: failed environment loads did not exercise default/fallback/preset paths');
     assert.equal(result.failingRebuildResult, true, 'Environment smoke: failed rebuild did not resolve cleanly');
     assert.equal(result.failingPresetResult, false, 'Environment smoke: failed HDRI preset rejected instead of resolving false');

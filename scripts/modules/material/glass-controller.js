@@ -19,6 +19,9 @@ export function createGlassController(options = {}) {
 
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
     const schedulePanelRefresh = typeof options.schedulePanelRefresh === 'function' ? options.schedulePanelRefresh : () => {};
+    const isEnvironmentEnabled = typeof options.isEnvironmentEnabled === 'function'
+        ? options.isEnvironmentEnabled
+        : () => !!scene?.environment && scene.environmentIntensity !== 0;
 
     const elements = options.elements || {};
     const glassOpacityEl = elements.glassOpacityEl || null;
@@ -134,6 +137,7 @@ export function createGlassController(options = {}) {
         const globalAttenColorHex = useGlobalAttenColor
             ? normalizeHexColor(glassAttenColorEl.value, '#FFFFFF')
             : null;
+        const environmentEnabled = !!isEnvironmentEnabled();
 
         function findGeoMetaForObject(obj) {
             let node = obj;
@@ -174,7 +178,7 @@ export function createGlassController(options = {}) {
                 let overrides = std.userData.glassOverrides || null;
                 const geoMeta = findGeoMetaForObject(o);
                 const glassParams = geoMeta ? findGeoGlassParams(geoMeta, [m.name, o.name, nameStr]) : null;
-                const currentEnvIntensity = Number.isFinite(std.envMapIntensity) ? std.envMapIntensity : sliderReflect;
+                const currentEnvIntensity = environmentEnabled && Number.isFinite(std.envMapIntensity) ? std.envMapIntensity : sliderReflect;
                 const zipKind = (findZipKindForObject(o) || '').toUpperCase();
                 const isNPM = zipKind === 'NPM';
                 const isSM = zipKind === 'SM';
@@ -320,7 +324,8 @@ export function createGlassController(options = {}) {
                 std.opacity = finalOpacity;
                 if (!std.metalnessMap) std.metalness = clamp01(targetMetalness);
                 if (!std.roughnessMap) std.roughness = clamp01(targetRoughness);
-                std.envMapIntensity = targetEnvIntensity;
+                const effectiveEnvIntensity = environmentEnabled ? targetEnvIntensity : 0;
+                std.envMapIntensity = effectiveEnvIntensity;
                 if (std.isMeshPhysicalMaterial) {
                     const transmission = clamp01(targetTransmission ?? 0);
                     std.transmission = transmission;
@@ -349,7 +354,7 @@ export function createGlassController(options = {}) {
                     transparency: finalOpacity,
                     roughness: std.roughness,
                     metalness: std.metalness,
-                    envIntensity: targetEnvIntensity,
+                    envIntensity: effectiveEnvIntensity,
                     source: infoSource,
                     colorHex: infoColorHex,
                     transmission: std.isMeshPhysicalMaterial ? clamp01(std.transmission ?? 0) : 0,

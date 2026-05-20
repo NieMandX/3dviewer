@@ -4758,6 +4758,7 @@ export class ViewerApp {
             cacheOriginalMaterialFor,
             requestRender,
             schedulePanelRefresh,
+            isEnvironmentEnabled: () => !!iblChk?.checked,
             elements: {
                 glassOpacityEl,
                 glassIorEl,
