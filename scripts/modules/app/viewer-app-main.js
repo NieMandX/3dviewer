@@ -1282,6 +1282,43 @@ export class ViewerApp {
             );
         }
 
+        const COLLAB_REALTIME_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
+        function getCollabRealtimeCooldownKey() {
+            let suffix = 'default';
+            try {
+                suffix = new URL(supabaseUrl).host || suffix;
+            } catch (_) {}
+            return `lpmview.collabRealtimeDisabledUntil:${suffix}`;
+        }
+
+        function clearCollabRealtimeCooldown() {
+            if (typeof localStorage === 'undefined') return;
+            try {
+                localStorage.removeItem(getCollabRealtimeCooldownKey());
+            } catch (_) {}
+        }
+
+        function rememberCollabRealtimeFailure() {
+            if (typeof localStorage === 'undefined') return;
+            try {
+                localStorage.setItem(
+                    getCollabRealtimeCooldownKey(),
+                    String(Date.now() + COLLAB_REALTIME_COOLDOWN_MS)
+                );
+            } catch (_) {}
+        }
+
+        function shouldSkipCollabRealtimeInit() {
+            if (typeof localStorage === 'undefined') return false;
+            try {
+                const raw = Number(localStorage.getItem(getCollabRealtimeCooldownKey()) || 0);
+                if (Number.isFinite(raw) && raw > Date.now()) return true;
+                if (raw) localStorage.removeItem(getCollabRealtimeCooldownKey());
+            } catch (_) {}
+            return false;
+        }
+
         const importPipelineQueue = createImportPipelineQueue({
             makeAbortError: makeRoomLoadAbortError,
         });
@@ -2973,6 +3010,7 @@ export class ViewerApp {
                     displayName: name,
                     signal: initAbortController?.signal || null,
                     allowRealtimeInitFailure: true,
+                    skipRealtimeInit: shouldSkipCollabRealtimeInit(),
                     onStatus: (text) => {
                         if (!isCurrentRoomRequest()) return;
                         const label = String(text || '').trim();
@@ -3090,7 +3128,12 @@ export class ViewerApp {
                 }
 
                 collabAutoResumeEnabled = true;
-                if (realtimeConnected) collabAutoResumeAttempt = 0;
+                if (realtimeConnected) {
+                    clearCollabRealtimeCooldown();
+                    collabAutoResumeAttempt = 0;
+                } else {
+                    rememberCollabRealtimeFailure();
+                }
                 collabAutoResumeInFlight = false;
                 setCollabConnectionState(realtimeConnected, realtimeConnected
                     ? (isAutoReconnect ? 'reconnected' : 'connected')

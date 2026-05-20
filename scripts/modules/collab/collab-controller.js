@@ -160,6 +160,7 @@ export async function createCollabController(options = {}) {
         dedupeIdLimit: dedupeIdLimitOption,
         realtimeSubscribeTimeoutMs: realtimeSubscribeTimeoutMsOption,
         allowRealtimeInitFailure = false,
+        skipRealtimeInit = false,
     } = options;
 
     const status = typeof onStatus === 'function' ? onStatus : () => {};
@@ -533,7 +534,9 @@ export async function createCollabController(options = {}) {
         deliverMessage(payload, { source: 'broadcast' });
     });
 
-    try {
+    if (skipRealtimeInit) {
+        markRealtimeOffline('realtime-skipped');
+    } else try {
         await awaitCurrent(() => new Promise((resolve, reject) => {
             let settled = false;
             let timeoutId = 0;
@@ -722,6 +725,7 @@ export async function createCollabController(options = {}) {
     }
 
     function getBroadcastSender(channel) {
+        if (!realtimeConnected) return null;
         if (!channel) return null;
         const sendFn = typeof channel.send === 'function' ? channel.send.bind(channel) : null;
         const httpSendFn = typeof channel.httpSend === 'function' ? channel.httpSend.bind(channel) : null;
