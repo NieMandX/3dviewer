@@ -159,6 +159,7 @@ export async function createCollabController(options = {}) {
         signal,
         dedupeIdLimit: dedupeIdLimitOption,
         realtimeSubscribeTimeoutMs: realtimeSubscribeTimeoutMsOption,
+        allowRealtimeInitFailure = false,
     } = options;
 
     const status = typeof onStatus === 'function' ? onStatus : () => {};
@@ -185,6 +186,8 @@ export async function createCollabController(options = {}) {
 
     let lastConnectionState = null;
     let lastConnectionReason = '';
+    let realtimeConnected = false;
+    let realtimeFailureReason = '';
     function emitConnectionState(connected, reason = '') {
         if (!connectionStateCallback) return;
         const nextConnected = !!connected;
@@ -195,6 +198,30 @@ export async function createCollabController(options = {}) {
         try {
             connectionStateCallback({ connected: nextConnected, reason: nextReason });
         } catch (_) {}
+    }
+
+    function markRealtimeOffline(reason = '') {
+        realtimeConnected = false;
+        realtimeFailureReason = String(reason || 'realtime-offline');
+        emitConnectionState(false, realtimeFailureReason);
+    }
+
+    function markRealtimeOnline(reason = 'SUBSCRIBED') {
+        realtimeConnected = true;
+        realtimeFailureReason = '';
+        emitConnectionState(true, reason);
+    }
+
+    function isRealtimeSubscribeFailure(err) {
+        const message = String(err?.message || err || '').toLowerCase();
+        if (!message) return false;
+        return (
+            message.includes('realtime subscribe')
+            || message.includes('subscribe_timeout')
+            || message.includes('timed_out')
+            || message.includes('timed out')
+            || message.includes('channel_error')
+        );
     }
 
     throwIfAborted();
@@ -389,14 +416,14 @@ export async function createCollabController(options = {}) {
                 isCurrent: () => !disposed,
                 onSubscribed: finishResolve,
                 onFailure: ({ error, reason }) => {
-                    emitConnectionState(false, reason);
+                    markRealtimeOffline(reason);
                     finishReject(error, reason);
                 },
             });
 
             signal?.addEventListener?.('abort', handleAbort, { once: true });
             timeoutId = setTimeout(() => {
-                emitConnectionState(false, `${label}:SUBSCRIBE_TIMEOUT`);
+                markRealtimeOffline(`${label}:SUBSCRIBE_TIMEOUT`);
                 finishReject(null, 'SUBSCRIBE_TIMEOUT');
             }, realtimeSubscribeTimeoutMs);
 
@@ -404,7 +431,7 @@ export async function createCollabController(options = {}) {
             try {
                 result = channel.subscribe(handleStatus);
             } catch (err) {
-                emitConnectionState(false, `${label}:SUBSCRIBE_ERROR`);
+                markRealtimeOffline(`${label}:SUBSCRIBE_ERROR`);
                 finishReject(err, 'SUBSCRIBE_ERROR');
                 return;
             }
@@ -413,7 +440,7 @@ export async function createCollabController(options = {}) {
                 result.then((statusValue) => {
                     if (statusValue) handleStatus(statusValue);
                 }).catch((err) => {
-                    emitConnectionState(false, `${label}:SUBSCRIBE_ERROR`);
+                    markRealtimeOffline(`${label}:SUBSCRIBE_ERROR`);
                     finishReject(err, 'SUBSCRIBE_ERROR');
                 });
             }
@@ -524,31 +551,34 @@ export async function createCollabController(options = {}) {
             }
             signal?.addEventListener?.('abort', handleAbort, { once: true });
             timeoutId = setTimeout(() => {
-                emitConnectionState(false, 'SUBSCRIBE_TIMEOUT');
+                markRealtimeOffline('SUBSCRIBE_TIMEOUT');
                 rejectInitialSubscribe(null, 'Room realtime subscribe SUBSCRIBE_TIMEOUT');
             }, realtimeSubscribeTimeoutMs);
             roomChannel.subscribe((statusValue, err) => {
                 const nextStatus = String(statusValue || '');
                 if (disposed) return;
                 if (err) {
-                    emitConnectionState(false, 'SUBSCRIBE_ERROR');
+                    markRealtimeOffline('SUBSCRIBE_ERROR');
                     rejectInitialSubscribe(err, 'Room realtime subscribe failed');
                     return;
                 }
                 if (nextStatus === 'SUBSCRIBED') {
                     if (!resolveInitialSubscribe()) return;
-                    emitConnectionState(true, nextStatus);
+                    markRealtimeOnline(nextStatus);
                     void trackPresenceMeta();
                     return;
                 }
                 if (nextStatus === 'CLOSED' || nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') {
-                    emitConnectionState(false, nextStatus);
+                    markRealtimeOffline(nextStatus);
                     rejectInitialSubscribe(null, `Room realtime subscribe ${nextStatus}`);
                 }
             });
         }));
     } catch (err) {
-        await cleanupInitFailure(err);
+        if (!allowRealtimeInitFailure || !isRealtimeSubscribeFailure(err)) {
+            await cleanupInitFailure(err);
+        }
+        markRealtimeOffline(err?.message || 'Room realtime subscribe failed');
     }
 
     const PRESENCE_HEARTBEAT_MS = 8000;
@@ -561,66 +591,75 @@ export async function createCollabController(options = {}) {
             } catch (_) {}
         }, PRESENCE_HEARTBEAT_MS);
     };
-    startPresenceHeartbeat();
+    if (realtimeConnected) startPresenceHeartbeat();
+
+    if (realtimeConnected) {
+        try {
+            const roomUpdates = supabase.channel(`room:${room.id}:updates`);
+            roomUpdates.on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${room.id}` },
+                (payload) => {
+                    if (disposed) return;
+                    const next = payload.new || {};
+                    if (next && typeof next === 'object') {
+                        try {
+                            Object.assign(room, next);
+                        } catch (_) {}
+                    }
+                    if (typeof onRoomUpdate === 'function') onRoomUpdate(room);
+                    if (typeof onCameraOwner === 'function') onCameraOwner(next.camera_owner_id || null);
+                    if (next.camera_state && typeof onCameraState === 'function') {
+                        onCameraState({
+                            ...next.camera_state,
+                            source: 'db',
+                        });
+                    }
+                }
+            );
+            channels.push(roomUpdates);
+            await awaitCurrent(() => subscribeTrackedChannel(roomUpdates, 'room_updates'));
+
+            const annotationsChannel = supabase.channel(`room:${room.id}:annotations`);
+            annotationsChannel.on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
+                (payload) => {
+                    if (disposed) return;
+                    deliverAnnotation(payload.new, { source: 'realtime' });
+                }
+            );
+            annotationsChannel.on(
+                'postgres_changes',
+                { event: 'DELETE', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
+                (payload) => {
+                    if (disposed) return;
+                    deliverAnnotationDelete(payload.old, { source: 'realtime' });
+                }
+            );
+            channels.push(annotationsChannel);
+            await awaitCurrent(() => subscribeTrackedChannel(annotationsChannel, 'annotations'));
+
+            const messagesChannel = supabase.channel(`room:${room.id}:messages`);
+            messagesChannel.on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${room.id}` },
+                (payload) => {
+                    if (disposed) return;
+                    deliverMessage(payload.new, { source: 'realtime' });
+                }
+            );
+            channels.push(messagesChannel);
+            await awaitCurrent(() => subscribeTrackedChannel(messagesChannel, 'messages'));
+        } catch (err) {
+            if (!allowRealtimeInitFailure || !isRealtimeSubscribeFailure(err)) {
+                await cleanupInitFailure(err);
+            }
+            markRealtimeOffline(err?.message || 'Realtime subscribe failed');
+        }
+    }
 
     try {
-        const roomUpdates = supabase.channel(`room:${room.id}:updates`);
-        roomUpdates.on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${room.id}` },
-            (payload) => {
-                if (disposed) return;
-                const next = payload.new || {};
-                if (next && typeof next === 'object') {
-                    try {
-                        Object.assign(room, next);
-                    } catch (_) {}
-                }
-                if (typeof onRoomUpdate === 'function') onRoomUpdate(room);
-                if (typeof onCameraOwner === 'function') onCameraOwner(next.camera_owner_id || null);
-                if (next.camera_state && typeof onCameraState === 'function') {
-                    onCameraState({
-                        ...next.camera_state,
-                        source: 'db',
-                    });
-                }
-            }
-        );
-        channels.push(roomUpdates);
-        await awaitCurrent(() => subscribeTrackedChannel(roomUpdates, 'room_updates'));
-
-        const annotationsChannel = supabase.channel(`room:${room.id}:annotations`);
-        annotationsChannel.on(
-            'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
-            (payload) => {
-                if (disposed) return;
-                deliverAnnotation(payload.new, { source: 'realtime' });
-            }
-        );
-        annotationsChannel.on(
-            'postgres_changes',
-            { event: 'DELETE', schema: 'public', table: 'annotations', filter: `room_id=eq.${room.id}` },
-            (payload) => {
-                if (disposed) return;
-                deliverAnnotationDelete(payload.old, { source: 'realtime' });
-            }
-        );
-        channels.push(annotationsChannel);
-        await awaitCurrent(() => subscribeTrackedChannel(annotationsChannel, 'annotations'));
-
-        const messagesChannel = supabase.channel(`room:${room.id}:messages`);
-        messagesChannel.on(
-            'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${room.id}` },
-            (payload) => {
-                if (disposed) return;
-                deliverMessage(payload.new, { source: 'realtime' });
-            }
-        );
-        channels.push(messagesChannel);
-        await awaitCurrent(() => subscribeTrackedChannel(messagesChannel, 'messages'));
-
         const historyAnnotations = await awaitCurrent(() => (
             supabase
                 .from('annotations')
@@ -1033,6 +1072,8 @@ export async function createCollabController(options = {}) {
         project,
         room,
         slug,
+        isRealtimeConnected: () => realtimeConnected,
+        getRealtimeFailureReason: () => realtimeFailureReason,
         getDisplayName: () => currentName,
         setDisplayName,
         sendMessage,
