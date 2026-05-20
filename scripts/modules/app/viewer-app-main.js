@@ -835,10 +835,32 @@ export class ViewerApp {
 
         let collabAuthMode = 'initial';
         const collabCreateOptionValue = '__create__';
+        let collabDrawerRestoreEmptyHint = false;
+
+        function isEmptyHintVisibleForCollabDrawer() {
+            return !!emptyHintEl && !emptyHintEl.hidden && !isRoomEntryLandingActive();
+        }
 
         function setCollabDrawerOpen(next) {
             if (!collabDrawerEl) return;
             const isOpen = !!next;
+            if (isOpen) {
+                collabDrawerRestoreEmptyHint = isEmptyHintVisibleForCollabDrawer();
+                collabDrawerEl.classList.toggle('empty-hint-overlay', collabDrawerRestoreEmptyHint);
+                if (collabDrawerRestoreEmptyHint) {
+                    setEmptyHintVisible(false);
+                }
+            } else {
+                const shouldRestoreEmptyHint =
+                    collabDrawerRestoreEmptyHint &&
+                    loadedModels.length === 0 &&
+                    !isRoomEntryLandingActive();
+                collabDrawerRestoreEmptyHint = false;
+                collabDrawerEl.classList.remove('empty-hint-overlay');
+                if (shouldRestoreEmptyHint) {
+                    setEmptyHintVisible(true);
+                }
+            }
             collabDrawerEl.hidden = !isOpen;
             if (collabPanelBtn) {
                 collabPanelBtn.classList.toggle('active', isOpen);

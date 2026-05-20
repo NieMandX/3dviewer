@@ -1351,6 +1351,11 @@ select.custom-select-native:disabled {
     z-index: 6;
 }
 
+.collab-drawer.empty-hint-overlay {
+    bottom: calc(50% + 100px);
+    transform: translate(-50%, 50%);
+}
+
 body.room-entry-landing #emptyHint.status-overlay {
     display: none !important;
 }

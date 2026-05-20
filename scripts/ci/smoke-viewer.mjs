@@ -285,6 +285,50 @@ async function runBootSmoke(browser, baseUrl) {
             positionViewDirection: !!tsl.positionViewDirection,
         };
     });
+    const collabDrawerSwap = await page.evaluate(async () => {
+        const waitFrame = () => new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+        const emptyHint = document.querySelector('#emptyHint');
+        const drawer = document.querySelector('#collabDrawer');
+        const panelBtn = document.querySelector('#collabPanelBtn');
+        const closeBtn = document.querySelector('#collabDrawerClose');
+        if (!emptyHint || !drawer || !panelBtn || !closeBtn) {
+            return { missing: true };
+        }
+
+        emptyHint.hidden = false;
+        emptyHint.style.opacity = '1';
+        drawer.hidden = true;
+        drawer.classList.remove('empty-hint-overlay');
+        const emptyRect = emptyHint.getBoundingClientRect();
+        const emptyCenterY = emptyRect.top + emptyRect.height / 2;
+
+        panelBtn.click();
+        await waitFrame();
+        const drawerRect = drawer.getBoundingClientRect();
+        const drawerCenterY = drawerRect.top + drawerRect.height / 2;
+        const opened = {
+            emptyHidden: emptyHint.hidden,
+            drawerHidden: drawer.hidden,
+            drawerSwapClass: drawer.classList.contains('empty-hint-overlay'),
+            centerDeltaY: Math.abs(drawerCenterY - emptyCenterY),
+        };
+
+        closeBtn.click();
+        await waitFrame();
+
+        return {
+            missing: false,
+            opened,
+            closed: {
+                emptyHidden: emptyHint.hidden,
+                emptyOpacity: emptyHint.style.opacity,
+                drawerHidden: drawer.hidden,
+                drawerSwapClass: drawer.classList.contains('empty-hint-overlay'),
+            },
+        };
+    });
 
     assert.equal(state.appReady, true, 'Boot smoke: viewerApp not initialized');
     assert.equal(state.loading, false, 'Boot smoke: body still in app-loading state');
@@ -293,7 +337,17 @@ async function runBootSmoke(browser, baseUrl) {
     assert.equal(webgpuImports.meshBasicNodeMaterial, true, 'Boot smoke: three/webgpu MeshBasicNodeMaterial export missing');
     assert.equal(webgpuImports.normalView, true, 'Boot smoke: three/tsl normalView export missing');
     assert.equal(webgpuImports.positionViewDirection, true, 'Boot smoke: three/tsl positionViewDirection export missing');
+    assert.equal(collabDrawerSwap.missing, false, 'Boot smoke: collab drawer swap elements missing');
+    assert.equal(collabDrawerSwap.opened.emptyHidden, true, 'Boot smoke: empty hint stayed visible under collab drawer');
+    assert.equal(collabDrawerSwap.opened.drawerHidden, false, 'Boot smoke: collab drawer did not open');
+    assert.equal(collabDrawerSwap.opened.drawerSwapClass, true, 'Boot smoke: collab drawer did not move into empty hint position');
+    assert.ok(collabDrawerSwap.opened.centerDeltaY <= 1, 'Boot smoke: collab drawer did not align to empty hint position');
+    assert.equal(collabDrawerSwap.closed.emptyHidden, false, 'Boot smoke: empty hint was not restored after closing collab drawer');
+    assert.equal(collabDrawerSwap.closed.emptyOpacity, '1', 'Boot smoke: restored empty hint opacity was wrong');
+    assert.equal(collabDrawerSwap.closed.drawerHidden, true, 'Boot smoke: collab drawer stayed open after close');
+    assert.equal(collabDrawerSwap.closed.drawerSwapClass, false, 'Boot smoke: collab drawer retained empty hint position after close');
     diagnostics.assertNoErrors('Boot smoke');
+    await page.evaluate(() => globalThis.viewerApp?.dispose?.()).catch(() => {});
     await page.close();
 }
 
