@@ -11051,16 +11051,31 @@ async function runStatusUIDisposeSmoke(browser, baseUrl) {
             readyClearDelayMs: 5,
         });
 
+        status.setStatusMessage('Загрузка модели из комнаты…');
+        status.setStatusProgress({ visible: true, indeterminate: true });
+        const progressVisibleBeforeDispose = !statusEl.querySelector('.status-progress-track')?.hidden;
+        const progressIndeterminateBeforeDispose = statusEl.querySelector('.status-progress-track')?.classList?.contains('is-indeterminate') || false;
+        const progressTextBeforeDispose = statusEl.textContent;
+
         status.setStatusMessage('готово: synced');
+        status.setStatusProgress({ visible: true, value: 42, indeterminate: false });
+        const determinateProgressWidth = statusEl.querySelector('.status-progress-bar')?.style?.width || '';
         status.setEmptyHintVisible(true);
         status.dispose();
         status.setStatusMessage('late status');
+        status.setStatusProgress(true);
         status.setEmptyHintVisible(true);
         await new Promise((resolve) => setTimeout(resolve, 20));
 
         return {
             statusText: statusEl.textContent,
             statusHidden: statusEl.hidden,
+            progressVisibleBeforeDispose,
+            progressIndeterminateBeforeDispose,
+            progressTextBeforeDispose,
+            determinateProgressWidth,
+            progressHiddenAfterDispose: statusEl.querySelector('.status-progress-track')?.hidden,
+            progressClassAfterDispose: statusEl.classList.contains('has-progress'),
             appbarText: appbarStatusEl.textContent,
             emptyHidden: emptyHintEl.hidden,
             emptyOpacity: emptyHintEl.style.opacity,
@@ -11069,6 +11084,12 @@ async function runStatusUIDisposeSmoke(browser, baseUrl) {
 
     assert.equal(result.statusText, '', 'Status UI smoke: disposed status accepted a late message');
     assert.equal(result.statusHidden, true, 'Status UI smoke: disposed status was not hidden');
+    assert.equal(result.progressVisibleBeforeDispose, true, 'Status UI smoke: progress was not shown');
+    assert.equal(result.progressIndeterminateBeforeDispose, true, 'Status UI smoke: indeterminate progress class was not set');
+    assert.equal(result.progressTextBeforeDispose, 'Загрузка модели из комнаты…', 'Status UI smoke: progress changed visible status text');
+    assert.equal(result.determinateProgressWidth, '42%', 'Status UI smoke: determinate progress width was wrong');
+    assert.equal(result.progressHiddenAfterDispose, true, 'Status UI smoke: dispose did not hide progress');
+    assert.equal(result.progressClassAfterDispose, false, 'Status UI smoke: disposed status retained progress class');
     assert.equal(result.appbarText, '', 'Status UI smoke: disposed appbar status retained text');
     assert.equal(result.emptyHidden, true, 'Status UI smoke: disposed empty hint accepted a late update');
     assert.equal(result.emptyOpacity, '0', 'Status UI smoke: disposed empty hint opacity was not cleared');

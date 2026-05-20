@@ -398,6 +398,7 @@ export class ViewerApp {
         const statusEl = dom.statusEl;
         const emptyHintEl = dom.emptyHintEl;
         const setStatusMessage = statusUI.setStatusMessage;
+        const setStatusProgress = statusUI.setStatusProgress;
         const setEmptyHintVisible = statusUI.setEmptyHintVisible;
         const transientStatus = createTransientStatusController({
             setStatusMessage,
@@ -5497,6 +5498,7 @@ export class ViewerApp {
                 remoteModelLoadRoomId = expectedRoomId;
                 remoteModelLoadModelId = modelId;
                 setEmptyHintVisible(false);
+                setStatusProgress({ visible: true, indeterminate: true });
                 loadStatus.set('Загрузка модели из комнаты…');
                 let blob = null;
                 if (storagePath && controller?.supabase) {
@@ -5577,6 +5579,9 @@ export class ViewerApp {
                     remoteModelLoadGeneration = 0;
                     remoteModelLoadRoomId = '';
                     remoteModelLoadModelId = '';
+                }
+                if (loadStatus.isCurrent()) {
+                    setStatusProgress(false);
                 }
                 loadStatus.clear();
             }
