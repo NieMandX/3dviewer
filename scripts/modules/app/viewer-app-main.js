@@ -1511,7 +1511,7 @@ export class ViewerApp {
                 if (collabConnectionOnline) {
                     collabAutoResumeAttempt = 0;
                 } else {
-                    retryAfterResume = false;
+                    retryAfterResume = true;
                 }
             } catch (err) {
                 if (appDisposed || !collabAutoResumeEnabled) return;
@@ -1522,7 +1522,7 @@ export class ViewerApp {
                 }
                 setCollabConnectionState(false, `resume-failed:${String(trigger || '')}`);
                 setCollabStatus('offline');
-                retryAfterResume = !isRetryableCollabRealtimeInitError(err);
+                retryAfterResume = true;
             } finally {
                 if (!appDisposed) {
                     collabAutoResumeInFlight = false;
@@ -3113,6 +3113,9 @@ export class ViewerApp {
                 }
                 if (voiceAutoJoinRequested && voiceReady && !voiceConnected && !voiceConnecting) {
                     void joinVoiceRoom({ preserveIntent: true });
+                }
+                if (!realtimeConnected) {
+                    scheduleCollabAutoResume(nextController.getRealtimeFailureReason?.() || 'realtime-offline');
                 }
             } catch (err) {
                 if (!isCurrentRoomRequest()) return;
