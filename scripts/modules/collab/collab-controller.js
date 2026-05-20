@@ -368,10 +368,17 @@ export async function createCollabController(options = {}) {
         presenceHeartbeat = null;
     }
 
-    async function removeRealtimeChannels() {
-        for (const ch of channels) {
+    async function removeRealtimeChannels(options = {}) {
+        const disconnectTransport = !!options?.disconnectTransport;
+        const existingChannels = channels.splice(0);
+        for (const ch of existingChannels) {
             try {
                 await supabase.removeChannel(ch);
+            } catch (_) {}
+        }
+        if (disconnectTransport) {
+            try {
+                supabase?.realtime?.disconnect?.();
             } catch (_) {}
         }
     }
@@ -381,6 +388,12 @@ export async function createCollabController(options = {}) {
         stopPresenceHeartbeat();
         await removeRealtimeChannels();
         throw err;
+    }
+
+    async function disableRealtimeAfterInitFailure(reason = '') {
+        stopPresenceHeartbeat();
+        await removeRealtimeChannels({ disconnectTransport: true });
+        markRealtimeOffline(reason || 'Realtime subscribe failed');
     }
 
     function subscribeTrackedChannel(channel, label) {
@@ -578,7 +591,7 @@ export async function createCollabController(options = {}) {
         if (!allowRealtimeInitFailure || !isRealtimeSubscribeFailure(err)) {
             await cleanupInitFailure(err);
         }
-        markRealtimeOffline(err?.message || 'Room realtime subscribe failed');
+        await disableRealtimeAfterInitFailure(err?.message || 'Room realtime subscribe failed');
     }
 
     const PRESENCE_HEARTBEAT_MS = 8000;
@@ -655,7 +668,7 @@ export async function createCollabController(options = {}) {
             if (!allowRealtimeInitFailure || !isRealtimeSubscribeFailure(err)) {
                 await cleanupInitFailure(err);
             }
-            markRealtimeOffline(err?.message || 'Realtime subscribe failed');
+            await disableRealtimeAfterInitFailure(err?.message || 'Realtime subscribe failed');
         }
     }
 
