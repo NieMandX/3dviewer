@@ -470,6 +470,7 @@ async function runAuthAsyncDisposeSmoke(browser, baseUrl) {
                 createClient: 0,
                 getUser: 0,
                 signOut: 0,
+                storedAuthAtCreate: '',
             };
             let resolveGetUser;
             const getUserPromise = new Promise((resolve) => {
@@ -477,9 +478,19 @@ async function runAuthAsyncDisposeSmoke(browser, baseUrl) {
             });
             window.__lpmAuthSmoke = calls;
             window.__lpmResolveGetUser = (payload) => resolveGetUser(payload);
+            try {
+                window.localStorage.setItem('sb-smoke-auth-token', JSON.stringify({
+                    access_token: 'stale-access',
+                    refresh_token: 'stale-refresh',
+                    expires_at: 1,
+                }));
+            } catch (_) {}
             window.supabase = {
                 createClient() {
                     calls.createClient += 1;
+                    try {
+                        calls.storedAuthAtCreate = window.localStorage.getItem('sb-smoke-auth-token') || '';
+                    } catch (_) {}
                     return {
                         auth: {
                             getUser() {
@@ -518,6 +529,7 @@ async function runAuthAsyncDisposeSmoke(browser, baseUrl) {
         });
 
         assert.equal(result.signOut, 0, 'Auth async dispose smoke: disposed persisted-session cleanup still signed out');
+        assert.equal(result.storedAuthAtCreate, '', 'Auth async dispose smoke: stale default auth storage was not cleared before client init');
         diagnostics.assertNoErrors('Auth async dispose smoke: persisted session');
         await page.close();
     }

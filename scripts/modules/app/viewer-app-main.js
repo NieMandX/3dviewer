@@ -2301,6 +2301,27 @@ export class ViewerApp {
             } catch (_) {}
         }
 
+        function getSupabaseProjectRef() {
+            try {
+                const host = new URL(supabaseUrl).hostname;
+                return String(host || '').split('.')[0] || '';
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function clearDefaultSupabaseAuthStorage() {
+            if (typeof localStorage === 'undefined') return;
+            const projectRef = getSupabaseProjectRef();
+            const keys = [
+                projectRef ? `sb-${projectRef}-auth-token` : '',
+                'supabase.auth.token',
+            ].filter(Boolean);
+            try {
+                keys.forEach((key) => localStorage.removeItem(key));
+            } catch (_) {}
+        }
+
         async function ensureSupabaseClient(mode = 'default') {
             if (!collabReady) return null;
             const nextMode = mode === 'guest' ? 'guest' : 'default';
@@ -2317,6 +2338,7 @@ export class ViewerApp {
                         },
                     });
                 } else {
+                    if (!isRecoveryUrl()) clearDefaultSupabaseAuthStorage();
                     collabSupabase = await createSupabaseClient({ url: supabaseUrl, anonKey: supabaseAnonKey });
                 }
                 collabSupabaseMode = nextMode;
