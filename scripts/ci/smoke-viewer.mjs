@@ -10542,6 +10542,36 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
         const concurrentBaseSame = baseA === baseB;
         concurrentManager.dispose();
 
+        const webgpuToggleScene = new THREE.Scene();
+        const webgpuToggleMaterial = new THREE.MeshStandardMaterial();
+        const webgpuToggleMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), webgpuToggleMaterial);
+        const webgpuToggleBase = new THREE.DataTexture(new Float32Array([0.75, 0.75, 0.75, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
+        webgpuToggleBase.mapping = THREE.EquirectangularReflectionMapping;
+        webgpuToggleBase.needsUpdate = true;
+        const webgpuToggleManager = createEnvironmentManager({
+            scene: webgpuToggleScene,
+            loadedModels: [{ obj: webgpuToggleMesh }],
+            enabled: true,
+            useWebGPU: true,
+            rendererInitPromise: Promise.resolve(),
+            loadEquirectTexture: async () => webgpuToggleBase,
+        });
+        await webgpuToggleManager.rebuild({ force: true });
+        const webgpuEnabledEnvMap = webgpuToggleMaterial.envMap;
+        const webgpuEnabledSceneEnv = webgpuToggleScene.environment;
+        await webgpuToggleManager.setEnabled(false);
+        const webgpuToggleState = {
+            enabledEnvWasTexture: webgpuEnabledEnvMap?.isTexture === true,
+            materialEnvPreserved: webgpuToggleMaterial.envMap === webgpuEnabledEnvMap,
+            materialIntensityDisabled: webgpuToggleMaterial.envMapIntensity === 0,
+            sceneEnvPreserved: webgpuToggleScene.environment === webgpuEnabledSceneEnv,
+            sceneIntensityDisabled: webgpuToggleScene.environmentIntensity === 0,
+        };
+        webgpuToggleManager.dispose();
+        const webgpuMaterialEnvClearedOnDispose = webgpuToggleMaterial.envMap == null;
+        webgpuToggleMesh.geometry.dispose();
+        webgpuToggleMaterial.dispose();
+
         const environmentUnhandled = [];
         const onEnvironmentUnhandled = (event) => {
             event.preventDefault();
@@ -10678,6 +10708,8 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
             concurrentLoadCount,
             concurrentBaseSame,
             concurrentBaseDisposed,
+            webgpuToggleState,
+            webgpuMaterialEnvClearedOnDispose,
             failingLoadCount,
             failingRebuildResult,
             failingPresetResult,
@@ -10712,6 +10744,14 @@ async function runEnvironmentLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.concurrentLoadCount, 1, 'Environment smoke: concurrent HDR base requests started duplicate loads');
     assert.equal(result.concurrentBaseSame, true, 'Environment smoke: concurrent HDR base requests did not share the same texture');
     assert.equal(result.concurrentBaseDisposed, 1, 'Environment smoke: shared concurrent HDR base was not disposed exactly once');
+    assert.deepEqual(result.webgpuToggleState, {
+        enabledEnvWasTexture: true,
+        materialEnvPreserved: true,
+        materialIntensityDisabled: true,
+        sceneEnvPreserved: true,
+        sceneIntensityDisabled: true,
+    }, 'Environment smoke: WebGPU HDRI disable cleared envMap texture instead of zeroing intensity');
+    assert.equal(result.webgpuMaterialEnvClearedOnDispose, true, 'Environment smoke: disposed WebGPU manager retained material envMap');
     assert.equal(result.failingLoadCount, 5, 'Environment smoke: failed environment loads did not exercise default/fallback/preset paths');
     assert.equal(result.failingRebuildResult, true, 'Environment smoke: failed rebuild did not resolve cleanly');
     assert.equal(result.failingPresetResult, false, 'Environment smoke: failed HDRI preset rejected instead of resolving false');

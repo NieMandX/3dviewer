@@ -313,19 +313,38 @@ export function createEnvironmentManager(options = {}) {
         }
     }
 
-    function applyEnvToMaterials(env, intensity, { silent = false } = {}) {
+    function applyEnvToMaterials(env, intensity, { silent = false, forceClear = false } = {}) {
         if (disposed && env) return;
+        const hasEnv = !!env;
+        const effectiveIntensity = hasEnv ? intensity : 0;
         if (scene) {
-            scene.environmentIntensity = env ? intensity : 0;
+            scene.environmentIntensity = effectiveIntensity;
         }
         ensureMaterialRegistry();
         envMaterials.forEach((m) => {
             if (!m) return;
-            if (m.envMap !== env) {
+            if (hasEnv) {
+                if (m.envMap !== env) {
+                    m.envMap = env;
+                    m.needsUpdate = true;
+                }
+                m.envMapIntensity = intensity;
+                return;
+            }
+
+            if (useWebGPU && !forceClear) {
+                // three.webgpu r184's NodeMaterialObserver reads `mtlValue.isTexture`
+                // without a null guard after a material has observed a texture.
+                // Preserve the texture reference and disable IBL via intensity.
+                m.envMapIntensity = 0;
+                return;
+            }
+
+            if (m.envMap != null) {
                 m.envMap = env;
                 m.needsUpdate = true;
             }
-            m.envMapIntensity = intensity;
+            m.envMapIntensity = 0;
         });
 
         if (!disposed) requestRender();
@@ -640,7 +659,10 @@ export function createEnvironmentManager(options = {}) {
             }
             envRebuildQueued = false;
             lifecycleGeneration += 1;
-            if (scene) scene.environment = null;
+            if (scene) {
+                scene.environment = useWebGPU && currentEnv?.isTexture ? currentEnv : null;
+                scene.environmentIntensity = 0;
+            }
             applyEnvToMaterials(null, 1.0, { silent: true });
             const bgMesh = getBgMesh?.();
             if (bgMesh) bgMesh.visible = false;
@@ -730,7 +752,7 @@ export function createEnvironmentManager(options = {}) {
         envRebuildQueued = false;
         enabled = false;
         if (scene) scene.environment = null;
-        applyEnvToMaterials(null, 1.0, { silent: true });
+        applyEnvToMaterials(null, 1.0, { silent: true, forceClear: true });
         disposeEnvironmentResources({
             env: currentEnv,
             bg: currentBg,
