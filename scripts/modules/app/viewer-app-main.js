@@ -1495,7 +1495,6 @@ export class ViewerApp {
             collabAutoResumeInFlight = true;
             collabAutoResumeAttempt += 1;
             setCollabStatus('reconnecting');
-            let retryAfterResume = false;
             try {
                 const displayName = String(collabController?.getDisplayName?.() || collabNameEl?.value || '').trim() || 'Guest';
                 if (collabController) {
@@ -1504,11 +1503,7 @@ export class ViewerApp {
                 }
                 await connectToRoom(displayName, { isAutoReconnect: true, throwOnError: true });
                 if (appDisposed || !collabAutoResumeEnabled) return;
-                if (collabConnectionOnline) {
-                    collabAutoResumeAttempt = 0;
-                } else {
-                    retryAfterResume = true;
-                }
+                collabAutoResumeAttempt = 0;
             } catch (err) {
                 if (appDisposed || !collabAutoResumeEnabled) return;
                 if (isRetryableCollabRealtimeInitError(err)) {
@@ -1518,12 +1513,9 @@ export class ViewerApp {
                 }
                 setCollabConnectionState(false, `resume-failed:${String(trigger || '')}`);
                 setCollabStatus('offline');
-                retryAfterResume = true;
+                scheduleCollabAutoResume('retry');
             } finally {
-                if (!appDisposed) {
-                    collabAutoResumeInFlight = false;
-                    if (retryAfterResume) scheduleCollabAutoResume('retry');
-                }
+                if (!appDisposed) collabAutoResumeInFlight = false;
             }
         }
 
@@ -2960,7 +2952,6 @@ export class ViewerApp {
                     roomSlug: requestedRoom.slug,
                     displayName: name,
                     signal: initAbortController?.signal || null,
-                    allowRealtimeInitFailure: true,
                     onStatus: (text) => {
                         if (!isCurrentRoomRequest()) return;
                         const label = String(text || '').trim();
@@ -3036,7 +3027,6 @@ export class ViewerApp {
                     return;
                 }
                 collabController = nextController;
-                const realtimeConnected = nextController.isRealtimeConnected?.() !== false;
                 updateCollabFooter();
 
                 cameraSync = createCameraSyncController({
@@ -3058,7 +3048,7 @@ export class ViewerApp {
                 roomUpdateHandler?.(collabController.room);
                 await loadRoomModels();
                 if (!isCurrentSession()) return;
-                if (realtimeConnected) subscribeRoomCameraChanges();
+                subscribeRoomCameraChanges();
                 await loadRoomCameras();
                 if (!isCurrentSession()) return;
                 if (roomCameraCount === 0) {
@@ -3078,12 +3068,10 @@ export class ViewerApp {
                 }
 
                 collabAutoResumeEnabled = true;
-                if (realtimeConnected) collabAutoResumeAttempt = 0;
+                collabAutoResumeAttempt = 0;
                 collabAutoResumeInFlight = false;
-                setCollabConnectionState(realtimeConnected, realtimeConnected
-                    ? (isAutoReconnect ? 'reconnected' : 'connected')
-                    : (nextController.getRealtimeFailureReason?.() || 'realtime-offline'));
-                setCollabStatus(realtimeConnected ? 'on' : 'offline');
+                setCollabConnectionState(true, isAutoReconnect ? 'reconnected' : 'connected');
+                setCollabStatus('on');
                 renderParticipants(collabParticipants);
                 updateReserveButton();
                 updateOwnerLabel();
@@ -3101,9 +3089,6 @@ export class ViewerApp {
                 }
                 if (voiceAutoJoinRequested && voiceReady && !voiceConnected && !voiceConnecting) {
                     void joinVoiceRoom({ preserveIntent: true });
-                }
-                if (!realtimeConnected) {
-                    scheduleCollabAutoResume(nextController.getRealtimeFailureReason?.() || 'realtime-offline');
                 }
             } catch (err) {
                 if (!isCurrentRoomRequest()) return;
@@ -5757,7 +5742,6 @@ export class ViewerApp {
 
         function subscribeRoomModelsChannel({ controller, roomId, generation } = {}) {
             if (!controller || roomAuxRealtimeChannels.get(ROOM_MODELS_CHANNEL)) return;
-            if (controller.isRealtimeConnected?.() === false) return;
             const isCurrent = () => (
                 controller === collabController
                 && isActiveRoomLoad(generation, roomId)
@@ -6205,7 +6189,6 @@ export class ViewerApp {
         function subscribeRoomCameraChanges() {
             const controller = collabController;
             if (!controller) return;
-            if (controller.isRealtimeConnected?.() === false) return;
             const roomId = String(controller.room?.id || '');
             const generation = roomLoadGeneration;
             const isCurrent = () => (
