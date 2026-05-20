@@ -5496,6 +5496,7 @@ export class ViewerApp {
                 remoteModelLoadGeneration = expectedGeneration;
                 remoteModelLoadRoomId = expectedRoomId;
                 remoteModelLoadModelId = modelId;
+                setEmptyHintVisible(false);
                 loadStatus.set('Загрузка модели из комнаты…');
                 let blob = null;
                 if (storagePath && controller?.supabase) {
@@ -5564,6 +5565,7 @@ export class ViewerApp {
                     return false;
                 }
                 console.error('Room model load failed', err);
+                setEmptyHintVisible(loadedModels.length === 0 && !isRoomEntryLandingActive());
                 return false;
             } finally {
                 if (importAbortController) {
