@@ -1268,20 +1268,6 @@ export class ViewerApp {
             return error?.name === 'AbortError';
         }
 
-        function isRetryableCollabRealtimeInitError(error) {
-            const message = String(error?.message || error || '').toLowerCase();
-            if (!message) return false;
-            const isRealtimeSubscribe = message.includes('realtime subscribe');
-            return isRealtimeSubscribe && (
-                message.includes('timed_out')
-                || message.includes('subscribe_timeout')
-                || message.includes('timeout')
-                || message.includes('timed out')
-                || message.includes('channel_error')
-                || message.includes('closed')
-            );
-        }
-
         const importPipelineQueue = createImportPipelineQueue({
             makeAbortError: makeRoomLoadAbortError,
         });
@@ -1474,17 +1460,14 @@ export class ViewerApp {
             updateCollabStatusButton();
         }
 
-        function hasCollabSessionContext() {
+        function hasCollabReconnectContext() {
             return !!(
-                collabProject
+                collabAutoResumeEnabled
+                && collabProject
                 && collabRoom
                 && collabUser
                 && collabSupabase
             );
-        }
-
-        function hasCollabReconnectContext() {
-            return collabAutoResumeEnabled && hasCollabSessionContext();
         }
 
         async function resumeCollabSession(trigger = '') {
@@ -1506,13 +1489,8 @@ export class ViewerApp {
                 collabAutoResumeAttempt = 0;
             } catch (err) {
                 if (appDisposed || !collabAutoResumeEnabled) return;
-                if (isRetryableCollabRealtimeInitError(err)) {
-                    console.warn('Collab auto-resume realtime failed; retrying', err);
-                } else {
-                    console.error('Collab auto-resume failed', err);
-                }
+                console.error('Collab auto-resume failed', err);
                 setCollabConnectionState(false, `resume-failed:${String(trigger || '')}`);
-                setCollabStatus('offline');
                 scheduleCollabAutoResume('retry');
             } finally {
                 if (!appDisposed) collabAutoResumeInFlight = false;
@@ -3092,25 +3070,12 @@ export class ViewerApp {
                 }
             } catch (err) {
                 if (!isCurrentRoomRequest()) return;
-                const retryableRealtimeInit = isRetryableCollabRealtimeInitError(err);
-                if (retryableRealtimeInit) {
-                    console.warn('Collab realtime init failed; retrying', err);
-                } else {
-                    console.error('Collab init failed', err);
-                }
-                setCollabConnectionState(false, retryableRealtimeInit ? 'realtime-init-retry' : 'connect-error');
-                if (!isAutoReconnect && retryableRealtimeInit && hasCollabSessionContext()) {
-                    collabAutoResumeEnabled = true;
-                    collabAutoResumeAttempt = 0;
-                    collabAutoResumeInFlight = false;
-                    setCollabStatus('reconnecting');
-                    scheduleCollabAutoResume('initial-realtime-failed');
-                } else if (!isAutoReconnect) {
+                console.error('Collab init failed', err);
+                setCollabConnectionState(false, 'connect-error');
+                if (!isAutoReconnect) {
                     collabAutoResumeEnabled = false;
-                    setCollabStatus('error');
-                } else {
-                    setCollabStatus(retryableRealtimeInit ? 'offline' : 'error');
                 }
+                setCollabStatus('error');
                 if (throwOnError) throw err;
             } finally {
                 if (collabInitAbortController === initAbortController) {

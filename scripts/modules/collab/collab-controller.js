@@ -2,7 +2,7 @@ import { createSupabaseClient } from './supabase-client.js';
 import { createRealtimeChannelStatusHandler } from './realtime-channel-status.js';
 import { makeAbortError, runAbortableOperation } from './abortable-tus-upload.js';
 
-const DEFAULT_REALTIME_SUBSCRIBE_TIMEOUT_MS = 30000;
+const DEFAULT_REALTIME_SUBSCRIBE_TIMEOUT_MS = 15000;
 
 function makeSlug(length = 8) {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
