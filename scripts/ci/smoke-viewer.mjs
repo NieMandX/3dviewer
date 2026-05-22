@@ -2916,6 +2916,42 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const getWireTransitionDisposeCount = patchDisposeCounter(wireTransitionVariant);
         wireTransitionShading.applyShading('wire');
 
+        const textureBurstWorld = new THREE.Group();
+        const textureBurstChecker = new THREE.Texture();
+        textureBurstChecker.image = { width: 2, height: 2 };
+        const textureBurstMeshes = [
+            new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()),
+            new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()),
+        ];
+        textureBurstMeshes.forEach((mesh) => textureBurstWorld.add(mesh));
+        const textureBurstCalls = [];
+        const textureBurstRafCallbacks = [];
+        const textureBurst = createShadingController({
+            THREE,
+            world: textureBurstWorld,
+            scene: new THREE.Scene(),
+            requestRender: () => textureBurstCalls.push('render'),
+            setBackfaceMode: () => {},
+            getChecker: () => textureBurstChecker,
+            requestAnimationFrame: (callback) => {
+                textureBurstRafCallbacks.push(callback);
+                return textureBurstRafCallbacks.length;
+            },
+            cancelAnimationFrame: () => {},
+        });
+        textureBurst.applyShading('uv');
+        let textureBurstTicks = 0;
+        while (textureBurstRafCallbacks.length && textureBurstTicks < 20) {
+            const callback = textureBurstRafCallbacks.shift();
+            callback();
+            textureBurstTicks += 1;
+        }
+        const textureBurstMaterials = textureBurstMeshes.map((mesh) => mesh.material);
+        const textureBurstAllMapped = textureBurstMaterials.every((material) => material.map === textureBurstChecker);
+        const textureBurstAllMaterialsDirty = textureBurstMaterials.every((material) => material.version > 0);
+        const textureBurstTextureDirty = textureBurstChecker.version > 0;
+        textureBurst.dispose();
+
         return {
             backfaceChildCreated,
             backfaceMaterialSwapped,
@@ -2932,6 +2968,10 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             beautyTransitionVariantDisposed: getBeautyTransitionDisposeCount(),
             backfaceTransitionVariantDisposed: getBackfaceTransitionDisposeCount(),
             wireTransitionVariantDisposed: getWireTransitionDisposeCount(),
+            textureBurstRenderCount: textureBurstCalls.length,
+            textureBurstAllMapped,
+            textureBurstAllMaterialsDirty,
+            textureBurstTextureDirty,
         };
     });
 
@@ -2950,6 +2990,10 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.beautyTransitionVariantDisposed, 1, 'Shading lifecycle smoke: BeautyWire transition leaked previous shading material');
     assert.equal(result.backfaceTransitionVariantDisposed, 1, 'Shading lifecycle smoke: backface transition leaked previous shading material');
     assert.equal(result.wireTransitionVariantDisposed, 1, 'Shading lifecycle smoke: WebGPU wire transition leaked previous shading material');
+    assert.equal(result.textureBurstRenderCount >= 12, true, 'Shading lifecycle smoke: textured shading mode did not request a render burst');
+    assert.equal(result.textureBurstAllMapped, true, 'Shading lifecycle smoke: UV shading did not apply shared checker texture to all meshes');
+    assert.equal(result.textureBurstAllMaterialsDirty, true, 'Shading lifecycle smoke: textured shading materials were not marked dirty');
+    assert.equal(result.textureBurstTextureDirty, true, 'Shading lifecycle smoke: textured shading texture was not marked for upload');
     diagnostics.assertNoErrors('Shading controllers lifecycle smoke');
     await page.close();
 }

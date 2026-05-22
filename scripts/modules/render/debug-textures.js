@@ -8,6 +8,34 @@ export function createDebugTextureProvider(options = {}) {
     let matcapTexture = null;
     let checkerTexture = null;
     let disposed = false;
+    let renderBurstToken = 0;
+    let renderBurstFramesLeft = 0;
+
+    const raf =
+        typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
+            ? globalThis.requestAnimationFrame.bind(globalThis)
+            : null;
+    const cancelRaf =
+        typeof globalThis !== 'undefined' && typeof globalThis.cancelAnimationFrame === 'function'
+            ? globalThis.cancelAnimationFrame.bind(globalThis)
+            : null;
+
+    function requestRenderBurst(frameCount = 12) {
+        requestRender();
+        if (!raf || disposed) return;
+        renderBurstFramesLeft = Math.max(renderBurstFramesLeft, Math.max(0, Math.floor(frameCount) - 1));
+        if (renderBurstToken) return;
+        const tick = () => {
+            renderBurstToken = 0;
+            if (disposed || renderBurstFramesLeft <= 0) return;
+            renderBurstFramesLeft -= 1;
+            requestRender();
+            if (renderBurstFramesLeft > 0) {
+                renderBurstToken = raf(tick);
+            }
+        };
+        renderBurstToken = raf(tick);
+    }
 
     function getMatcap() {
         if (disposed) return null;
@@ -23,7 +51,7 @@ export function createDebugTextureProvider(options = {}) {
                 if (texture && 'colorSpace' in texture && THREE.SRGBColorSpace) {
                     texture.colorSpace = THREE.SRGBColorSpace;
                 }
-                requestRender();
+                requestRenderBurst();
             }
         );
         matcapTexture = texture;
@@ -76,7 +104,7 @@ export function createDebugTextureProvider(options = {}) {
                         return;
                     }
                     applyCommonProps(texture);
-                    requestRender();
+                    requestRenderBurst();
                 },
                 undefined,
                 () => {
@@ -91,7 +119,7 @@ export function createDebugTextureProvider(options = {}) {
                     fallback.dispose?.();
                     applyCommonProps(texture);
                     texture.needsUpdate = true;
-                    requestRender();
+                    requestRenderBurst();
                 }
             );
             checkerTexture = texture;
@@ -105,6 +133,11 @@ export function createDebugTextureProvider(options = {}) {
 
     function dispose() {
         disposed = true;
+        renderBurstFramesLeft = 0;
+        if (renderBurstToken) {
+            try { cancelRaf?.(renderBurstToken); } catch (_) {}
+            renderBurstToken = 0;
+        }
         matcapTexture?.dispose?.();
         checkerTexture?.dispose?.();
         matcapTexture = null;

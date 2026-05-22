@@ -35,6 +35,26 @@ export function createShadingController(options = {}) {
 
     let currentShadingMode = (typeof options.initialMode === 'string' && options.initialMode) ? options.initialMode : 'pbr';
     let disposed = false;
+    let textureRenderBurstToken = 0;
+    let textureRenderBurstFramesLeft = 0;
+
+    const textureRenderBurstFrames = (() => {
+        const value = Number(options.textureRenderBurstFrames);
+        return Number.isFinite(value) && value > 0 ? Math.min(30, Math.floor(value)) : 12;
+    })();
+
+    const raf =
+        typeof options.requestAnimationFrame === 'function'
+            ? options.requestAnimationFrame
+            : (typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
+                ? globalThis.requestAnimationFrame.bind(globalThis)
+                : null);
+    const cancelRaf =
+        typeof options.cancelAnimationFrame === 'function'
+            ? options.cancelAnimationFrame
+            : (typeof globalThis !== 'undefined' && typeof globalThis.cancelAnimationFrame === 'function'
+                ? globalThis.cancelAnimationFrame.bind(globalThis)
+                : null);
 
     const MATERIAL_PRESERVE_FLAGS = [
         'annotationRoot',
@@ -73,7 +93,68 @@ export function createShadingController(options = {}) {
         if (material?.userData) {
             material.userData.viewerGeneratedMaterial = 'shading-variant';
         }
+        if (material) material.needsUpdate = true;
         return material;
+    }
+
+    function textureNeedsRefresh(texture) {
+        return !!(texture?.isTexture && texture.image);
+    }
+
+    function collectMaterialTexturesForRefresh(material, target) {
+        if (!material || !target) return;
+        [
+            material.map,
+            material.matcap,
+            material.alphaMap,
+            material.roughnessMap,
+            material.metalnessMap,
+        ].forEach((texture) => {
+            if (textureNeedsRefresh(texture)) target.add(texture);
+        });
+    }
+
+    function refreshTextureMaterials(materials, textures) {
+        asMaterialArray(materials).forEach((material) => {
+            if (!material) return;
+            material.needsUpdate = true;
+            collectMaterialTexturesForRefresh(material, textures);
+        });
+    }
+
+    function modeMayNeedTextureRenderBurst(mode) {
+        return (
+            mode === 'basic'
+            || mode === 'matcap'
+            || mode === 'uv'
+            || mode === 'roughOnly'
+            || mode === 'metalOnly'
+        );
+    }
+
+    function cancelTextureRenderBurst() {
+        textureRenderBurstFramesLeft = 0;
+        if (!textureRenderBurstToken) return;
+        try { cancelRaf?.(textureRenderBurstToken); } catch (_) {}
+        textureRenderBurstToken = 0;
+    }
+
+    function requestTextureRenderBurst() {
+        requestRender();
+        if (!raf || disposed || textureRenderBurstFrames <= 1) return;
+        textureRenderBurstFramesLeft = Math.max(textureRenderBurstFramesLeft, textureRenderBurstFrames - 1);
+        if (textureRenderBurstToken) return;
+
+        const tick = () => {
+            textureRenderBurstToken = 0;
+            if (disposed || textureRenderBurstFramesLeft <= 0) return;
+            textureRenderBurstFramesLeft -= 1;
+            requestRender();
+            if (textureRenderBurstFramesLeft > 0) {
+                textureRenderBurstToken = raf(tick);
+            }
+        };
+        textureRenderBurstToken = raf(tick);
     }
 
     function makeVariantFrom(orig, mode) {
@@ -251,6 +332,9 @@ export function createShadingController(options = {}) {
             return true;
         }
 
+        const textureRefreshSet = new Set();
+        const needsTextureRenderBurst = modeMayNeedTextureRenderBurst(mode);
+
         world?.traverse?.(obj => {
             if (obj.userData?.isCollision) return; // не переписывать материал коллизий
             if (!obj.isMesh || !obj.material) return;
@@ -271,6 +355,11 @@ export function createShadingController(options = {}) {
                 });
                 obj.material = variants.length === 1 ? variants[0] : variants;
             }
+            if (needsTextureRenderBurst) refreshTextureMaterials(obj.material, textureRefreshSet);
+        });
+
+        textureRefreshSet.forEach((texture) => {
+            texture.needsUpdate = true;
         });
 
         if (mode === 'pbr') {
@@ -278,7 +367,8 @@ export function createShadingController(options = {}) {
             applyGlassControlsToScene();
         }
 
-        requestRender();
+        if (needsTextureRenderBurst) requestTextureRenderBurst();
+        else requestRender();
         scheduleOnce();
         return true;
     }
@@ -311,6 +401,7 @@ export function createShadingController(options = {}) {
     function dispose() {
         if (disposed) return;
         disposed = true;
+        cancelTextureRenderBurst();
         disposeUI();
     }
 
