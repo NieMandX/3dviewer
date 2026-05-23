@@ -57,6 +57,8 @@ export function createBatchFinalizer(options = {}) {
     const applyShading = typeof options.applyShading === 'function' ? options.applyShading : (_mode, done) => done?.();
     const getCurrentShadingMode =
         typeof options.getCurrentShadingMode === 'function' ? options.getCurrentShadingMode : () => 'pbr';
+    const requestPostImportRenderBurst =
+        typeof options.requestPostImportRenderBurst === 'function' ? options.requestPostImportRenderBurst : () => {};
 
     let disposed = false;
     let finalizeGeneration = 0;
@@ -177,7 +179,11 @@ export function createBatchFinalizer(options = {}) {
 
         if (hasNewModels) {
             if (!stillCurrent()) return false;
-            applyShading(getCurrentShadingMode(), finalizeUI);
+            const currentShadingMode = getCurrentShadingMode();
+            applyShading(currentShadingMode, finalizeUI);
+            if (currentShadingMode === 'pbr') {
+                requestPostImportRenderBurst();
+            }
         } else {
             finalizeUI();
         }

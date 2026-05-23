@@ -4583,6 +4583,48 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
         const staleResult = await stalePromise;
         const staleCallsAfterSupersede = staleCalls.slice();
 
+        const pbrBurstCalls = [];
+        const pbrBurstOutEl = document.createElement('div');
+        pbrBurstOutEl.innerHTML = '<details data-level="group" open></details>';
+        const pbrBurstFinalizer = createBatchFinalizer({
+            loadedModels: [{ obj: { name: 'pbr-model' }, zipKind: 'LPM' }],
+            allEmbedded: [],
+            getLastFinalizedModelIndex: () => 0,
+            setLastFinalizedModelIndex: (next) => pbrBurstCalls.push(`last:${next}`),
+            getGalleryNeedsRefresh: () => false,
+            getDidInitialRebase: () => true,
+            isIBLEnabled: () => false,
+            applyShading: (mode, done) => {
+                pbrBurstCalls.push(`shading:${mode}`);
+                done?.();
+            },
+            getCurrentShadingMode: () => 'pbr',
+            requestPostImportRenderBurst: () => pbrBurstCalls.push('burst'),
+            outEl: pbrBurstOutEl,
+        });
+        const pbrBurstResult = await pbrBurstFinalizer.finalizeBatchAfterAllFiles();
+
+        const nonPbrBurstCalls = [];
+        const nonPbrBurstOutEl = document.createElement('div');
+        nonPbrBurstOutEl.innerHTML = '<details data-level="group" open></details>';
+        const nonPbrBurstFinalizer = createBatchFinalizer({
+            loadedModels: [{ obj: { name: 'normal-model' }, zipKind: 'LPM' }],
+            allEmbedded: [],
+            getLastFinalizedModelIndex: () => 0,
+            setLastFinalizedModelIndex: (next) => nonPbrBurstCalls.push(`last:${next}`),
+            getGalleryNeedsRefresh: () => false,
+            getDidInitialRebase: () => true,
+            isIBLEnabled: () => false,
+            applyShading: (mode, done) => {
+                nonPbrBurstCalls.push(`shading:${mode}`);
+                done?.();
+            },
+            getCurrentShadingMode: () => 'normal',
+            requestPostImportRenderBurst: () => nonPbrBurstCalls.push('burst'),
+            outEl: nonPbrBurstOutEl,
+        });
+        const nonPbrBurstResult = await nonPbrBurstFinalizer.finalizeBatchAfterAllFiles();
+
         return {
             callsBeforeDispose,
             callsAfterDispose,
@@ -4594,6 +4636,10 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
             staleCallsAfterSupersede,
             staleResult,
             staleLastFinalizedModelIndex,
+            pbrBurstResult,
+            pbrBurstCalls,
+            nonPbrBurstResult,
+            nonPbrBurstCalls,
         };
     });
 
@@ -4613,6 +4659,18 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
     );
     assert.equal(result.staleResult, false, 'Batch finalizer smoke: stale in-flight finalizer did not return false');
     assert.equal(result.staleLastFinalizedModelIndex, 0, 'Batch finalizer smoke: stale finalizer advanced finalized index');
+    assert.equal(result.pbrBurstResult, true, 'Batch finalizer smoke: PBR finalizer did not complete');
+    assert.deepEqual(
+        result.pbrBurstCalls,
+        ['shading:pbr', 'burst', 'last:1'],
+        'Batch finalizer smoke: successful PBR import did not request a post-import render burst',
+    );
+    assert.equal(result.nonPbrBurstResult, true, 'Batch finalizer smoke: non-PBR finalizer did not complete');
+    assert.deepEqual(
+        result.nonPbrBurstCalls,
+        ['shading:normal', 'last:1'],
+        'Batch finalizer smoke: non-PBR import unexpectedly requested a post-import render burst',
+    );
     diagnostics.assertNoErrors('Batch finalizer dispose smoke');
     await page.close();
 }

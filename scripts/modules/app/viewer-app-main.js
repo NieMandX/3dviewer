@@ -563,6 +563,8 @@ export class ViewerApp {
 	        let exportInFlight = false;
 	        let activeExportAbortController = null;
 		        let renderLoop = null;
+        let sceneRenderBurstToken = 0;
+        let sceneRenderBurstFramesLeft = 0;
 	        let glassController = null;
 	        let materialsPanel = null;
 	        let appbarVisibilityToggles = null;
@@ -582,6 +584,42 @@ export class ViewerApp {
         function requestRender() {
             if (appDisposed) return;
             renderLoop?.requestRender?.();
+        }
+
+        function cancelSceneRenderBurst() {
+            sceneRenderBurstFramesLeft = 0;
+            if (!sceneRenderBurstToken) return;
+            try {
+                const cancelRaf =
+                    typeof globalThis !== 'undefined' && typeof globalThis.cancelAnimationFrame === 'function'
+                        ? globalThis.cancelAnimationFrame.bind(globalThis)
+                        : null;
+                cancelRaf?.(sceneRenderBurstToken);
+            } catch (_) {}
+            sceneRenderBurstToken = 0;
+        }
+
+        function requestSceneRenderBurst(frameCount = 8) {
+            requestRender();
+            const raf =
+                typeof globalThis !== 'undefined' && typeof globalThis.requestAnimationFrame === 'function'
+                    ? globalThis.requestAnimationFrame.bind(globalThis)
+                    : null;
+            const frames = Math.max(1, Math.min(24, Math.floor(Number(frameCount) || 0)));
+            if (!raf || appDisposed || frames <= 1) return;
+            sceneRenderBurstFramesLeft = Math.max(sceneRenderBurstFramesLeft, frames - 1);
+            if (sceneRenderBurstToken) return;
+
+            const tick = () => {
+                sceneRenderBurstToken = 0;
+                if (appDisposed || sceneRenderBurstFramesLeft <= 0) return;
+                sceneRenderBurstFramesLeft -= 1;
+                requestRender();
+                if (sceneRenderBurstFramesLeft > 0) {
+                    sceneRenderBurstToken = raf(tick);
+                }
+            };
+            sceneRenderBurstToken = raf(tick);
         }
 
         function isCurrentExportRun(runId) {
@@ -6412,6 +6450,7 @@ export class ViewerApp {
 	            setEmptyHintVisible,
 	            applyShading,
 	            getCurrentShadingMode: shadingController.getCurrentMode,
+            requestPostImportRenderBurst: () => requestSceneRenderBurst(8),
 	        });
         setBootProgress(84, 'Готовим интерфейс...');
 
@@ -6430,6 +6469,7 @@ export class ViewerApp {
 	            appDisposed = true;
 
 	            try { cancelActiveExport(); } catch (_) {}
+            try { cancelSceneRenderBurst(); } catch (_) {}
 	            try { renderLoop?.dispose?.(); } catch (_) {}
 	            try { disposeAppTimers(); } catch (_) {}
 	            try { disposeAppEventListeners(); } catch (_) {}
