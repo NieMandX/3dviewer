@@ -2315,6 +2315,31 @@ export class ViewerApp {
             }
         }
 
+        function buildCleanViewerReloadUrl() {
+            try {
+                const url = new URL(window.location.href);
+                url.search = '';
+                url.hash = '';
+                return url.toString();
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function reloadViewerFromCleanUrl() {
+            if (typeof window === 'undefined') return;
+            const cleanUrl = buildCleanViewerReloadUrl();
+            if (cleanUrl && cleanUrl !== window.location.href) {
+                if (typeof window.location.replace === 'function') {
+                    window.location.replace(cleanUrl);
+                } else {
+                    window.location.href = cleanUrl;
+                }
+                return;
+            }
+            window.location.reload?.();
+        }
+
         function isRecoveryUrl() {
             try {
                 const url = new URL(window.location.href);
@@ -4694,6 +4719,7 @@ export class ViewerApp {
 				            setStatsVisible,
 				            isGridVisible: gridVisibilityController.isVisible,
 				            setGridVisible: gridVisibilityController.setVisible,
+                        onReset: reloadViewerFromCleanUrl,
 			            onResetView: () => {
 			                if (!loadedModels.length) return;
 			                fitAll();

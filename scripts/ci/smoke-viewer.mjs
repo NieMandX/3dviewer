@@ -522,6 +522,41 @@ async function runRoomEntrySmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runResetViewerUrlSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    const targetUrl = `${baseUrl}/index.html?project=${encodeURIComponent(roomProject)}&room=${encodeURIComponent(roomSlug)}&invite=smoke-invite&renderer=webgl#room`;
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+
+    await Promise.all([
+        page.waitForURL(`${baseUrl}/index.html`, { waitUntil: 'domcontentloaded', timeout: 45000 }),
+        page.evaluate(() => document.querySelector('#resetViewerBtn')?.click()),
+    ]);
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+
+    const state = await page.evaluate(() => {
+        const url = new URL(window.location.href);
+        return {
+            pathname: url.pathname,
+            search: url.search,
+            hash: url.hash,
+            roomEntryLanding: document.body.classList.contains('room-entry-landing'),
+        };
+    });
+
+    assert.equal(state.pathname.endsWith('/index.html'), true, 'Reset viewer smoke: reset did not stay on viewer entrypoint');
+    assert.equal(state.search, '', 'Reset viewer smoke: reset kept room/link query parameters');
+    assert.equal(state.hash, '', 'Reset viewer smoke: reset kept URL hash');
+    assert.equal(state.roomEntryLanding, false, 'Reset viewer smoke: clean reset reopened room-entry landing');
+    diagnostics.assertNoErrors('Reset viewer smoke');
+    await page.close();
+}
+
 async function runAuthAsyncDisposeSmoke(browser, baseUrl) {
     {
         const page = await browser.newPage();
@@ -13069,6 +13104,8 @@ try {
     console.log('Runtime diagnostics smoke passed.');
     await runRoomEntrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Room-entry smoke passed.');
+    await runResetViewerUrlSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Reset viewer URL smoke passed.');
     await runAuthAsyncDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Auth async dispose smoke passed.');
     await runBrowserSdkRetrySmoke(browserContext, smokeServer.baseUrl);
