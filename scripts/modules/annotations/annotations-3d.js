@@ -2053,6 +2053,21 @@ export function createAnnotations3DController(options = {}) {
         return true;
     }
 
+    function clearAll(options = {}) {
+        if (disposed) return false;
+        const skipNotify = options.skipNotify !== false;
+        let removedAny = false;
+        layers.forEach((layer) => {
+            const strokes = [...layer.strokes];
+            strokes.forEach((stroke) => {
+                removedAny = removeStroke(stroke, { skipNotify, force: true }) || removedAny;
+            });
+        });
+        strokesById.clear();
+        undoStack.length = 0;
+        return removedAny;
+    }
+
     function addRemoteAnnotation(record) {
         if (disposed) return null;
         if (!record || !record.id) return null;
@@ -2476,6 +2491,7 @@ export function createAnnotations3DController(options = {}) {
         getDrawEnabled: () => drawEnabled,
         isPointerDown: () => pointerId != null,
         getRoot: () => annotationsRoot,
+        clearAll,
         addRemoteAnnotation,
         removeRemoteAnnotation,
         registerAnnotationId,

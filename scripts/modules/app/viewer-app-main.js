@@ -1927,6 +1927,7 @@ export class ViewerApp {
 
         async function teardownCollabSession(options = {}) {
             const preserveAutoResume = !!options?.preserveAutoResume;
+            const resetScene = options?.resetScene === true;
             const previousRoomId = String(collabController?.room?.id || collabRoom?.id || '');
             bumpCollabSessionGeneration();
             bumpRoomLoadGeneration();
@@ -1980,7 +1981,8 @@ export class ViewerApp {
 
             roomCameraCount = 0;
             if (!preserveAutoResume) {
-                cleanupRoomScopedAssets(previousRoomId);
+                if (resetScene) resetImportedSceneForRoomChange();
+                else cleanupRoomScopedAssets(previousRoomId);
                 roomModelLinks.clear();
                 roomModelCount = 0;
                 activeRoomModelId = '';
@@ -2031,7 +2033,7 @@ export class ViewerApp {
                 }
                 if (!isCurrent()) return false;
                 if (collabController?.project?.id === projectId) {
-                    await teardownCollabSession();
+                    await teardownCollabSession({ resetScene: true });
                     if (!isCurrent()) return false;
                 }
                 if (collabProject?.id === projectId) {
@@ -2075,7 +2077,7 @@ export class ViewerApp {
                 if (!isCurrent()) return false;
                 if (error) throw error;
                 if (collabController?.room?.id === roomId) {
-                    await teardownCollabSession();
+                    await teardownCollabSession({ resetScene: true });
                     if (!isCurrent()) return false;
                 }
                 if (collabRoom?.id === roomId) {
@@ -3569,7 +3571,7 @@ export class ViewerApp {
                     return;
                 }
                 if (collabController && collabProject?.id && collabProject.id !== id) {
-                    await teardownCollabSession();
+                    await teardownCollabSession({ resetScene: true });
                     if (!isCurrent()) return;
                 }
                 collabRoomSelectionLocked = false;
@@ -3610,7 +3612,7 @@ export class ViewerApp {
                     return;
                 }
                 if (collabController && collabRoom?.id && collabRoom.id !== id) {
-                    await teardownCollabSession();
+                    await teardownCollabSession({ resetScene: true });
                     if (!isCurrent()) return;
                 }
                 collabRoomSelectionLocked = false;
@@ -4056,6 +4058,36 @@ export class ViewerApp {
             }
 
             return removedModels.length > 0 || removedEntries.length > 0;
+        }
+
+        function resetImportedSceneForRoomChange() {
+            abortActiveRoomImports();
+            roomModelLoadQueue?.clear?.();
+            roomModelsReconcileState = null;
+            cleanupImportedRange({ modelStart: 0, embeddedStart: 0 });
+            undoStack.length = 0;
+            loadedRoomModelIds.clear();
+            roomModelLinks.clear();
+            roomModelCount = 0;
+            activeRoomModelId = '';
+            activeRoomModelRequestId = '';
+            isRemoteModelLoad = false;
+            remoteModelLoadGeneration = 0;
+            remoteModelLoadRoomId = '';
+            remoteModelLoadModelId = '';
+            clearPendingLocalModelFiles();
+            nonRetryableModelSyncKeys.clear();
+            annotations3d?.clearAll?.({ skipNotify: true });
+            cameraPresets?.loadState?.({ presets: [], transitions: [] });
+            roomCameraCount = 0;
+            if (THREE?.Vector3) setWorldOffset(new THREE.Vector3(0, 0, 0));
+            galleryNeedsRefresh = false;
+            renderGallery(allEmbedded);
+            materialsPanel?.markNeedsFullRefresh?.();
+            schedulePanelRefresh();
+            markSceneStatsDirty();
+            setEmptyHintVisible(loadedModels.length === 0 && !isRoomEntryLandingActive());
+            requestRender();
         }
 
         async function runImportWithScope(scope, loadFn, options = {}) {

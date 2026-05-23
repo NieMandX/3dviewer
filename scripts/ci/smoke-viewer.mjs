@@ -1464,6 +1464,14 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             owner_id: 'registered-user',
             created_at: '2026-01-01T00:00:00Z',
         };
+        const projectB = {
+            id: 'project-switch-b',
+            name: 'Switch Project B',
+            slug: 'switch-project-b',
+            owner_id: 'registered-user',
+            created_at: '2026-01-01T00:00:00Z',
+        };
+        const projects = [project, projectB];
         const rooms = [
             {
                 id: 'room-a',
@@ -1477,6 +1485,14 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 id: 'room-b',
                 slug: 'room-b',
                 project_id: project.id,
+                owner_id: 'registered-user',
+                created_at: '2026-01-01T00:00:00Z',
+                active_model_id: '',
+            },
+            {
+                id: 'room-c',
+                slug: 'room-c',
+                project_id: projectB.id,
                 owner_id: 'registered-user',
                 created_at: '2026-01-01T00:00:00Z',
                 active_model_id: '',
@@ -1535,8 +1551,14 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             async execute() {
                 if (this.operation !== 'select') return { data: this.payload || null, error: null };
                 if (this.table === 'profiles') return { data: [], error: null };
-                if (this.table === 'projects') return { data: [project], error: null };
-                if (this.table === 'rooms') return { data: rooms, error: null };
+                if (this.table === 'projects') return { data: projects, error: null };
+                if (this.table === 'rooms') {
+                    const projectFilter = this.filters.find((entry) => entry.column === 'project_id');
+                    const data = projectFilter
+                        ? rooms.filter((room) => String(room.project_id) === projectFilter.value)
+                        : rooms;
+                    return { data, error: null };
+                }
                 if (this.table === 'room_models') return { data: [], error: null };
                 if (this.table === 'room_cameras') return { data: [], error: null };
                 if (this.table === 'annotations') return { data: [], error: null };
@@ -1554,7 +1576,12 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                     ));
                     return { data: room || null, error: null };
                 }
-                if (this.table === 'projects') return { data: project, error: null };
+                if (this.table === 'projects') {
+                    const nextProject = projects.find((item) => (
+                        this.hasFilter('id', item.id) || this.hasFilter('slug', item.slug)
+                    )) || project;
+                    return { data: nextProject, error: null };
+                }
                 return { data: null, error: null };
             }
             async single() {
@@ -1645,6 +1672,11 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
         document.querySelector('#collabPassword').value = 'secret123';
         document.querySelector('#collabJoinBtn').click();
         await waitFor(() => (globalThis.__lpmSwitchSmoke?.signIn || 0) >= 1);
+
+        const projectSelect = document.querySelector('#collabProjectSelect');
+        await waitFor(() => optionValues('#collabProjectSelect').includes('project-switch'));
+        projectSelect.value = 'project-switch';
+        projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
         await waitFor(() => optionValues('#collabRoomSelect').includes('room-a'));
 
         const roomSelect = document.querySelector('#collabRoomSelect');
@@ -1666,6 +1698,14 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             name: 'room-a-model.fbx',
             scope: { ...root.userData.importScope },
         });
+        const localRoot = new THREE.Group();
+        localRoot.name = 'local-model-before-switch';
+        globalThis.viewerApp.scene.add(localRoot);
+        globalThis.viewerApp.loadedModels.push({
+            obj: localRoot,
+            name: 'local-before-switch.fbx',
+        });
+        globalThis.viewerApp.undoStack.push({ model: localRoot });
 
         const controlsAfterRoomA = {
             projectDisabled: document.querySelector('#collabProjectSelect')?.disabled,
@@ -1677,9 +1717,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
         roomSelect.value = 'room-b';
         roomSelect.dispatchEvent(new Event('change', { bubbles: true }));
         await waitFor(() => (globalThis.__lpmSwitchSmoke?.roomBChannelCreates || 0) >= 1);
-        await waitFor(() => globalThis.viewerApp.loadedModels.every((record) => (
-            record?.obj?.userData?.importScope?.roomId !== 'room-a'
-        )));
+        await waitFor(() => globalThis.viewerApp.loadedModels.length === 0 && !root.parent && !localRoot.parent);
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         const snapshot = globalThis.__LPMVIEW_DIAGNOSTICS.getSnapshot();
@@ -1688,12 +1726,33 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             roomDisabled: document.querySelector('#collabRoomSelect')?.disabled,
             currentRoom: document.querySelector('#collabRoomSelect')?.value,
             oldRootDetached: !root.parent,
+            localRootDetached: !localRoot.parent,
+            loadedModels: globalThis.viewerApp.loadedModels.length,
             loadedRoomAModels: globalThis.viewerApp.loadedModels.filter((record) => (
                 record?.obj?.userData?.importScope?.roomId === 'room-a'
             )).length,
+            undoStack: globalThis.viewerApp.undoStack.length,
             removeChannel: globalThis.__lpmSwitchSmoke.removeChannel,
             realtimeChannels: snapshot.collab.totalRealtimeChannels,
             roomSelectionLocked: snapshot.collab.roomSelectionLocked,
+        };
+
+        const roomBRoot = new THREE.Group();
+        roomBRoot.name = 'room-b-local-model';
+        globalThis.viewerApp.scene.add(roomBRoot);
+        globalThis.viewerApp.loadedModels.push({
+            obj: roomBRoot,
+            name: 'room-b-local.fbx',
+        });
+        projectSelect.value = 'project-switch-b';
+        projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        await waitFor(() => optionValues('#collabRoomSelect').includes('room-c'));
+        await waitFor(() => globalThis.viewerApp.loadedModels.length === 0 && !roomBRoot.parent);
+        const afterProjectSwitch = {
+            currentProject: document.querySelector('#collabProjectSelect')?.value,
+            roomOptions: optionValues('#collabRoomSelect'),
+            roomBRootDetached: !roomBRoot.parent,
+            loadedModels: globalThis.viewerApp.loadedModels.length,
         };
 
         await globalThis.viewerApp.dispose();
@@ -1701,6 +1760,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             calls: { ...globalThis.__lpmSwitchSmoke },
             controlsAfterRoomA,
             afterSwitch,
+            afterProjectSwitch,
         };
     });
 
@@ -1713,12 +1773,19 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
     assert.equal(result.controlsAfterRoomA.roomOptions.includes('__create__'), false, 'Registered room switch smoke: room create option was exposed during active room');
     assert.equal(result.afterSwitch.currentRoom, 'room-b', 'Registered room switch smoke: selected room did not update');
     assert.equal(result.afterSwitch.oldRootDetached, true, 'Registered room switch smoke: old room root was not detached');
+    assert.equal(result.afterSwitch.localRootDetached, true, 'Registered room switch smoke: unscoped model was not detached');
+    assert.equal(result.afterSwitch.loadedModels, 0, 'Registered room switch smoke: scene was not fully reset');
     assert.equal(result.afterSwitch.loadedRoomAModels, 0, 'Registered room switch smoke: old room model records were not removed');
+    assert.equal(result.afterSwitch.undoStack, 0, 'Registered room switch smoke: material undo stack survived scene reset');
     assert.equal(result.afterSwitch.removeChannel > 0, true, 'Registered room switch smoke: old realtime channels were not removed');
     assert.equal(result.afterSwitch.projectDisabled, false, 'Registered room switch smoke: project select disabled after switch');
     assert.equal(result.afterSwitch.roomDisabled, false, 'Registered room switch smoke: room select disabled after switch');
     assert.equal(result.afterSwitch.roomSelectionLocked, false, 'Registered room switch smoke: non-link registered session was locked');
     assert.equal(result.afterSwitch.realtimeChannels > 0, true, 'Registered room switch smoke: new room did not report realtime channels');
+    assert.equal(result.afterProjectSwitch.currentProject, 'project-switch-b', 'Registered room switch smoke: selected project did not update');
+    assert.equal(result.afterProjectSwitch.roomOptions.includes('room-c'), true, 'Registered room switch smoke: next project rooms did not load');
+    assert.equal(result.afterProjectSwitch.roomBRootDetached, true, 'Registered room switch smoke: project switch did not detach previous model');
+    assert.equal(result.afterProjectSwitch.loadedModels, 0, 'Registered room switch smoke: project switch did not fully reset scene');
     diagnostics.assertNoErrors('Registered room switch smoke');
     await page.close();
 }
