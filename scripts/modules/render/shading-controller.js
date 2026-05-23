@@ -377,6 +377,18 @@ export function createShadingController(options = {}) {
         return currentShadingMode;
     }
 
+    function getDiagnostics() {
+        return {
+            disposed,
+            mode: currentShadingMode,
+            textureRenderBurst: {
+                scheduled: !!textureRenderBurstToken,
+                framesLeft: textureRenderBurstFramesLeft,
+                configuredFrames: textureRenderBurstFrames,
+            },
+        };
+    }
+
     const uiListeners = [];
     function addUIListener(target, type, handler, options) {
         if (!target?.addEventListener) return;
@@ -408,6 +420,7 @@ export function createShadingController(options = {}) {
     return {
         applyShading,
         getCurrentMode,
+        getDiagnostics,
         bindUI,
         disposeUI,
         dispose,

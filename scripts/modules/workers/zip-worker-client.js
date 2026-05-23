@@ -212,6 +212,15 @@ export function createZIPWorkerClient(options = {}) {
         return !disposed && supported;
     }
 
+    function getDiagnostics() {
+        return {
+            supported: isSupported(),
+            disposed,
+            workerActive: !!workerInstance,
+            pending: pending.size,
+        };
+    }
+
     function dispose() {
         if (disposed) return;
         disposed = true;
@@ -224,6 +233,7 @@ export function createZIPWorkerClient(options = {}) {
         ensureZIPWorker,
         unpackZIPInWorker,
         isSupported,
+        getDiagnostics,
         disable,
         dispose,
     });

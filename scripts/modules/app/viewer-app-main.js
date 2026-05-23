@@ -105,6 +105,7 @@ import { detectRendererMode } from '../render/renderer-mode.js';
 installConsoleDiagnosticsGate();
 
 const rendererMode = await detectRendererMode();
+const requestedRendererMode = rendererMode.requestedRendererMode;
 const activeRendererMode = rendererMode.activeRendererMode;
 const USE_WEBGPU = rendererMode.useWebGPU;
 const WebGPURendererCtor = rendererMode.WebGPURendererCtor;
@@ -6447,9 +6448,188 @@ export class ViewerApp {
 		            return result;
 		        }
 
+            function isRuntimeDiagnosticsEnabled() {
+                try {
+                    if (typeof window !== 'undefined') {
+                        const params = new URLSearchParams(window.location?.search || '');
+                        const value = String(params.get('debug') || params.get('diagnostics') || '').toLowerCase();
+                        if (value === '1' || value === 'true' || value === 'runtime') return true;
+                    }
+                } catch (_) {}
+                try {
+                    if (typeof localStorage !== 'undefined') {
+                        const value = String(
+                            localStorage.getItem('lpmview.debugDiagnostics')
+                            || localStorage.getItem('lpmview.diagnostics')
+                            || ''
+                        ).toLowerCase();
+                        return value === '1' || value === 'true' || value === 'runtime';
+                    }
+                } catch (_) {}
+                return false;
+            }
+
+            function cloneRendererInfoSection(section) {
+                const out = {};
+                Object.entries(section || {}).forEach(([key, value]) => {
+                    if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+                        out[key] = value;
+                    }
+                });
+                return out;
+            }
+
+            function countKnownBlobUrls() {
+                let embedded = 0;
+                allEmbedded.forEach((entry) => {
+                    if (String(entry?.url || '').startsWith('blob:')) embedded += 1;
+                });
+                let geojson = 0;
+                loadedModels.forEach((record) => {
+                    const meta = record?.geojson || record?.obj?.userData?.geojson || record?.obj?.userData?._geojsonMeta || null;
+                    if (String(meta?.url || '').startsWith('blob:')) geojson += 1;
+                });
+                return {
+                    embedded,
+                    geojson,
+                    total: embedded + geojson,
+                };
+            }
+
+            function getRuntimeDiagnosticsSnapshot() {
+                const rendererInfo = renderer?.info || {};
+                const renderStats = renderLoop?.getLastRenderStats?.() || {};
+                const collabDiagnostics = collabController?.getDiagnostics?.() || null;
+                const auxRealtimeChannels = roomAuxRealtimeChannels?.size?.() || 0;
+                const roomQueueDiagnostics = roomModelLoadQueue ? {
+                    active: roomModelLoadQueue.isActive?.() || false,
+                    activeContext: roomModelLoadQueue.getActiveContext?.() || null,
+                    pending: roomModelLoadQueue.getPendingCount?.() || 0,
+                    pendingModelIds: roomModelLoadQueue.getPendingModelIds?.() || [],
+                } : {
+                    active: false,
+                    activeContext: null,
+                    pending: 0,
+                    pendingModelIds: [],
+                };
+                const sceneStats = getSceneGeometryStats();
+                const blobUrls = countKnownBlobUrls();
+                const roomScopedModels = loadedModels.filter((record) => {
+                    const scope = record?.scope || record?.obj?.userData?.importScope || null;
+                    return scope?.kind === 'room';
+                }).length;
+
+                return {
+                    timestamp: new Date().toISOString(),
+                    disposed: appDisposed,
+                    renderer: {
+                        mode: activeRendererMode,
+                        requestedMode: requestedRendererMode,
+                        ready: getRendererReady?.() || false,
+                        error: getRendererError?.()?.message || '',
+                        memory: cloneRendererInfoSection(renderStats.memory || rendererInfo.memory),
+                        render: cloneRendererInfoSection(renderStats.render || rendererInfo.render),
+                        programs: Array.isArray(rendererInfo.programs)
+                            ? rendererInfo.programs.length
+                            : (rendererInfo.programs ?? renderStats.programs ?? 0),
+                    },
+                    scene: {
+                        sceneChildren: scene?.children?.length || 0,
+                        worldChildren: world?.children?.length || 0,
+                        triangles: sceneStats.triangles || 0,
+                    },
+                    models: {
+                        loaded: loadedModels.length,
+                        roomScoped: roomScopedModels,
+                        loadedRoomModelIds: loadedRoomModelIds.size,
+                        roomModelCount,
+                        activeRoomModelId,
+                        activeRoomModelRequestId,
+                        pendingLocalModelFiles: pendingLocalModelFiles.length,
+                        isRemoteModelLoad,
+                        isSyncingLocalModels,
+                    },
+                    embedded: {
+                        total: allEmbedded.length,
+                        blobUrls: blobUrls.embedded,
+                    },
+                    resources: {
+                        knownBlobUrls: blobUrls.total,
+                        embeddedBlobUrls: blobUrls.embedded,
+                        geojsonBlobUrls: blobUrls.geojson,
+                        undoStack: undoStack.length,
+                    },
+                    collab: {
+                        ready: collabReady,
+                        authed: collabAuthed,
+                        registered: collabIsRegistered,
+                        connected: collabConnectionOnline,
+                        sessionGeneration: collabSessionGeneration,
+                        roomLoadGeneration,
+                        autoResumeEnabled: collabAutoResumeEnabled,
+                        autoResumeInFlight: collabAutoResumeInFlight,
+                        autoResumeAttempt: collabAutoResumeAttempt,
+                        controllerChannels: collabDiagnostics?.channels || 0,
+                        auxRealtimeChannels,
+                        totalRealtimeChannels: (collabDiagnostics?.channels || 0) + auxRealtimeChannels,
+                        controller: collabDiagnostics,
+                        roomLoadAbortRegistry: {
+                            imports: roomLoadAbortRegistry.getImportCount?.() || 0,
+                            syncs: roomLoadAbortRegistry.getSyncCount?.() || 0,
+                        },
+                        roomModelLoadQueue: roomQueueDiagnostics,
+                    },
+                    workers: assetLoaders?.getDiagnostics?.() || null,
+                    renderBursts: {
+                        scene: {
+                            scheduled: !!sceneRenderBurstToken,
+                            framesLeft: sceneRenderBurstFramesLeft,
+                        },
+                        shading: shadingController.getDiagnostics?.()?.textureRenderBurst || null,
+                        debugTextures: debugTextures.getDiagnostics?.()?.renderBurst || null,
+                    },
+                    shading: shadingController.getDiagnostics?.() || {
+                        mode: shadingController.getCurrentMode?.() || '',
+                    },
+                    status: {
+                        message: String(statusEl?.textContent || ''),
+                    },
+                };
+            }
+
+            function printRuntimeDiagnosticsSnapshot() {
+                const snapshot = getRuntimeDiagnosticsSnapshot();
+                try {
+                    console.table?.({
+                        renderer: snapshot.renderer.mode,
+                        models: snapshot.models.loaded,
+                        embedded: snapshot.embedded.total,
+                        realtime: snapshot.collab.totalRealtimeChannels,
+                        workerPending: (snapshot.workers?.fbx?.pending || 0) + (snapshot.workers?.zip?.pending || 0),
+                        blobUrls: snapshot.resources.knownBlobUrls,
+                        triangles: snapshot.scene.triangles,
+                    });
+                } catch (_) {}
+                return snapshot;
+            }
+
+            const runtimeDiagnosticsApi = Object.freeze({
+                getSnapshot: getRuntimeDiagnosticsSnapshot,
+                print: printRuntimeDiagnosticsSnapshot,
+                isEnabled: isRuntimeDiagnosticsEnabled,
+            });
+            app.getDiagnostics = getRuntimeDiagnosticsSnapshot;
+            app.diagnostics = runtimeDiagnosticsApi;
+            if (typeof globalThis !== 'undefined' && isRuntimeDiagnosticsEnabled()) {
+                globalThis.__LPMVIEW_DIAGNOSTICS = runtimeDiagnosticsApi;
+            }
+
 	        async function disposeApp() {
 	            if (appDisposed) return;
 	            appDisposed = true;
+                if (typeof globalThis !== 'undefined' && globalThis.__LPMVIEW_DIAGNOSTICS === runtimeDiagnosticsApi) {
+                    try { delete globalThis.__LPMVIEW_DIAGNOSTICS; } catch (_) { globalThis.__LPMVIEW_DIAGNOSTICS = null; }
+                }
 
 	            try { cancelActiveExport(); } catch (_) {}
             try { cancelSceneRenderBurst(); } catch (_) {}
@@ -6522,6 +6702,7 @@ export class ViewerApp {
 	            computeWorldCenter,
 	            setStatsVisible,
 	            requestRender,
+                getDiagnostics: getRuntimeDiagnosticsSnapshot,
 	            dispose: disposeApp,
 	        });
 

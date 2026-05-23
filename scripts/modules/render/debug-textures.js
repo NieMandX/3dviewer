@@ -144,9 +144,22 @@ export function createDebugTextureProvider(options = {}) {
         checkerTexture = null;
     }
 
+    function getDiagnostics() {
+        return {
+            disposed,
+            matcapLoaded: !!matcapTexture,
+            checkerLoaded: !!checkerTexture,
+            renderBurst: {
+                scheduled: !!renderBurstToken,
+                framesLeft: renderBurstFramesLeft,
+            },
+        };
+    }
+
     return {
         getMatcap,
         getChecker,
+        getDiagnostics,
         dispose,
     };
 }

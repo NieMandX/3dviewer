@@ -189,6 +189,15 @@ export function createFBXWorkerClient(options = {}) {
         return !disposed && supported;
     }
 
+    function getDiagnostics() {
+        return {
+            supported: isSupported(),
+            disposed,
+            workerActive: !!workerInstance,
+            pending: pending.size,
+        };
+    }
+
     function dispose() {
         if (disposed) return;
         disposed = true;
@@ -201,6 +210,7 @@ export function createFBXWorkerClient(options = {}) {
         ensureFBXWorker,
         parseFBXInWorker,
         isSupported,
+        getDiagnostics,
         disable,
         dispose,
     });

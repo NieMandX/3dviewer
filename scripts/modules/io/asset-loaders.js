@@ -50,6 +50,22 @@ export function createAssetLoaders(options = {}) {
         } catch (_) {}
     }
 
+    function getDiagnostics() {
+        return {
+            fbx: fbxWorkerClient.getDiagnostics?.() || {
+                supported: fbxWorkerSupported,
+                workerActive: false,
+                pending: 0,
+            },
+            zip: zipWorkerClient.getDiagnostics?.() || {
+                supported: zipWorkerClient.isSupported?.() || false,
+                workerActive: false,
+                pending: 0,
+            },
+            fbxWorkerSupported,
+        };
+    }
+
     return {
         fbxLoader,
         textureLoader,
@@ -60,6 +76,7 @@ export function createAssetLoaders(options = {}) {
         setWorkerSupported,
         disableWorker,
         unpackZIPInWorker,
+        getDiagnostics,
         dispose,
     };
 }

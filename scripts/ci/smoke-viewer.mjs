@@ -417,6 +417,70 @@ async function runBootJSZipCdnNonBlockingSmoke(browser, baseUrl) {
     }
 }
 
+async function runRuntimeDiagnosticsSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/?renderer=webgl&debug=1`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+
+    const result = await page.evaluate(async () => {
+        const THREE = await import('three');
+        const api = globalThis.__LPMVIEW_DIAGNOSTICS || null;
+        const before = api?.getSnapshot?.() || null;
+
+        const root = new THREE.Group();
+        root.userData.importScope = {
+            kind: 'room',
+            roomId: 'diagnostics-room',
+            modelId: 'diagnostics-model',
+        };
+        globalThis.viewerApp.scene.add(root);
+        globalThis.viewerApp.loadedModels.push({
+            obj: root,
+            name: 'diagnostics-model.fbx',
+            scope: { ...root.userData.importScope },
+        });
+        globalThis.viewerApp.allEmbedded.push({
+            short: 'diagnostics.png',
+            url: 'blob:diagnostics-texture',
+            full: 'diagnostics.png',
+            source: 'smoke',
+        });
+
+        const after = globalThis.viewerApp.api.getDiagnostics();
+        const printed = api?.print?.() || null;
+        await globalThis.viewerApp.dispose();
+        const globalCleared = !globalThis.__LPMVIEW_DIAGNOSTICS;
+
+        return {
+            hasGlobal: !!api,
+            before,
+            after,
+            printed,
+            globalCleared,
+        };
+    });
+
+    assert.equal(result.hasGlobal, true, 'Runtime diagnostics smoke: debug global was not exposed for ?debug=1');
+    assert.equal(result.before.renderer.mode, 'webgl', 'Runtime diagnostics smoke: renderer mode missing from snapshot');
+    assert.equal(result.before.models.loaded, 0, 'Runtime diagnostics smoke: boot snapshot expected empty model list');
+    assert.equal(result.after.models.loaded, 1, 'Runtime diagnostics smoke: loaded model count did not update');
+    assert.equal(result.after.models.roomScoped, 1, 'Runtime diagnostics smoke: room-scoped model count did not update');
+    assert.equal(result.after.embedded.total, 1, 'Runtime diagnostics smoke: embedded count did not update');
+    assert.equal(result.after.resources.knownBlobUrls, 1, 'Runtime diagnostics smoke: blob URL count did not update');
+    assert.equal(result.after.collab.totalRealtimeChannels, 0, 'Runtime diagnostics smoke: idle viewer reported active realtime channels');
+    assert.equal(result.after.collab.roomLoadAbortRegistry.imports, 0, 'Runtime diagnostics smoke: idle viewer reported active room imports');
+    assert.equal(result.after.workers.fbx.pending, 0, 'Runtime diagnostics smoke: idle FBX worker reported pending jobs');
+    assert.equal(result.after.workers.zip.pending, 0, 'Runtime diagnostics smoke: idle ZIP worker reported pending jobs');
+    assert.equal(result.after.renderBursts.scene.framesLeft >= 0, true, 'Runtime diagnostics smoke: scene render burst state missing');
+    assert.equal(result.printed.models.loaded, result.after.models.loaded, 'Runtime diagnostics smoke: print did not return current snapshot');
+    assert.equal(result.globalCleared, true, 'Runtime diagnostics smoke: dispose left debug global installed');
+    diagnostics.assertNoErrors('Runtime diagnostics smoke');
+    await page.close();
+}
+
 async function runRoomEntrySmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -12616,6 +12680,8 @@ try {
     console.log('Boot runtime failure smoke passed.');
     await runBootJSZipCdnNonBlockingSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot JSZip CDN non-blocking smoke passed.');
+    await runRuntimeDiagnosticsSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Runtime diagnostics smoke passed.');
     await runRoomEntrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Room-entry smoke passed.');
     await runAuthAsyncDisposeSmoke(browserContext, smokeServer.baseUrl);

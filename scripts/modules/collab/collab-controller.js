@@ -1027,6 +1027,18 @@ export async function createCollabController(options = {}) {
         await removeRealtimeChannels();
     }
 
+    function getDiagnostics() {
+        return {
+            disposed,
+            channels: channels.length,
+            presenceHeartbeatActive: !!presenceHeartbeat,
+            deleteQueue: deleteQueue.length,
+            deletePending: deletePending.size,
+            delayWaits: delayWaits.size,
+            onlineWaitActive: !!onlineWaitPromise,
+        };
+    }
+
     return Object.freeze({
         supabase,
         user,
@@ -1043,6 +1055,7 @@ export async function createCollabController(options = {}) {
         broadcastCameraState,
         persistCameraState,
         updatePresence,
+        getDiagnostics,
         dispose,
     });
 }
