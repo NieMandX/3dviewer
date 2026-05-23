@@ -8362,6 +8362,8 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
                     || id === 'SAME_KEY'
                     || id === 'STALE_ERROR'
                     || id === 'AFTER_STALE_ERROR'
+                    || id === 'WAIT_A'
+                    || id === 'WAIT_ACTIVE'
                 ) {
                     await new Promise((resolve) => {
                         releases.set(id, resolve);
@@ -8469,6 +8471,35 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
         const staleErrorLoadResult = await staleErrorLoad;
         const afterStaleErrorLoadResult = await afterStaleErrorLoad;
 
+        currentGeneration = 9;
+        const waitFirstLoad = queue.load({ id: 'WAIT_A' }, { roomId: 'room-1', generation: 9 });
+        await waitForStart('WAIT_A');
+        let waitSecondSettled = false;
+        const waitSecondLoad = queue.loadAndWait({ id: 'WAIT_B' }, { roomId: 'room-1', generation: 9 })
+            .finally(() => {
+                waitSecondSettled = true;
+            });
+        await Promise.resolve();
+        const waitSecondSettledBeforeRelease = waitSecondSettled;
+        releases.get('WAIT_A')();
+        const waitFirstLoadResult = await waitFirstLoad;
+        const waitSecondLoadResult = await waitSecondLoad;
+
+        currentGeneration = 10;
+        const waitActiveLoad = queue.load({ id: 'WAIT_ACTIVE' }, { roomId: 'room-1', generation: 10 });
+        await waitForStart('WAIT_ACTIVE');
+        let waitActiveSameSettled = false;
+        const waitActiveSameLoad = queue.loadAndWait({ id: 'WAIT_ACTIVE' }, { roomId: 'room-1', generation: 10 })
+            .finally(() => {
+                waitActiveSameSettled = true;
+            });
+        await Promise.resolve();
+        const waitActiveSameSettledBeforeRelease = waitActiveSameSettled;
+        releases.get('WAIT_ACTIVE')();
+        const waitActiveLoadResult = await waitActiveLoad;
+        const waitActiveSameLoadResult = await waitActiveSameLoad;
+        const waitActiveStartCount = eventCount('start:WAIT_ACTIVE');
+
         return {
             events,
             eventsBeforeStaleErrorScenario,
@@ -8490,6 +8521,13 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
             sameKeyStaleLoadResult,
             staleErrorLoadResult,
             afterStaleErrorLoadResult,
+            waitFirstLoadResult,
+            waitSecondLoadResult,
+            waitSecondSettledBeforeRelease,
+            waitActiveLoadResult,
+            waitActiveSameLoadResult,
+            waitActiveSameSettledBeforeRelease,
+            waitActiveStartCount,
             afterResetStartedBeforeBlockedDone,
             afterStaleErrorStartedBeforeFailure,
             pendingDuringActive,
@@ -8515,6 +8553,13 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
     assert.equal(result.sameKeyStartCount, 2, 'Room model queue smoke: same-key fresh active request was lost behind stale active load');
     assert.equal(result.staleErrorLoadResult, false, 'Room model queue smoke: stale failing load should resolve false');
     assert.equal(result.afterStaleErrorLoadResult, true, 'Room model queue smoke: post-reset load did not finish after stale failure');
+    assert.equal(result.waitFirstLoadResult, true, 'Room model queue smoke: loadAndWait setup load did not finish');
+    assert.equal(result.waitSecondLoadResult, true, 'Room model queue smoke: loadAndWait queued load did not finish');
+    assert.equal(result.waitSecondSettledBeforeRelease, false, 'Room model queue smoke: loadAndWait resolved before active load finished');
+    assert.equal(result.waitActiveLoadResult, true, 'Room model queue smoke: same-key active load did not finish');
+    assert.equal(result.waitActiveSameLoadResult, true, 'Room model queue smoke: same-key loadAndWait did not wait for active load');
+    assert.equal(result.waitActiveSameSettledBeforeRelease, false, 'Room model queue smoke: same-key loadAndWait resolved before active load finished');
+    assert.equal(result.waitActiveStartCount, 1, 'Room model queue smoke: same-key loadAndWait started a duplicate load');
     assert.equal(result.afterResetStartedBeforeBlockedDone, true, 'Room model queue smoke: reset did not release active stale load slot');
     assert.equal(result.afterStaleErrorStartedBeforeFailure, true, 'Room model queue smoke: reset did not release active failing load slot');
     assert.deepEqual(result.errors, result.errorsBeforeStaleErrorScenario, 'Room model queue smoke: stale load failure reached onError after reset');

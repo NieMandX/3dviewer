@@ -1082,6 +1082,7 @@ export class ViewerApp {
         const loadedRoomModelIds = new Set();
         let isLoadingRoomModels = false;
         let loadingRoomModelsGeneration = 0;
+        let roomModelsReconcileState = null;
         let roomModelCount = 0;
         let roomLoadGeneration = 0;
         const roomLoadAbortRegistry = createRoomLoadAbortRegistry({
@@ -1340,6 +1341,7 @@ export class ViewerApp {
             roomLoadGeneration += 1;
             activeRoomModelRequestGeneration += 1;
             activeRoomModelRequestId = '';
+            roomModelsReconcileState = null;
             if (roomModelLoadQueue?.reset) roomModelLoadQueue.reset();
             else roomModelLoadQueue?.clear?.();
             abortActiveRoomImports();
@@ -5538,7 +5540,11 @@ export class ViewerApp {
             const expectedGeneration = Number.isFinite(options.generation)
                 ? options.generation
                 : roomLoadGeneration;
-            return getRoomModelLoadQueue().load(model, {
+            const queue = getRoomModelLoadQueue();
+            const loadFn = options.waitForQueued === true && typeof queue.loadAndWait === 'function'
+                ? queue.loadAndWait
+                : queue.load;
+            return loadFn(model, {
                 ...options,
                 roomId: expectedRoomId,
                 generation: expectedGeneration,
@@ -5572,6 +5578,11 @@ export class ViewerApp {
             if (!modelRef) return false;
             const name = model.name || basename(modelRef) || 'model.zip';
             const kind = model.meta?.kind || getModelKindFromName(name);
+            const roomLoadIndex = Number.isFinite(options.roomLoadIndex) ? Number(options.roomLoadIndex) : 0;
+            const roomLoadTotal = Number.isFinite(options.roomLoadTotal) ? Number(options.roomLoadTotal) : 0;
+            const roomLoadPrefix = roomLoadIndex > 0 && roomLoadTotal > 0
+                ? `${roomLoadIndex}/${roomLoadTotal}`
+                : '';
             const importAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
             const importSignal = importAbortController?.signal || null;
             const abortImport = () => {
@@ -5593,7 +5604,9 @@ export class ViewerApp {
                 remoteModelLoadModelId = modelId;
                 setEmptyHintVisible(false);
                 setStatusProgress({ visible: true, indeterminate: true });
-                loadStatus.set('Загрузка модели из комнаты…');
+                loadStatus.set(roomLoadPrefix
+                    ? `Загрузка модели ${roomLoadPrefix}: ${name}…`
+                    : `Загрузка модели из комнаты: ${name}…`);
                 let blob = null;
                 if (storagePath && controller?.supabase) {
                     const { data, error } = await runAbortableOperation(() => (
@@ -5732,7 +5745,7 @@ export class ViewerApp {
             }
         }
 
-        async function reconcileRoomModels({ controller, roomId, generation } = {}) {
+        async function reconcileRoomModelsNow({ controller, roomId, generation } = {}) {
             const isCurrent = () => (
                 !!controller
                 && controller === collabController
@@ -5764,14 +5777,42 @@ export class ViewerApp {
                 }
             });
 
-            for (const row of rows) {
+            const loadRows = rows
+                .map((row) => ({
+                    modelId: String(row?.model_id || '').trim(),
+                    model: row?.project_models || null,
+                }))
+                .filter(({ modelId, model }) => modelId && model && isRoomModelStillLinked(modelId));
+
+            for (let i = 0; i < loadRows.length; i += 1) {
                 if (!isCurrent()) return false;
-                const modelId = String(row?.model_id || '').trim();
-                if (!modelId || !isRoomModelStillLinked(modelId)) continue;
-                const model = row.project_models;
-                if (model) await loadProjectModel(model, { roomId, generation, requireRoomModelLink: true });
+                const { model } = loadRows[i];
+                await loadProjectModel(model, {
+                    roomId,
+                    generation,
+                    requireRoomModelLink: true,
+                    waitForQueued: true,
+                    roomLoadIndex: i + 1,
+                    roomLoadTotal: loadRows.length,
+                });
             }
             return true;
+        }
+
+        async function reconcileRoomModels({ controller, roomId, generation } = {}) {
+            const key = `${String(roomId || '')}:${Number(generation) || 0}`;
+            if (roomModelsReconcileState?.key === key) {
+                return roomModelsReconcileState.promise;
+            }
+            const promise = reconcileRoomModelsNow({ controller, roomId, generation });
+            roomModelsReconcileState = { key, promise };
+            try {
+                return await promise;
+            } finally {
+                if (roomModelsReconcileState?.promise === promise) {
+                    roomModelsReconcileState = null;
+                }
+            }
         }
 
         function subscribeRoomModelsChannel({ controller, roomId, generation } = {}) {
