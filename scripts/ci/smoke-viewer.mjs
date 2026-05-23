@@ -8201,6 +8201,121 @@ async function runRoomModelLoadQueueSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runRoomLoadAbortRegistrySmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/__smoke_blank`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+        const { createRoomLoadAbortRegistry } = await import('/scripts/modules/collab/room-load-abort-registry.js');
+
+        const aborts = [];
+        const makeController = (name) => ({
+            name,
+            signal: { aborted: false },
+            abort(reason) {
+                this.signal.aborted = true;
+                aborts.push(`${name}:${reason?.name || 'Error'}`);
+            },
+        });
+
+        const registry = createRoomLoadAbortRegistry({
+            makeAbortError: () => {
+                try {
+                    return new DOMException('room abort', 'AbortError');
+                } catch (_) {
+                    const err = new Error('room abort');
+                    err.name = 'AbortError';
+                    return err;
+                }
+            },
+        });
+
+        const importA = makeController('import-a');
+        const importB = makeController('import-b');
+        const syncA = makeController('sync-a');
+        registry.addImportController(importA, { activeRequestGeneration: 1 });
+        registry.addImportController(importB, { activeRequestGeneration: 2 });
+        registry.addSyncController(syncA);
+        const supersededCount = registry.abortSupersededImports(2);
+        const afterSuperseded = {
+            aborts: aborts.slice(),
+            importCount: registry.getImportCount(),
+            syncCount: registry.getSyncCount(),
+            importBAborted: importB.signal.aborted,
+            syncAAborted: syncA.signal.aborted,
+        };
+
+        const importC = makeController('import-c');
+        registry.addImportController(importC, { activeRequestGeneration: 2 });
+        const targetedResult = registry.abort({
+            importPredicate: (controller) => controller.name === 'import-c',
+            includeSyncControllers: false,
+        });
+        const afterTargeted = {
+            aborts: aborts.slice(),
+            result: targetedResult,
+            importCount: registry.getImportCount(),
+            syncCount: registry.getSyncCount(),
+            importBAborted: importB.signal.aborted,
+            syncAAborted: syncA.signal.aborted,
+        };
+
+        const fullResult = registry.abort();
+        const afterFull = {
+            aborts: aborts.slice(),
+            result: fullResult,
+            importCount: registry.getImportCount(),
+            syncCount: registry.getSyncCount(),
+            importBAborted: importB.signal.aborted,
+            syncAAborted: syncA.signal.aborted,
+        };
+
+        const importDeleted = makeController('import-deleted');
+        const syncDeleted = makeController('sync-deleted');
+        registry.addImportController(importDeleted, { activeRequestGeneration: 3 });
+        registry.addSyncController(syncDeleted);
+        registry.deleteImportController(importDeleted);
+        registry.deleteSyncController(syncDeleted);
+        const afterDeletedAbort = registry.abort();
+
+        return {
+            supersededCount,
+            afterSuperseded,
+            afterTargeted,
+            afterFull,
+            afterDeletedAbort,
+            importDeletedAborted: importDeleted.signal.aborted,
+            syncDeletedAborted: syncDeleted.signal.aborted,
+        };
+    });
+
+    assert.equal(result.supersededCount, 1, 'Room load abort registry smoke: superseded import count is wrong');
+    assert.deepEqual(result.afterSuperseded.aborts, ['import-a:AbortError'], 'Room load abort registry smoke: superseded abort touched wrong controllers');
+    assert.equal(result.afterSuperseded.importCount, 1, 'Room load abort registry smoke: fresh import was removed by superseded abort');
+    assert.equal(result.afterSuperseded.syncCount, 1, 'Room load abort registry smoke: sync controller was removed by superseded abort');
+    assert.equal(result.afterSuperseded.importBAborted, false, 'Room load abort registry smoke: fresh import was aborted by superseded abort');
+    assert.equal(result.afterSuperseded.syncAAborted, false, 'Room load abort registry smoke: sync was aborted by superseded abort');
+    assert.deepEqual(result.afterTargeted.result, { imports: 1, syncs: 0 }, 'Room load abort registry smoke: targeted abort returned wrong counts');
+    assert.deepEqual(
+        result.afterTargeted.aborts,
+        ['import-a:AbortError', 'import-c:AbortError'],
+        'Room load abort registry smoke: targeted model cleanup aborted wrong controllers',
+    );
+    assert.equal(result.afterTargeted.importBAborted, false, 'Room load abort registry smoke: targeted cleanup aborted unrelated import');
+    assert.equal(result.afterTargeted.syncAAborted, false, 'Room load abort registry smoke: targeted cleanup aborted sync upload');
+    assert.deepEqual(result.afterFull.result, { imports: 1, syncs: 1 }, 'Room load abort registry smoke: full abort returned wrong counts');
+    assert.equal(result.afterFull.importCount, 0, 'Room load abort registry smoke: full abort left import controllers');
+    assert.equal(result.afterFull.syncCount, 0, 'Room load abort registry smoke: full abort left sync controllers');
+    assert.equal(result.afterFull.importBAborted, true, 'Room load abort registry smoke: full abort did not abort remaining import');
+    assert.equal(result.afterFull.syncAAborted, true, 'Room load abort registry smoke: full abort did not abort sync');
+    assert.deepEqual(result.afterDeletedAbort, { imports: 0, syncs: 0 }, 'Room load abort registry smoke: deleted controllers were still tracked');
+    assert.equal(result.importDeletedAborted, false, 'Room load abort registry smoke: deleted import controller was aborted later');
+    assert.equal(result.syncDeletedAborted, false, 'Room load abort registry smoke: deleted sync controller was aborted later');
+    diagnostics.assertNoErrors('Room load abort registry smoke');
+    await page.close();
+}
+
 async function runRoomModelStateSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -12567,6 +12682,8 @@ try {
     console.log('Voice controller lifecycle smoke passed.');
     await runVRDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('VR dispose lifecycle smoke passed.');
+    await runRoomLoadAbortRegistrySmoke(browserContext, smokeServer.baseUrl);
+    console.log('Room load abort registry smoke passed.');
     await runRoomModelLoadQueueSmoke(browserContext, smokeServer.baseUrl);
     console.log('Room model load queue smoke passed.');
     await runRoomModelStateSmoke(browserContext, smokeServer.baseUrl);

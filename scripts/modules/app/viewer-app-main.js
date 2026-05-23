@@ -47,6 +47,7 @@ import { loadTusClient } from '../collab/tus-client.js';
 import { createCameraSyncController } from '../collab/camera-sync.js';
 import { createDeferredRealtimeReload } from '../collab/deferred-realtime-reload.js';
 import { createRealtimeChannelStatusHandler } from '../collab/realtime-channel-status.js';
+import { createRoomLoadAbortRegistry } from '../collab/room-load-abort-registry.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
 import { createRoomModelLinkTracker, promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
 import { createAuxRealtimeChannelRegistry } from '../collab/aux-realtime-channels.js';
@@ -1082,9 +1083,9 @@ export class ViewerApp {
         let loadingRoomModelsGeneration = 0;
         let roomModelCount = 0;
         let roomLoadGeneration = 0;
-        const activeRoomImportControllers = new Set();
-        const activeRoomImportRequestGenerations = new WeakMap();
-        const activeRoomModelSyncControllers = new Set();
+        const roomLoadAbortRegistry = createRoomLoadAbortRegistry({
+            makeAbortError: makeRoomLoadAbortError,
+        });
         let roomModelLoadQueue = null;
         let remoteModelLoadRoomId = '';
         let remoteModelLoadModelId = '';
@@ -1312,32 +1313,14 @@ export class ViewerApp {
 
         function abortActiveRoomImports(predicate = null) {
             const hasPredicate = typeof predicate === 'function';
-            if (!activeRoomImportControllers.size && (!activeRoomModelSyncControllers.size || hasPredicate)) return;
-            const reason = makeRoomLoadAbortError();
-            activeRoomImportControllers.forEach((controller) => {
-                if (hasPredicate && !predicate(controller)) return;
-                try {
-                    if (!controller.signal?.aborted) controller.abort(reason);
-                } catch (_) {}
-                activeRoomImportControllers.delete(controller);
-                activeRoomImportRequestGenerations.delete(controller);
+            roomLoadAbortRegistry.abort({
+                importPredicate: hasPredicate ? predicate : null,
+                includeSyncControllers: !hasPredicate,
             });
-            if (!hasPredicate) {
-                activeRoomImportControllers.clear();
-                activeRoomModelSyncControllers.forEach((controller) => {
-                    try {
-                        if (!controller.signal?.aborted) controller.abort(reason);
-                    } catch (_) {}
-                });
-                activeRoomModelSyncControllers.clear();
-            }
         }
 
         function abortSupersededActiveRoomModelImports(activeRequestGeneration) {
-            abortActiveRoomImports((controller) => {
-                const generation = Number(activeRoomImportRequestGenerations.get(controller) || 0);
-                return generation > 0 && generation !== activeRequestGeneration;
-            });
+            roomLoadAbortRegistry.abortSupersededImports(activeRequestGeneration);
         }
 
         function getRoomModelLoadQueue() {
@@ -4315,7 +4298,7 @@ export class ViewerApp {
                 roomModelLoadQueue?.delete?.({ roomId: targetRoomId, modelId: targetModelId });
                 const isActiveImportTarget = remoteModelLoadModelId === targetModelId
                     && (!targetRoomId || remoteModelLoadRoomId === targetRoomId);
-                if (isActiveImportTarget) abortActiveRoomImports();
+                if (isActiveImportTarget) abortActiveRoomImports(() => true);
             }
             const roomModelRecords = loadedModels.filter((record) => (
                 scopeMatchesRoomModel(record?.scope, targetRoomId, targetModelId)
@@ -5323,7 +5306,7 @@ export class ViewerApp {
             const setSyncStatus = (message) => {
                 if (!syncSignal?.aborted && isCurrent()) syncStatus.set(`Синхронизация: ${message}`);
             };
-            if (syncAbortController) activeRoomModelSyncControllers.add(syncAbortController);
+            if (syncAbortController) roomLoadAbortRegistry.addSyncController(syncAbortController);
             try {
                 throwIfStale();
                 setSyncStatus('загрузка модели…');
@@ -5448,7 +5431,7 @@ export class ViewerApp {
                 });
                 return false;
             } finally {
-                if (syncAbortController) activeRoomModelSyncControllers.delete(syncAbortController);
+                if (syncAbortController) roomLoadAbortRegistry.deleteSyncController(syncAbortController);
                 if (!shouldKeepStatusMessage) syncStatus.clear();
             }
         }
@@ -5573,8 +5556,9 @@ export class ViewerApp {
             };
             const loadStatus = transientStatus.begin();
             if (importAbortController) {
-                activeRoomImportRequestGenerations.set(importAbortController, expectedActiveRequestGeneration);
-                activeRoomImportControllers.add(importAbortController);
+                roomLoadAbortRegistry.addImportController(importAbortController, {
+                    activeRequestGeneration: expectedActiveRequestGeneration,
+                });
             }
             try {
                 isRemoteModelLoad = true;
@@ -5655,8 +5639,7 @@ export class ViewerApp {
                 return false;
             } finally {
                 if (importAbortController) {
-                    activeRoomImportControllers.delete(importAbortController);
-                    activeRoomImportRequestGenerations.delete(importAbortController);
+                    roomLoadAbortRegistry.deleteImportController(importAbortController);
                 }
                 if (remoteModelLoadGeneration === expectedGeneration && remoteModelLoadModelId === modelId) {
                     isRemoteModelLoad = false;
