@@ -1450,6 +1450,279 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.addInitScript(() => {
+        window.__SUPABASE_URL = 'https://smoke.supabase.co';
+        window.__SUPABASE_ANON_KEY = 'smoke-key';
+
+        const project = {
+            id: 'project-switch',
+            name: 'Switch Project',
+            slug: 'switch-project',
+            owner_id: 'registered-user',
+            created_at: '2026-01-01T00:00:00Z',
+        };
+        const rooms = [
+            {
+                id: 'room-a',
+                slug: 'room-a',
+                project_id: project.id,
+                owner_id: 'registered-user',
+                created_at: '2026-01-01T00:00:00Z',
+                active_model_id: '',
+            },
+            {
+                id: 'room-b',
+                slug: 'room-b',
+                project_id: project.id,
+                owner_id: 'registered-user',
+                created_at: '2026-01-01T00:00:00Z',
+                active_model_id: '',
+            },
+        ];
+        const user = {
+            id: 'registered-user',
+            email: 'switch@example.com',
+            user_metadata: { display_name: 'Switch User' },
+        };
+        const calls = {
+            signIn: 0,
+            removeChannel: 0,
+            roomAChannelCreates: 0,
+            roomBChannelCreates: 0,
+        };
+        window.__lpmSwitchSmoke = calls;
+
+        class FakeQuery {
+            constructor(table) {
+                this.table = table;
+                this.filters = [];
+                this.payload = null;
+                this.operation = 'select';
+            }
+            select() { return this; }
+            order() { return this; }
+            limit() { return this; }
+            eq(column, value) {
+                this.filters.push({ column: String(column || ''), value: String(value || '') });
+                return this;
+            }
+            insert(payload) {
+                this.operation = 'insert';
+                this.payload = payload;
+                return this;
+            }
+            upsert(payload) {
+                this.operation = 'upsert';
+                this.payload = payload;
+                return this;
+            }
+            update(payload) {
+                this.operation = 'update';
+                this.payload = payload;
+                return this;
+            }
+            delete() {
+                this.operation = 'delete';
+                return this;
+            }
+            hasFilter(column, value) {
+                const expected = String(value || '');
+                return this.filters.some((entry) => entry.column === column && entry.value === expected);
+            }
+            async execute() {
+                if (this.operation !== 'select') return { data: this.payload || null, error: null };
+                if (this.table === 'profiles') return { data: [], error: null };
+                if (this.table === 'projects') return { data: [project], error: null };
+                if (this.table === 'rooms') return { data: rooms, error: null };
+                if (this.table === 'room_models') return { data: [], error: null };
+                if (this.table === 'room_cameras') return { data: [], error: null };
+                if (this.table === 'annotations') return { data: [], error: null };
+                if (this.table === 'messages') return { data: [], error: null };
+                return { data: [], error: null };
+            }
+            async maybeSingle() {
+                if (this.table === 'profiles') {
+                    return { data: { display_name: 'Switch User' }, error: null };
+                }
+                if (this.table === 'rooms') {
+                    const room = rooms.find((item) => (
+                        this.hasFilter('id', item.id)
+                        || (this.hasFilter('project_id', item.project_id) && this.hasFilter('slug', item.slug))
+                    ));
+                    return { data: room || null, error: null };
+                }
+                if (this.table === 'projects') return { data: project, error: null };
+                return { data: null, error: null };
+            }
+            async single() {
+                return { data: { id: `${this.table}-row`, ...(this.payload || {}) }, error: null };
+            }
+            then(resolve, reject) {
+                return this.execute().then(resolve, reject);
+            }
+        }
+
+        class FakeChannel {
+            constructor(name) {
+                this.name = name;
+                this.state = 'closed';
+                this.socket = { isConnected: () => this.state === 'joined' };
+            }
+            on() { return this; }
+            subscribe(callback) {
+                this.state = 'joined';
+                if (this.name === 'room:room-a') calls.roomAChannelCreates += 1;
+                if (this.name === 'room:room-b') calls.roomBChannelCreates += 1;
+                queueMicrotask(() => callback?.('SUBSCRIBED'));
+                return this;
+            }
+            presenceState() {
+                return { [user.id]: [{ name: 'Switch User', joinedAt: '2026-01-01T00:00:00Z' }] };
+            }
+            track() { return Promise.resolve('ok'); }
+            send() { return Promise.resolve('ok'); }
+            httpSend() { return Promise.resolve('ok'); }
+        }
+
+        const client = {
+            auth: {
+                getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+                signInWithPassword: () => {
+                    calls.signIn += 1;
+                    return Promise.resolve({ data: { user }, error: null });
+                },
+                signOut: () => Promise.resolve({ error: null }),
+                getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+                resetPasswordForEmail: () => Promise.resolve({ error: null }),
+                resend: () => Promise.resolve({ error: null }),
+            },
+            from: (table) => new FakeQuery(table),
+            rpc: (name) => {
+                if (name === 'is_superuser') return Promise.resolve({ data: false, error: null });
+                if (name === 'ensure_room_invite') return Promise.resolve({ data: { token: 'switch-token' }, error: null });
+                return Promise.resolve({ data: null, error: null });
+            },
+            channel: (name) => new FakeChannel(String(name || '')),
+            removeChannel: () => {
+                calls.removeChannel += 1;
+                return Promise.resolve({ error: null });
+            },
+            storage: {
+                from: () => ({
+                    download: () => Promise.resolve({ data: null, error: null }),
+                }),
+            },
+        };
+
+        window.supabase = {
+            createClient() {
+                return client;
+            },
+        };
+    });
+    await page.goto(`${baseUrl}/?renderer=webgl&debug=1`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+
+    const result = await page.evaluate(async () => {
+        const waitFor = async (predicate, timeoutMs = 8000) => {
+            const started = performance.now();
+            while (performance.now() - started < timeoutMs) {
+                if (predicate()) return true;
+                await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            return false;
+        };
+        const optionValues = (selector) => Array.from(document.querySelector(selector)?.options || [])
+            .map((option) => option.value);
+
+        document.querySelector('#collabName').value = 'Switch User';
+        document.querySelector('#collabEmail').value = 'switch@example.com';
+        document.querySelector('#collabPassword').value = 'secret123';
+        document.querySelector('#collabJoinBtn').click();
+        await waitFor(() => (globalThis.__lpmSwitchSmoke?.signIn || 0) >= 1);
+        await waitFor(() => optionValues('#collabRoomSelect').includes('room-a'));
+
+        const roomSelect = document.querySelector('#collabRoomSelect');
+        roomSelect.value = 'room-a';
+        roomSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        await waitFor(() => (globalThis.__lpmSwitchSmoke?.roomAChannelCreates || 0) >= 1);
+
+        const THREE = await import('three');
+        const root = new THREE.Group();
+        root.name = 'room-a-model';
+        root.userData.importScope = {
+            kind: 'room',
+            roomId: 'room-a',
+            modelId: 'room-a-model',
+        };
+        globalThis.viewerApp.scene.add(root);
+        globalThis.viewerApp.loadedModels.push({
+            obj: root,
+            name: 'room-a-model.fbx',
+            scope: { ...root.userData.importScope },
+        });
+
+        const controlsAfterRoomA = {
+            projectDisabled: document.querySelector('#collabProjectSelect')?.disabled,
+            roomDisabled: document.querySelector('#collabRoomSelect')?.disabled,
+            projectOptions: optionValues('#collabProjectSelect'),
+            roomOptions: optionValues('#collabRoomSelect'),
+        };
+
+        roomSelect.value = 'room-b';
+        roomSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        await waitFor(() => (globalThis.__lpmSwitchSmoke?.roomBChannelCreates || 0) >= 1);
+        await waitFor(() => globalThis.viewerApp.loadedModels.every((record) => (
+            record?.obj?.userData?.importScope?.roomId !== 'room-a'
+        )));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const snapshot = globalThis.__LPMVIEW_DIAGNOSTICS.getSnapshot();
+        const afterSwitch = {
+            projectDisabled: document.querySelector('#collabProjectSelect')?.disabled,
+            roomDisabled: document.querySelector('#collabRoomSelect')?.disabled,
+            currentRoom: document.querySelector('#collabRoomSelect')?.value,
+            oldRootDetached: !root.parent,
+            loadedRoomAModels: globalThis.viewerApp.loadedModels.filter((record) => (
+                record?.obj?.userData?.importScope?.roomId === 'room-a'
+            )).length,
+            removeChannel: globalThis.__lpmSwitchSmoke.removeChannel,
+            realtimeChannels: snapshot.collab.totalRealtimeChannels,
+            roomSelectionLocked: snapshot.collab.roomSelectionLocked,
+        };
+
+        await globalThis.viewerApp.dispose();
+        return {
+            calls: { ...globalThis.__lpmSwitchSmoke },
+            controlsAfterRoomA,
+            afterSwitch,
+        };
+    });
+
+    assert.equal(result.calls.signIn, 1, 'Registered room switch smoke: login did not start');
+    assert.equal(result.calls.roomAChannelCreates >= 1, true, 'Registered room switch smoke: first room did not connect');
+    assert.equal(result.calls.roomBChannelCreates >= 1, true, 'Registered room switch smoke: second room did not connect');
+    assert.equal(result.controlsAfterRoomA.projectDisabled, false, 'Registered room switch smoke: project select stayed disabled in registered room');
+    assert.equal(result.controlsAfterRoomA.roomDisabled, false, 'Registered room switch smoke: room select stayed disabled in registered room');
+    assert.equal(result.controlsAfterRoomA.projectOptions.includes('__create__'), false, 'Registered room switch smoke: project create option was exposed during active room');
+    assert.equal(result.controlsAfterRoomA.roomOptions.includes('__create__'), false, 'Registered room switch smoke: room create option was exposed during active room');
+    assert.equal(result.afterSwitch.currentRoom, 'room-b', 'Registered room switch smoke: selected room did not update');
+    assert.equal(result.afterSwitch.oldRootDetached, true, 'Registered room switch smoke: old room root was not detached');
+    assert.equal(result.afterSwitch.loadedRoomAModels, 0, 'Registered room switch smoke: old room model records were not removed');
+    assert.equal(result.afterSwitch.removeChannel > 0, true, 'Registered room switch smoke: old realtime channels were not removed');
+    assert.equal(result.afterSwitch.projectDisabled, false, 'Registered room switch smoke: project select disabled after switch');
+    assert.equal(result.afterSwitch.roomDisabled, false, 'Registered room switch smoke: room select disabled after switch');
+    assert.equal(result.afterSwitch.roomSelectionLocked, false, 'Registered room switch smoke: non-link registered session was locked');
+    assert.equal(result.afterSwitch.realtimeChannels > 0, true, 'Registered room switch smoke: new room did not report realtime channels');
+    diagnostics.assertNoErrors('Registered room switch smoke');
+    await page.close();
+}
+
 async function runDisposeReinitSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     await page.addInitScript(() => {
@@ -12692,6 +12965,8 @@ try {
     console.log('Collab CRUD stale smoke passed.');
     await runCollabAutoResumeKeepsModelsSmoke(browserContext, smokeServer.baseUrl);
     console.log('Collab auto-resume keeps models smoke passed.');
+    await runCollabRegisteredRoomSwitchSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Registered room switch smoke passed.');
     await runDisposeReinitSmoke(browserContext, smokeServer.baseUrl);
     console.log('Dispose/reinit smoke passed.');
     await runRendererDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);

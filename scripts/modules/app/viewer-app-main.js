@@ -1100,6 +1100,7 @@ export class ViewerApp {
         let collabAutoResumeTimer = null;
         let collabAutoResumeInFlight = false;
         let collabAutoResumeAttempt = 0;
+        let collabRoomSelectionLocked = false;
         let collabExitInFlight = false;
         let collabExitGeneration = 0;
         let collabAnnotatePointerHooksBound = false;
@@ -1870,6 +1871,14 @@ export class ViewerApp {
             });
         }
 
+        function canSwitchCollabSelection() {
+            return !!(collabAuthed && collabIsRegistered && !collabRoomSelectionLocked);
+        }
+
+        function canManageCollabItems() {
+            return !!(collabAuthed && collabIsRegistered && !collabController);
+        }
+
         function setCollabCreateEnabled(enabled) {
             if (!enabled) {
                 toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, false);
@@ -2521,6 +2530,7 @@ export class ViewerApp {
                 collabAuthed = false;
                 collabIsRegistered = false;
                 collabIsSuperuser = false;
+                collabRoomSelectionLocked = false;
                 syncRoomEntryLandingState();
                 setCollabControlsDisabled(false);
                 setCollabCreateEnabled(false);
@@ -2658,10 +2668,10 @@ export class ViewerApp {
                 opt.value = project.id;
                 opt.textContent = project.name || project.slug || 'Проект';
                 if (project.owner_id) opt.dataset.ownerId = project.owner_id;
-                if (canDeleteProjectItem(project)) opt.dataset.deletable = '1';
+                if (canManageCollabItems() && canDeleteProjectItem(project)) opt.dataset.deletable = '1';
                 collabProjectSelectEl.appendChild(opt);
             });
-            if (collabIsRegistered) {
+            if (canManageCollabItems()) {
                 const createOpt = document.createElement('option');
                 createOpt.value = collabCreateOptionValue;
                 createOpt.textContent = '+ Создать проект';
@@ -2684,11 +2694,11 @@ export class ViewerApp {
                 opt.value = room.id;
                 opt.textContent = room.slug || 'Комната';
                 if (room.owner_id) opt.dataset.ownerId = room.owner_id;
-                if (canDeleteRoomItem(room)) opt.dataset.deletable = '1';
+                if (canManageCollabItems() && canDeleteRoomItem(room)) opt.dataset.deletable = '1';
                 collabRoomSelectEl.appendChild(opt);
             });
             const enabled = !!collabProject;
-            if (collabIsRegistered && enabled) {
+            if (canManageCollabItems() && enabled) {
                 const createOpt = document.createElement('option');
                 createOpt.value = collabCreateOptionValue;
                 createOpt.textContent = '+ Создать комнату';
@@ -3098,7 +3108,9 @@ export class ViewerApp {
                 updateReserveButton();
                 updateOwnerLabel();
                 scrollChatToBottom();
-                setCollabControlsDisabled(true);
+                renderProjectOptions(collabProjects, collabProject?.id || '');
+                renderRoomOptions(collabRooms, collabRoom?.id || '');
+                setCollabControlsDisabled(!canSwitchCollabSelection());
                 setCollabCreateEnabled(false);
                 setCollabSessionEnabled(true);
                 setCollabToolsEnabled(true);
@@ -3235,6 +3247,7 @@ export class ViewerApp {
                 const inviteToken = getInviteTokenFromUrl();
                 const projectSlug = getProjectSlugFromUrl();
                 const roomSlug = getRoomSlugFromUrl();
+                collabRoomSelectionLocked = !!inviteToken || (!!projectSlug && !!roomSlug);
                 if (inviteToken) {
                     let joinedRoom = await collabSupabase.rpc('join_room_by_invite', {
                         invite_token: inviteToken,
@@ -3313,6 +3326,7 @@ export class ViewerApp {
                     setAuthError('Для входа по ссылке нужна полная ссылка комнаты.');
                 }
 
+                collabRoomSelectionLocked = false;
                 await loadProjects({ isCurrent: isCurrentAuthRequest });
                 if (!isCurrentAuthRequest()) return;
                 if (collabProjects.length === 1) {
@@ -3544,6 +3558,10 @@ export class ViewerApp {
                 const isCurrent = () => isActiveCollabCrud(crudGeneration);
                 const id = collabProjectSelectEl.value;
                 if (id === collabCreateOptionValue) {
+                    if (collabController) {
+                        collabProjectSelectEl.value = collabProject?.id || '';
+                        return;
+                    }
                     toggleCreatePanel(collabProjectCreateEl, collabProjectNameInputEl, true);
                     collabProjectSelectEl.value = collabProject?.id || '';
                     return;
@@ -3552,6 +3570,7 @@ export class ViewerApp {
                     await teardownCollabSession();
                     if (!isCurrent()) return;
                 }
+                collabRoomSelectionLocked = false;
                 collabProject = collabProjects.find((p) => p.id === id) || null;
                 collabRoom = null;
                 clearRoomInviteTokenState();
@@ -3559,6 +3578,7 @@ export class ViewerApp {
                 if (!collabProject && collabRoomLinkEl) {
                     collabRoomLinkEl.value = '';
                 }
+                setRoomSlugInUrl(collabProject?.slug || '', '');
                 if (collabProject) {
                     await loadRooms(collabProject.id, { isCurrent });
                     if (!isCurrent()) return;
@@ -3579,6 +3599,10 @@ export class ViewerApp {
                 const isCurrent = () => isActiveCollabCrud(crudGeneration);
                 const id = collabRoomSelectEl.value;
                 if (id === collabCreateOptionValue) {
+                    if (collabController) {
+                        collabRoomSelectEl.value = collabRoom?.id || '';
+                        return;
+                    }
                     toggleCreatePanel(collabRoomCreateEl, collabRoomNameInputEl, true);
                     collabRoomSelectEl.value = collabRoom?.id || '';
                     return;
@@ -3587,6 +3611,7 @@ export class ViewerApp {
                     await teardownCollabSession();
                     if (!isCurrent()) return;
                 }
+                collabRoomSelectionLocked = false;
                 collabRoom = collabRooms.find((r) => r.id === id) || null;
                 clearRoomInviteTokenState();
                 if (!collabRoom && collabRoomLinkEl) {
@@ -6564,6 +6589,7 @@ export class ViewerApp {
                         authed: collabAuthed,
                         registered: collabIsRegistered,
                         connected: collabConnectionOnline,
+                        roomSelectionLocked: collabRoomSelectionLocked,
                         sessionGeneration: collabSessionGeneration,
                         roomLoadGeneration,
                         autoResumeEnabled: collabAutoResumeEnabled,
