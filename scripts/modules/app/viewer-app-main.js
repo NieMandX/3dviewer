@@ -3022,6 +3022,7 @@ export class ViewerApp {
             const isAutoReconnect = !!options?.isAutoReconnect;
             const throwOnError = !!options?.throwOnError;
             const retryTransientRealtime = options?.retryTransientRealtime === true;
+            const deferredRealtimeRetryAttempt = Math.max(0, Number(options?.deferredRealtimeRetryAttempt) || 0);
             const requestedProject = collabProject;
             const requestedRoom = collabRoom;
             const requestedProjectId = String(requestedProject?.id || '');
@@ -3210,6 +3211,21 @@ export class ViewerApp {
                 }
             } catch (err) {
                 if (!isCurrentRoomRequest()) return;
+                const canDeferTransientRealtimeRetry = retryTransientRealtime
+                    && deferredRealtimeRetryAttempt < 2
+                    && isRoomRealtimeSwitchRaceError(err);
+                if (canDeferTransientRealtimeRetry) {
+                    const delay = deferredRealtimeRetryAttempt === 0 ? 1500 : 3000;
+                    setCollabConnectionState(false, 'room-switch-realtime-retry');
+                    setCollabStatus('connecting');
+                    const canContinue = await waitForCollabRetryDelay(delay, initAbortController?.signal || null);
+                    if (!canContinue || !isCurrentRoomRequest()) return;
+                    await connectToRoom(name, {
+                        retryTransientRealtime: true,
+                        deferredRealtimeRetryAttempt: deferredRealtimeRetryAttempt + 1,
+                    });
+                    return;
+                }
                 console.error('Collab init failed', err);
                 setCollabConnectionState(false, 'connect-error');
                 if (!isAutoReconnect) {
