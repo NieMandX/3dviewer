@@ -1543,6 +1543,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             removeChannel: 0,
             roomAChannelCreates: 0,
             roomBChannelCreates: 0,
+            roomBChannelErrors: 0,
         };
         window.__lpmSwitchSmoke = calls;
 
@@ -1638,6 +1639,12 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 this.state = 'joined';
                 if (this.name === 'room:room-a') calls.roomAChannelCreates += 1;
                 if (this.name === 'room:room-b') calls.roomBChannelCreates += 1;
+                if (this.name === 'room:room-b' && calls.roomBChannelErrors < 1) {
+                    calls.roomBChannelErrors += 1;
+                    this.state = 'errored';
+                    queueMicrotask(() => callback?.('CHANNEL_ERROR'));
+                    return this;
+                }
                 queueMicrotask(() => callback?.('SUBSCRIBED'));
                 return this;
             }
@@ -1751,7 +1758,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
 
         roomSelect.value = 'room-b';
         roomSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        await waitFor(() => (globalThis.__lpmSwitchSmoke?.roomBChannelCreates || 0) >= 1);
+        await waitFor(() => (globalThis.__lpmSwitchSmoke?.roomBChannelCreates || 0) >= 2);
         await waitFor(() => globalThis.viewerApp.loadedModels.length === 0 && !root.parent && !localRoot.parent);
         await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -1801,7 +1808,8 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
 
     assert.equal(result.calls.signIn, 1, 'Registered room switch smoke: login did not start');
     assert.equal(result.calls.roomAChannelCreates >= 1, true, 'Registered room switch smoke: first room did not connect');
-    assert.equal(result.calls.roomBChannelCreates >= 1, true, 'Registered room switch smoke: second room did not connect');
+    assert.equal(result.calls.roomBChannelCreates >= 2, true, 'Registered room switch smoke: second room was not retried after transient channel error');
+    assert.equal(result.calls.roomBChannelErrors, 1, 'Registered room switch smoke: transient channel error was not simulated exactly once');
     assert.equal(result.controlsAfterRoomA.projectDisabled, false, 'Registered room switch smoke: project select stayed disabled in registered room');
     assert.equal(result.controlsAfterRoomA.roomDisabled, false, 'Registered room switch smoke: room select stayed disabled in registered room');
     assert.equal(result.controlsAfterRoomA.projectOptions.includes('__create__'), false, 'Registered room switch smoke: project create option was exposed during active room');

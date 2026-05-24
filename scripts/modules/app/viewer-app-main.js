@@ -1310,6 +1310,42 @@ export class ViewerApp {
             return error?.name === 'AbortError';
         }
 
+        function isRoomRealtimeSwitchRaceError(error) {
+            const message = String(error?.message || error || '').toLowerCase();
+            if (!message.includes('room realtime subscribe')) return false;
+            return message.includes('channel_error') || message.includes('closed');
+        }
+
+        function waitForCollabRetryDelay(delayMs, signal = null) {
+            if (signal?.aborted) return Promise.resolve(false);
+            return new Promise((resolve) => {
+                let settled = false;
+                let timer = null;
+                const cleanup = () => {
+                    if (timer) {
+                        clearAppTimeout(timer);
+                        timer = null;
+                    }
+                    try {
+                        signal?.removeEventListener?.('abort', handleAbort);
+                    } catch (_) {}
+                };
+                const finish = (value) => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    resolve(!!value);
+                };
+                function handleAbort() {
+                    finish(false);
+                }
+                try {
+                    signal?.addEventListener?.('abort', handleAbort, { once: true });
+                } catch (_) {}
+                timer = setAppTimeout(() => finish(true), delayMs);
+            });
+        }
+
         const importPipelineQueue = createImportPipelineQueue({
             makeAbortError: makeRoomLoadAbortError,
         });
@@ -2985,6 +3021,7 @@ export class ViewerApp {
             if (appDisposed || !collabSupabase || !collabUser || !collabProject || !collabRoom) return;
             const isAutoReconnect = !!options?.isAutoReconnect;
             const throwOnError = !!options?.throwOnError;
+            const retryTransientRealtime = options?.retryTransientRealtime === true;
             const requestedProject = collabProject;
             const requestedRoom = collabRoom;
             const requestedProjectId = String(requestedProject?.id || '');
@@ -3002,7 +3039,7 @@ export class ViewerApp {
             collabJoinBtn.disabled = true;
             setCollabStatus('connecting');
             try {
-                const nextController = await createCollabController({
+                const createController = () => createCollabController({
                     supabaseUrl,
                     supabaseAnonKey,
                     supabase: collabSupabase,
@@ -3080,6 +3117,24 @@ export class ViewerApp {
                         roomUpdateHandler?.(room);
                     },
                 });
+                let nextController = null;
+                let roomSwitchRetryAttempt = 0;
+                while (!nextController) {
+                    try {
+                        nextController = await createController();
+                    } catch (err) {
+                        const canRetry = retryTransientRealtime
+                            && roomSwitchRetryAttempt < 2
+                            && isCurrentRoomRequest()
+                            && isRoomRealtimeSwitchRaceError(err);
+                        if (!canRetry) throw err;
+                        roomSwitchRetryAttempt += 1;
+                        const delay = roomSwitchRetryAttempt === 1 ? 250 : 750;
+                        const canContinue = await waitForCollabRetryDelay(delay, initAbortController?.signal || null);
+                        if (!canContinue || !isCurrentRoomRequest()) throw err;
+                        setCollabStatus('connecting');
+                    }
+                }
                 if (!isCurrentRoomRequest()) {
                     if (pendingCollabCameraState?.generation === sessionGeneration) {
                         pendingCollabCameraState = null;
@@ -3647,7 +3702,9 @@ export class ViewerApp {
                     collabRoomLinkEl.value = '';
                 }
                 if (collabRoom && collabAuthed && !collabController) {
-                    void connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest');
+                    void connectToRoom(String(collabNameEl?.value || '').trim() || 'Guest', {
+                        retryTransientRealtime: true,
+                    });
                 }
                 if (!isCurrent()) return;
                 updateAdminControls();
