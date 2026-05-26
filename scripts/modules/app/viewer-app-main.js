@@ -4163,6 +4163,8 @@ export class ViewerApp {
             roomModelLoadQueue?.clear?.();
             roomModelsReconcileState = null;
             cleanupImportedRange({ modelStart: 0, embeddedStart: 0 });
+            didInitialRebase = false;
+            lastFinalizedModelIndex = 0;
             undoStack.length = 0;
             loadedRoomModelIds.clear();
             roomModelLinks.clear();
