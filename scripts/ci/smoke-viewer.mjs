@@ -518,6 +518,27 @@ async function runRoomEntrySmoke(browser, baseUrl) {
     assert.equal(state.authMode, 'roomEntry', 'Room smoke: unexpected auth mode');
     assert.equal(state.guestVisible, true, 'Room smoke: guest button is not visible');
     assert.equal(state.guestDisabled, false, 'Room smoke: guest button is disabled');
+
+    await Promise.all([
+        page.waitForURL(`${baseUrl}/`, { waitUntil: 'domcontentloaded', timeout: 45000 }),
+        page.evaluate(() => document.querySelector('#collabDrawerClose')?.click()),
+    ]);
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+    const closeState = await page.evaluate(() => {
+        const url = new URL(window.location.href);
+        return {
+            pathname: url.pathname,
+            search: url.search,
+            hash: url.hash,
+            roomEntryLanding: document.body.classList.contains('room-entry-landing'),
+        };
+    });
+    assert.equal(closeState.pathname, '/', 'Room smoke: close did not return to viewer root');
+    assert.equal(closeState.search, '', 'Room smoke: close kept room/link query parameters');
+    assert.equal(closeState.hash, '', 'Room smoke: close kept URL hash');
+    assert.equal(closeState.roomEntryLanding, false, 'Room smoke: close reopened room-entry landing');
     diagnostics.assertNoErrors('Room smoke');
     await page.close();
 }

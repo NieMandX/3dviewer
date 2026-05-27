@@ -3633,6 +3633,10 @@ export class ViewerApp {
 
         if (collabDrawerCloseBtn) {
             addAppEventListener(collabDrawerCloseBtn, 'click', () => {
+                if (isRoomEntryLandingActive()) {
+                    reloadViewerFromCleanUrl();
+                    return;
+                }
                 setCollabDrawerOpen(false);
             });
         }
