@@ -2316,6 +2316,26 @@ body.bg-black .collab-chat-panel {
 .prompt-input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font:inherit; background: var(--controlBg); color: var(--ink); }
 .prompt-message { font-size: 13px; line-height: 1.4; color: var(--ink); white-space: pre-wrap; }
 .prompt-actions { justify-content:flex-end }
+.room-content-panel { width:min(920px, calc(100vw - 40px)); max-height:calc(100vh - 48px); }
+.room-content-body { gap:10px; max-height:calc(100vh - 112px); overflow:auto; }
+.room-content-toolbar { display:flex; align-items:flex-end; justify-content:space-between; gap:10px; }
+.room-content-field { display:flex; flex-direction:column; gap:5px; min-width:260px; }
+.room-content-room-select { min-height:30px; }
+.room-content-summary { display:flex; gap:12px; flex-wrap:wrap; color:var(--muted); font-size:12px; line-height:1.35; }
+.room-content-tabs { display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-bottom:8px; }
+.room-content-tab.active { color:var(--accent); border-color:rgba(11, 87, 208, 0.35); background:rgba(11, 87, 208, 0.08); }
+.room-content-status { min-height:18px; color:var(--muted); font-size:12px; }
+.room-content-list { display:flex; flex-direction:column; gap:8px; }
+.room-content-empty { color:var(--muted); font-size:13px; padding:12px 0; }
+.room-content-row { display:grid; grid-template-columns:minmax(180px, 1fr) 110px 145px 115px 86px; gap:10px; align-items:center; border-bottom:1px solid var(--border); padding:8px 0; font-size:12px; }
+.room-content-row.room-content-head { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding-top:0; }
+.room-content-main { min-width:0; }
+.room-content-name { color:var(--ink); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.room-content-sub { color:var(--muted); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.room-content-action { justify-self:end; }
+.room-content-action .btn { padding:5px 8px; font-size:12px; }
+.room-content-action .btn.danger { color:#b42318; border-color:rgba(180, 35, 24, 0.35); background:rgba(180, 35, 24, 0.06); }
+.room-content-action .btn.danger:disabled { color:var(--muted); border-color:var(--border); background:transparent; opacity:.55; }
 .order-body { align-items:center; text-align:center; gap:14px; font-size: 18px; padding: 16px; }
 .order-title { font-size: 24px; font-weight: 700; color: var(--ink); letter-spacing: 0.2px; }
 .order-actions { display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap; }
@@ -2769,6 +2789,24 @@ body.bg-black .custom-select-option.is-selected {
 
 .collab-footer .collab-copy-btn .btn-label {
     display: inline-block;
+}
+
+.collab-footer .collab-room-manage-btn {
+    min-width: 24px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+}
+
+.collab-footer .collab-room-manage-btn:hover {
+    border-color: var(--borderStrong);
+}
+
+.collab-footer .collab-room-manage-btn .icon {
+    width: 14px;
+    height: 14px;
 }
 
 .collab-footer .collab-reserve-btn {

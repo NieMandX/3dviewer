@@ -134,6 +134,7 @@ export function collectViewerDom(document) {
         collabRoomNameInputEl: get('collabRoomNameInput'),
         collabRoomLinkEl: get('collabRoomLink'),
         collabCopyBtn: get('collabCopyBtn'),
+        collabRoomManageBtn: get('collabRoomManageBtn'),
         collabReserveBtn: get('collabReserveBtn'),
         collabOwnerEl: get('collabOwner'),
         collabParticipantsEl: get('collabParticipants'),
@@ -141,6 +142,14 @@ export function collectViewerDom(document) {
         collabChatInputEl: get('collabChatInput'),
         collabChatSendBtn: get('collabChatSend'),
         collabChatParticipantsEl: get('collabChatParticipants'),
+        roomContentModalEl: get('roomContentModal'),
+        roomContentCloseBtn: get('roomContentClose'),
+        roomContentRoomSelectEl: get('roomContentRoomSelect'),
+        roomContentRefreshBtn: get('roomContentRefresh'),
+        roomContentSummaryEl: get('roomContentSummary'),
+        roomContentStatusEl: get('roomContentStatus'),
+        roomContentListEl: get('roomContentList'),
+        roomContentTabs: Array.from(document.querySelectorAll('.room-content-tab')),
 
         // Glass controls
         glassOpacityEl: get('glassOpacity'),

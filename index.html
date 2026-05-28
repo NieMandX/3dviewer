@@ -672,6 +672,32 @@
         </div>
     </div>
 
+    <div id="roomContentModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="roomContentTitle">
+        <div class="auth-panel room-content-panel" data-mode="room-content">
+            <div class="auth-head">
+                <div id="roomContentTitle" class="auth-title">Содержимое комнаты</div>
+                <button id="roomContentClose" class="btn auth-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
+            </div>
+            <div class="auth-body room-content-body">
+                <div class="room-content-toolbar">
+                    <label class="room-content-field">
+                        <span class="collab-label">Комната</span>
+                        <select id="roomContentRoomSelect" class="collab-input room-content-room-select"></select>
+                    </label>
+                    <button id="roomContentRefresh" class="btn" type="button">Обновить</button>
+                </div>
+                <div id="roomContentSummary" class="room-content-summary">—</div>
+                <div class="room-content-tabs" role="tablist" aria-label="Содержимое комнаты">
+                    <button id="roomContentTabModels" class="btn room-content-tab active" type="button" data-tab="models">Модели</button>
+                    <button id="roomContentTabAnnotations" class="btn room-content-tab" type="button" data-tab="annotations">Аннотации</button>
+                    <button id="roomContentTabCameras" class="btn room-content-tab" type="button" data-tab="cameras">Камеры</button>
+                </div>
+                <div id="roomContentStatus" class="room-content-status" aria-live="polite"></div>
+                <div id="roomContentList" class="room-content-list"></div>
+            </div>
+        </div>
+    </div>
+
     <div id="resetModal" class="modal">
         <div class="sheet sheet-sm">
             <div class="head">
@@ -858,6 +884,14 @@
                             <span class="btn-label">Ссылка</span>
                         </button>
                         <input id="collabRoomLink" class="collab-input collab-link-input" type="text" readonly />
+                        <button id="collabRoomManageBtn" class="btn collab-room-manage-btn" type="button" title="Содержимое комнаты" aria-label="Содержимое комнаты" hidden>
+                            <svg class="icon icon-room-content" viewBox="0 0 24 24" aria-hidden="true">
+                                <rect x="4" y="5" width="16" height="4" rx="1"></rect>
+                                <rect x="4" y="10" width="16" height="4" rx="1"></rect>
+                                <rect x="4" y="15" width="16" height="4" rx="1"></rect>
+                            </svg>
+                            <span class="btn-label">Состав</span>
+                        </button>
                     </div>
                     <div id="collabRoomCreate" class="collab-footer-create" hidden>
                         <input id="collabRoomNameInput" class="collab-input" type="text" placeholder="Название комнаты" required />

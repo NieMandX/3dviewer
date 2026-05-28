@@ -865,6 +865,7 @@ export class ViewerApp {
         const collabRoomNameInputEl = dom.collabRoomNameInputEl;
         const collabRoomLinkEl = dom.collabRoomLinkEl;
         const collabCopyBtn = dom.collabCopyBtn;
+        const collabRoomManageBtn = dom.collabRoomManageBtn;
         const collabReserveBtn = dom.collabReserveBtn;
         const collabOwnerEl = dom.collabOwnerEl;
         const collabParticipantsEl = dom.collabParticipantsEl;
@@ -872,10 +873,22 @@ export class ViewerApp {
         const collabChatInputEl = dom.collabChatInputEl;
         const collabChatSendBtn = dom.collabChatSendBtn;
         const collabChatParticipantsEl = dom.collabChatParticipantsEl;
+        const roomContentModalEl = dom.roomContentModalEl;
+        const roomContentCloseBtn = dom.roomContentCloseBtn;
+        const roomContentRoomSelectEl = dom.roomContentRoomSelectEl;
+        const roomContentRefreshBtn = dom.roomContentRefreshBtn;
+        const roomContentSummaryEl = dom.roomContentSummaryEl;
+        const roomContentStatusEl = dom.roomContentStatusEl;
+        const roomContentListEl = dom.roomContentListEl;
+        const roomContentTabs = dom.roomContentTabs;
 
         let collabAuthMode = 'initial';
         const collabCreateOptionValue = '__create__';
         let collabDrawerRestoreEmptyHint = false;
+        let roomContentActiveTab = 'models';
+        let roomContentInventory = null;
+        let roomContentLoadGeneration = 0;
+        let roomContentActionInFlight = false;
 
         function isEmptyHintVisibleForCollabDrawer() {
             return !!emptyHintEl && !emptyHintEl.hidden && !isRoomEntryLandingActive();
@@ -1934,6 +1947,7 @@ export class ViewerApp {
         function setCollabSessionEnabled(enabled) {
             const targets = [
                 collabCopyBtn,
+                collabRoomManageBtn,
                 collabReserveBtn,
                 collabChatInputEl,
                 collabChatSendBtn,
@@ -2010,6 +2024,8 @@ export class ViewerApp {
             setCollabStatus('off');
             updateCollabStatusButton();
             setChatPanelAvailability(false);
+            setRoomContentOpen(false);
+            updateRoomContentButton();
             seenChatMessageIds.clear();
             if (collabChatLogEl) collabChatLogEl.innerHTML = '';
             collabContributors.clear();
@@ -2037,6 +2053,450 @@ export class ViewerApp {
             if (collabIsSuperuser) return true;
             if (room.owner_id === collabUser.id) return true;
             return collabProject?.owner_id === collabUser.id;
+        }
+
+        function canManageRoomContent(room = collabRoom, project = collabProject) {
+            if (!collabAuthed || !collabIsRegistered || !collabUser || !room || !project) return false;
+            if (collabIsSuperuser) return true;
+            if (room.owner_id === collabUser.id) return true;
+            return project.owner_id === collabUser.id;
+        }
+
+        function updateRoomContentButton() {
+            if (!collabRoomManageBtn) return;
+            const enabled = canManageRoomContent();
+            collabRoomManageBtn.hidden = !enabled;
+            collabRoomManageBtn.disabled = !enabled;
+        }
+
+        function formatBytes(value) {
+            const bytes = Number(value || 0);
+            if (!Number.isFinite(bytes) || bytes <= 0) return '—';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let next = bytes;
+            let unitIndex = 0;
+            while (next >= 1024 && unitIndex < units.length - 1) {
+                next /= 1024;
+                unitIndex += 1;
+            }
+            const precision = unitIndex === 0 ? 0 : (next >= 10 ? 1 : 2);
+            return `${next.toFixed(precision)} ${units[unitIndex]}`;
+        }
+
+        function formatRoomContentDate(value) {
+            if (!value) return '—';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '—';
+            return date.toLocaleString('ru-RU', {
+                day: '2-digit',
+                month: '2-digit',
+                year: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        }
+
+        function estimateJsonBytes(value) {
+            try {
+                return new TextEncoder().encode(JSON.stringify(value ?? null)).length;
+            } catch (_) {
+                try {
+                    return JSON.stringify(value ?? null).length;
+                } catch (_) {
+                    return 0;
+                }
+            }
+        }
+
+        function getRoomContentRoomById(roomId) {
+            const id = String(roomId || '').trim();
+            return collabRooms.find((room) => String(room?.id || '') === id) || null;
+        }
+
+        function getRoomContentSelectedRoom() {
+            const selectedId = String(roomContentRoomSelectEl?.value || collabRoom?.id || '').trim();
+            return getRoomContentRoomById(selectedId) || collabRoom || null;
+        }
+
+        function setRoomContentStatus(message) {
+            if (roomContentStatusEl) roomContentStatusEl.textContent = String(message || '');
+        }
+
+        function setRoomContentOpen(open) {
+            if (!roomContentModalEl) return;
+            const next = !!open;
+            roomContentModalEl.classList.toggle('show', next);
+            roomContentModalEl.setAttribute('aria-hidden', next ? 'false' : 'true');
+            if (!next) {
+                roomContentInventory = null;
+                setRoomContentStatus('');
+            }
+        }
+
+        function renderRoomContentRoomOptions(selectedRoomId = '') {
+            if (!roomContentRoomSelectEl) return;
+            const currentProjectId = String(collabProject?.id || '');
+            const rooms = collabRooms.filter((room) => String(room?.project_id || '') === currentProjectId);
+            roomContentRoomSelectEl.innerHTML = '';
+            rooms.forEach((room) => {
+                const opt = document.createElement('option');
+                opt.value = room.id;
+                opt.textContent = room.slug || room.id;
+                roomContentRoomSelectEl.appendChild(opt);
+            });
+            roomContentRoomSelectEl.value = selectedRoomId || collabRoom?.id || rooms[0]?.id || '';
+            roomContentRoomSelectEl.disabled = roomContentActionInFlight || rooms.length <= 1;
+        }
+
+        function getProjectModelMetaSize(model) {
+            const meta = model?.meta || {};
+            const value = meta.size ?? meta.fileSize ?? meta.file_size ?? meta.bytes;
+            const size = Number(value || 0);
+            return Number.isFinite(size) && size > 0 ? size : 0;
+        }
+
+        function getProjectModelUploader(model) {
+            const meta = model?.meta || {};
+            return String(
+                meta.uploadedByName
+                || meta.uploaded_by_name
+                || meta.authorName
+                || meta.author_name
+                || meta.uploadedBy
+                || meta.uploaded_by
+                || ''
+            ).trim() || '—';
+        }
+
+        function makeRoomContentInventory({ room, modelRows, annotationRows, cameraRows } = {}) {
+            const models = (Array.isArray(modelRows) ? modelRows : [])
+                .map((row) => {
+                    const model = row?.project_models || {};
+                    const modelId = String(row?.model_id || model?.id || '').trim();
+                    if (!modelId) return null;
+                    const meta = model?.meta || {};
+                    const kind = String(meta.kind || '').trim().toUpperCase()
+                        || (String(model?.name || '').toLowerCase().endsWith('.fbx') ? 'FBX' : 'ZIP');
+                    return {
+                        type: 'model',
+                        id: modelId,
+                        name: String(model?.name || modelId).trim() || modelId,
+                        kind,
+                        owner: getProjectModelUploader(model),
+                        createdAt: row?.created_at || model?.created_at || '',
+                        size: getProjectModelMetaSize(model),
+                        storagePath: getProjectModelStoragePath(model),
+                    };
+                })
+                .filter(Boolean);
+            const annotations = (Array.isArray(annotationRows) ? annotationRows : [])
+                .map((row) => ({
+                    type: 'annotation',
+                    id: String(row?.id || '').trim(),
+                    name: String(row?.kind || 'annotation').trim() || 'annotation',
+                    kind: String(row?.kind || '—').trim() || '—',
+                    owner: String(row?.author_name || row?.author_id || '').trim() || '—',
+                    createdAt: row?.created_at || '',
+                    size: estimateJsonBytes(row?.payload),
+                }))
+                .filter((row) => row.id);
+            const cameras = (Array.isArray(cameraRows) ? cameraRows : [])
+                .map((row) => ({
+                    type: 'camera',
+                    id: String(row?.id || '').trim(),
+                    name: String(row?.name || 'Camera').trim() || 'Camera',
+                    kind: 'CAM',
+                    owner: '—',
+                    createdAt: row?.created_at || row?.updated_at || '',
+                    size: estimateJsonBytes(row),
+                }))
+                .filter((row) => row.id);
+            return {
+                room,
+                models,
+                annotations,
+                cameras,
+                modelBytes: models.reduce((sum, item) => sum + (Number(item.size) || 0), 0),
+            };
+        }
+
+        async function fetchRoomContentInventory(roomId) {
+            const room = getRoomContentRoomById(roomId);
+            if (!room || !collabProject || !collabSupabase) {
+                throw new Error('Комната не выбрана.');
+            }
+            if (!canManageRoomContent(room, collabProject)) {
+                throw new Error('Недостаточно прав для управления содержимым комнаты.');
+            }
+            const [modelsResult, annotationsResult, camerasResult] = await Promise.all([
+                collabSupabase
+                    .from('room_models')
+                    .select('room_id, project_id, model_id, sort_order, visible, created_at, project_models (id, project_id, name, url, meta, created_at, updated_at)')
+                    .eq('room_id', room.id)
+                    .order('sort_order', { ascending: true }),
+                collabSupabase
+                    .from('annotations')
+                    .select('id, author_id, author_name, kind, payload, created_at')
+                    .eq('room_id', room.id)
+                    .order('created_at', { ascending: true }),
+                collabSupabase
+                    .from('room_cameras')
+                    .select('id, room_id, name, position, target, up, fov, zoom, near, far, shift_x, shift_y, created_at, updated_at')
+                    .eq('room_id', room.id)
+                    .order('created_at', { ascending: true }),
+            ]);
+            if (modelsResult.error) throw modelsResult.error;
+            if (annotationsResult.error) throw annotationsResult.error;
+            if (camerasResult.error) throw camerasResult.error;
+            return makeRoomContentInventory({
+                room,
+                modelRows: modelsResult.data,
+                annotationRows: annotationsResult.data,
+                cameraRows: camerasResult.data,
+            });
+        }
+
+        function renderRoomContentSummary() {
+            if (!roomContentSummaryEl) return;
+            const inventory = roomContentInventory;
+            if (!inventory) {
+                roomContentSummaryEl.textContent = '—';
+                return;
+            }
+            roomContentSummaryEl.textContent = [
+                `Моделей: ${inventory.models.length}`,
+                `Аннотаций: ${inventory.annotations.length}`,
+                `Камер: ${inventory.cameras.length}`,
+                `Размер моделей: ${formatBytes(inventory.modelBytes)}`,
+            ].join(' · ');
+        }
+
+        function getRoomContentRowsForTab() {
+            if (!roomContentInventory) return [];
+            if (roomContentActiveTab === 'annotations') return roomContentInventory.annotations;
+            if (roomContentActiveTab === 'cameras') return roomContentInventory.cameras;
+            return roomContentInventory.models;
+        }
+
+        function getRoomContentDeleteLabel(row) {
+            if (row?.type === 'model') return 'Удалить модель из комнаты?';
+            if (row?.type === 'annotation') return 'Удалить аннотацию?';
+            if (row?.type === 'camera') return 'Удалить камеру?';
+            return 'Удалить элемент?';
+        }
+
+        function appendRoomContentCell(rowEl, text, className = '') {
+            const cell = document.createElement('div');
+            if (className) cell.className = className;
+            cell.textContent = text;
+            rowEl.appendChild(cell);
+            return cell;
+        }
+
+        function renderRoomContentList() {
+            if (!roomContentListEl) return;
+            roomContentListEl.innerHTML = '';
+            const rows = getRoomContentRowsForTab();
+            if (!rows.length) {
+                const empty = document.createElement('div');
+                empty.className = 'room-content-empty';
+                empty.textContent = roomContentActiveTab === 'models'
+                    ? 'В комнате нет моделей.'
+                    : (roomContentActiveTab === 'annotations' ? 'В комнате нет аннотаций.' : 'В комнате нет камер.');
+                roomContentListEl.appendChild(empty);
+                return;
+            }
+            const head = document.createElement('div');
+            head.className = 'room-content-row room-content-head';
+            ['Название', 'Тип', 'Владелец', 'Создано', ''].forEach((label) => appendRoomContentCell(head, label));
+            roomContentListEl.appendChild(head);
+            rows.forEach((row) => {
+                const rowEl = document.createElement('div');
+                rowEl.className = 'room-content-row';
+
+                const main = document.createElement('div');
+                main.className = 'room-content-main';
+                const name = document.createElement('div');
+                name.className = 'room-content-name';
+                name.textContent = row.name;
+                const sub = document.createElement('div');
+                sub.className = 'room-content-sub';
+                sub.textContent = row.type === 'model'
+                    ? `${formatBytes(row.size)}${row.storagePath ? ' · storage' : ''}`
+                    : formatBytes(row.size);
+                main.append(name, sub);
+                rowEl.appendChild(main);
+
+                appendRoomContentCell(rowEl, row.kind || '—');
+                appendRoomContentCell(rowEl, row.owner || '—');
+                appendRoomContentCell(rowEl, formatRoomContentDate(row.createdAt));
+
+                const action = document.createElement('div');
+                action.className = 'room-content-action';
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn danger';
+                btn.textContent = 'Удалить';
+                btn.disabled = roomContentActionInFlight || !canManageRoomContent(roomContentInventory?.room, collabProject);
+                btn.title = getRoomContentDeleteLabel(row);
+                btn.addEventListener('click', () => {
+                    void deleteRoomContentItem(row);
+                });
+                action.appendChild(btn);
+                rowEl.appendChild(action);
+                roomContentListEl.appendChild(rowEl);
+            });
+        }
+
+        function renderRoomContent() {
+            if (Array.isArray(roomContentTabs)) {
+                roomContentTabs.forEach((btn) => {
+                    const tab = String(btn?.dataset?.tab || '');
+                    btn.classList.toggle('active', tab === roomContentActiveTab);
+                    btn.disabled = roomContentActionInFlight;
+                });
+            }
+            renderRoomContentSummary();
+            renderRoomContentList();
+        }
+
+        async function loadRoomContentInventory(roomId = '') {
+            if (!roomContentModalEl?.classList?.contains('show')) return;
+            const room = getRoomContentRoomById(roomId || roomContentRoomSelectEl?.value || collabRoom?.id || '');
+            if (!room) return;
+            const generation = ++roomContentLoadGeneration;
+            setRoomContentStatus('Загрузка…');
+            roomContentActionInFlight = false;
+            renderRoomContentRoomOptions(room.id);
+            renderRoomContent();
+            try {
+                const inventory = await fetchRoomContentInventory(room.id);
+                if (generation !== roomContentLoadGeneration) return;
+                roomContentInventory = inventory;
+                setRoomContentStatus('');
+                renderRoomContent();
+            } catch (err) {
+                if (generation !== roomContentLoadGeneration) return;
+                console.error('Room content load failed', err);
+                roomContentInventory = null;
+                setRoomContentStatus(`Ошибка: ${err?.message || err}`);
+                renderRoomContent();
+            }
+        }
+
+        async function openRoomContentManager() {
+            if (!canManageRoomContent()) return;
+            setRoomContentOpen(true);
+            renderRoomContentRoomOptions(collabRoom?.id || '');
+            roomContentInventory = null;
+            renderRoomContent();
+            await loadRoomContentInventory(collabRoom?.id || '');
+        }
+
+        async function deleteRoomContentModel(row) {
+            const room = roomContentInventory?.room || getRoomContentSelectedRoom();
+            const roomId = String(room?.id || '');
+            const projectId = String(room?.project_id || collabProject?.id || '');
+            const modelId = String(row?.id || '').trim();
+            const supabase = collabSupabase;
+            if (!supabase || !roomId || !projectId || !modelId) return false;
+            const { error: activeModelError } = await supabase
+                .from('rooms')
+                .update({ active_model_id: null })
+                .eq('id', roomId)
+                .eq('active_model_id', modelId);
+            if (activeModelError) throw activeModelError;
+            const { error: linkError } = await supabase
+                .from('room_models')
+                .delete()
+                .eq('room_id', roomId)
+                .eq('model_id', modelId);
+            if (linkError) throw linkError;
+
+            if (String(collabRoom?.id || '') === roomId) {
+                forgetRoomModelId(modelId, { tombstone: true });
+                cleanupRoomModelScopedAssets({ roomId, modelId });
+            }
+
+            const { data: remainingLinks, error: remainingError } = await supabase
+                .from('room_models')
+                .select('room_id')
+                .eq('model_id', modelId)
+                .limit(1);
+            if (remainingError) throw remainingError;
+            if (!Array.isArray(remainingLinks) || remainingLinks.length === 0) {
+                const { error: modelError } = await supabase
+                    .from('project_models')
+                    .delete()
+                    .eq('id', modelId)
+                    .eq('project_id', projectId);
+                if (modelError) throw modelError;
+            }
+            return true;
+        }
+
+        async function deleteRoomContentAnnotation(row) {
+            const roomId = String(roomContentInventory?.room?.id || '').trim();
+            const id = String(row?.id || '').trim();
+            if (!collabSupabase || !roomId || !id) return false;
+            const { error } = await collabSupabase
+                .from('annotations')
+                .delete()
+                .eq('room_id', roomId)
+                .eq('id', id);
+            if (error) throw error;
+            if (String(collabRoom?.id || '') === roomId) {
+                annotations3d?.removeRemoteAnnotation?.(id);
+            }
+            return true;
+        }
+
+        async function deleteRoomContentCamera(row) {
+            const roomId = String(roomContentInventory?.room?.id || '').trim();
+            const id = String(row?.id || '').trim();
+            if (!collabSupabase || !roomId || !id) return false;
+            const { error } = await collabSupabase
+                .from('room_cameras')
+                .delete()
+                .eq('room_id', roomId)
+                .eq('id', id);
+            if (error) throw error;
+            if (String(collabRoom?.id || '') === roomId && collabController) {
+                await loadRoomCameras({
+                    controller: collabController,
+                    roomId,
+                    generation: roomLoadGeneration,
+                });
+            }
+            return true;
+        }
+
+        async function deleteRoomContentItem(row) {
+            if (!row || roomContentActionInFlight) return;
+            const confirmed = await confirmModal.open({
+                title: 'Удалить содержимое',
+                message: `${getRoomContentDeleteLabel(row)}\n\n${row.name}`,
+                okText: 'Удалить',
+                cancelText: 'Отмена',
+            });
+            if (!confirmed) return;
+            roomContentActionInFlight = true;
+            setRoomContentStatus('Удаление…');
+            renderRoomContent();
+            try {
+                if (row.type === 'model') await deleteRoomContentModel(row);
+                else if (row.type === 'annotation') await deleteRoomContentAnnotation(row);
+                else if (row.type === 'camera') await deleteRoomContentCamera(row);
+                setRoomContentStatus('Удалено');
+                await loadRoomContentInventory(roomContentInventory?.room?.id || roomContentRoomSelectEl?.value || '');
+            } catch (err) {
+                console.error('Room content delete failed', err);
+                setRoomContentStatus(`Ошибка удаления: ${err?.message || err}`);
+            } finally {
+                roomContentActionInFlight = false;
+                renderRoomContentRoomOptions(roomContentInventory?.room?.id || roomContentRoomSelectEl?.value || '');
+                renderRoomContent();
+            }
         }
 
         async function deleteProjectById(projectId) {
@@ -2334,6 +2794,7 @@ export class ViewerApp {
         function updateAdminControls() {
             const canDeleteProject = !!collabProject && canDeleteProjectItem(collabProject);
             const canDeleteRoom = !!collabRoom && canDeleteRoomItem(collabRoom);
+            updateRoomContentButton();
             if (canDeleteProject || canDeleteRoom) {
                 setCollabStatus('ready');
             }
@@ -3796,6 +4257,49 @@ export class ViewerApp {
                 if (navigator?.clipboard?.writeText) {
                     void navigator.clipboard.writeText(value);
                 }
+            });
+        }
+
+        if (collabRoomManageBtn) {
+            addAppEventListener(collabRoomManageBtn, 'click', () => {
+                void openRoomContentManager();
+            });
+        }
+
+        if (roomContentCloseBtn) {
+            addAppEventListener(roomContentCloseBtn, 'click', () => {
+                setRoomContentOpen(false);
+            });
+        }
+
+        if (roomContentModalEl) {
+            addAppEventListener(roomContentModalEl, 'click', (event) => {
+                if (event.target === roomContentModalEl && !roomContentActionInFlight) {
+                    setRoomContentOpen(false);
+                }
+            });
+        }
+
+        if (roomContentRoomSelectEl) {
+            addAppEventListener(roomContentRoomSelectEl, 'change', () => {
+                void loadRoomContentInventory(roomContentRoomSelectEl.value);
+            });
+        }
+
+        if (roomContentRefreshBtn) {
+            addAppEventListener(roomContentRefreshBtn, 'click', () => {
+                void loadRoomContentInventory(roomContentRoomSelectEl?.value || collabRoom?.id || '');
+            });
+        }
+
+        if (Array.isArray(roomContentTabs)) {
+            roomContentTabs.forEach((btn) => {
+                addAppEventListener(btn, 'click', () => {
+                    const tab = String(btn?.dataset?.tab || 'models');
+                    if (!tab || tab === roomContentActiveTab) return;
+                    roomContentActiveTab = tab;
+                    renderRoomContent();
+                });
             });
         }
 
@@ -5493,6 +5997,8 @@ export class ViewerApp {
                     kind: getModelKindFromName(file.name),
                     lastModified: file.lastModified || null,
                     storagePath: uploadedPath,
+                    uploadedBy: controller.user?.id || null,
+                    uploadedByName: controller.getDisplayName?.() || '',
                 };
                 setSyncStatus('запись модели в проект…');
                 const { data: modelRow, error: modelError } = await supabase
