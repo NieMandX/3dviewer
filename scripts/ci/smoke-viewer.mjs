@@ -1841,7 +1841,10 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
         const managerBeforeDelete = {
             summary: document.querySelector('#roomContentSummary')?.textContent || '',
             modelVisible: document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx') || false,
-            locationVisible: document.querySelector('#roomContentList')?.textContent?.includes('Switch Project / room-a') || false,
+            locationVisible: (
+                document.querySelector('#roomContentList')?.textContent?.includes('Switch Project')
+                && document.querySelector('#roomContentList')?.textContent?.includes('room-a')
+            ) || false,
             selection: document.querySelector('#roomContentRoomSelect')?.value || '',
             annotationTabText: '',
             cameraTabText: '',

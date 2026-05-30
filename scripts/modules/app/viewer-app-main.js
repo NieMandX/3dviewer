@@ -2444,75 +2444,212 @@ export class ViewerApp {
             return 'Удалить элемент?';
         }
 
-        function appendRoomContentCell(rowEl, text, className = '') {
-            const cell = document.createElement('div');
-            if (className) cell.className = className;
-            cell.textContent = text;
-            rowEl.appendChild(cell);
-            return cell;
+        function pluralRu(count, one, few, many) {
+            const value = Math.abs(Number(count) || 0);
+            const mod10 = value % 10;
+            const mod100 = value % 100;
+            if (mod10 === 1 && mod100 !== 11) return one;
+            if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+            return many;
+        }
+
+        function getRoomContentActiveTabLabel(count) {
+            if (roomContentActiveTab === 'annotations') {
+                return `${count} ${pluralRu(count, 'аннотация', 'аннотации', 'аннотаций')}`;
+            }
+            if (roomContentActiveTab === 'cameras') {
+                return `${count} ${pluralRu(count, 'камера', 'камеры', 'камер')}`;
+            }
+            return `${count} ${pluralRu(count, 'модель', 'модели', 'моделей')}`;
+        }
+
+        function getRoomContentEmptyText() {
+            if (roomContentActiveTab === 'annotations') return 'Нет аннотаций.';
+            if (roomContentActiveTab === 'cameras') return 'Нет камер.';
+            return 'Нет моделей.';
+        }
+
+        function appendRoomContentMeta(parent, text) {
+            const meta = document.createElement('span');
+            meta.className = 'room-content-tree-meta';
+            meta.textContent = text;
+            parent.appendChild(meta);
+            return meta;
+        }
+
+        function buildRoomContentTreeGroups(rows) {
+            const projects = new Map();
+            const ensureProject = (projectId, projectLabel) => {
+                const key = String(projectId || '').trim() || '__unknown_project__';
+                if (!projects.has(key)) {
+                    projects.set(key, {
+                        id: key,
+                        label: String(projectLabel || 'Проект').trim() || 'Проект',
+                        rooms: new Map(),
+                        rowCount: 0,
+                    });
+                }
+                return projects.get(key);
+            };
+            const ensureRoom = ({ roomId, roomLabel, roomOwnerId, projectId, projectLabel } = {}) => {
+                const project = ensureProject(projectId, projectLabel);
+                const key = String(roomId || '').trim() || '__unknown_room__';
+                if (!project.rooms.has(key)) {
+                    project.rooms.set(key, {
+                        id: key,
+                        label: String(roomLabel || 'Комната').trim() || 'Комната',
+                        ownerId: String(roomOwnerId || '').trim(),
+                        rows: [],
+                    });
+                }
+                return project.rooms.get(key);
+            };
+
+            const rooms = Array.isArray(roomContentInventory?.rooms) ? roomContentInventory.rooms : [];
+            rooms.forEach((room) => {
+                const project = getRoomContentProject(room);
+                ensureRoom({
+                    roomId: room?.id,
+                    roomLabel: getRoomLabel(room),
+                    roomOwnerId: room?.owner_id,
+                    projectId: project?.id || room?.project_id,
+                    projectLabel: getProjectLabel(project),
+                });
+            });
+
+            rows.forEach((row) => {
+                const room = ensureRoom(row);
+                room.rows.push(row);
+                const project = projects.get(String(row.projectId || '').trim() || '__unknown_project__');
+                if (project) project.rowCount += 1;
+            });
+
+            return Array.from(projects.values()).map((project) => ({
+                ...project,
+                rooms: Array.from(project.rooms.values()),
+            }));
+        }
+
+        function appendRoomContentItemRow(row, parent) {
+            const rowEl = document.createElement('div');
+            rowEl.className = 'room-content-row room-content-item-row';
+
+            const main = document.createElement('div');
+            main.className = 'room-content-main';
+            const name = document.createElement('div');
+            name.className = 'room-content-name';
+            name.textContent = row.name;
+            const sub = document.createElement('div');
+            sub.className = 'room-content-sub';
+            const details = [
+                formatBytes(row.size),
+                row.type === 'model' && row.storagePath ? 'storage' : '',
+            ].filter(Boolean);
+            sub.textContent = details.join(' · ');
+            main.append(name, sub);
+            rowEl.appendChild(main);
+
+            ['kind', 'owner'].forEach((field) => {
+                const cell = document.createElement('div');
+                cell.textContent = row[field] || '—';
+                rowEl.appendChild(cell);
+            });
+
+            const created = document.createElement('div');
+            created.textContent = formatRoomContentDate(row.createdAt);
+            rowEl.appendChild(created);
+
+            const action = document.createElement('div');
+            action.className = 'room-content-action';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn danger';
+            btn.textContent = 'Удалить';
+            const rowRoom = getRoomContentRoomById(row.roomId) || {
+                id: row.roomId,
+                project_id: row.projectId,
+                owner_id: row.roomOwnerId,
+            };
+            btn.disabled = roomContentActionInFlight || !canManageRoomContent(rowRoom, getProjectById(row.projectId));
+            btn.title = getRoomContentDeleteLabel(row);
+            btn.addEventListener('click', () => {
+                void deleteRoomContentItem(row);
+            });
+            action.appendChild(btn);
+            rowEl.appendChild(action);
+            parent.appendChild(rowEl);
         }
 
         function renderRoomContentList() {
             if (!roomContentListEl) return;
             roomContentListEl.innerHTML = '';
             const rows = getRoomContentRowsForTab();
-            if (!rows.length) {
+            const groups = buildRoomContentTreeGroups(rows);
+            if (!rows.length && !groups.length) {
                 const empty = document.createElement('div');
                 empty.className = 'room-content-empty';
-                empty.textContent = roomContentActiveTab === 'models'
-                    ? 'В выбранных комнатах нет моделей.'
-                    : (roomContentActiveTab === 'annotations' ? 'В выбранных комнатах нет аннотаций.' : 'В выбранных комнатах нет камер.');
+                empty.textContent = getRoomContentEmptyText();
                 roomContentListEl.appendChild(empty);
                 return;
             }
-            const head = document.createElement('div');
-            head.className = 'room-content-row room-content-head';
-            ['Название', 'Тип', 'Владелец', 'Создано', ''].forEach((label) => appendRoomContentCell(head, label));
-            roomContentListEl.appendChild(head);
-            rows.forEach((row) => {
-                const rowEl = document.createElement('div');
-                rowEl.className = 'room-content-row';
 
-                const main = document.createElement('div');
-                main.className = 'room-content-main';
-                const name = document.createElement('div');
-                name.className = 'room-content-name';
-                name.textContent = row.name;
-                const sub = document.createElement('div');
-                sub.className = 'room-content-sub';
-                const details = [
-                    formatBytes(row.size),
-                    row.type === 'model' && row.storagePath ? 'storage' : '',
-                    row.locationLabel || '',
-                ].filter(Boolean);
-                sub.textContent = details.join(' · ');
-                main.append(name, sub);
-                rowEl.appendChild(main);
+            const tree = document.createElement('div');
+            tree.className = 'room-content-tree';
+            groups.forEach((project) => {
+                const projectDetails = document.createElement('details');
+                projectDetails.className = 'room-content-project';
+                projectDetails.open = true;
+                const projectSummary = document.createElement('summary');
+                const projectLine = document.createElement('span');
+                projectLine.className = 'room-content-tree-line';
+                const projectName = document.createElement('span');
+                projectName.className = 'room-content-tree-name';
+                projectName.textContent = project.label;
+                projectLine.appendChild(projectName);
+                appendRoomContentMeta(projectLine, `${project.rooms.length} ${pluralRu(project.rooms.length, 'комната', 'комнаты', 'комнат')}`);
+                appendRoomContentMeta(projectLine, getRoomContentActiveTabLabel(project.rowCount));
+                projectSummary.appendChild(projectLine);
+                projectDetails.appendChild(projectSummary);
 
-                appendRoomContentCell(rowEl, row.kind || '—');
-                appendRoomContentCell(rowEl, row.owner || '—');
-                appendRoomContentCell(rowEl, formatRoomContentDate(row.createdAt));
+                project.rooms.forEach((room) => {
+                    const roomDetails = document.createElement('details');
+                    roomDetails.className = 'room-content-room';
+                    roomDetails.open = room.rows.length > 0;
+                    const roomSummary = document.createElement('summary');
+                    const roomLine = document.createElement('span');
+                    roomLine.className = 'room-content-tree-line';
+                    const roomName = document.createElement('span');
+                    roomName.className = 'room-content-tree-name';
+                    roomName.textContent = room.label;
+                    roomLine.appendChild(roomName);
+                    appendRoomContentMeta(roomLine, getRoomContentActiveTabLabel(room.rows.length));
+                    roomSummary.appendChild(roomLine);
+                    roomDetails.appendChild(roomSummary);
 
-                const action = document.createElement('div');
-                action.className = 'room-content-action';
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'btn danger';
-                btn.textContent = 'Удалить';
-                const rowRoom = getRoomContentRoomById(row.roomId) || {
-                    id: row.roomId,
-                    project_id: row.projectId,
-                    owner_id: row.roomOwnerId,
-                };
-                btn.disabled = roomContentActionInFlight || !canManageRoomContent(rowRoom, getProjectById(row.projectId));
-                btn.title = getRoomContentDeleteLabel(row);
-                btn.addEventListener('click', () => {
-                    void deleteRoomContentItem(row);
+                    const items = document.createElement('div');
+                    items.className = 'room-content-items';
+                    if (room.rows.length) {
+                        const head = document.createElement('div');
+                        head.className = 'room-content-row room-content-head';
+                        ['Название', 'Тип', 'Владелец', 'Создано', ''].forEach((label) => {
+                            const cell = document.createElement('div');
+                            cell.textContent = label;
+                            head.appendChild(cell);
+                        });
+                        items.appendChild(head);
+                        room.rows.forEach((row) => appendRoomContentItemRow(row, items));
+                    } else {
+                        const empty = document.createElement('div');
+                        empty.className = 'room-content-empty room-content-room-empty';
+                        empty.textContent = getRoomContentEmptyText();
+                        items.appendChild(empty);
+                    }
+                    roomDetails.appendChild(items);
+                    projectDetails.appendChild(roomDetails);
                 });
-                action.appendChild(btn);
-                rowEl.appendChild(action);
-                roomContentListEl.appendChild(rowEl);
+                tree.appendChild(projectDetails);
             });
+            roomContentListEl.appendChild(tree);
         }
 
         function renderRoomContent() {
