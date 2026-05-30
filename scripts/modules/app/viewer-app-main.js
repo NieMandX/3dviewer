@@ -887,8 +887,10 @@ export class ViewerApp {
         let collabDrawerRestoreEmptyHint = false;
         let roomContentActiveTab = 'models';
         let roomContentInventory = null;
+        let roomContentRooms = [];
         let roomContentLoadGeneration = 0;
         let roomContentActionInFlight = false;
+        const ROOM_CONTENT_ALL_ROOMS_VALUE = '__all_rooms__';
 
         function isEmptyHintVisibleForCollabDrawer() {
             return !!emptyHintEl && !emptyHintEl.hidden && !isRoomEntryLandingActive();
@@ -1947,7 +1949,6 @@ export class ViewerApp {
         function setCollabSessionEnabled(enabled) {
             const targets = [
                 collabCopyBtn,
-                collabRoomManageBtn,
                 collabReserveBtn,
                 collabChatInputEl,
                 collabChatSendBtn,
@@ -2055,16 +2056,30 @@ export class ViewerApp {
             return collabProject?.owner_id === collabUser.id;
         }
 
-        function canManageRoomContent(room = collabRoom, project = collabProject) {
-            if (!collabAuthed || !collabIsRegistered || !collabUser || !room || !project) return false;
+        function getProjectById(projectId) {
+            const id = String(projectId || '').trim();
+            if (!id) return null;
+            return collabProjects.find((project) => String(project?.id || '') === id) || null;
+        }
+
+        function canOpenRoomContentManager() {
+            return !!(collabReady && collabAuthed && collabIsRegistered && collabUser && collabSupabase);
+        }
+
+        function canManageRoomContent(room = collabRoom, project = null) {
+            if (!collabAuthed || !collabIsRegistered || !collabUser || !room) return false;
+            const roomProjectId = String(room?.project_id || '').trim();
+            const owningProject = project
+                || getProjectById(roomProjectId)
+                || (String(collabProject?.id || '') === roomProjectId ? collabProject : null);
             if (collabIsSuperuser) return true;
             if (room.owner_id === collabUser.id) return true;
-            return project.owner_id === collabUser.id;
+            return owningProject?.owner_id === collabUser.id;
         }
 
         function updateRoomContentButton() {
             if (!collabRoomManageBtn) return;
-            const enabled = canManageRoomContent();
+            const enabled = canOpenRoomContentManager();
             collabRoomManageBtn.hidden = !enabled;
             collabRoomManageBtn.disabled = !enabled;
         }
@@ -2110,12 +2125,69 @@ export class ViewerApp {
 
         function getRoomContentRoomById(roomId) {
             const id = String(roomId || '').trim();
-            return collabRooms.find((room) => String(room?.id || '') === id) || null;
+            if (!id || id === ROOM_CONTENT_ALL_ROOMS_VALUE) return null;
+            return roomContentRooms.find((room) => String(room?.id || '') === id)
+                || collabRooms.find((room) => String(room?.id || '') === id)
+                || (String(collabRoom?.id || '') === id ? collabRoom : null);
         }
 
-        function getRoomContentSelectedRoom() {
-            const selectedId = String(roomContentRoomSelectEl?.value || collabRoom?.id || '').trim();
-            return getRoomContentRoomById(selectedId) || collabRoom || null;
+        function getRoomContentProject(room) {
+            const projectId = String(room?.project_id || '').trim();
+            return getProjectById(projectId)
+                || (String(collabProject?.id || '') === projectId ? collabProject : null);
+        }
+
+        function getProjectLabel(project) {
+            return String(project?.name || project?.slug || project?.id || 'Проект').trim() || 'Проект';
+        }
+
+        function getRoomLabel(room) {
+            return String(room?.slug || room?.id || 'Комната').trim() || 'Комната';
+        }
+
+        function getRoomContentLocationLabel(room, project = null) {
+            const owningProject = project || getRoomContentProject(room);
+            const roomLabel = getRoomLabel(room);
+            return owningProject ? `${getProjectLabel(owningProject)} / ${roomLabel}` : roomLabel;
+        }
+
+        function getRoomContentSelectionValue() {
+            return String(roomContentRoomSelectEl?.value || ROOM_CONTENT_ALL_ROOMS_VALUE).trim()
+                || ROOM_CONTENT_ALL_ROOMS_VALUE;
+        }
+
+        async function loadRoomContentRooms() {
+            if (!canOpenRoomContentManager()) {
+                roomContentRooms = [];
+                return roomContentRooms;
+            }
+            await loadProjects();
+            const projectIds = collabProjects
+                .map((project) => String(project?.id || '').trim())
+                .filter(Boolean);
+            if (!projectIds.length) {
+                roomContentRooms = [];
+                return roomContentRooms;
+            }
+            const roomLists = await Promise.all(projectIds.map(async (projectId) => {
+                const { data, error } = await collabSupabase
+                    .from('rooms')
+                    .select(ROOM_SELECT_FIELDS)
+                    .eq('project_id', projectId)
+                    .order('created_at', { ascending: true });
+                if (error) throw error;
+                return Array.isArray(data) ? data : [];
+            }));
+            const seen = new Set();
+            roomContentRooms = roomLists
+                .flat()
+                .filter((room) => {
+                    const roomId = String(room?.id || '').trim();
+                    if (!roomId || seen.has(roomId)) return false;
+                    seen.add(roomId);
+                    return canManageRoomContent(room, getProjectById(room?.project_id));
+                });
+            return roomContentRooms;
         }
 
         function setRoomContentStatus(message) {
@@ -2133,19 +2205,44 @@ export class ViewerApp {
             }
         }
 
-        function renderRoomContentRoomOptions(selectedRoomId = '') {
+        function renderRoomContentRoomOptions(selectedRoomId = ROOM_CONTENT_ALL_ROOMS_VALUE) {
             if (!roomContentRoomSelectEl) return;
-            const currentProjectId = String(collabProject?.id || '');
-            const rooms = collabRooms.filter((room) => String(room?.project_id || '') === currentProjectId);
+            const rooms = roomContentRooms.length
+                ? roomContentRooms
+                : collabRooms.filter((room) => canManageRoomContent(room, getRoomContentProject(room)));
             roomContentRoomSelectEl.innerHTML = '';
+            const allOpt = document.createElement('option');
+            allOpt.value = ROOM_CONTENT_ALL_ROOMS_VALUE;
+            allOpt.textContent = rooms.length ? 'Все проекты и комнаты' : 'Нет доступных комнат';
+            roomContentRoomSelectEl.appendChild(allOpt);
+
+            const grouped = new Map();
             rooms.forEach((room) => {
-                const opt = document.createElement('option');
-                opt.value = room.id;
-                opt.textContent = room.slug || room.id;
-                roomContentRoomSelectEl.appendChild(opt);
+                const project = getRoomContentProject(room);
+                const projectId = String(project?.id || room?.project_id || '').trim() || '__unknown_project__';
+                if (!grouped.has(projectId)) {
+                    grouped.set(projectId, {
+                        project,
+                        rooms: [],
+                    });
+                }
+                grouped.get(projectId).rooms.push(room);
             });
-            roomContentRoomSelectEl.value = selectedRoomId || collabRoom?.id || rooms[0]?.id || '';
-            roomContentRoomSelectEl.disabled = roomContentActionInFlight || rooms.length <= 1;
+            grouped.forEach((group) => {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = getProjectLabel(group.project);
+                group.rooms.forEach((room) => {
+                    const opt = document.createElement('option');
+                    opt.value = room.id;
+                    opt.textContent = getRoomLabel(room);
+                    optgroup.appendChild(opt);
+                });
+                roomContentRoomSelectEl.appendChild(optgroup);
+            });
+            const requested = String(selectedRoomId || '').trim();
+            const hasRequestedRoom = rooms.some((room) => String(room?.id || '') === requested);
+            roomContentRoomSelectEl.value = hasRequestedRoom ? requested : ROOM_CONTENT_ALL_ROOMS_VALUE;
+            roomContentRoomSelectEl.disabled = roomContentActionInFlight || rooms.length === 0;
         }
 
         function getProjectModelMetaSize(model) {
@@ -2168,7 +2265,19 @@ export class ViewerApp {
             ).trim() || '—';
         }
 
-        function makeRoomContentInventory({ room, modelRows, annotationRows, cameraRows } = {}) {
+        function makeRoomContentInventory({ room, project, modelRows, annotationRows, cameraRows } = {}) {
+            const owningProject = project || getRoomContentProject(room);
+            const roomId = String(room?.id || '').trim();
+            const projectId = String(owningProject?.id || room?.project_id || '').trim();
+            const locationLabel = getRoomContentLocationLabel(room, owningProject);
+            const locationFields = {
+                roomId,
+                roomLabel: getRoomLabel(room),
+                roomOwnerId: String(room?.owner_id || '').trim(),
+                projectId,
+                projectLabel: getProjectLabel(owningProject),
+                locationLabel,
+            };
             const models = (Array.isArray(modelRows) ? modelRows : [])
                 .map((row) => {
                     const model = row?.project_models || {};
@@ -2186,6 +2295,7 @@ export class ViewerApp {
                         createdAt: row?.created_at || model?.created_at || '',
                         size: getProjectModelMetaSize(model),
                         storagePath: getProjectModelStoragePath(model),
+                        ...locationFields,
                     };
                 })
                 .filter(Boolean);
@@ -2198,6 +2308,7 @@ export class ViewerApp {
                     owner: String(row?.author_name || row?.author_id || '').trim() || '—',
                     createdAt: row?.created_at || '',
                     size: estimateJsonBytes(row?.payload),
+                    ...locationFields,
                 }))
                 .filter((row) => row.id);
             const cameras = (Array.isArray(cameraRows) ? cameraRows : [])
@@ -2209,10 +2320,13 @@ export class ViewerApp {
                     owner: '—',
                     createdAt: row?.created_at || row?.updated_at || '',
                     size: estimateJsonBytes(row),
+                    ...locationFields,
                 }))
                 .filter((row) => row.id);
             return {
                 room,
+                project: owningProject,
+                rooms: room ? [room] : [],
                 models,
                 annotations,
                 cameras,
@@ -2220,12 +2334,36 @@ export class ViewerApp {
             };
         }
 
-        async function fetchRoomContentInventory(roomId) {
-            const room = getRoomContentRoomById(roomId);
-            if (!room || !collabProject || !collabSupabase) {
+        function combineRoomContentInventories(inventories) {
+            const items = Array.isArray(inventories) ? inventories.filter(Boolean) : [];
+            const rooms = [];
+            const seenRooms = new Set();
+            items.forEach((inventory) => {
+                (Array.isArray(inventory.rooms) ? inventory.rooms : []).forEach((room) => {
+                    const roomId = String(room?.id || '').trim();
+                    if (!roomId || seenRooms.has(roomId)) return;
+                    seenRooms.add(roomId);
+                    rooms.push(room);
+                });
+            });
+            const models = items.flatMap((inventory) => inventory.models || []);
+            return {
+                room: null,
+                project: null,
+                rooms,
+                models,
+                annotations: items.flatMap((inventory) => inventory.annotations || []),
+                cameras: items.flatMap((inventory) => inventory.cameras || []),
+                modelBytes: models.reduce((sum, item) => sum + (Number(item.size) || 0), 0),
+            };
+        }
+
+        async function fetchSingleRoomContentInventory(room) {
+            const project = getRoomContentProject(room);
+            if (!room || !project || !collabSupabase) {
                 throw new Error('Комната не выбрана.');
             }
-            if (!canManageRoomContent(room, collabProject)) {
+            if (!canManageRoomContent(room, project)) {
                 throw new Error('Недостаточно прав для управления содержимым комнаты.');
             }
             const [modelsResult, annotationsResult, camerasResult] = await Promise.all([
@@ -2250,10 +2388,27 @@ export class ViewerApp {
             if (camerasResult.error) throw camerasResult.error;
             return makeRoomContentInventory({
                 room,
+                project,
                 modelRows: modelsResult.data,
                 annotationRows: annotationsResult.data,
                 cameraRows: camerasResult.data,
             });
+        }
+
+        async function fetchRoomContentInventory(selection = ROOM_CONTENT_ALL_ROOMS_VALUE) {
+            if (!collabSupabase) {
+                throw new Error('Supabase не подключен.');
+            }
+            const selected = String(selection || ROOM_CONTENT_ALL_ROOMS_VALUE).trim() || ROOM_CONTENT_ALL_ROOMS_VALUE;
+            if (selected && selected !== ROOM_CONTENT_ALL_ROOMS_VALUE) {
+                const room = getRoomContentRoomById(selected);
+                if (!room) throw new Error('Комната не выбрана.');
+                return fetchSingleRoomContentInventory(room);
+            }
+            const rooms = roomContentRooms.length ? roomContentRooms : await loadRoomContentRooms();
+            if (!rooms.length) return combineRoomContentInventories([]);
+            const inventories = await Promise.all(rooms.map((room) => fetchSingleRoomContentInventory(room)));
+            return combineRoomContentInventories(inventories);
         }
 
         function renderRoomContentSummary() {
@@ -2263,7 +2418,11 @@ export class ViewerApp {
                 roomContentSummaryEl.textContent = '—';
                 return;
             }
+            const roomCount = Array.isArray(inventory.rooms)
+                ? inventory.rooms.length
+                : (inventory.room ? 1 : 0);
             roomContentSummaryEl.textContent = [
+                `Комнат: ${roomCount}`,
                 `Моделей: ${inventory.models.length}`,
                 `Аннотаций: ${inventory.annotations.length}`,
                 `Камер: ${inventory.cameras.length}`,
@@ -2301,8 +2460,8 @@ export class ViewerApp {
                 const empty = document.createElement('div');
                 empty.className = 'room-content-empty';
                 empty.textContent = roomContentActiveTab === 'models'
-                    ? 'В комнате нет моделей.'
-                    : (roomContentActiveTab === 'annotations' ? 'В комнате нет аннотаций.' : 'В комнате нет камер.');
+                    ? 'В выбранных комнатах нет моделей.'
+                    : (roomContentActiveTab === 'annotations' ? 'В выбранных комнатах нет аннотаций.' : 'В выбранных комнатах нет камер.');
                 roomContentListEl.appendChild(empty);
                 return;
             }
@@ -2321,9 +2480,12 @@ export class ViewerApp {
                 name.textContent = row.name;
                 const sub = document.createElement('div');
                 sub.className = 'room-content-sub';
-                sub.textContent = row.type === 'model'
-                    ? `${formatBytes(row.size)}${row.storagePath ? ' · storage' : ''}`
-                    : formatBytes(row.size);
+                const details = [
+                    formatBytes(row.size),
+                    row.type === 'model' && row.storagePath ? 'storage' : '',
+                    row.locationLabel || '',
+                ].filter(Boolean);
+                sub.textContent = details.join(' · ');
                 main.append(name, sub);
                 rowEl.appendChild(main);
 
@@ -2337,7 +2499,12 @@ export class ViewerApp {
                 btn.type = 'button';
                 btn.className = 'btn danger';
                 btn.textContent = 'Удалить';
-                btn.disabled = roomContentActionInFlight || !canManageRoomContent(roomContentInventory?.room, collabProject);
+                const rowRoom = getRoomContentRoomById(row.roomId) || {
+                    id: row.roomId,
+                    project_id: row.projectId,
+                    owner_id: row.roomOwnerId,
+                };
+                btn.disabled = roomContentActionInFlight || !canManageRoomContent(rowRoom, getProjectById(row.projectId));
                 btn.title = getRoomContentDeleteLabel(row);
                 btn.addEventListener('click', () => {
                     void deleteRoomContentItem(row);
@@ -2362,15 +2529,14 @@ export class ViewerApp {
 
         async function loadRoomContentInventory(roomId = '') {
             if (!roomContentModalEl?.classList?.contains('show')) return;
-            const room = getRoomContentRoomById(roomId || roomContentRoomSelectEl?.value || collabRoom?.id || '');
-            if (!room) return;
+            const selection = String(roomId || getRoomContentSelectionValue()).trim() || ROOM_CONTENT_ALL_ROOMS_VALUE;
             const generation = ++roomContentLoadGeneration;
             setRoomContentStatus('Загрузка…');
             roomContentActionInFlight = false;
-            renderRoomContentRoomOptions(room.id);
+            renderRoomContentRoomOptions(selection);
             renderRoomContent();
             try {
-                const inventory = await fetchRoomContentInventory(room.id);
+                const inventory = await fetchRoomContentInventory(selection);
                 if (generation !== roomContentLoadGeneration) return;
                 roomContentInventory = inventory;
                 setRoomContentStatus('');
@@ -2385,18 +2551,29 @@ export class ViewerApp {
         }
 
         async function openRoomContentManager() {
-            if (!canManageRoomContent()) return;
+            if (!canOpenRoomContentManager()) return;
             setRoomContentOpen(true);
-            renderRoomContentRoomOptions(collabRoom?.id || '');
             roomContentInventory = null;
+            setRoomContentStatus('Загрузка комнат…');
+            renderRoomContentRoomOptions(ROOM_CONTENT_ALL_ROOMS_VALUE);
             renderRoomContent();
-            await loadRoomContentInventory(collabRoom?.id || '');
+            try {
+                await loadRoomContentRooms();
+                renderRoomContentRoomOptions(ROOM_CONTENT_ALL_ROOMS_VALUE);
+                await loadRoomContentInventory(ROOM_CONTENT_ALL_ROOMS_VALUE);
+            } catch (err) {
+                console.error('Room content rooms load failed', err);
+                roomContentInventory = null;
+                setRoomContentStatus(`Ошибка: ${err?.message || err}`);
+                renderRoomContentRoomOptions(ROOM_CONTENT_ALL_ROOMS_VALUE);
+                renderRoomContent();
+            }
         }
 
         async function deleteRoomContentModel(row) {
-            const room = roomContentInventory?.room || getRoomContentSelectedRoom();
-            const roomId = String(room?.id || '');
-            const projectId = String(room?.project_id || collabProject?.id || '');
+            const roomId = String(row?.roomId || roomContentInventory?.room?.id || '').trim();
+            const room = getRoomContentRoomById(roomId);
+            const projectId = String(row?.projectId || room?.project_id || collabProject?.id || '').trim();
             const modelId = String(row?.id || '').trim();
             const supabase = collabSupabase;
             if (!supabase || !roomId || !projectId || !modelId) return false;
@@ -2436,7 +2613,7 @@ export class ViewerApp {
         }
 
         async function deleteRoomContentAnnotation(row) {
-            const roomId = String(roomContentInventory?.room?.id || '').trim();
+            const roomId = String(row?.roomId || roomContentInventory?.room?.id || '').trim();
             const id = String(row?.id || '').trim();
             if (!collabSupabase || !roomId || !id) return false;
             const { error } = await collabSupabase
@@ -2452,7 +2629,7 @@ export class ViewerApp {
         }
 
         async function deleteRoomContentCamera(row) {
-            const roomId = String(roomContentInventory?.room?.id || '').trim();
+            const roomId = String(row?.roomId || roomContentInventory?.room?.id || '').trim();
             const id = String(row?.id || '').trim();
             if (!collabSupabase || !roomId || !id) return false;
             const { error } = await collabSupabase
@@ -2484,17 +2661,18 @@ export class ViewerApp {
             setRoomContentStatus('Удаление…');
             renderRoomContent();
             try {
+                const selection = getRoomContentSelectionValue();
                 if (row.type === 'model') await deleteRoomContentModel(row);
                 else if (row.type === 'annotation') await deleteRoomContentAnnotation(row);
                 else if (row.type === 'camera') await deleteRoomContentCamera(row);
                 setRoomContentStatus('Удалено');
-                await loadRoomContentInventory(roomContentInventory?.room?.id || roomContentRoomSelectEl?.value || '');
+                await loadRoomContentInventory(selection);
             } catch (err) {
                 console.error('Room content delete failed', err);
                 setRoomContentStatus(`Ошибка удаления: ${err?.message || err}`);
             } finally {
                 roomContentActionInFlight = false;
-                renderRoomContentRoomOptions(roomContentInventory?.room?.id || roomContentRoomSelectEl?.value || '');
+                renderRoomContentRoomOptions(getRoomContentSelectionValue());
                 renderRoomContent();
             }
         }
@@ -4288,7 +4466,14 @@ export class ViewerApp {
 
         if (roomContentRefreshBtn) {
             addAppEventListener(roomContentRefreshBtn, 'click', () => {
-                void loadRoomContentInventory(roomContentRoomSelectEl?.value || collabRoom?.id || '');
+                void (async () => {
+                    try {
+                        await loadRoomContentRooms();
+                    } catch (err) {
+                        console.error('Room content rooms refresh failed', err);
+                    }
+                    await loadRoomContentInventory(getRoomContentSelectionValue());
+                })();
             });
         }
 

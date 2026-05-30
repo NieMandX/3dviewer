@@ -1790,6 +1790,83 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
 
         const projectSelect = document.querySelector('#collabProjectSelect');
         await waitFor(() => optionValues('#collabProjectSelect').includes('project-switch'));
+
+        const roomContentModel = {
+            id: 'inventory-model',
+            project_id: 'project-switch',
+            name: 'inventory-model.fbx',
+            url: 'storage://models/projects/project-switch/inventory-model.fbx',
+            meta: {
+                size: 1536,
+                kind: 'fbx',
+                storagePath: 'projects/project-switch/inventory-model.fbx',
+                uploadedBy: 'registered-user',
+                uploadedByName: 'Switch User',
+            },
+            created_at: '2026-01-01T00:00:00Z',
+        };
+        globalThis.__lpmSwitchSmokeRoomContent.projectModels.push(roomContentModel);
+        globalThis.__lpmSwitchSmokeRoomContent.roomModels.push({
+            room_id: 'room-a',
+            project_id: 'project-switch',
+            model_id: 'inventory-model',
+            sort_order: 0,
+            visible: true,
+            created_at: '2026-01-01T00:01:00Z',
+            project_models: roomContentModel,
+        });
+        globalThis.__lpmSwitchSmokeRoomContent.annotations.push({
+            id: 'anno-a',
+            room_id: 'room-a',
+            author_id: 'registered-user',
+            author_name: 'Switch User',
+            kind: 'pin',
+            payload: { text: 'pin' },
+            created_at: '2026-01-01T00:02:00Z',
+        });
+        globalThis.__lpmSwitchSmokeRoomContent.cameras.push({
+            id: 'camera-a',
+            room_id: 'room-a',
+            name: 'Camera A',
+            position: [1, 2, 3],
+            target: [0, 0, 0],
+            created_at: '2026-01-01T00:03:00Z',
+        });
+
+        const managerButton = document.querySelector('#collabRoomManageBtn');
+        const managerButtonVisible = !!managerButton && !managerButton.hidden && managerButton.disabled === false;
+        managerButton?.click();
+        await waitFor(() => document.querySelector('#roomContentModal')?.classList.contains('show'));
+        await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx'));
+        const managerBeforeDelete = {
+            summary: document.querySelector('#roomContentSummary')?.textContent || '',
+            modelVisible: document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx') || false,
+            locationVisible: document.querySelector('#roomContentList')?.textContent?.includes('Switch Project / room-a') || false,
+            selection: document.querySelector('#roomContentRoomSelect')?.value || '',
+            annotationTabText: '',
+            cameraTabText: '',
+        };
+        document.querySelector('#roomContentTabAnnotations')?.click();
+        await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('pin'));
+        managerBeforeDelete.annotationTabText = document.querySelector('#roomContentList')?.textContent || '';
+        document.querySelector('#roomContentTabCameras')?.click();
+        await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('Camera A'));
+        managerBeforeDelete.cameraTabText = document.querySelector('#roomContentList')?.textContent || '';
+        document.querySelector('#roomContentTabModels')?.click();
+        await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx'));
+        document.querySelector('.room-content-row:not(.room-content-head) .btn.danger')?.click();
+        await waitFor(() => document.querySelector('#confirmModal')?.classList.contains('show'));
+        document.querySelector('#confirmOk')?.click();
+        await waitFor(() => (globalThis.__lpmSwitchSmoke?.roomContentModelDeletes || 0) >= 1);
+        await waitFor(() => !document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx'));
+        const managerAfterDelete = {
+            modelStillListed: document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx') || false,
+            roomModelRows: globalThis.__lpmSwitchSmokeRoomContent.roomModels.length,
+            projectModelRows: globalThis.__lpmSwitchSmokeRoomContent.projectModels.length,
+        };
+        document.querySelector('#roomContentClose')?.click();
+        await waitFor(() => !document.querySelector('#roomContentModal')?.classList.contains('show'));
+
         projectSelect.value = 'project-switch';
         projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
         await waitFor(() => optionValues('#collabRoomSelect').includes('room-a'));
@@ -1813,81 +1890,6 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             name: 'room-a-model.fbx',
             scope: { ...root.userData.importScope },
         });
-        const roomContentModel = {
-            id: 'room-a-model',
-            project_id: 'project-switch',
-            name: 'room-a-model.fbx',
-            url: 'storage://models/projects/project-switch/room-a-model.fbx',
-            meta: {
-                size: 1536,
-                kind: 'fbx',
-                storagePath: 'projects/project-switch/room-a-model.fbx',
-                uploadedBy: 'registered-user',
-                uploadedByName: 'Switch User',
-            },
-            created_at: '2026-01-01T00:00:00Z',
-        };
-        globalThis.__lpmSwitchSmokeRoomContent.projectModels.push(roomContentModel);
-        globalThis.__lpmSwitchSmokeRoomContent.roomModels.push({
-            room_id: 'room-a',
-            project_id: 'project-switch',
-            model_id: 'room-a-model',
-            sort_order: 0,
-            visible: true,
-            created_at: '2026-01-01T00:01:00Z',
-            project_models: roomContentModel,
-        });
-        globalThis.__lpmSwitchSmokeRoomContent.annotations.push({
-            id: 'anno-a',
-            room_id: 'room-a',
-            author_id: 'registered-user',
-            author_name: 'Switch User',
-            kind: 'pin',
-            payload: { text: 'pin' },
-            created_at: '2026-01-01T00:02:00Z',
-        });
-        globalThis.__lpmSwitchSmokeRoomContent.cameras.push({
-            id: 'camera-a',
-            room_id: 'room-a',
-            name: 'Camera A',
-            position: [1, 2, 3],
-            target: [0, 0, 0],
-            created_at: '2026-01-01T00:03:00Z',
-        });
-        const managerButton = document.querySelector('#collabRoomManageBtn');
-        const managerButtonVisible = !!managerButton && !managerButton.hidden && managerButton.disabled === false;
-        managerButton?.click();
-        await waitFor(() => document.querySelector('#roomContentModal')?.classList.contains('show'));
-        await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('room-a-model.fbx'));
-        const managerBeforeDelete = {
-            summary: document.querySelector('#roomContentSummary')?.textContent || '',
-            modelVisible: document.querySelector('#roomContentList')?.textContent?.includes('room-a-model.fbx') || false,
-            annotationTabText: '',
-            cameraTabText: '',
-        };
-        document.querySelector('#roomContentTabAnnotations')?.click();
-        await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('pin'));
-        managerBeforeDelete.annotationTabText = document.querySelector('#roomContentList')?.textContent || '';
-        document.querySelector('#roomContentTabCameras')?.click();
-        await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('Camera A'));
-        managerBeforeDelete.cameraTabText = document.querySelector('#roomContentList')?.textContent || '';
-        document.querySelector('#roomContentTabModels')?.click();
-        await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('room-a-model.fbx'));
-        document.querySelector('.room-content-row:not(.room-content-head) .btn.danger')?.click();
-        await waitFor(() => document.querySelector('#confirmModal')?.classList.contains('show'));
-        document.querySelector('#confirmOk')?.click();
-        await waitFor(() => (globalThis.__lpmSwitchSmoke?.roomContentModelDeletes || 0) >= 1);
-        await waitFor(() => !root.parent && !globalThis.viewerApp.loadedModels.some((record) => record?.obj === root));
-        const managerAfterDelete = {
-            rootDetached: !root.parent,
-            modelRecordRemoved: !globalThis.viewerApp.loadedModels.some((record) => record?.obj === root),
-            modelStillListed: document.querySelector('#roomContentList')?.textContent?.includes('room-a-model.fbx') || false,
-            roomModelRows: globalThis.__lpmSwitchSmokeRoomContent.roomModels.length,
-            projectModelRows: globalThis.__lpmSwitchSmokeRoomContent.projectModels.length,
-        };
-        document.querySelector('#roomContentClose')?.click();
-        await waitFor(() => !document.querySelector('#roomContentModal')?.classList.contains('show'));
-
         const localRoot = new THREE.Group();
         localRoot.name = 'local-model-before-switch';
         globalThis.viewerApp.scene.add(localRoot);
@@ -1959,17 +1961,18 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
 
     assert.equal(result.calls.signIn, 1, 'Registered room switch smoke: login did not start');
     assert.equal(result.calls.roomAChannelCreates >= 1, true, 'Registered room switch smoke: first room did not connect');
-    assert.equal(result.managerButtonVisible, true, 'Registered room switch smoke: room content manager button is not available for room owner');
+    assert.equal(result.managerButtonVisible, true, 'Registered room switch smoke: room content manager button is not available after registered login');
+    assert.equal(result.managerBeforeDelete.selection, '__all_rooms__', 'Registered room switch smoke: room content manager did not default to all rooms');
+    assert.equal(result.managerBeforeDelete.summary.includes('Комнат: 3'), true, 'Registered room switch smoke: room content manager did not count rooms across projects');
     assert.equal(result.managerBeforeDelete.summary.includes('Моделей: 1'), true, 'Registered room switch smoke: room content manager did not count models');
     assert.equal(result.managerBeforeDelete.summary.includes('Аннотаций: 1'), true, 'Registered room switch smoke: room content manager did not count annotations');
     assert.equal(result.managerBeforeDelete.summary.includes('Камер: 1'), true, 'Registered room switch smoke: room content manager did not count cameras');
     assert.equal(result.managerBeforeDelete.modelVisible, true, 'Registered room switch smoke: room content manager did not list model');
+    assert.equal(result.managerBeforeDelete.locationVisible, true, 'Registered room switch smoke: room content manager did not show project and room location');
     assert.equal(result.managerBeforeDelete.annotationTabText.includes('pin'), true, 'Registered room switch smoke: room content manager did not list annotation');
     assert.equal(result.managerBeforeDelete.cameraTabText.includes('Camera A'), true, 'Registered room switch smoke: room content manager did not list camera');
     assert.equal(result.calls.roomContentModelDeletes, 1, 'Registered room switch smoke: room content manager did not delete room model link');
     assert.equal(result.calls.projectModelDeletes, 1, 'Registered room switch smoke: room content manager did not delete orphan project model');
-    assert.equal(result.managerAfterDelete.rootDetached, true, 'Registered room switch smoke: room content manager did not detach deleted model root');
-    assert.equal(result.managerAfterDelete.modelRecordRemoved, true, 'Registered room switch smoke: room content manager did not remove deleted model record');
     assert.equal(result.managerAfterDelete.modelStillListed, false, 'Registered room switch smoke: room content manager still listed deleted model');
     assert.equal(result.managerAfterDelete.roomModelRows, 0, 'Registered room switch smoke: room content manager left room model rows');
     assert.equal(result.managerAfterDelete.projectModelRows, 0, 'Registered room switch smoke: room content manager left orphan project model rows');
