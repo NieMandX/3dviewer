@@ -3556,13 +3556,21 @@ export class ViewerApp {
         async function loadProjects(options = {}) {
             const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => !appDisposed;
             if (!collabSupabase) return [];
-            const { data, error } = await collabSupabase
+            const userId = String(collabUser?.id || '').trim();
+            const ownerScoped = options.ownerScoped !== false && !!userId && !collabIsSuperuser;
+            let query = collabSupabase
                 .from('projects')
-                .select('id, name, slug, owner_id, created_at')
-                .order('created_at', { ascending: true });
+                .select('id, name, slug, owner_id, created_at');
+            if (ownerScoped) {
+                query = query.eq('owner_id', userId);
+            }
+            query = query.order('created_at', { ascending: true });
+            const { data, error } = await query;
             if (!isCurrent()) return collabProjects;
             if (error) throw error;
-            collabProjects = Array.isArray(data) ? data : [];
+            collabProjects = (Array.isArray(data) ? data : []).filter((project) => (
+                !ownerScoped || String(project?.owner_id || '') === userId
+            ));
             renderProjectOptions(collabProjects, collabProject?.id || '');
             return collabProjects;
         }

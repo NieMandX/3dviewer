@@ -1527,7 +1527,14 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             owner_id: 'registered-user',
             created_at: '2026-01-01T00:00:00Z',
         };
-        const projects = [project, projectB];
+        const foreignProject = {
+            id: 'project-foreign',
+            name: 'Foreign Project',
+            slug: 'foreign-project',
+            owner_id: 'other-user',
+            created_at: '2026-01-01T00:00:00Z',
+        };
+        const projects = [project, projectB, foreignProject];
         const rooms = [
             {
                 id: 'room-a',
@@ -1550,6 +1557,14 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 slug: 'room-c',
                 project_id: projectB.id,
                 owner_id: 'registered-user',
+                created_at: '2026-01-01T00:00:00Z',
+                active_model_id: '',
+            },
+            {
+                id: 'room-foreign',
+                slug: 'room-foreign',
+                project_id: foreignProject.id,
+                owner_id: 'other-user',
                 created_at: '2026-01-01T00:00:00Z',
                 active_model_id: '',
             },
@@ -1647,7 +1662,10 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 }
                 if (this.operation !== 'select') return { data: this.payload || null, error: null };
                 if (this.table === 'profiles') return { data: [], error: null };
-                if (this.table === 'projects') return { data: projects, error: null };
+                if (this.table === 'projects') {
+                    const data = projects.filter((row) => this.matchesFilters(row));
+                    return { data, error: null };
+                }
                 if (this.table === 'rooms') {
                     const projectFilter = this.filters.find((entry) => entry.column === 'project_id');
                     const data = projectFilter
@@ -1790,6 +1808,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
 
         const projectSelect = document.querySelector('#collabProjectSelect');
         await waitFor(() => optionValues('#collabProjectSelect').includes('project-switch'));
+        const projectOptionsAfterLogin = optionValues('#collabProjectSelect');
 
         const roomContentModel = {
             id: 'inventory-model',
@@ -1840,6 +1859,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
         await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx'));
         const managerBeforeDelete = {
             summary: document.querySelector('#roomContentSummary')?.textContent || '',
+            listText: document.querySelector('#roomContentList')?.textContent || '',
             modelVisible: document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx') || false,
             locationVisible: (
                 document.querySelector('#roomContentList')?.textContent?.includes('Switch Project')
@@ -1954,6 +1974,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
         return {
             calls: { ...globalThis.__lpmSwitchSmoke },
             managerButtonVisible,
+            projectOptionsAfterLogin,
             managerBeforeDelete,
             managerAfterDelete,
             controlsAfterRoomA,
@@ -1964,6 +1985,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
 
     assert.equal(result.calls.signIn, 1, 'Registered room switch smoke: login did not start');
     assert.equal(result.calls.roomAChannelCreates >= 1, true, 'Registered room switch smoke: first room did not connect');
+    assert.equal(result.projectOptionsAfterLogin.includes('project-foreign'), false, 'Registered room switch smoke: non-owned project was exposed to registered user');
     assert.equal(result.managerButtonVisible, true, 'Registered room switch smoke: room content manager button is not available after registered login');
     assert.equal(result.managerBeforeDelete.selection, '__all_rooms__', 'Registered room switch smoke: room content manager did not default to all rooms');
     assert.equal(result.managerBeforeDelete.summary.includes('Комнат: 3'), true, 'Registered room switch smoke: room content manager did not count rooms across projects');
@@ -1974,6 +1996,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
     assert.equal(result.managerBeforeDelete.locationVisible, true, 'Registered room switch smoke: room content manager did not show project and room location');
     assert.equal(result.managerBeforeDelete.annotationTabText.includes('pin'), true, 'Registered room switch smoke: room content manager did not list annotation');
     assert.equal(result.managerBeforeDelete.cameraTabText.includes('Camera A'), true, 'Registered room switch smoke: room content manager did not list camera');
+    assert.equal(result.managerBeforeDelete.listText.includes('Foreign Project'), false, 'Registered room switch smoke: room content manager listed non-owned project');
     assert.equal(result.calls.roomContentModelDeletes, 1, 'Registered room switch smoke: room content manager did not delete room model link');
     assert.equal(result.calls.projectModelDeletes, 1, 'Registered room switch smoke: room content manager did not delete orphan project model');
     assert.equal(result.managerAfterDelete.modelStillListed, false, 'Registered room switch smoke: room content manager still listed deleted model');
