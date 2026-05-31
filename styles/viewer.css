@@ -2331,8 +2331,21 @@ body.bg-black .collab-chat-panel {
 .room-content-tree details { margin:0; border-radius:8px; }
 .room-content-project { background:var(--surfaceWeak); }
 .room-content-room { background:var(--surface); margin-top:8px !important; }
-.room-content-tree summary { list-style-position:outside; }
-.room-content-tree-line { display:flex; align-items:center; gap:8px; min-width:0; }
+.room-content-tree summary { display:flex; align-items:center; gap:8px; list-style:none; min-width:0; }
+.room-content-tree summary::-webkit-details-marker { display:none; }
+.room-content-tree summary::before {
+    content:"";
+    width:0;
+    height:0;
+    border-top:5px solid transparent;
+    border-bottom:5px solid transparent;
+    border-left:7px solid var(--ink);
+    flex:0 0 auto;
+    transform-origin:50% 50%;
+    transition:transform .12s ease;
+}
+.room-content-tree details[open] > summary::before { transform:rotate(90deg); }
+.room-content-tree-line { display:flex; align-items:center; gap:8px; min-width:0; flex:1 1 auto; }
 .room-content-tree-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .room-content-tree-meta { color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:1px 7px; font-size:11px; font-weight:600; white-space:nowrap; }
 .room-content-items { display:flex; flex-direction:column; gap:0; margin-top:8px; }
