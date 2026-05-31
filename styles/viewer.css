@@ -2807,8 +2807,7 @@ body.bg-black .custom-select-option.is-selected {
     gap: 6px;
 }
 
-.collab-footer .collab-copy-btn,
-.collab-footer .collab-room-manage-btn {
+.collab-footer .collab-copy-btn {
     height: 22px;
     padding: 2px 8px;
     border-radius: 6px;
@@ -2822,14 +2821,12 @@ body.bg-black .custom-select-option.is-selected {
     font-weight: 400;
 }
 
-.collab-footer .collab-copy-btn:hover,
-.collab-footer .collab-room-manage-btn:hover {
+.collab-footer .collab-copy-btn:hover {
     border-color: var(--borderStrong);
     background: var(--controlBgHover);
 }
 
 .collab-footer .collab-copy-btn .icon,
-.collab-footer .collab-room-manage-btn .icon,
 .collab-footer .collab-reserve-btn .icon {
     width: 14px;
     height: 14px;
@@ -2840,7 +2837,28 @@ body.bg-black .custom-select-option.is-selected {
 }
 
 .collab-footer .collab-room-manage-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
     min-width: 0;
+    height: 22px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    color: #0b57d0;
+    border: 1px solid rgba(11, 87, 208, 0.35);
+    background: transparent;
+    box-shadow: var(--inset);
+    font-size: 11px;
+    line-height: 1;
+    font-family: "SFMono-Regular", Consolas, Monaco, "Liberation Mono", monospace;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+.collab-footer .collab-room-manage-btn:hover {
+    border-color: rgba(11, 87, 208, 0.35);
+    background: var(--controlBgHover);
 }
 
 .collab-footer .collab-reserve-btn {
@@ -2866,15 +2884,13 @@ body.bg-black .app-footer .btn.active {
     background: rgba(255, 255, 255, 0.12);
 }
 
-body.bg-black .collab-footer .collab-copy-btn,
-body.bg-black .collab-footer .collab-room-manage-btn {
+body.bg-black .collab-footer .collab-copy-btn {
     color: var(--ink);
     border-color: var(--border);
     background: var(--controlBg);
 }
 
-body.bg-black .collab-footer .collab-copy-btn:hover,
-body.bg-black .collab-footer .collab-room-manage-btn:hover {
+body.bg-black .collab-footer .collab-copy-btn:hover {
     border-color: var(--borderStrong);
     background: var(--controlBgHover);
 }
