@@ -543,6 +543,221 @@ async function runRoomEntrySmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runRoomInviteModelUploadGuardSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.addInitScript(() => {
+        window.__SUPABASE_URL = 'https://smoke.supabase.co';
+        window.__SUPABASE_ANON_KEY = 'smoke-key';
+
+        const project = {
+            id: 'project-owner',
+            name: 'Owner Project',
+            slug: 'owner-project',
+            owner_id: 'owner-user',
+            created_at: '2026-01-01T00:00:00Z',
+        };
+        const room = {
+            id: 'room-invite',
+            slug: 'invite-room',
+            project_id: project.id,
+            owner_id: 'owner-user',
+            created_at: '2026-01-01T00:00:00Z',
+            active_model_id: '',
+        };
+        const guest = {
+            id: 'guest-user',
+            email: '',
+            is_anonymous: true,
+            user_metadata: {},
+        };
+        const calls = {
+            anonymous: 0,
+            joinInvite: 0,
+            projectModelInserts: 0,
+            roomModelInserts: 0,
+            storageUploads: 0,
+        };
+        window.__lpmInviteGuardSmoke = calls;
+
+        class FakeQuery {
+            constructor(table) {
+                this.table = table;
+                this.filters = [];
+                this.payload = null;
+                this.operation = 'select';
+            }
+            select() { return this; }
+            order() { return this; }
+            limit() { return this; }
+            eq(column, value) {
+                this.filters.push({ column: String(column || ''), value: String(value || '') });
+                return this;
+            }
+            insert(payload) {
+                this.operation = 'insert';
+                this.payload = payload;
+                if (this.table === 'project_models') calls.projectModelInserts += 1;
+                if (this.table === 'room_models') calls.roomModelInserts += 1;
+                return this;
+            }
+            upsert(payload) {
+                this.operation = 'upsert';
+                this.payload = payload;
+                return this;
+            }
+            update(payload) {
+                this.operation = 'update';
+                this.payload = payload;
+                return this;
+            }
+            matchesFilters(row) {
+                return this.filters.every((entry) => String(row?.[entry.column] || '') === entry.value);
+            }
+            rows() {
+                if (this.table === 'profiles') return [];
+                if (this.table === 'projects') return [project].filter((row) => this.matchesFilters(row));
+                if (this.table === 'rooms') return [room].filter((row) => this.matchesFilters(row));
+                if (this.table === 'room_models') return [];
+                if (this.table === 'project_models') return [];
+                if (this.table === 'room_cameras') return [];
+                if (this.table === 'room_transitions') return [];
+                if (this.table === 'annotations') return [];
+                if (this.table === 'messages') return [];
+                return [];
+            }
+            async execute() {
+                if (this.operation !== 'select') return { data: this.payload || null, error: null };
+                return { data: this.rows(), error: null };
+            }
+            async maybeSingle() {
+                return { data: this.rows()[0] || null, error: null };
+            }
+            async single() {
+                return { data: { id: `${this.table}-row`, ...(this.payload || {}) }, error: null };
+            }
+            then(resolve, reject) {
+                return this.execute().then(resolve, reject);
+            }
+        }
+
+        class FakeChannel {
+            constructor(name) {
+                this.name = name;
+                this.state = 'closed';
+                this.socket = { isConnected: () => this.state === 'joined' };
+            }
+            on() { return this; }
+            subscribe(callback) {
+                this.state = 'joined';
+                queueMicrotask(() => callback?.('SUBSCRIBED'));
+                return this;
+            }
+            presenceState() {
+                return { [guest.id]: [{ name: 'Guest User', joinedAt: '2026-01-01T00:00:00Z' }] };
+            }
+            track() { return Promise.resolve('ok'); }
+            send() { return Promise.resolve('ok'); }
+            httpSend() { return Promise.resolve('ok'); }
+        }
+
+        const client = {
+            auth: {
+                getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+                signInAnonymously: () => {
+                    calls.anonymous += 1;
+                    return Promise.resolve({ data: { user: guest }, error: null });
+                },
+                signOut: () => Promise.resolve({ error: null }),
+                getSession: () => Promise.resolve({ data: { session: { access_token: 'guest-token' } }, error: null }),
+            },
+            from: (table) => new FakeQuery(table),
+            rpc: (name) => {
+                if (name === 'is_superuser') return Promise.resolve({ data: false, error: null });
+                if (name === 'join_room_by_invite') {
+                    calls.joinInvite += 1;
+                    return Promise.resolve({ data: room, error: null });
+                }
+                if (name === 'claim_camera' || name === 'release_camera') {
+                    return Promise.resolve({ data: null, error: null });
+                }
+                return Promise.resolve({ data: null, error: null });
+            },
+            channel: (name) => new FakeChannel(String(name || '')),
+            removeChannel: () => Promise.resolve({ error: null }),
+            storage: {
+                from: () => ({
+                    upload: () => {
+                        calls.storageUploads += 1;
+                        return Promise.resolve({ data: null, error: null });
+                    },
+                    download: () => Promise.resolve({ data: null, error: null }),
+                }),
+            },
+        };
+
+        window.supabase = {
+            createClient() {
+                return client;
+            },
+        };
+    });
+
+    const targetUrl = `${baseUrl}/?renderer=webgl&debug=1&project=owner-project&room=invite-room&invite=room-token`;
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp
+        && !document.body.classList.contains('app-loading')
+        && document.querySelector('#collabAuthPanel')?.dataset?.mode === 'roomEntry'
+    ), null, { timeout: 45000 });
+
+    await page.fill('#collabName', 'Guest User');
+    await page.click('#collabGuestBtn');
+    await page.waitForFunction(() => (
+        (globalThis.__lpmInviteGuardSmoke?.joinInvite || 0) === 1
+        && globalThis.__LPMVIEW_DIAGNOSTICS?.getSnapshot?.().collab?.connected === true
+    ), null, { timeout: 45000 });
+    assert.equal(
+        await page.locator('#status').textContent(),
+        '—',
+        'Room invite upload guard smoke: guest saw upload rejection before choosing a file'
+    );
+
+    await page.setInputFiles('#fileInput', {
+        name: 'guest-upload.fbx',
+        mimeType: 'application/octet-stream',
+        buffer: Buffer.from('not-a-real-fbx'),
+    });
+    await page.waitForFunction(() => (
+        document.querySelector('#status')?.textContent?.includes('Только владелец комнаты')
+    ), null, { timeout: 8000 });
+
+    const state = await page.evaluate(async () => {
+        const snapshot = globalThis.__LPMVIEW_DIAGNOSTICS.getSnapshot();
+        const status = document.querySelector('#status')?.textContent || '';
+        await globalThis.viewerApp.dispose();
+        return {
+            calls: { ...globalThis.__lpmInviteGuardSmoke },
+            status,
+            loadedModels: snapshot.models.loaded,
+            roomSelectionLocked: snapshot.collab.roomSelectionLocked,
+            registered: snapshot.collab.registered,
+        };
+    });
+
+    assert.equal(state.calls.anonymous, 1, 'Room invite upload guard smoke: guest auth did not start');
+    assert.equal(state.calls.joinInvite, 1, 'Room invite upload guard smoke: invite RPC did not run');
+    assert.equal(state.calls.projectModelInserts, 0, 'Room invite upload guard smoke: guest inserted a project model');
+    assert.equal(state.calls.roomModelInserts, 0, 'Room invite upload guard smoke: guest inserted a room model');
+    assert.equal(state.calls.storageUploads, 0, 'Room invite upload guard smoke: guest uploaded to storage');
+    assert.equal(state.loadedModels, 0, 'Room invite upload guard smoke: guest local model was imported');
+    assert.equal(state.roomSelectionLocked, true, 'Room invite upload guard smoke: invite room selection was not locked');
+    assert.equal(state.registered, false, 'Room invite upload guard smoke: anonymous guest became registered');
+    assert.equal(state.status.includes('Только владелец комнаты'), true, 'Room invite upload guard smoke: missing owner-only status');
+    diagnostics.assertNoErrors('Room invite upload guard smoke');
+    await page.close();
+}
+
 async function runResetViewerUrlSmoke(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
@@ -13306,6 +13521,8 @@ try {
     console.log('Runtime diagnostics smoke passed.');
     await runRoomEntrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Room-entry smoke passed.');
+    await runRoomInviteModelUploadGuardSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Room invite model upload guard smoke passed.');
     await runResetViewerUrlSmoke(browserContext, smokeServer.baseUrl);
     console.log('Reset viewer URL smoke passed.');
     await runAuthAsyncDisposeSmoke(browserContext, smokeServer.baseUrl);

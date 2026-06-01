@@ -2077,6 +2077,28 @@ export class ViewerApp {
             return owningProject?.owner_id === collabUser.id;
         }
 
+        function canManageRoomModels(room = collabRoom, project = null) {
+            if (!collabAuthed || !collabUser || !room) return false;
+            const roomProjectId = String(room?.project_id || '').trim();
+            const owningProject = project
+                || getProjectById(roomProjectId)
+                || (String(collabProject?.id || '') === roomProjectId ? collabProject : null);
+            if (collabIsSuperuser) return true;
+            if (room.owner_id === collabUser.id) return true;
+            return owningProject?.owner_id === collabUser.id;
+        }
+
+        function canImportLocalModelFile() {
+            if (!collabController) return true;
+            return canManageRoomModels(collabController.room, collabController.project);
+        }
+
+        function rejectRoomModelImportForGuest() {
+            setStatusMessage('Только владелец комнаты может загружать модели.');
+            clearPendingLocalModelFiles();
+            return false;
+        }
+
         function updateRoomContentButton() {
             if (!collabRoomManageBtn) return;
             const enabled = canOpenRoomContentManager();
@@ -5983,6 +6005,7 @@ export class ViewerApp {
 
         function queueLocalModelFile(file) {
             if (!file || isRemoteModelLoad) return;
+            if (!canImportLocalModelFile()) return;
             const key = getModelFileKey(file);
             if (!key || pendingLocalModelKeys.has(key)) return;
             pendingLocalModelKeys.add(key);
@@ -6026,6 +6049,9 @@ export class ViewerApp {
         }
 
         async function handleFBXFile(file, callOptions = null) {
+            if (!isRemoteModelLoad && !canImportLocalModelFile()) {
+                return rejectRoomModelImportForGuest();
+            }
             await runImportWithScope({
                 kind: 'local',
                 fileKey: getModelFileKey(file),
@@ -6037,6 +6063,9 @@ export class ViewerApp {
         }
 
         async function handleZIPFile(file, callOptions = null) {
+            if (!isRemoteModelLoad && !canImportLocalModelFile()) {
+                return rejectRoomModelImportForGuest();
+            }
             await runImportWithScope({
                 kind: 'local',
                 fileKey: getModelFileKey(file),
@@ -6293,6 +6322,10 @@ export class ViewerApp {
                 && isActiveRoomLoad(generation, roomId)
             );
             if (!controller || !supabase || !file || isRemoteModelLoad || !isCurrent()) return false;
+            if (!canManageRoomModels(controller.room, controller.project)) {
+                rejectRoomModelImportForGuest();
+                return false;
+            }
             const syncAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
             const syncSignal = syncAbortController?.signal || null;
             const syncStatus = transientStatus.begin();
@@ -6456,6 +6489,10 @@ export class ViewerApp {
             if (!controller || isRemoteModelLoad || !isCurrent()) return false;
             if (onlyIfRoomEmpty && collabRoomModelsPresent()) return false;
             if (!pendingLocalModelFiles.length) return false;
+            if (!canManageRoomModels(controller.room, controller.project)) {
+                rejectRoomModelImportForGuest();
+                return false;
+            }
             let syncedAny = false;
             isSyncingLocalModels = true;
             try {

@@ -90,9 +90,12 @@ async function fetchProjectById(supabase, projectId) {
     return data || null;
 }
 
-async function joinProjectBySlug(supabase, slug) {
-    if (!slug) return null;
-    const { data, error } = await supabase.rpc('join_project_by_slug', { project_slug: slug });
+async function joinProjectBySlug(supabase, projectSlug, roomSlug) {
+    if (!projectSlug || !roomSlug) return null;
+    const { data, error } = await supabase.rpc('join_project_by_slug', {
+        project_slug: projectSlug,
+        room_slug: roomSlug,
+    });
     if (error) throw error;
     return data || null;
 }
@@ -210,8 +213,8 @@ export async function createCollabController(options = {}) {
     if (!project) {
         if (projectId) {
             project = await awaitCurrent(() => fetchProjectById(supabase, projectId));
-        } else if (projectSlug) {
-            project = await awaitCurrent(() => joinProjectBySlug(supabase, projectSlug));
+        } else if (projectSlug && roomSlug) {
+            project = await awaitCurrent(() => joinProjectBySlug(supabase, projectSlug, roomSlug));
         }
     }
     if (!project) {
