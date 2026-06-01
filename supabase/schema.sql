@@ -843,7 +843,7 @@ create policy "messages_delete" on public.messages
 insert into public.user_roles (user_id, role)
 select id, 'superuser'
 from auth.users
-where email = 'maragojeep@gmail.com'
+where lower(email) = 'maragojeep@gmail.com'
 on conflict do nothing;
 
 -- Realtime (optional): enable row changes in Supabase Realtime.

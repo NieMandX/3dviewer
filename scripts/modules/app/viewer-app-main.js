@@ -2504,8 +2504,10 @@ export class ViewerApp {
             const ensureProject = (projectId, projectLabel) => {
                 const key = String(projectId || '').trim() || '__unknown_project__';
                 if (!projects.has(key)) {
+                    const projectRecord = getProjectById(key);
                     projects.set(key, {
                         id: key,
+                        record: projectRecord || null,
                         label: String(projectLabel || 'Проект').trim() || 'Проект',
                         rooms: new Map(),
                         rowCount: 0,
@@ -2517,8 +2519,11 @@ export class ViewerApp {
                 const project = ensureProject(projectId, projectLabel);
                 const key = String(roomId || '').trim() || '__unknown_room__';
                 if (!project.rooms.has(key)) {
+                    const roomRecord = getRoomContentRoomById(key);
                     project.rooms.set(key, {
                         id: key,
+                        record: roomRecord || null,
+                        projectId: project.id,
                         label: String(roomLabel || 'Комната').trim() || 'Комната',
                         ownerId: String(roomOwnerId || '').trim(),
                         rows: [],
@@ -2550,6 +2555,25 @@ export class ViewerApp {
                 ...project,
                 rooms: Array.from(project.rooms.values()),
             }));
+        }
+
+        function appendRoomContentTreeDeleteButton(parent, { title, onClick, disabled = false } = {}) {
+            const action = document.createElement('span');
+            action.className = 'room-content-tree-action';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn danger';
+            btn.textContent = 'Удалить';
+            btn.title = String(title || 'Удалить');
+            btn.disabled = !!disabled;
+            btn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (btn.disabled || typeof onClick !== 'function') return;
+                onClick();
+            });
+            action.appendChild(btn);
+            parent.appendChild(action);
         }
 
         function appendRoomContentItemRow(row, parent) {
@@ -2631,6 +2655,15 @@ export class ViewerApp {
                 appendRoomContentMeta(projectLine, `${project.rooms.length} ${pluralRu(project.rooms.length, 'комната', 'комнаты', 'комнат')}`);
                 appendRoomContentMeta(projectLine, getRoomContentActiveTabLabel(project.rowCount));
                 projectSummary.appendChild(projectLine);
+                if (project.record && canDeleteProjectItem(project.record)) {
+                    appendRoomContentTreeDeleteButton(projectSummary, {
+                        title: 'Удалить проект целиком',
+                        disabled: roomContentActionInFlight,
+                        onClick: () => {
+                            void deleteRoomContentProject(project.record);
+                        },
+                    });
+                }
                 projectDetails.appendChild(projectSummary);
 
                 project.rooms.forEach((room) => {
@@ -2646,6 +2679,15 @@ export class ViewerApp {
                     roomLine.appendChild(roomName);
                     appendRoomContentMeta(roomLine, getRoomContentActiveTabLabel(room.rows.length));
                     roomSummary.appendChild(roomLine);
+                    if (room.record && canDeleteRoomItem(room.record)) {
+                        appendRoomContentTreeDeleteButton(roomSummary, {
+                            title: 'Удалить комнату целиком',
+                            disabled: roomContentActionInFlight,
+                            onClick: () => {
+                                void deleteRoomContentRoom(room.record);
+                            },
+                        });
+                    }
                     roomDetails.appendChild(roomSummary);
 
                     const items = document.createElement('div');
@@ -2836,12 +2878,34 @@ export class ViewerApp {
             }
         }
 
-        async function deleteProjectById(projectId) {
+        async function reloadRoomContentStructure() {
+            if (!roomContentModalEl?.classList?.contains('show')) return;
+            roomContentInventory = null;
+            await loadRoomContentRooms();
+            renderRoomContentRoomOptions(ROOM_CONTENT_ALL_ROOMS_VALUE);
+            await loadRoomContentInventory(ROOM_CONTENT_ALL_ROOMS_VALUE);
+        }
+
+        async function deleteRoomContentProject(project) {
+            if (!project || roomContentActionInFlight) return;
+            const deleted = await deleteProjectById(project.id, project);
+            if (!deleted) return;
+            await reloadRoomContentStructure();
+        }
+
+        async function deleteRoomContentRoom(room) {
+            if (!room || roomContentActionInFlight) return;
+            const deleted = await deleteRoomById(room.id, room);
+            if (!deleted) return;
+            await reloadRoomContentStructure();
+        }
+
+        async function deleteProjectById(projectId, projectOverride = null) {
             if (!collabSupabase || !projectId || appDisposed) return false;
             const crudGeneration = bumpCollabCrudGeneration();
             const supabase = collabSupabase;
             const isCurrent = () => isActiveCollabCrud(crudGeneration) && collabSupabase === supabase;
-            const project = collabProjects.find((p) => p.id === projectId) || collabProject;
+            const project = projectOverride || collabProjects.find((p) => p.id === projectId) || collabProject;
             if (!canDeleteProjectItem(project)) return false;
             const name = project?.name || project?.slug || 'проект';
             const confirmed = await confirmModal.open({
@@ -2877,7 +2941,12 @@ export class ViewerApp {
                 }
                 await loadProjects({ isCurrent });
                 if (!isCurrent()) return false;
-                renderRoomOptions([], '');
+                if (collabProject) {
+                    await loadRooms(collabProject.id, { isCurrent });
+                    if (!isCurrent()) return false;
+                } else {
+                    renderRoomOptions([], '');
+                }
                 return true;
             } catch (err) {
                 if (isCurrent()) {
@@ -2890,12 +2959,12 @@ export class ViewerApp {
             }
         }
 
-        async function deleteRoomById(roomId) {
+        async function deleteRoomById(roomId, roomOverride = null) {
             if (!collabSupabase || !roomId || appDisposed) return false;
             const crudGeneration = bumpCollabCrudGeneration();
             const supabase = collabSupabase;
             const isCurrent = () => isActiveCollabCrud(crudGeneration) && collabSupabase === supabase;
-            const room = collabRooms.find((r) => r.id === roomId) || collabRoom;
+            const room = roomOverride || collabRooms.find((r) => r.id === roomId) || collabRoom;
             if (!canDeleteRoomItem(room)) return false;
             const name = room?.slug || 'комната';
             const confirmed = await confirmModal.open({

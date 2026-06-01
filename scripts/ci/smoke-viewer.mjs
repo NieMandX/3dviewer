@@ -2081,6 +2081,8 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 && document.querySelector('#roomContentList')?.textContent?.includes('room-a')
             ) || false,
             selection: document.querySelector('#roomContentRoomSelect')?.value || '',
+            projectDeleteButtons: document.querySelectorAll('.room-content-project > summary .room-content-tree-action .btn.danger').length,
+            roomDeleteButtons: document.querySelectorAll('.room-content-room > summary .room-content-tree-action .btn.danger').length,
             annotationTabText: '',
             cameraTabText: '',
         };
@@ -2209,6 +2211,8 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
     assert.equal(result.managerBeforeDelete.summary.includes('Камер: 1'), true, 'Registered room switch smoke: room content manager did not count cameras');
     assert.equal(result.managerBeforeDelete.modelVisible, true, 'Registered room switch smoke: room content manager did not list model');
     assert.equal(result.managerBeforeDelete.locationVisible, true, 'Registered room switch smoke: room content manager did not show project and room location');
+    assert.equal(result.managerBeforeDelete.projectDeleteButtons, 2, 'Registered room switch smoke: room content manager did not expose project delete buttons');
+    assert.equal(result.managerBeforeDelete.roomDeleteButtons, 3, 'Registered room switch smoke: room content manager did not expose room delete buttons');
     assert.equal(result.managerBeforeDelete.annotationTabText.includes('pin'), true, 'Registered room switch smoke: room content manager did not list annotation');
     assert.equal(result.managerBeforeDelete.cameraTabText.includes('Camera A'), true, 'Registered room switch smoke: room content manager did not list camera');
     assert.equal(result.managerBeforeDelete.listText.includes('Foreign Project'), false, 'Registered room switch smoke: room content manager listed non-owned project');
