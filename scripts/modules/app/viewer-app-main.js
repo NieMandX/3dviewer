@@ -876,6 +876,7 @@ export class ViewerApp {
         const roomContentModalEl = dom.roomContentModalEl;
         const roomContentCloseBtn = dom.roomContentCloseBtn;
         const roomContentRoomSelectEl = dom.roomContentRoomSelectEl;
+        const roomContentUserEmailEl = dom.roomContentUserEmailEl;
         const roomContentRefreshBtn = dom.roomContentRefreshBtn;
         const roomContentSummaryEl = dom.roomContentSummaryEl;
         const roomContentStatusEl = dom.roomContentStatusEl;
@@ -890,7 +891,7 @@ export class ViewerApp {
         let roomContentRooms = [];
         let roomContentLoadGeneration = 0;
         let roomContentActionInFlight = false;
-        const ROOM_CONTENT_ALL_ROOMS_VALUE = '__all_rooms__';
+        const ROOM_CONTENT_ALL_PROJECTS_VALUE = '__all_projects__';
 
         function isEmptyHintVisibleForCollabDrawer() {
             return !!emptyHintEl && !emptyHintEl.hidden && !isRoomEntryLandingActive();
@@ -2147,7 +2148,7 @@ export class ViewerApp {
 
         function getRoomContentRoomById(roomId) {
             const id = String(roomId || '').trim();
-            if (!id || id === ROOM_CONTENT_ALL_ROOMS_VALUE) return null;
+            if (!id || id === ROOM_CONTENT_ALL_PROJECTS_VALUE) return null;
             return roomContentRooms.find((room) => String(room?.id || '') === id)
                 || collabRooms.find((room) => String(room?.id || '') === id)
                 || (String(collabRoom?.id || '') === id ? collabRoom : null);
@@ -2174,8 +2175,8 @@ export class ViewerApp {
         }
 
         function getRoomContentSelectionValue() {
-            return String(roomContentRoomSelectEl?.value || ROOM_CONTENT_ALL_ROOMS_VALUE).trim()
-                || ROOM_CONTENT_ALL_ROOMS_VALUE;
+            return String(roomContentRoomSelectEl?.value || ROOM_CONTENT_ALL_PROJECTS_VALUE).trim()
+                || ROOM_CONTENT_ALL_PROJECTS_VALUE;
         }
 
         async function loadRoomContentRooms() {
@@ -2216,26 +2217,34 @@ export class ViewerApp {
             if (roomContentStatusEl) roomContentStatusEl.textContent = String(message || '');
         }
 
+        function renderRoomContentUserEmail() {
+            if (!roomContentUserEmailEl) return;
+            const email = String(collabUser?.email || '').trim();
+            roomContentUserEmailEl.textContent = email;
+            roomContentUserEmailEl.title = email;
+        }
+
         function setRoomContentOpen(open) {
             if (!roomContentModalEl) return;
             const next = !!open;
             roomContentModalEl.classList.toggle('show', next);
             roomContentModalEl.setAttribute('aria-hidden', next ? 'false' : 'true');
+            if (next) renderRoomContentUserEmail();
             if (!next) {
                 roomContentInventory = null;
                 setRoomContentStatus('');
             }
         }
 
-        function renderRoomContentRoomOptions(selectedRoomId = ROOM_CONTENT_ALL_ROOMS_VALUE) {
+        function renderRoomContentProjectOptions(selectedProjectId = ROOM_CONTENT_ALL_PROJECTS_VALUE) {
             if (!roomContentRoomSelectEl) return;
             const rooms = roomContentRooms.length
                 ? roomContentRooms
                 : collabRooms.filter((room) => canManageRoomContent(room, getRoomContentProject(room)));
             roomContentRoomSelectEl.innerHTML = '';
             const allOpt = document.createElement('option');
-            allOpt.value = ROOM_CONTENT_ALL_ROOMS_VALUE;
-            allOpt.textContent = rooms.length ? 'Все проекты и комнаты' : 'Нет доступных комнат';
+            allOpt.value = ROOM_CONTENT_ALL_PROJECTS_VALUE;
+            allOpt.textContent = rooms.length ? 'Все проекты' : 'Нет доступных проектов';
             roomContentRoomSelectEl.appendChild(allOpt);
 
             const grouped = new Map();
@@ -2244,26 +2253,20 @@ export class ViewerApp {
                 const projectId = String(project?.id || room?.project_id || '').trim() || '__unknown_project__';
                 if (!grouped.has(projectId)) {
                     grouped.set(projectId, {
+                        id: projectId,
                         project,
-                        rooms: [],
                     });
                 }
-                grouped.get(projectId).rooms.push(room);
             });
             grouped.forEach((group) => {
-                const optgroup = document.createElement('optgroup');
-                optgroup.label = getProjectLabel(group.project);
-                group.rooms.forEach((room) => {
-                    const opt = document.createElement('option');
-                    opt.value = room.id;
-                    opt.textContent = getRoomLabel(room);
-                    optgroup.appendChild(opt);
-                });
-                roomContentRoomSelectEl.appendChild(optgroup);
+                const opt = document.createElement('option');
+                opt.value = group.id;
+                opt.textContent = getProjectLabel(group.project);
+                roomContentRoomSelectEl.appendChild(opt);
             });
-            const requested = String(selectedRoomId || '').trim();
-            const hasRequestedRoom = rooms.some((room) => String(room?.id || '') === requested);
-            roomContentRoomSelectEl.value = hasRequestedRoom ? requested : ROOM_CONTENT_ALL_ROOMS_VALUE;
+            const requested = String(selectedProjectId || '').trim();
+            const hasRequestedProject = grouped.has(requested);
+            roomContentRoomSelectEl.value = hasRequestedProject ? requested : ROOM_CONTENT_ALL_PROJECTS_VALUE;
             roomContentRoomSelectEl.disabled = roomContentActionInFlight || rooms.length === 0;
         }
 
@@ -2417,19 +2420,17 @@ export class ViewerApp {
             });
         }
 
-        async function fetchRoomContentInventory(selection = ROOM_CONTENT_ALL_ROOMS_VALUE) {
+        async function fetchRoomContentInventory(selection = ROOM_CONTENT_ALL_PROJECTS_VALUE) {
             if (!collabSupabase) {
                 throw new Error('Supabase не подключен.');
             }
-            const selected = String(selection || ROOM_CONTENT_ALL_ROOMS_VALUE).trim() || ROOM_CONTENT_ALL_ROOMS_VALUE;
-            if (selected && selected !== ROOM_CONTENT_ALL_ROOMS_VALUE) {
-                const room = getRoomContentRoomById(selected);
-                if (!room) throw new Error('Комната не выбрана.');
-                return fetchSingleRoomContentInventory(room);
-            }
             const rooms = roomContentRooms.length ? roomContentRooms : await loadRoomContentRooms();
-            if (!rooms.length) return combineRoomContentInventories([]);
-            const inventories = await Promise.all(rooms.map((room) => fetchSingleRoomContentInventory(room)));
+            const selected = String(selection || ROOM_CONTENT_ALL_PROJECTS_VALUE).trim() || ROOM_CONTENT_ALL_PROJECTS_VALUE;
+            const filteredRooms = selected && selected !== ROOM_CONTENT_ALL_PROJECTS_VALUE
+                ? rooms.filter((room) => String(room?.project_id || '') === selected)
+                : rooms;
+            if (!filteredRooms.length) return combineRoomContentInventories([]);
+            const inventories = await Promise.all(filteredRooms.map((room) => fetchSingleRoomContentInventory(room)));
             return combineRoomContentInventories(inventories);
         }
 
@@ -2728,13 +2729,13 @@ export class ViewerApp {
             renderRoomContentList();
         }
 
-        async function loadRoomContentInventory(roomId = '') {
+        async function loadRoomContentInventory(projectId = '') {
             if (!roomContentModalEl?.classList?.contains('show')) return;
-            const selection = String(roomId || getRoomContentSelectionValue()).trim() || ROOM_CONTENT_ALL_ROOMS_VALUE;
+            const selection = String(projectId || getRoomContentSelectionValue()).trim() || ROOM_CONTENT_ALL_PROJECTS_VALUE;
             const generation = ++roomContentLoadGeneration;
             setRoomContentStatus('Загрузка…');
             roomContentActionInFlight = false;
-            renderRoomContentRoomOptions(selection);
+            renderRoomContentProjectOptions(selection);
             renderRoomContent();
             try {
                 const inventory = await fetchRoomContentInventory(selection);
@@ -2755,18 +2756,18 @@ export class ViewerApp {
             if (!canOpenRoomContentManager()) return;
             setRoomContentOpen(true);
             roomContentInventory = null;
-            setRoomContentStatus('Загрузка комнат…');
-            renderRoomContentRoomOptions(ROOM_CONTENT_ALL_ROOMS_VALUE);
+            setRoomContentStatus('Загрузка проектов…');
+            renderRoomContentProjectOptions(ROOM_CONTENT_ALL_PROJECTS_VALUE);
             renderRoomContent();
             try {
                 await loadRoomContentRooms();
-                renderRoomContentRoomOptions(ROOM_CONTENT_ALL_ROOMS_VALUE);
-                await loadRoomContentInventory(ROOM_CONTENT_ALL_ROOMS_VALUE);
+                renderRoomContentProjectOptions(ROOM_CONTENT_ALL_PROJECTS_VALUE);
+                await loadRoomContentInventory(ROOM_CONTENT_ALL_PROJECTS_VALUE);
             } catch (err) {
                 console.error('Room content rooms load failed', err);
                 roomContentInventory = null;
                 setRoomContentStatus(`Ошибка: ${err?.message || err}`);
-                renderRoomContentRoomOptions(ROOM_CONTENT_ALL_ROOMS_VALUE);
+                renderRoomContentProjectOptions(ROOM_CONTENT_ALL_PROJECTS_VALUE);
                 renderRoomContent();
             }
         }
@@ -2873,7 +2874,7 @@ export class ViewerApp {
                 setRoomContentStatus(`Ошибка удаления: ${err?.message || err}`);
             } finally {
                 roomContentActionInFlight = false;
-                renderRoomContentRoomOptions(getRoomContentSelectionValue());
+                renderRoomContentProjectOptions(getRoomContentSelectionValue());
                 renderRoomContent();
             }
         }
@@ -2882,8 +2883,8 @@ export class ViewerApp {
             if (!roomContentModalEl?.classList?.contains('show')) return;
             roomContentInventory = null;
             await loadRoomContentRooms();
-            renderRoomContentRoomOptions(ROOM_CONTENT_ALL_ROOMS_VALUE);
-            await loadRoomContentInventory(ROOM_CONTENT_ALL_ROOMS_VALUE);
+            renderRoomContentProjectOptions(ROOM_CONTENT_ALL_PROJECTS_VALUE);
+            await loadRoomContentInventory(ROOM_CONTENT_ALL_PROJECTS_VALUE);
         }
 
         async function deleteRoomContentProject(project) {

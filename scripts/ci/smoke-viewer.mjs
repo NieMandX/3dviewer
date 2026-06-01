@@ -2081,6 +2081,12 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 && document.querySelector('#roomContentList')?.textContent?.includes('room-a')
             ) || false,
             selection: document.querySelector('#roomContentRoomSelect')?.value || '',
+            filterOptions: Array.from(document.querySelector('#roomContentRoomSelect')?.options || []).map((option) => option.textContent || ''),
+            filterValues: Array.from(document.querySelector('#roomContentRoomSelect')?.options || []).map((option) => option.value || ''),
+            filterOptgroups: document.querySelectorAll('#roomContentRoomSelect optgroup').length,
+            titleText: document.querySelector('#roomContentTitle')?.textContent || '',
+            toolbarLabelText: document.querySelector('.room-content-toolbar .collab-label')?.textContent || '',
+            userEmailText: document.querySelector('#roomContentUserEmail')?.textContent || '',
             expandedProjects: document.querySelectorAll('.room-content-project[open]').length,
             expandedRooms: document.querySelectorAll('.room-content-room[open]').length,
             projectDeleteButtons: document.querySelectorAll('.room-content-project > summary .room-content-tree-action .btn.danger').length,
@@ -2206,7 +2212,16 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
     assert.equal(result.calls.roomAChannelCreates >= 1, true, 'Registered room switch smoke: first room did not connect');
     assert.equal(result.projectOptionsAfterLogin.includes('project-foreign'), false, 'Registered room switch smoke: non-owned project was exposed to registered user');
     assert.equal(result.managerButtonVisible, true, 'Registered room switch smoke: room content manager button is not available after registered login');
-    assert.equal(result.managerBeforeDelete.selection, '__all_rooms__', 'Registered room switch smoke: room content manager did not default to all rooms');
+    assert.equal(result.managerBeforeDelete.selection, '__all_projects__', 'Registered room switch smoke: room content manager did not default to all projects');
+    assert.equal(result.managerBeforeDelete.filterOptions.includes('Все проекты'), true, 'Registered room switch smoke: project filter did not include all projects');
+    assert.equal(result.managerBeforeDelete.filterOptions.includes('Switch Project'), true, 'Registered room switch smoke: project filter did not list owned project');
+    assert.equal(result.managerBeforeDelete.filterOptions.includes('Switch Project B'), true, 'Registered room switch smoke: project filter did not list second owned project');
+    assert.equal(result.managerBeforeDelete.filterOptions.includes('room-a'), false, 'Registered room switch smoke: project filter listed rooms');
+    assert.equal(result.managerBeforeDelete.filterValues.includes('room-a'), false, 'Registered room switch smoke: project filter used room ids');
+    assert.equal(result.managerBeforeDelete.filterOptgroups, 0, 'Registered room switch smoke: project filter should not group rooms');
+    assert.equal(result.managerBeforeDelete.titleText, '', 'Registered room switch smoke: room content title should be hidden');
+    assert.equal(result.managerBeforeDelete.toolbarLabelText, '', 'Registered room switch smoke: room content toolbar label should be hidden');
+    assert.equal(result.managerBeforeDelete.userEmailText, 'switch@example.com', 'Registered room switch smoke: room content user email was not shown');
     assert.equal(result.managerBeforeDelete.summary.includes('Комнат: 3'), true, 'Registered room switch smoke: room content manager did not count rooms across projects');
     assert.equal(result.managerBeforeDelete.summary.includes('Моделей: 1'), true, 'Registered room switch smoke: room content manager did not count models');
     assert.equal(result.managerBeforeDelete.summary.includes('Аннотаций: 1'), true, 'Registered room switch smoke: room content manager did not count annotations');

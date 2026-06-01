@@ -2321,6 +2321,8 @@ body.bg-black .collab-chat-panel {
 .room-content-toolbar { display:flex; align-items:flex-end; justify-content:space-between; gap:10px; }
 .room-content-field { display:flex; flex-direction:column; gap:5px; min-width:260px; }
 .room-content-room-select { min-height:30px; }
+.room-content-toolbar-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; min-width:0; }
+.room-content-user-email { color:var(--muted); font-size:12px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .room-content-summary { display:flex; gap:12px; flex-wrap:wrap; color:var(--muted); font-size:12px; line-height:1.35; }
 .room-content-tabs { display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-bottom:8px; }
 .room-content-tab.active { color:var(--accent); border-color:rgba(11, 87, 208, 0.35); background:rgba(11, 87, 208, 0.08); }
@@ -2368,6 +2370,7 @@ body.bg-black .collab-chat-panel {
 @media (max-width: 760px) {
     .room-content-panel { width:calc(100vw - 16px); }
     .room-content-toolbar { align-items:stretch; flex-direction:column; }
+    .room-content-toolbar-actions { justify-content:space-between; }
     .room-content-field { min-width:0; }
     .room-content-tree-line { flex-wrap:wrap; }
     .room-content-tree-name { flex:1 1 100%; }

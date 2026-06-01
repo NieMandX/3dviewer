@@ -672,19 +672,20 @@
         </div>
     </div>
 
-    <div id="roomContentModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="roomContentTitle">
+    <div id="roomContentModal" class="modal" role="dialog" aria-modal="true" aria-label="Состав проектов">
         <div class="auth-panel room-content-panel" data-mode="room-content">
             <div class="auth-head">
-                <div id="roomContentTitle" class="auth-title">Содержимое проектов</div>
                 <button id="roomContentClose" class="btn auth-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
             </div>
             <div class="auth-body room-content-body">
                 <div class="room-content-toolbar">
                     <label class="room-content-field">
-                        <span class="collab-label">Комната</span>
-                        <select id="roomContentRoomSelect" class="collab-input room-content-room-select"></select>
+                        <select id="roomContentRoomSelect" class="collab-input room-content-room-select" aria-label="Проект"></select>
                     </label>
-                    <button id="roomContentRefresh" class="btn" type="button">Обновить</button>
+                    <div class="room-content-toolbar-actions">
+                        <span id="roomContentUserEmail" class="room-content-user-email"></span>
+                        <button id="roomContentRefresh" class="btn" type="button">Обновить</button>
+                    </div>
                 </div>
                 <div id="roomContentSummary" class="room-content-summary">—</div>
                 <div class="room-content-tabs" role="tablist" aria-label="Содержимое комнаты">

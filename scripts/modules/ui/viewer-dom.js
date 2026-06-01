@@ -145,6 +145,7 @@ export function collectViewerDom(document) {
         roomContentModalEl: get('roomContentModal'),
         roomContentCloseBtn: get('roomContentClose'),
         roomContentRoomSelectEl: get('roomContentRoomSelect'),
+        roomContentUserEmailEl: get('roomContentUserEmail'),
         roomContentRefreshBtn: get('roomContentRefresh'),
         roomContentSummaryEl: get('roomContentSummary'),
         roomContentStatusEl: get('roomContentStatus'),
