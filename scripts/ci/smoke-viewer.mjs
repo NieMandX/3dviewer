@@ -2081,6 +2081,8 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 && document.querySelector('#roomContentList')?.textContent?.includes('room-a')
             ) || false,
             selection: document.querySelector('#roomContentRoomSelect')?.value || '',
+            expandedProjects: document.querySelectorAll('.room-content-project[open]').length,
+            expandedRooms: document.querySelectorAll('.room-content-room[open]').length,
             projectDeleteButtons: document.querySelectorAll('.room-content-project > summary .room-content-tree-action .btn.danger').length,
             roomDeleteButtons: document.querySelectorAll('.room-content-room > summary .room-content-tree-action .btn.danger').length,
             annotationTabText: '',
@@ -2211,6 +2213,8 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
     assert.equal(result.managerBeforeDelete.summary.includes('Камер: 1'), true, 'Registered room switch smoke: room content manager did not count cameras');
     assert.equal(result.managerBeforeDelete.modelVisible, true, 'Registered room switch smoke: room content manager did not list model');
     assert.equal(result.managerBeforeDelete.locationVisible, true, 'Registered room switch smoke: room content manager did not show project and room location');
+    assert.equal(result.managerBeforeDelete.expandedProjects, 0, 'Registered room switch smoke: project tree should be collapsed by default');
+    assert.equal(result.managerBeforeDelete.expandedRooms, 0, 'Registered room switch smoke: room tree should be collapsed by default');
     assert.equal(result.managerBeforeDelete.projectDeleteButtons, 2, 'Registered room switch smoke: room content manager did not expose project delete buttons');
     assert.equal(result.managerBeforeDelete.roomDeleteButtons, 3, 'Registered room switch smoke: room content manager did not expose room delete buttons');
     assert.equal(result.managerBeforeDelete.annotationTabText.includes('pin'), true, 'Registered room switch smoke: room content manager did not list annotation');

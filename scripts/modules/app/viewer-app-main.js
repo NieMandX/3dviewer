@@ -2644,7 +2644,7 @@ export class ViewerApp {
             groups.forEach((project) => {
                 const projectDetails = document.createElement('details');
                 projectDetails.className = 'room-content-project';
-                projectDetails.open = true;
+                projectDetails.open = false;
                 const projectSummary = document.createElement('summary');
                 const projectLine = document.createElement('span');
                 projectLine.className = 'room-content-tree-line';
@@ -2669,7 +2669,7 @@ export class ViewerApp {
                 project.rooms.forEach((room) => {
                     const roomDetails = document.createElement('details');
                     roomDetails.className = 'room-content-room';
-                    roomDetails.open = room.rows.length > 0;
+                    roomDetails.open = false;
                     const roomSummary = document.createElement('summary');
                     const roomLine = document.createElement('span');
                     roomLine.className = 'room-content-tree-line';
