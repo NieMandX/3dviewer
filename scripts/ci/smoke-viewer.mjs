@@ -2086,6 +2086,9 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             filterOptgroups: document.querySelectorAll('#roomContentRoomSelect optgroup').length,
             titleText: document.querySelector('#roomContentTitle')?.textContent || '',
             toolbarLabelText: document.querySelector('.room-content-toolbar .collab-label')?.textContent || '',
+            toolbarInHead: !!document.querySelector('.room-content-head > .room-content-toolbar'),
+            closeInHead: !!document.querySelector('.room-content-head > #roomContentClose'),
+            toolbarInBody: !!document.querySelector('.room-content-body > .room-content-toolbar'),
             userEmailText: document.querySelector('#roomContentUserEmail')?.textContent || '',
             expandedProjects: document.querySelectorAll('.room-content-project[open]').length,
             expandedRooms: document.querySelectorAll('.room-content-room[open]').length,
@@ -2221,6 +2224,9 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
     assert.equal(result.managerBeforeDelete.filterOptgroups, 0, 'Registered room switch smoke: project filter should not group rooms');
     assert.equal(result.managerBeforeDelete.titleText, '', 'Registered room switch smoke: room content title should be hidden');
     assert.equal(result.managerBeforeDelete.toolbarLabelText, '', 'Registered room switch smoke: room content toolbar label should be hidden');
+    assert.equal(result.managerBeforeDelete.toolbarInHead, true, 'Registered room switch smoke: room content toolbar should be in modal head');
+    assert.equal(result.managerBeforeDelete.closeInHead, true, 'Registered room switch smoke: room content close button should be in modal head');
+    assert.equal(result.managerBeforeDelete.toolbarInBody, false, 'Registered room switch smoke: room content toolbar should not be in modal body');
     assert.equal(result.managerBeforeDelete.userEmailText, 'switch@example.com', 'Registered room switch smoke: room content user email was not shown');
     assert.equal(result.managerBeforeDelete.summary.includes('Комнат: 3'), true, 'Registered room switch smoke: room content manager did not count rooms across projects');
     assert.equal(result.managerBeforeDelete.summary.includes('Моделей: 1'), true, 'Registered room switch smoke: room content manager did not count models');

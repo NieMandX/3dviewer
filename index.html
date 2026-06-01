@@ -674,10 +674,7 @@
 
     <div id="roomContentModal" class="modal" role="dialog" aria-modal="true" aria-label="Состав проектов">
         <div class="auth-panel room-content-panel" data-mode="room-content">
-            <div class="auth-head">
-                <button id="roomContentClose" class="btn auth-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
-            </div>
-            <div class="auth-body room-content-body">
+            <div class="auth-head room-content-head">
                 <div class="room-content-toolbar">
                     <label class="room-content-field">
                         <select id="roomContentRoomSelect" class="collab-input room-content-room-select" aria-label="Проект"></select>
@@ -687,6 +684,9 @@
                         <button id="roomContentRefresh" class="btn" type="button">Обновить</button>
                     </div>
                 </div>
+                <button id="roomContentClose" class="btn auth-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
+            </div>
+            <div class="auth-body room-content-body">
                 <div id="roomContentSummary" class="room-content-summary">—</div>
                 <div class="room-content-tabs" role="tablist" aria-label="Содержимое комнаты">
                     <button id="roomContentTabModels" class="btn room-content-tab active" type="button" data-tab="models">Модели</button>
