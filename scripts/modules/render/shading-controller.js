@@ -31,6 +31,8 @@ export function createShadingController(options = {}) {
     const getEnvIntensity = typeof options.getEnvIntensity === 'function' ? options.getEnvIntensity : () => 1.0;
 
     const getMatcap = typeof options.getMatcap === 'function' ? options.getMatcap : () => null;
+    const getMaterialColorMatcap =
+        typeof options.getMaterialColorMatcap === 'function' ? options.getMaterialColorMatcap : () => null;
     const getChecker = typeof options.getChecker === 'function' ? options.getChecker : () => null;
 
     let currentShadingMode = (typeof options.initialMode === 'string' && options.initialMode) ? options.initialMode : 'pbr';
@@ -126,6 +128,7 @@ export function createShadingController(options = {}) {
         return (
             mode === 'basic'
             || mode === 'matcap'
+            || mode === 'materialColor'
             || mode === 'uv'
             || mode === 'roughOnly'
             || mode === 'metalOnly'
@@ -194,6 +197,18 @@ export function createShadingController(options = {}) {
                 }));
 
             case 'materialColor':
+                return markGeneratedShadingVariant(new THREE.MeshMatcapMaterial({
+                    side: orig.side ?? THREE.FrontSide,
+                    color,
+                    matcap: getMaterialColorMatcap(),
+                    transparent: !!orig.transparent || Number(orig.opacity ?? 1) < 1,
+                    opacity: orig.opacity ?? 1,
+                    depthWrite: orig.depthWrite !== false,
+                    depthTest: orig.depthTest !== false,
+                    toneMapped: false,
+                }));
+
+            case 'materialColorMask':
                 return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({
                     side: orig.side ?? THREE.FrontSide,
                     color,

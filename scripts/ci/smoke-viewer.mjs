@@ -3662,6 +3662,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
     const result = await page.evaluate(async () => {
         const THREE = await import('three');
         const { createBackfaceOverlayController } = await import('/scripts/modules/render/backface-overlay.js');
+        const { createDebugTextureProvider } = await import('/scripts/modules/render/debug-textures.js');
         const { createShadingController } = await import('/scripts/modules/render/shading-controller.js');
         const {
             clearBeautyWire,
@@ -3743,6 +3744,25 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             }
             return () => count;
         };
+
+        const materialColorTextures = createDebugTextureProvider({ THREE });
+        const generatedMaterialColorMatcap = materialColorTextures.getMaterialColorMatcap();
+        const generatedMaterialColorMatcapReused = materialColorTextures.getMaterialColorMatcap()
+            === generatedMaterialColorMatcap;
+        const generatedMaterialColorPixels = generatedMaterialColorMatcap?.image?.data || [];
+        let generatedMaterialColorMin = 255;
+        let generatedMaterialColorMax = 0;
+        for (let index = 0; index < generatedMaterialColorPixels.length; index += 4) {
+            generatedMaterialColorMin = Math.min(generatedMaterialColorMin, generatedMaterialColorPixels[index]);
+            generatedMaterialColorMax = Math.max(generatedMaterialColorMax, generatedMaterialColorPixels[index]);
+        }
+        const generatedMaterialColorMatcapValid = generatedMaterialColorMatcap?.isDataTexture === true
+            && generatedMaterialColorMin < generatedMaterialColorMax;
+        const getGeneratedMaterialColorDisposeCount = patchDisposeCounter(generatedMaterialColorMatcap);
+        materialColorTextures.dispose();
+        materialColorTextures.dispose();
+        const generatedMaterialColorMatcapDisposed = getGeneratedMaterialColorDisposeCount();
+        const generatedMaterialColorMatcapUnavailableAfterDispose = materialColorTextures.getMaterialColorMatcap() === null;
 
         const beautyTransitionWorld = new THREE.Group();
         const beautyTransitionMesh = new THREE.Mesh(
@@ -3840,6 +3860,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const materialColorWorld = new THREE.Group();
         const materialColorMap = new THREE.Texture();
         const materialColorAlphaMap = new THREE.Texture();
+        const materialColorMatcap = new THREE.Texture();
         const materialColorSource = new THREE.MeshStandardMaterial({
             name: 'material-color-original',
             color: new THREE.Color(0.21, 0.07, 0.59),
@@ -3856,13 +3877,23 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             world: materialColorWorld,
             scene: new THREE.Scene(),
             setBackfaceMode: () => {},
+            getMaterialColorMatcap: () => materialColorMatcap,
         });
+        materialColorShading.applyShading('materialColorMask');
+        const materialColorMaskVariant = materialColorMesh.material;
+        const getMaterialColorMaskDisposeCount = patchDisposeCounter(materialColorMaskVariant);
+        const materialColorMaskIsBasic = materialColorMaskVariant.isMeshBasicMaterial === true;
+        const materialColorMaskPreserved = materialColorMaskVariant.color.equals(materialColorSource.color);
+        const materialColorMaskHasNoTextures = materialColorMaskVariant.map === null
+            && materialColorMaskVariant.alphaMap === null;
         materialColorShading.applyShading('materialColor');
+        const materialColorMaskVariantDisposed = getMaterialColorMaskDisposeCount();
         const materialColorVariant = materialColorMesh.material;
         const getMaterialColorDisposeCount = patchDisposeCounter(materialColorVariant);
-        const materialColorIsBasic = materialColorVariant.isMeshBasicMaterial === true;
+        const materialColorIsMatcap = materialColorVariant.isMeshMatcapMaterial === true;
         const materialColorPreserved = materialColorVariant.color.equals(materialColorSource.color);
-        const materialColorHasNoTextures = materialColorVariant.map === null && materialColorVariant.alphaMap === null;
+        const materialColorUsesNeutralShading = materialColorVariant.matcap === materialColorMatcap
+            && materialColorVariant.map === null;
         const materialColorTransparencyPreserved = materialColorVariant.transparent === true
             && materialColorVariant.opacity === materialColorSource.opacity;
         const materialColorSidePreserved = materialColorVariant.side === materialColorSource.side;
@@ -3888,13 +3919,21 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             beautyTransitionVariantDisposed: getBeautyTransitionDisposeCount(),
             backfaceTransitionVariantDisposed: getBackfaceTransitionDisposeCount(),
             wireTransitionVariantDisposed: getWireTransitionDisposeCount(),
+            generatedMaterialColorMatcapReused,
+            generatedMaterialColorMatcapValid,
+            generatedMaterialColorMatcapDisposed,
+            generatedMaterialColorMatcapUnavailableAfterDispose,
             textureBurstRenderCount: textureBurstCalls.length,
             textureBurstAllMapped,
             textureBurstAllMaterialsDirty,
             textureBurstTextureDirty,
-            materialColorIsBasic,
+            materialColorMaskIsBasic,
+            materialColorMaskPreserved,
+            materialColorMaskHasNoTextures,
+            materialColorMaskVariantDisposed,
+            materialColorIsMatcap,
             materialColorPreserved,
-            materialColorHasNoTextures,
+            materialColorUsesNeutralShading,
             materialColorTransparencyPreserved,
             materialColorSidePreserved,
             materialColorIgnoresToneMapping,
@@ -3918,13 +3957,21 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.beautyTransitionVariantDisposed, 1, 'Shading lifecycle smoke: BeautyWire transition leaked previous shading material');
     assert.equal(result.backfaceTransitionVariantDisposed, 1, 'Shading lifecycle smoke: backface transition leaked previous shading material');
     assert.equal(result.wireTransitionVariantDisposed, 1, 'Shading lifecycle smoke: WebGPU wire transition leaked previous shading material');
+    assert.equal(result.generatedMaterialColorMatcapReused, true, 'Shading lifecycle smoke: Material Color recreated its shared matcap');
+    assert.equal(result.generatedMaterialColorMatcapValid, true, 'Shading lifecycle smoke: Material Color matcap has no tonal range');
+    assert.equal(result.generatedMaterialColorMatcapDisposed, 1, 'Shading lifecycle smoke: Material Color matcap was not disposed exactly once');
+    assert.equal(result.generatedMaterialColorMatcapUnavailableAfterDispose, true, 'Shading lifecycle smoke: disposed texture provider recreated Material Color matcap');
     assert.equal(result.textureBurstRenderCount >= 12, true, 'Shading lifecycle smoke: textured shading mode did not request a render burst');
     assert.equal(result.textureBurstAllMapped, true, 'Shading lifecycle smoke: UV shading did not apply shared checker texture to all meshes');
     assert.equal(result.textureBurstAllMaterialsDirty, true, 'Shading lifecycle smoke: textured shading materials were not marked dirty');
     assert.equal(result.textureBurstTextureDirty, true, 'Shading lifecycle smoke: textured shading texture was not marked for upload');
-    assert.equal(result.materialColorIsBasic, true, 'Shading lifecycle smoke: Material Color did not use an unlit material');
+    assert.equal(result.materialColorMaskIsBasic, true, 'Shading lifecycle smoke: Material Color Mask did not use an unlit material');
+    assert.equal(result.materialColorMaskPreserved, true, 'Shading lifecycle smoke: Material Color Mask changed the source material color');
+    assert.equal(result.materialColorMaskHasNoTextures, true, 'Shading lifecycle smoke: Material Color Mask retained texture maps');
+    assert.equal(result.materialColorMaskVariantDisposed, 1, 'Shading lifecycle smoke: Material Color Mask leaked its generated material');
+    assert.equal(result.materialColorIsMatcap, true, 'Shading lifecycle smoke: Material Color did not use view-relative shading');
     assert.equal(result.materialColorPreserved, true, 'Shading lifecycle smoke: Material Color changed the source material color');
-    assert.equal(result.materialColorHasNoTextures, true, 'Shading lifecycle smoke: Material Color retained texture maps');
+    assert.equal(result.materialColorUsesNeutralShading, true, 'Shading lifecycle smoke: Material Color did not use its neutral matcap');
     assert.equal(result.materialColorTransparencyPreserved, true, 'Shading lifecycle smoke: Material Color changed transparency');
     assert.equal(result.materialColorSidePreserved, true, 'Shading lifecycle smoke: Material Color changed material side');
     assert.equal(result.materialColorIgnoresToneMapping, true, 'Shading lifecycle smoke: Material Color remained tone mapped');

@@ -5574,6 +5574,7 @@ export class ViewerApp {
 		            requestRender,
 		        });
 		        const getMatcap = debugTextures.getMatcap;
+		        const getMaterialColorMatcap = debugTextures.getMaterialColorMatcap;
 		        const getChecker = debugTextures.getChecker;
 
 	        // ================================
@@ -5618,6 +5619,7 @@ export class ViewerApp {
             applyGlassControlsToScene,
             getEnvIntensity: () => parseFloat(iblIntEl.value),
             getMatcap,
+            getMaterialColorMatcap,
             getChecker,
 	        });
 	        const applyShading = shadingController.applyShading;

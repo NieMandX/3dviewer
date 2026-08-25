@@ -6,6 +6,7 @@ export function createDebugTextureProvider(options = {}) {
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
 
     let matcapTexture = null;
+    let materialColorMatcapTexture = null;
     let checkerTexture = null;
     let disposed = false;
     let renderBurstToken = 0;
@@ -56,6 +57,46 @@ export function createDebugTextureProvider(options = {}) {
         );
         matcapTexture = texture;
         return matcapTexture;
+    }
+
+    function getMaterialColorMatcap() {
+        if (disposed || !THREE) return null;
+        if (materialColorMatcapTexture) return materialColorMatcapTexture;
+
+        const size = 64;
+        const data = new Uint8Array(size * size * 4);
+        for (let y = 0; y < size; y += 1) {
+            for (let x = 0; x < size; x += 1) {
+                const nx = ((x + 0.5) / size) * 2 - 1;
+                const ny = ((y + 0.5) / size) * 2 - 1;
+                const radiusSq = Math.min(1, nx * nx + ny * ny);
+                const facing = Math.sqrt(Math.max(0, 1 - radiusSq));
+                const directional = (ny - nx) * 0.015;
+                const shade = Math.max(0.86, Math.min(1, 0.88 + facing * 0.12 + directional));
+                const value = Math.round(shade * 255);
+                const offset = (y * size + x) * 4;
+                data[offset] = value;
+                data[offset + 1] = value;
+                data[offset + 2] = value;
+                data[offset + 3] = 255;
+            }
+        }
+
+        const texture = new THREE.DataTexture(
+            data,
+            size,
+            size,
+            THREE.RGBAFormat,
+            THREE.UnsignedByteType,
+        );
+        texture.name = 'Viewer Material Color Matcap';
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        texture.colorSpace = THREE.LinearSRGBColorSpace;
+        texture.needsUpdate = true;
+        materialColorMatcapTexture = texture;
+        return materialColorMatcapTexture;
     }
 
     function getChecker() {
@@ -139,8 +180,10 @@ export function createDebugTextureProvider(options = {}) {
             renderBurstToken = 0;
         }
         matcapTexture?.dispose?.();
+        materialColorMatcapTexture?.dispose?.();
         checkerTexture?.dispose?.();
         matcapTexture = null;
+        materialColorMatcapTexture = null;
         checkerTexture = null;
     }
 
@@ -148,6 +191,7 @@ export function createDebugTextureProvider(options = {}) {
         return {
             disposed,
             matcapLoaded: !!matcapTexture,
+            materialColorMatcapLoaded: !!materialColorMatcapTexture,
             checkerLoaded: !!checkerTexture,
             renderBurst: {
                 scheduled: !!renderBurstToken,
@@ -158,6 +202,7 @@ export function createDebugTextureProvider(options = {}) {
 
     return {
         getMatcap,
+        getMaterialColorMatcap,
         getChecker,
         getDiagnostics,
         dispose,
