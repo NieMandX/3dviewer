@@ -62,6 +62,9 @@ export function createEnvironmentControlsController(options = {}) {
 
         if (prev && [...hdriPresetSel.options].some(o => o.value === prev)) {
             hdriPresetSel.value = prev;
+        } else {
+            const defaultIndex = presets.findIndex((preset) => preset?.isDefault === true);
+            if (defaultIndex >= 0) hdriPresetSel.value = String(defaultIndex);
         }
     }
 

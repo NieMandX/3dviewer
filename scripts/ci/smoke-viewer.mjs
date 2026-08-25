@@ -13398,7 +13398,7 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
             scene: { environment: { id: 'env' } },
             iblChk,
             hdriPresetSel,
-            presets: [{ name: 'A' }, { name: 'B' }],
+            presets: [{ name: 'A' }, { name: 'B', isDefault: true }],
             iblIntEl,
             iblGammaEl,
             iblTintEl,
@@ -13414,6 +13414,7 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
             selectPresetIndex: async () => { envCalls.preset += 1; },
         });
         const envOptionsBeforeDispose = hdriPresetSel.options.length;
+        const envDefaultValueBeforeDispose = hdriPresetSel.value;
         envController.dispose();
         envController.dispose();
         hdriPresetSel.innerHTML = '<option value="sentinel">sentinel</option>';
@@ -13642,6 +13643,7 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
 
         return {
             envOptionsBeforeDispose,
+            envDefaultValueBeforeDispose,
             envOptionsAfterLatePopulate: hdriPresetSel.options.length,
             envFirstOptionAfterLatePopulate: hdriPresetSel.options[0]?.value || '',
             envCalls,
@@ -13680,6 +13682,7 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
     });
 
     assert.equal(result.envOptionsBeforeDispose, 3, 'Light controls smoke: environment presets were not populated before dispose');
+    assert.equal(result.envDefaultValueBeforeDispose, '1', 'Light controls smoke: default environment preset was not selected');
     assert.equal(result.envOptionsAfterLatePopulate, 1, 'Light controls smoke: disposed environment repopulated preset options');
     assert.equal(result.envFirstOptionAfterLatePopulate, 'sentinel', 'Light controls smoke: disposed environment changed preset option');
     assert.deepEqual(result.envCalls, { enabled: 0, rotation: 0, apply: 0, rebuild: 0, sync: 1, preset: 0 }, 'Light controls smoke: disposed environment still handled UI updates');
