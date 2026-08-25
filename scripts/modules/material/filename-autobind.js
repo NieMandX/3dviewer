@@ -5,6 +5,7 @@ import {
     objectTreeUsesTexture,
     resolveEditableMaterialState,
 } from './texture-utils.js';
+import { applyMaterialBaseColorPolicy } from './base-color-policy.js';
 
 export function createFilenameBinder(options = {}) {
     const THREE = options.THREE || null;
@@ -15,6 +16,8 @@ export function createFilenameBinder(options = {}) {
     const geomSuffixes = Array.isArray(options.geomSuffixes) ? options.geomSuffixes : [];
     const guessKindFromName = typeof options.guessKindFromName === 'function' ? options.guessKindFromName : () => 'other';
     const findGeomSuffix = typeof options.findGeomSuffix === 'function' ? options.findGeomSuffix : () => null;
+    const shouldPreserveBaseColorTint =
+        typeof options.shouldPreserveBaseColorTint === 'function' ? options.shouldPreserveBaseColorTint : () => false;
 
     const toStandard = typeof options.toStandard === 'function' ? options.toStandard : (m) => m;
     const textureLoader = options.textureLoader || null;
@@ -196,6 +199,9 @@ export function createFilenameBinder(options = {}) {
             let m = toStandard(previousMaterial);
             assignEditableMaterial(target.obj, materialState, target.slotIndex, m);
             cacheOriginalMaterialFor(target.obj, true);
+            applyMaterialBaseColorPolicy(m, {
+                preserveTint: shouldPreserveBaseColorTint(target.obj, m),
+            });
 
             const currentTexture = m[slot] || null;
             const humanName = basename(tex.full || tex.short);
@@ -212,6 +218,7 @@ export function createFilenameBinder(options = {}) {
                     disposeUnusedMaterialTree(previousMaterial, { root });
                 }
                 logBind(`ℹ️ ${tex.short} — слот ${slot} уже содержит эту карту`, 'info');
+                requestRender();
                 return;
             }
 
@@ -242,6 +249,11 @@ export function createFilenameBinder(options = {}) {
                 m.depthWrite = true;
             } else {
                 m[slot] = t;
+            }
+            if (slot === 'map') {
+                applyMaterialBaseColorPolicy(m, {
+                    preserveTint: shouldPreserveBaseColorTint(target.obj, m),
+                });
             }
 
             let disposedCurrentTexture = false;

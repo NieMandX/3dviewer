@@ -75,6 +75,7 @@ export function createTexturesUI(options = {}) {
         textureLoader,
         toStandard,
         copyTextureSettings,
+        shouldPreserveBaseColorTint: options.shouldPreserveBaseColorTint,
         getEnvironment,
         getEnvMapIntensity,
         cacheOriginalMaterialFor,

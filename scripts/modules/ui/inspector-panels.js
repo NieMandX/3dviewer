@@ -39,6 +39,7 @@ export function createInspectorPanels(options = {}) {
         textureLoader: options.textureLoader,
         toStandard: options.toStandard,
         copyTextureSettings: options.copyTextureSettings,
+        shouldPreserveBaseColorTint: options.shouldPreserveBaseColorTint,
         getEnvironment: options.getEnvironment,
         getEnvMapIntensity: options.getEnvMapIntensity,
         cacheOriginalMaterialFor: options.cacheOriginalMaterialFor,

@@ -59,6 +59,8 @@ export function createBatchFinalizer(options = {}) {
         typeof options.getCurrentShadingMode === 'function' ? options.getCurrentShadingMode : () => 'pbr';
     const requestPostImportRenderBurst =
         typeof options.requestPostImportRenderBurst === 'function' ? options.requestPostImportRenderBurst : () => {};
+    const applyBaseColorPolicyToRoot =
+        typeof options.applyBaseColorPolicyToRoot === 'function' ? options.applyBaseColorPolicyToRoot : () => 0;
 
     let disposed = false;
     let finalizeGeneration = 0;
@@ -142,6 +144,12 @@ export function createBatchFinalizer(options = {}) {
                 if (!stillCurrent()) return false;
                 logBind(`⚠️ VPM: ошибка автопривязки — ${e?.message || e}`, 'warn');
             }
+        }
+
+        const baseColorPolicyModels = new Set([...newModels, ...modelsForBinding]);
+        for (const model of baseColorPolicyModels) {
+            if (!stillCurrent()) return false;
+            applyBaseColorPolicyToRoot(model?.obj);
         }
 
         if (hasNewModels) {

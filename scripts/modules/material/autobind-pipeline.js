@@ -31,6 +31,8 @@ export function createAutobindPipeline(options = {}) {
     const guessKindFromName = typeof options.guessKindFromName === 'function' ? options.guessKindFromName : () => '';
     const isGlassByName = typeof options.isGlassByName === 'function' ? options.isGlassByName : () => false;
     const isGlassGeomSuffix = typeof options.isGlassGeomSuffix === 'function' ? options.isGlassGeomSuffix : () => false;
+    const shouldPreserveBaseColorTint =
+        typeof options.shouldPreserveBaseColorTint === 'function' ? options.shouldPreserveBaseColorTint : () => false;
 
     const undoStack = Array.isArray(options.undoStack) ? options.undoStack : [];
 
@@ -64,6 +66,7 @@ export function createAutobindPipeline(options = {}) {
         getEnvironment,
         getEnvMapIntensity,
         isWebGL2,
+        shouldPreserveBaseColorTint,
     });
 
     function buildVPMIndex(allImages) {
@@ -90,6 +93,7 @@ export function createAutobindPipeline(options = {}) {
         undoStack,
         getEnvironment,
         getEnvMapIntensity,
+        shouldPreserveBaseColorTint,
     });
 
     function autoBindByNamesForModel(root, fileName, embeddedList) {

@@ -5,6 +5,7 @@ import {
     editableMaterialIsAssigned,
     resolveEditableMaterialState,
 } from './texture-utils.js';
+import { applyMaterialBaseColorPolicy } from './base-color-policy.js';
 
 export function createVPMBinder(options = {}) {
     const THREE = options.THREE || null;
@@ -18,6 +19,8 @@ export function createVPMBinder(options = {}) {
     const textureLoader = options.textureLoader || null;
     const copyTextureSettings =
         typeof options.copyTextureSettings === 'function' ? options.copyTextureSettings : () => {};
+    const shouldPreserveBaseColorTint =
+        typeof options.shouldPreserveBaseColorTint === 'function' ? options.shouldPreserveBaseColorTint : () => false;
     const cacheOriginalMaterialFor =
         typeof options.cacheOriginalMaterialFor === 'function' ? options.cacheOriginalMaterialFor : () => {};
 
@@ -349,6 +352,9 @@ export function createVPMBinder(options = {}) {
                 // map.flipY = false;
                 copyTextureSettings(prevMap, map);
                 mat.map = map;
+                applyMaterialBaseColorPolicy(mat, {
+                    preserveTint: shouldPreserveBaseColorTint(o, mat),
+                });
 
                 // не для стекла — маска по альфа-каналу диффуза
                 const lowerLabel = `${mat.name || ''} ${o.name || ''}`.toLowerCase();

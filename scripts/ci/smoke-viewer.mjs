@@ -3665,6 +3665,12 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const { createDebugTextureProvider } = await import('/scripts/modules/render/debug-textures.js');
         const { createShadingController } = await import('/scripts/modules/render/shading-controller.js');
         const {
+            applyBaseColorPolicyToObjectTree,
+            applyMaterialBaseColorPolicy,
+            getMaterialSourceBaseColor,
+        } = await import('/scripts/modules/material/base-color-policy.js');
+        const { createToStandard } = await import('/scripts/modules/material/to-standard.js');
+        const {
             clearBeautyWire,
             clearWireframeOverlay,
             ensureBeautyWire,
@@ -3861,15 +3867,19 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const materialColorMap = new THREE.Texture();
         const materialColorAlphaMap = new THREE.Texture();
         const materialColorMatcap = new THREE.Texture();
+        const materialColorOriginal = new THREE.Color(0.21, 0.07, 0.59);
         const materialColorSource = new THREE.MeshStandardMaterial({
             name: 'material-color-original',
-            color: new THREE.Color(0.21, 0.07, 0.59),
+            color: materialColorOriginal.clone(),
             map: materialColorMap,
             alphaMap: materialColorAlphaMap,
             transparent: true,
             opacity: 0.42,
             side: THREE.DoubleSide,
         });
+        const materialColorPolicyChanged = applyMaterialBaseColorPolicy(materialColorSource);
+        const materialColorPbrNeutralized = materialColorSource.color.equals(new THREE.Color(0xffffff));
+        const materialColorSourceStored = getMaterialSourceBaseColor(materialColorSource)?.equals(materialColorOriginal) === true;
         const materialColorMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), materialColorSource);
         materialColorWorld.add(materialColorMesh);
         const materialColorShading = createShadingController({
@@ -3883,7 +3893,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const materialColorMaskVariant = materialColorMesh.material;
         const getMaterialColorMaskDisposeCount = patchDisposeCounter(materialColorMaskVariant);
         const materialColorMaskIsBasic = materialColorMaskVariant.isMeshBasicMaterial === true;
-        const materialColorMaskPreserved = materialColorMaskVariant.color.equals(materialColorSource.color);
+        const materialColorMaskPreserved = materialColorMaskVariant.color.equals(materialColorOriginal);
         const materialColorMaskHasNoTextures = materialColorMaskVariant.map === null
             && materialColorMaskVariant.alphaMap === null;
         materialColorShading.applyShading('materialColor');
@@ -3891,7 +3901,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const materialColorVariant = materialColorMesh.material;
         const getMaterialColorDisposeCount = patchDisposeCounter(materialColorVariant);
         const materialColorIsMatcap = materialColorVariant.isMeshMatcapMaterial === true;
-        const materialColorPreserved = materialColorVariant.color.equals(materialColorSource.color);
+        const materialColorPreserved = materialColorVariant.color.equals(materialColorOriginal);
         const materialColorUsesNeutralShading = materialColorVariant.matcap === materialColorMatcap
             && materialColorVariant.map === null;
         const materialColorTransparencyPreserved = materialColorVariant.transparent === true
@@ -3902,6 +3912,50 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const materialColorOriginalRestored = materialColorMesh.material === materialColorSource;
         const materialColorVariantDisposed = getMaterialColorDisposeCount();
         materialColorShading.dispose();
+
+        materialColorSource.map = null;
+        const materialColorPolicyRestored = applyMaterialBaseColorPolicy(materialColorSource)
+            && materialColorSource.color.equals(materialColorOriginal);
+
+        const untexturedColor = new THREE.Color(0.14, 0.38, 0.72);
+        const untexturedMaterial = new THREE.MeshStandardMaterial({ color: untexturedColor.clone() });
+        const untexturedColorPreserved = applyMaterialBaseColorPolicy(untexturedMaterial) === false
+            && untexturedMaterial.color.equals(untexturedColor);
+
+        const glassColor = new THREE.Color(0.31, 0.67, 0.82);
+        const glassMaterial = new THREE.MeshPhysicalMaterial({
+            name: 'M_Glass_01',
+            color: glassColor.clone(),
+            map: new THREE.Texture(),
+        });
+        const glassTintPreserved = applyMaterialBaseColorPolicy(glassMaterial, { preserveTint: true }) === false
+            && glassMaterial.color.equals(glassColor);
+
+        const hiddenSourceColor = new THREE.Color(0.73, 0.26, 0.11);
+        const hiddenSourceMaterial = new THREE.MeshStandardMaterial({
+            color: hiddenSourceColor.clone(),
+            map: new THREE.Texture(),
+        });
+        const hiddenDisplayMaterial = new THREE.MeshBasicMaterial({ color: 0x123456 });
+        hiddenDisplayMaterial.userData.viewerGeneratedMaterial = 'shading-variant';
+        const hiddenSourceMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), hiddenDisplayMaterial);
+        hiddenSourceMesh.userData._origMaterial = hiddenSourceMaterial;
+        const hiddenSourceWorld = new THREE.Group();
+        hiddenSourceWorld.add(hiddenSourceMesh);
+        const hiddenDisplayColor = hiddenDisplayMaterial.color.clone();
+        const hiddenSourcePolicyChanged = applyBaseColorPolicyToObjectTree(hiddenSourceWorld) === 1;
+        const hiddenSourceNeutralized = hiddenSourceMaterial.color.equals(new THREE.Color(0xffffff));
+        const hiddenDisplayUntouched = hiddenDisplayMaterial.color.equals(hiddenDisplayColor);
+
+        const legacySourceColor = new THREE.Color(0.44, 0.18, 0.63);
+        const legacyMaterial = new THREE.MeshBasicMaterial({
+            color: legacySourceColor.clone(),
+            map: new THREE.Texture(),
+        });
+        applyMaterialBaseColorPolicy(legacyMaterial);
+        const convertedMaterial = createToStandard()(legacyMaterial);
+        const convertedPolicyStatePreserved = convertedMaterial.color.equals(new THREE.Color(0xffffff))
+            && getMaterialSourceBaseColor(convertedMaterial)?.equals(legacySourceColor) === true;
 
         return {
             backfaceChildCreated,
@@ -3928,6 +3982,9 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             textureBurstAllMaterialsDirty,
             textureBurstTextureDirty,
             materialColorMaskIsBasic,
+            materialColorPolicyChanged,
+            materialColorPbrNeutralized,
+            materialColorSourceStored,
             materialColorMaskPreserved,
             materialColorMaskHasNoTextures,
             materialColorMaskVariantDisposed,
@@ -3939,6 +3996,13 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             materialColorIgnoresToneMapping,
             materialColorOriginalRestored,
             materialColorVariantDisposed,
+            materialColorPolicyRestored,
+            untexturedColorPreserved,
+            glassTintPreserved,
+            hiddenSourcePolicyChanged,
+            hiddenSourceNeutralized,
+            hiddenDisplayUntouched,
+            convertedPolicyStatePreserved,
         };
     });
 
@@ -3966,6 +4030,9 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.textureBurstAllMaterialsDirty, true, 'Shading lifecycle smoke: textured shading materials were not marked dirty');
     assert.equal(result.textureBurstTextureDirty, true, 'Shading lifecycle smoke: textured shading texture was not marked for upload');
     assert.equal(result.materialColorMaskIsBasic, true, 'Shading lifecycle smoke: Material Color Mask did not use an unlit material');
+    assert.equal(result.materialColorPolicyChanged, true, 'Base color policy smoke: textured material was not updated');
+    assert.equal(result.materialColorPbrNeutralized, true, 'Base color policy smoke: textured PBR multiplier was not neutralized');
+    assert.equal(result.materialColorSourceStored, true, 'Base color policy smoke: original material color was not retained');
     assert.equal(result.materialColorMaskPreserved, true, 'Shading lifecycle smoke: Material Color Mask changed the source material color');
     assert.equal(result.materialColorMaskHasNoTextures, true, 'Shading lifecycle smoke: Material Color Mask retained texture maps');
     assert.equal(result.materialColorMaskVariantDisposed, 1, 'Shading lifecycle smoke: Material Color Mask leaked its generated material');
@@ -3977,6 +4044,13 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.materialColorIgnoresToneMapping, true, 'Shading lifecycle smoke: Material Color remained tone mapped');
     assert.equal(result.materialColorOriginalRestored, true, 'Shading lifecycle smoke: PBR did not restore the source material');
     assert.equal(result.materialColorVariantDisposed, 1, 'Shading lifecycle smoke: Material Color leaked its generated material');
+    assert.equal(result.materialColorPolicyRestored, true, 'Base color policy smoke: removing base map did not restore the native color');
+    assert.equal(result.untexturedColorPreserved, true, 'Base color policy smoke: untextured material color changed');
+    assert.equal(result.glassTintPreserved, true, 'Base color policy smoke: glass tint was neutralized');
+    assert.equal(result.hiddenSourcePolicyChanged, true, 'Base color policy smoke: original material under display mode was not updated');
+    assert.equal(result.hiddenSourceNeutralized, true, 'Base color policy smoke: hidden PBR material retained a tint');
+    assert.equal(result.hiddenDisplayUntouched, true, 'Base color policy smoke: generated display material was modified');
+    assert.equal(result.convertedPolicyStatePreserved, true, 'Base color policy smoke: material conversion lost the original color');
     diagnostics.assertNoErrors('Shading controllers lifecycle smoke');
     await page.close();
 }
@@ -5583,6 +5657,7 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
             },
             getCurrentShadingMode: () => 'pbr',
             requestPostImportRenderBurst: () => pbrBurstCalls.push('burst'),
+            applyBaseColorPolicyToRoot: (root) => pbrBurstCalls.push(`baseColor:${root?.name || ''}`),
             outEl: pbrBurstOutEl,
         });
         const pbrBurstResult = await pbrBurstFinalizer.finalizeBatchAfterAllFiles();
@@ -5604,6 +5679,7 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
             },
             getCurrentShadingMode: () => 'normal',
             requestPostImportRenderBurst: () => nonPbrBurstCalls.push('burst'),
+            applyBaseColorPolicyToRoot: (root) => nonPbrBurstCalls.push(`baseColor:${root?.name || ''}`),
             outEl: nonPbrBurstOutEl,
         });
         const nonPbrBurstResult = await nonPbrBurstFinalizer.finalizeBatchAfterAllFiles();
@@ -5645,13 +5721,13 @@ async function runBatchFinalizerDisposeSmoke(browser, baseUrl) {
     assert.equal(result.pbrBurstResult, true, 'Batch finalizer smoke: PBR finalizer did not complete');
     assert.deepEqual(
         result.pbrBurstCalls,
-        ['shading:pbr', 'burst', 'last:1'],
+        ['baseColor:pbr-model', 'shading:pbr', 'burst', 'last:1'],
         'Batch finalizer smoke: successful PBR import did not request a post-import render burst',
     );
     assert.equal(result.nonPbrBurstResult, true, 'Batch finalizer smoke: non-PBR finalizer did not complete');
     assert.deepEqual(
         result.nonPbrBurstCalls,
-        ['shading:normal', 'last:1'],
+        ['baseColor:normal-model', 'shading:normal', 'last:1'],
         'Batch finalizer smoke: non-PBR import unexpectedly requested a post-import render burst',
     );
     diagnostics.assertNoErrors('Batch finalizer dispose smoke');
@@ -5822,6 +5898,7 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    const result = await page.evaluate(async () => {
 	        const THREE = await import('three');
 	        const { createFilenameBinder } = await import('/scripts/modules/material/filename-autobind.js');
+	        const { getMaterialSourceBaseColor } = await import('/scripts/modules/material/base-color-policy.js');
 	        const { createToStandard } = await import('/scripts/modules/material/to-standard.js');
 	        const { createTextureModalController } = await import('/scripts/modules/ui/texture-modal.js');
 	        const { createSelectedMaterialLinkResolver } = await import('/scripts/modules/ui/texture-helpers.js');
@@ -5921,9 +5998,10 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        const filenameDeferred = createDeferredTextureLoader();
 	        let filenameRenderCount = 0;
 	        const filenameRenderRoot = new THREE.Group();
+	        const filenameRenderSourceColor = new THREE.Color(0.62, 0.27, 0.13);
 	        const filenameRenderMesh = new THREE.Mesh(
 	            new THREE.BoxGeometry(1, 1, 1),
-	            new THREE.MeshStandardMaterial({ name: 'render wall' })
+	            new THREE.MeshStandardMaterial({ name: 'render wall', color: filenameRenderSourceColor.clone() })
 	        );
 	        filenameRenderMesh.name = 'mesh_wall';
 	        filenameRenderRoot.add(filenameRenderMesh);
@@ -5940,6 +6018,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        filenameRenderBinder.autoBindByNamesForModel(filenameRenderRoot, 'model.fbx', [
 	            { short: 'T_wall_d_1.png', full: 'T_wall_d_1.png', url: 'blob:filename-render' },
 	        ]);
+	        const filenameRenderColorNeutralized = filenameRenderMesh.material.color.equals(new THREE.Color(0xffffff));
+	        const filenameRenderSourceColorStored = getMaterialSourceBaseColor(filenameRenderMesh.material)?.equals(filenameRenderSourceColor) === true;
 	        const filenameRenderBeforeLoad = filenameRenderCount;
 	        filenameDeferred.loads[0].onLoad?.(filenameDeferred.loads[0].texture);
 	        const filenameRenderAfterLoad = filenameRenderCount;
@@ -6115,9 +6195,10 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        const modalDeferred = createDeferredTextureLoader();
 	        let modalRenderCount = 0;
 	        const modalRenderRoot = new THREE.Group();
+	        const modalRenderSourceColor = new THREE.Color(0.19, 0.41, 0.68);
 	        const modalRenderMesh = new THREE.Mesh(
 	            new THREE.BoxGeometry(1, 1, 1),
-	            new THREE.MeshStandardMaterial({ name: 'modal-render' })
+	            new THREE.MeshStandardMaterial({ name: 'modal-render', color: modalRenderSourceColor.clone() })
 	        );
 	        modalRenderRoot.add(modalRenderMesh);
 	        const modalRenderLoadedModels = [{ obj: modalRenderRoot, name: 'modal-render.fbx' }];
@@ -6134,6 +6215,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        });
 	        modalRenderController.open({ short: 'render.png', full: 'textures/render.png', url: 'blob:modal-render', mime: 'image/png' });
 	        modalRenderController.bindSelected();
+	        const modalRenderColorNeutralized = modalRenderMesh.material.color.equals(new THREE.Color(0xffffff));
+	        const modalRenderSourceColorStored = getMaterialSourceBaseColor(modalRenderMesh.material)?.equals(modalRenderSourceColor) === true;
 	        const modalRenderBeforeLoad = modalRenderCount;
 	        modalDeferred.loads[0].onLoad?.(modalDeferred.loads[0].texture);
 	        const modalRenderAfterLoad = modalRenderCount;
@@ -6231,9 +6314,10 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 
 	        const vpmDeferred = createDeferredTextureLoader();
 	        let vpmRenderCount = 0;
+	        const vpmRenderSourceColor = new THREE.Color(0.28, 0.57, 0.16);
 	        const vpmRenderMesh = new THREE.Mesh(
 	            new THREE.BoxGeometry(1, 1, 1),
-	            new THREE.MeshStandardMaterial({ name: 'vpm render' })
+	            new THREE.MeshStandardMaterial({ name: 'vpm render', color: vpmRenderSourceColor.clone() })
 	        );
 	        vpmRenderMesh.name = 'vpm_render_mesh';
 	        const vpmRenderRoot = new THREE.Group();
@@ -6253,6 +6337,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        });
 	        const vpmRenderIndex = vpmRenderBinder.buildVPMIndex([{ url: 'blob:vpm-render-diffuse' }]);
 	        await vpmRenderBinder.autoBindVPMForModel(vpmRenderRoot, vpmRenderIndex);
+	        const vpmRenderColorNeutralized = vpmRenderMesh.material.color.equals(new THREE.Color(0xffffff));
+	        const vpmRenderSourceColorStored = getMaterialSourceBaseColor(vpmRenderMesh.material)?.equals(vpmRenderSourceColor) === true;
 	        const vpmRenderAfterBind = vpmRenderCount;
 	        vpmDeferred.loads[0].onLoad?.(vpmDeferred.loads[0].texture);
 	        const vpmRenderAfterLoad = vpmRenderCount;
@@ -6357,6 +6443,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            filenameConvertedTextureAfterBind,
 	            filenameRenderBeforeLoad,
 	            filenameRenderAfterLoad,
+	            filenameRenderColorNeutralized,
+	            filenameRenderSourceColorStored,
 	            filenameStaleRenderCount,
 	            filenameStaleDisposed: filenameStaleDisposed(),
 	            filenameShadingVisiblePreserved,
@@ -6375,6 +6463,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            modalShadingOldTextureAfterBind,
 	            modalRenderBeforeLoad,
 	            modalRenderAfterLoad,
+	            modalRenderColorNeutralized,
+	            modalRenderSourceColorStored,
 	            modalStaleRenderCount,
 	            modalStaleDisposed: modalStaleDisposed(),
 	            vpmOldMaterialAfterBind,
@@ -6387,6 +6477,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            vpmShadingCacheCalls,
 	            vpmRenderAfterBind,
 	            vpmRenderAfterLoad,
+	            vpmRenderColorNeutralized,
+	            vpmRenderSourceColorStored,
 	            vpmStaleRenderAfterBind,
 	            vpmStaleRenderAfterLoad: vpmStaleRenderCount,
 	            vpmStaleDisposed: vpmStaleDisposed(),
@@ -6403,6 +6495,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.filenameConvertedTextureAfterBind, 1, 'Texture replacement smoke: filename binder leaked converted source texture');
 	    assert.equal(result.filenameRenderBeforeLoad, 0, 'Texture replacement smoke: filename binder requested render before image decode');
 	    assert.equal(result.filenameRenderAfterLoad, 1, 'Texture replacement smoke: filename binder did not request render after image decode');
+	    assert.equal(result.filenameRenderColorNeutralized, true, 'Texture replacement smoke: filename binder retained material tint on base map');
+	    assert.equal(result.filenameRenderSourceColorStored, true, 'Texture replacement smoke: filename binder lost the original material color');
 	    assert.equal(result.filenameStaleRenderCount, 0, 'Texture replacement smoke: stale filename texture requested render after model removal');
 	    assert.equal(result.filenameStaleDisposed, 1, 'Texture replacement smoke: stale filename texture was not disposed after late decode');
 	    assert.equal(result.filenameShadingVisiblePreserved, true, 'Texture replacement smoke: filename binder replaced visible shading material');
@@ -6421,6 +6515,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.modalShadingOldTextureAfterBind, 1, 'Texture replacement smoke: texture modal leaked replaced original texture under shading mode');
 	    assert.equal(result.modalRenderBeforeLoad, 0, 'Texture replacement smoke: texture modal requested render before image decode');
 	    assert.equal(result.modalRenderAfterLoad, 1, 'Texture replacement smoke: texture modal did not request render after image decode');
+	    assert.equal(result.modalRenderColorNeutralized, true, 'Texture replacement smoke: texture modal retained material tint on base map');
+	    assert.equal(result.modalRenderSourceColorStored, true, 'Texture replacement smoke: texture modal lost the original material color');
 	    assert.equal(result.modalStaleRenderCount, 0, 'Texture replacement smoke: stale modal texture requested render after model removal');
 	    assert.equal(result.modalStaleDisposed, 1, 'Texture replacement smoke: stale modal texture was not disposed after late decode');
 	    assert.equal(result.vpmOldMaterialAfterBind, 1, 'Texture replacement smoke: VPM bind leaked replaced source material');
@@ -6433,6 +6529,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    assert.equal(result.vpmShadingCacheCalls, 1, 'Texture replacement smoke: VPM bind did not invalidate original material cache under shading mode');
 	    assert.equal(result.vpmRenderAfterBind, 1, 'Texture replacement smoke: VPM bind did not request initial render');
 	    assert.equal(result.vpmRenderAfterLoad, 2, 'Texture replacement smoke: VPM bind did not request render after diffuse decode');
+	    assert.equal(result.vpmRenderColorNeutralized, true, 'Texture replacement smoke: VPM bind retained material tint on diffuse map');
+	    assert.equal(result.vpmRenderSourceColorStored, true, 'Texture replacement smoke: VPM bind lost the original material color');
 	    assert.equal(result.vpmStaleRenderAfterLoad, result.vpmStaleRenderAfterBind, 'Texture replacement smoke: stale VPM texture requested render after model removal');
 	    assert.equal(result.vpmStaleDisposed, 1, 'Texture replacement smoke: stale VPM texture was not disposed after late decode');
 	    assert.equal(result.vpmFailureResult, 'resolved', 'Texture replacement smoke: VPM ERM failure rejected whole bind');

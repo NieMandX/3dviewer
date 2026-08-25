@@ -3,6 +3,7 @@ import {
     loadedModelsUseTexture,
     objectTreeUsesTexture,
 } from '../material/texture-utils.js';
+import { applyMaterialBaseColorPolicy } from '../material/base-color-policy.js';
 
 export function createTextureModalController(options = {}) {
     const texModalEl = options.texModalEl || null;
@@ -26,6 +27,8 @@ export function createTextureModalController(options = {}) {
     const textureLoader = options.textureLoader || null;
     const toStandard = typeof options.toStandard === 'function' ? options.toStandard : (m) => m;
     const copyTextureSettings = typeof options.copyTextureSettings === 'function' ? options.copyTextureSettings : () => {};
+    const shouldPreserveBaseColorTint =
+        typeof options.shouldPreserveBaseColorTint === 'function' ? options.shouldPreserveBaseColorTint : () => false;
 
     const getEnvironment = typeof options.getEnvironment === 'function' ? options.getEnvironment : () => null;
     const getEnvMapIntensity = typeof options.getEnvMapIntensity === 'function' ? options.getEnvMapIntensity : () => 1;
@@ -158,7 +161,11 @@ export function createTextureModalController(options = {}) {
         const humanName = basename(modalTex.full || modalTex.short);
 
         // делаем PBR-эквивалент и назначаем карту на НОВЫЙ материал
+        const { obj, index } = link;
         const previousMaterial = link.mat;
+        applyMaterialBaseColorPolicy(previousMaterial, {
+            preserveTint: shouldPreserveBaseColorTint(obj, previousMaterial),
+        });
         let std = toStandard(previousMaterial);
 
         let prevTex = null;
@@ -174,10 +181,10 @@ export function createTextureModalController(options = {}) {
                 disposeUnusedMaterialTree(std, { world, loadedModels });
             }
             logBind(`${modalTex.short} → ${std.name || 'материал'}.${slot} уже назначена`, 'info');
+            requestRender();
             return;
         }
 
-        const { obj, index } = link;
         const originalMaterials = Array.isArray(obj?.userData?._origMaterial)
             ? obj.userData._origMaterial
             : [obj?.userData?._origMaterial].filter(Boolean);
@@ -201,6 +208,12 @@ export function createTextureModalController(options = {}) {
         else if (slot === 'metalnessMap') { std.metalnessMap = t; std.metalness = 1.0; }
         else if (slot === 'alphaMap') { std.alphaMap = t; std.alphaTest = 0.5; std.transparent = false; std.depthWrite = true; }
         else { std[slot] = t; }
+
+        if (slot === 'map') {
+            applyMaterialBaseColorPolicy(std, {
+                preserveTint: shouldPreserveBaseColorTint(obj, std),
+            });
+        }
 
         copyTextureSettings(prevTex, t);
 

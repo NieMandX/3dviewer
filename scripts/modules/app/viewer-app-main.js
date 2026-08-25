@@ -78,6 +78,7 @@ import { createGlassController } from '../material/glass-controller.js';
 import { createGlassMeshOptimizer } from '../material/glass-mesh-optimizer.js';
 import { createMaterialRenamer } from '../material/rename-materials.js';
 import { createAutobindPipeline } from '../material/autobind-pipeline.js';
+import { applyBaseColorPolicyToObjectTree } from '../material/base-color-policy.js';
 import { collectMaterialTextures, copyTextureSettings } from '../material/texture-utils.js';
 import { pruneMaterialUndoStackForRoots } from '../material/undo-stack.js';
 import { createToStandard } from '../material/to-standard.js';
@@ -5823,6 +5824,21 @@ export class ViewerApp {
 	            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
 	        });
 
+            function shouldPreserveBaseColorTint(obj, material) {
+                const label = `${material?.name || ''} ${obj?.name || ''}`.toLowerCase();
+                return material?.userData?.glassOriginal != null
+                    || material?.userData?.glassInfo != null
+                    || isGlassByName(label)
+                    || isGlassGeomSuffix(findGeomSuffix(label))
+                    || /(?:^|[^a-z0-9])glass(?:[^a-z0-9]|$)/i.test(label);
+            }
+
+            function applyBaseColorPolicyToRoot(root) {
+                return applyBaseColorPolicyToObjectTree(root, {
+                    shouldPreserveTint: shouldPreserveBaseColorTint,
+                });
+            }
+
 	        // `copyTextureSettings` moved to `scripts/modules/material/texture-utils.js`
 
 	        // `GEOM_SUFFIXES`/slot + glass name helpers moved to `scripts/modules/material/naming.js`
@@ -5866,6 +5882,7 @@ export class ViewerApp {
 			            textureLoader,
 			            toStandard,
 			            copyTextureSettings,
+			            shouldPreserveBaseColorTint,
 			            getEnvironment: () => scene.environment,
 			            getEnvMapIntensity: () => parseFloat(iblIntEl.value),
 			            cacheOriginalMaterialFor,
@@ -5973,6 +5990,7 @@ export class ViewerApp {
 	            guessKindFromName,
 	            isGlassByName,
 	            isGlassGeomSuffix,
+	            shouldPreserveBaseColorTint,
 	            undoStack,
 	            getEntries: () => allEmbedded,
 	            getEnvironment: () => scene.environment,
@@ -7583,6 +7601,7 @@ export class ViewerApp {
 	            applyShading,
 	            getCurrentShadingMode: shadingController.getCurrentMode,
             requestPostImportRenderBurst: () => requestSceneRenderBurst(8),
+            applyBaseColorPolicyToRoot,
 	        });
         setBootProgress(84, 'Готовим интерфейс...');
 

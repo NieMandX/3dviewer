@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { copyMaterialBaseColorPolicyState } from './base-color-policy.js';
 
 export function createToStandard(options = {}) {
     const getEnvironment =
@@ -61,6 +62,7 @@ export function createToStandard(options = {}) {
         }
 
         std.name = m.name || std.name;
+        copyMaterialBaseColorPolicyState(m, std);
 
         if (std.map) std.map.colorSpace = THREE.SRGBColorSpace;
         if (std.emissiveMap) std.emissiveMap.colorSpace = THREE.SRGBColorSpace;
@@ -83,4 +85,3 @@ export function createToStandard(options = {}) {
         return std;
     };
 }
-

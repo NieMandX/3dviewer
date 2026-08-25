@@ -1,4 +1,5 @@
 import { asMaterialArray } from '../material/texture-utils.js';
+import { getMaterialSourceBaseColor } from '../material/base-color-policy.js';
 
 export function createShadingController(options = {}) {
     const THREE = options.THREE || null;
@@ -173,9 +174,7 @@ export function createShadingController(options = {}) {
             alphaMap: orig.alphaMap || null,
         };
 
-        const color = (orig.color && orig.color.isColor)
-            ? orig.color.clone()
-            : new THREE.Color(0xffffff);
+        const color = getMaterialSourceBaseColor(orig) || new THREE.Color(0xffffff);
 
         const map = orig.map || null;
 
