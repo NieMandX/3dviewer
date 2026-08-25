@@ -3837,6 +3837,41 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const textureBurstTextureDirty = textureBurstChecker.version > 0;
         textureBurst.dispose();
 
+        const materialColorWorld = new THREE.Group();
+        const materialColorMap = new THREE.Texture();
+        const materialColorAlphaMap = new THREE.Texture();
+        const materialColorSource = new THREE.MeshStandardMaterial({
+            name: 'material-color-original',
+            color: new THREE.Color(0.21, 0.07, 0.59),
+            map: materialColorMap,
+            alphaMap: materialColorAlphaMap,
+            transparent: true,
+            opacity: 0.42,
+            side: THREE.DoubleSide,
+        });
+        const materialColorMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), materialColorSource);
+        materialColorWorld.add(materialColorMesh);
+        const materialColorShading = createShadingController({
+            THREE,
+            world: materialColorWorld,
+            scene: new THREE.Scene(),
+            setBackfaceMode: () => {},
+        });
+        materialColorShading.applyShading('materialColor');
+        const materialColorVariant = materialColorMesh.material;
+        const getMaterialColorDisposeCount = patchDisposeCounter(materialColorVariant);
+        const materialColorIsBasic = materialColorVariant.isMeshBasicMaterial === true;
+        const materialColorPreserved = materialColorVariant.color.equals(materialColorSource.color);
+        const materialColorHasNoTextures = materialColorVariant.map === null && materialColorVariant.alphaMap === null;
+        const materialColorTransparencyPreserved = materialColorVariant.transparent === true
+            && materialColorVariant.opacity === materialColorSource.opacity;
+        const materialColorSidePreserved = materialColorVariant.side === materialColorSource.side;
+        const materialColorIgnoresToneMapping = materialColorVariant.toneMapped === false;
+        materialColorShading.applyShading('pbr');
+        const materialColorOriginalRestored = materialColorMesh.material === materialColorSource;
+        const materialColorVariantDisposed = getMaterialColorDisposeCount();
+        materialColorShading.dispose();
+
         return {
             backfaceChildCreated,
             backfaceMaterialSwapped,
@@ -3857,6 +3892,14 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             textureBurstAllMapped,
             textureBurstAllMaterialsDirty,
             textureBurstTextureDirty,
+            materialColorIsBasic,
+            materialColorPreserved,
+            materialColorHasNoTextures,
+            materialColorTransparencyPreserved,
+            materialColorSidePreserved,
+            materialColorIgnoresToneMapping,
+            materialColorOriginalRestored,
+            materialColorVariantDisposed,
         };
     });
 
@@ -3879,6 +3922,14 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.textureBurstAllMapped, true, 'Shading lifecycle smoke: UV shading did not apply shared checker texture to all meshes');
     assert.equal(result.textureBurstAllMaterialsDirty, true, 'Shading lifecycle smoke: textured shading materials were not marked dirty');
     assert.equal(result.textureBurstTextureDirty, true, 'Shading lifecycle smoke: textured shading texture was not marked for upload');
+    assert.equal(result.materialColorIsBasic, true, 'Shading lifecycle smoke: Material Color did not use an unlit material');
+    assert.equal(result.materialColorPreserved, true, 'Shading lifecycle smoke: Material Color changed the source material color');
+    assert.equal(result.materialColorHasNoTextures, true, 'Shading lifecycle smoke: Material Color retained texture maps');
+    assert.equal(result.materialColorTransparencyPreserved, true, 'Shading lifecycle smoke: Material Color changed transparency');
+    assert.equal(result.materialColorSidePreserved, true, 'Shading lifecycle smoke: Material Color changed material side');
+    assert.equal(result.materialColorIgnoresToneMapping, true, 'Shading lifecycle smoke: Material Color remained tone mapped');
+    assert.equal(result.materialColorOriginalRestored, true, 'Shading lifecycle smoke: PBR did not restore the source material');
+    assert.equal(result.materialColorVariantDisposed, 1, 'Shading lifecycle smoke: Material Color leaked its generated material');
     diagnostics.assertNoErrors('Shading controllers lifecycle smoke');
     await page.close();
 }

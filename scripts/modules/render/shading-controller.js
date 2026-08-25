@@ -193,6 +193,17 @@ export function createShadingController(options = {}) {
                     map,
                 }));
 
+            case 'materialColor':
+                return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({
+                    side: orig.side ?? THREE.FrontSide,
+                    color,
+                    transparent: !!orig.transparent || Number(orig.opacity ?? 1) < 1,
+                    opacity: orig.opacity ?? 1,
+                    depthWrite: orig.depthWrite !== false,
+                    depthTest: orig.depthTest !== false,
+                    toneMapped: false,
+                }));
+
             case 'wire':
                 return markGeneratedShadingVariant(new THREE.MeshBasicMaterial({
                     ...common,
