@@ -3668,6 +3668,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             applyBaseColorPolicyToObjectTree,
             applyMaterialBaseColorPolicy,
             getMaterialSourceBaseColor,
+            TEXTURED_BASE_COLOR_MULTIPLIER,
         } = await import('/scripts/modules/material/base-color-policy.js');
         const { createToStandard } = await import('/scripts/modules/material/to-standard.js');
         const {
@@ -3863,6 +3864,11 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         const textureBurstTextureDirty = textureBurstChecker.version > 0;
         textureBurst.dispose();
 
+        const texturedBaseColor = new THREE.Color().setRGB(
+            TEXTURED_BASE_COLOR_MULTIPLIER,
+            TEXTURED_BASE_COLOR_MULTIPLIER,
+            TEXTURED_BASE_COLOR_MULTIPLIER,
+        );
         const materialColorWorld = new THREE.Group();
         const materialColorMap = new THREE.Texture();
         const materialColorAlphaMap = new THREE.Texture();
@@ -3878,7 +3884,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
             side: THREE.DoubleSide,
         });
         const materialColorPolicyChanged = applyMaterialBaseColorPolicy(materialColorSource);
-        const materialColorPbrNeutralized = materialColorSource.color.equals(new THREE.Color(0xffffff));
+        const materialColorPbrNeutralized = materialColorSource.color.equals(texturedBaseColor);
         const materialColorSourceStored = getMaterialSourceBaseColor(materialColorSource)?.equals(materialColorOriginal) === true;
         const materialColorMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), materialColorSource);
         materialColorWorld.add(materialColorMesh);
@@ -3944,7 +3950,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         hiddenSourceWorld.add(hiddenSourceMesh);
         const hiddenDisplayColor = hiddenDisplayMaterial.color.clone();
         const hiddenSourcePolicyChanged = applyBaseColorPolicyToObjectTree(hiddenSourceWorld) === 1;
-        const hiddenSourceNeutralized = hiddenSourceMaterial.color.equals(new THREE.Color(0xffffff));
+        const hiddenSourceNeutralized = hiddenSourceMaterial.color.equals(texturedBaseColor);
         const hiddenDisplayUntouched = hiddenDisplayMaterial.color.equals(hiddenDisplayColor);
 
         const legacySourceColor = new THREE.Color(0.44, 0.18, 0.63);
@@ -3954,7 +3960,7 @@ async function runShadingControllersLifecycleSmoke(browser, baseUrl) {
         });
         applyMaterialBaseColorPolicy(legacyMaterial);
         const convertedMaterial = createToStandard()(legacyMaterial);
-        const convertedPolicyStatePreserved = convertedMaterial.color.equals(new THREE.Color(0xffffff))
+        const convertedPolicyStatePreserved = convertedMaterial.color.equals(texturedBaseColor)
             && getMaterialSourceBaseColor(convertedMaterial)?.equals(legacySourceColor) === true;
 
         return {
@@ -5898,12 +5904,20 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	    const result = await page.evaluate(async () => {
 	        const THREE = await import('three');
 	        const { createFilenameBinder } = await import('/scripts/modules/material/filename-autobind.js');
-	        const { getMaterialSourceBaseColor } = await import('/scripts/modules/material/base-color-policy.js');
+	        const {
+	            getMaterialSourceBaseColor,
+	            TEXTURED_BASE_COLOR_MULTIPLIER,
+	        } = await import('/scripts/modules/material/base-color-policy.js');
 	        const { createToStandard } = await import('/scripts/modules/material/to-standard.js');
 	        const { createTextureModalController } = await import('/scripts/modules/ui/texture-modal.js');
 	        const { createSelectedMaterialLinkResolver } = await import('/scripts/modules/ui/texture-helpers.js');
 	        const { createVPMBinder } = await import('/scripts/modules/material/vpm-autobind.js');
 	        const toStandard = createToStandard();
+	        const texturedBaseColor = new THREE.Color().setRGB(
+	            TEXTURED_BASE_COLOR_MULTIPLIER,
+	            TEXTURED_BASE_COLOR_MULTIPLIER,
+	            TEXTURED_BASE_COLOR_MULTIPLIER,
+	        );
 
         const trackDispose = (texture) => {
             let count = 0;
@@ -6018,7 +6032,7 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        filenameRenderBinder.autoBindByNamesForModel(filenameRenderRoot, 'model.fbx', [
 	            { short: 'T_wall_d_1.png', full: 'T_wall_d_1.png', url: 'blob:filename-render' },
 	        ]);
-	        const filenameRenderColorNeutralized = filenameRenderMesh.material.color.equals(new THREE.Color(0xffffff));
+	        const filenameRenderColorNeutralized = filenameRenderMesh.material.color.equals(texturedBaseColor);
 	        const filenameRenderSourceColorStored = getMaterialSourceBaseColor(filenameRenderMesh.material)?.equals(filenameRenderSourceColor) === true;
 	        const filenameRenderBeforeLoad = filenameRenderCount;
 	        filenameDeferred.loads[0].onLoad?.(filenameDeferred.loads[0].texture);
@@ -6215,7 +6229,7 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        });
 	        modalRenderController.open({ short: 'render.png', full: 'textures/render.png', url: 'blob:modal-render', mime: 'image/png' });
 	        modalRenderController.bindSelected();
-	        const modalRenderColorNeutralized = modalRenderMesh.material.color.equals(new THREE.Color(0xffffff));
+	        const modalRenderColorNeutralized = modalRenderMesh.material.color.equals(texturedBaseColor);
 	        const modalRenderSourceColorStored = getMaterialSourceBaseColor(modalRenderMesh.material)?.equals(modalRenderSourceColor) === true;
 	        const modalRenderBeforeLoad = modalRenderCount;
 	        modalDeferred.loads[0].onLoad?.(modalDeferred.loads[0].texture);
@@ -6337,7 +6351,7 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        });
 	        const vpmRenderIndex = vpmRenderBinder.buildVPMIndex([{ url: 'blob:vpm-render-diffuse' }]);
 	        await vpmRenderBinder.autoBindVPMForModel(vpmRenderRoot, vpmRenderIndex);
-	        const vpmRenderColorNeutralized = vpmRenderMesh.material.color.equals(new THREE.Color(0xffffff));
+	        const vpmRenderColorNeutralized = vpmRenderMesh.material.color.equals(texturedBaseColor);
 	        const vpmRenderSourceColorStored = getMaterialSourceBaseColor(vpmRenderMesh.material)?.equals(vpmRenderSourceColor) === true;
 	        const vpmRenderAfterBind = vpmRenderCount;
 	        vpmDeferred.loads[0].onLoad?.(vpmDeferred.loads[0].texture);

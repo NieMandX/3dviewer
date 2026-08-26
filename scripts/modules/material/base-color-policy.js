@@ -2,6 +2,13 @@ import { resolveEditableMaterialState } from './texture-utils.js';
 
 const SOURCE_COLOR_KEY = 'viewerSourceBaseColor';
 const NEUTRALIZED_KEY = 'viewerBaseColorNeutralized';
+export const TEXTURED_BASE_COLOR_MULTIPLIER = 127 / 255;
+
+const TEXTURED_BASE_COLOR = [
+    TEXTURED_BASE_COLOR_MULTIPLIER,
+    TEXTURED_BASE_COLOR_MULTIPLIER,
+    TEXTURED_BASE_COLOR_MULTIPLIER,
+];
 
 function readStoredColor(material) {
     const value = material?.userData?.[SOURCE_COLOR_KEY];
@@ -56,8 +63,8 @@ export function applyMaterialBaseColorPolicy(material, options = {}) {
         if (!wasNeutralized || !readStoredColor(material)) {
             storeCurrentColor(material);
         }
-        if (!colorsEqual(material.color, [1, 1, 1])) {
-            material.color.setRGB(1, 1, 1);
+        if (!colorsEqual(material.color, TEXTURED_BASE_COLOR)) {
+            material.color.setRGB(...TEXTURED_BASE_COLOR);
             changed = true;
         }
         userData[NEUTRALIZED_KEY] = true;

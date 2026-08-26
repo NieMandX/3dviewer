@@ -90,10 +90,10 @@ export function createSceneCore(options = {}) {
         document: options.document || null,
     });
 
-    const hemiLight = new THREE.HemisphereLight(0xe6eef5, 0xc8cdd2, 0.35);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xcfd8dc, 1);
     scene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 3.0);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 10.0);
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.set(4096, 4096);
     dirLight.shadow.bias = -0.0005;
