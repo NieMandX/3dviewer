@@ -9,6 +9,29 @@ export const FALLBACK_HDR_URL = 'hdr/kloofendal_overcast_puresky_1k.hdr';
 export const HDRI_LIBRARY = [
     { name: "Joburg Central Sunset", url: DEFAULT_ENV_URL, isDefault: true },
     { name: "Kloofendal Overcast", url: FALLBACK_HDR_URL },
+
+    { name: "Wide Street 01 (clear midday)", url: "hdr/wide_street_01_1k.hdr" },
+    { name: "Wide Street 02 (clear morning)", url: "hdr/wide_street_02_1k.hdr" },
+    { name: "Urban Street 04 (partly cloudy)", url: "hdr/urban_street_04_1k.hdr" },
+    { name: "Crosswalk (clear morning)", url: "hdr/crosswalk_1k.hdr" },
+    { name: "Rooftop Day (partly cloudy)", url: "hdr/rooftop_day_1k.hdr" },
+    { name: "Homecoming Rooftop (clear midday)", url: "hdr/homecoming_center_rooftop_1k.hdr" },
+    { name: "Urban Courtyard (sunny morning)", url: "hdr/urban_courtyard_1k.hdr" },
+    { name: "Ulmer Muenster (clear afternoon)", url: "hdr/ulmer_muenster_1k.hdr" },
+
+    { name: "Potsdamer Platz (overcast morning)", url: "hdr/potsdamer_platz_1k.hdr" },
+    { name: "Schadowplatz (overcast midday)", url: "hdr/schadowplatz_1k.hdr" },
+    { name: "Urban Courtyard 02 (overcast)", url: "hdr/urban_courtyard_02_1k.hdr" },
+
+    { name: "Quattro Canti (soft sunrise)", url: "hdr/quattro_canti_1k.hdr" },
+    { name: "Dresden Square (soft morning)", url: "hdr/dresden_square_1k.hdr" },
+    { name: "Signal Hill Sunrise (high contrast)", url: "hdr/signal_hill_sunrise_1k.hdr" },
+
+    { name: "Neuer Zollhof (contrast dusk)", url: "hdr/neuer_zollhof_1k.hdr" },
+    { name: "Modern Evening Street (soft dusk)", url: "hdr/modern_evening_street_1k.hdr" },
+    { name: "Venice Dawn 2 (blue hour)", url: "hdr/venice_dawn_2_1k.hdr" },
+    { name: "Golden Bay (contrast dusk)", url: "hdr/golden_bay_1k.hdr" },
+
     { name: "Forest EXR",         url: "exr/forest-01-1024.exr" },
     { name: "Royal Esplanade",    url: "hdr/royal_esplanade_1k.hdr" },
     { name: "Venice Sunset",      url: "hdr/venice_sunset_1k.hdr" },
