@@ -3,12 +3,12 @@ import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 
-export const DEFAULT_ENV_URL = 'hdr/kloofendal_overcast_puresky_1k.hdr';
-export const FALLBACK_HDR_URL = 'hdr/royal_esplanade_1k.hdr';
+export const DEFAULT_ENV_URL = 'hdr/sunset_jhbcentral_1k.hdr';
+export const FALLBACK_HDR_URL = 'hdr/kloofendal_overcast_puresky_1k.hdr';
 
 export const HDRI_LIBRARY = [
-    { name: "Kloofendal Overcast", url: DEFAULT_ENV_URL, isDefault: true },
-    { name: "Joburg Central Sunset", url: "hdr/sunset_jhbcentral_1k.hdr" },
+    { name: "Joburg Central Sunset", url: DEFAULT_ENV_URL, isDefault: true },
+    { name: "Kloofendal Overcast", url: FALLBACK_HDR_URL },
     { name: "Forest EXR",         url: "exr/forest-01-1024.exr" },
     { name: "Royal Esplanade",    url: "hdr/royal_esplanade_1k.hdr" },
     { name: "Venice Sunset",      url: "hdr/venice_sunset_1k.hdr" },
