@@ -3,17 +3,12 @@ import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 
-export const DEFAULT_ENV_URL = 'hdr/kloofendal_misty_morning_puresky_1k.hdr';
-export const FALLBACK_HDR_URL = 'hdr/kloofendal_overcast_puresky_1k.hdr';
+export const DEFAULT_ENV_URL = 'hdr/kloofendal_overcast_puresky_1k.hdr';
+export const FALLBACK_HDR_URL = 'hdr/royal_esplanade_1k.hdr';
 
 export const HDRI_LIBRARY = [
-    { name: "Cool Misty Morning", url: DEFAULT_ENV_URL, isDefault: true },
-    { name: "Cool Overcast",      url: "hdr/kloofendal_overcast_puresky_1k.hdr" },
-    { name: "Neutral Cloudy",     url: "hdr/mud_road_puresky_1k.hdr" },
-    { name: "Urban Golden - Palermo", url: "hdr/palermo_square_1k.hdr" },
-    { name: "Urban Golden - Modern Waterfront", url: "hdr/modern_buildings_1k.hdr" },
-    { name: "Urban Golden - Vatican Road", url: "hdr/vatican_road_1k.hdr" },
-    { name: "Urban Dusk - Joburg Rooftop", url: "hdr/sunset_jhbcentral_1k.hdr" },
+    { name: "Kloofendal Overcast", url: DEFAULT_ENV_URL, isDefault: true },
+    { name: "Joburg Central Sunset", url: "hdr/sunset_jhbcentral_1k.hdr" },
     { name: "Forest EXR",         url: "exr/forest-01-1024.exr" },
     { name: "Royal Esplanade",    url: "hdr/royal_esplanade_1k.hdr" },
     { name: "Venice Sunset",      url: "hdr/venice_sunset_1k.hdr" },
