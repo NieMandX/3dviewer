@@ -52,6 +52,24 @@ binding from the API gateway and exposes only ports 80/443:
 COMPOSE_FILE=docker-compose.yml:docker-compose.yandex.yml:docker-compose.caddy.yml
 ```
 
+The pinned Envoy template applies a 30-second request timeout to Storage. Large
+model downloads then return `200` but are truncated with
+`ERR_HTTP2_PROTOCOL_ERROR`. Disable the total request timeout only for the
+streamed `/storage/v1/` route and recreate the gateway:
+
+```bash
+sudo install -m 700 \
+  infra/supabase-yandex/lpmview-envoy-storage-timeout \
+  /usr/local/sbin/lpmview-envoy-storage-timeout
+cd /opt/lpmview/supabase
+sudo /usr/local/sbin/lpmview-envoy-storage-timeout
+sudo docker compose up -d --force-recreate api-gw
+```
+
+The script requires the exact pinned route shape and refuses unexpected
+templates. A `0s` Envoy route timeout disables the total request deadline while
+idle connection safeguards remain active.
+
 ## Managed database export and restore
 
 Use the current Supabase CLI and the official filtered dump workflow:
@@ -91,6 +109,13 @@ docker exec supabase-db psql \
   --command 'SET session_replication_role = replica' \
   --file /tmp/data.compat.sql
 ```
+
+The managed dump can omit policies owned by the platform-managed Storage schema.
+After restoring the application schema, apply
+`supabase/migrations/20260901000100_restore_model_storage_policies.sql` and
+verify that `models_upload`, `models_read`, and `models_delete` exist on
+`storage.objects`. Keep the `models` bucket private; the policies enforce room
+membership for downloads and project ownership for uploads and deletes.
 
 ## Storage migration
 

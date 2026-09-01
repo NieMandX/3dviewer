@@ -657,7 +657,10 @@ grant all on table public.room_members to service_role;
 
 create policy "projects_select" on public.projects
     for select to authenticated
-    using (public.can_access_project(id));
+    using (
+        owner_id = auth.uid()
+        or public.can_access_project(id)
+    );
 
 create policy "projects_insert" on public.projects
     for insert to authenticated
@@ -715,7 +718,10 @@ create policy "project_models_delete" on public.project_models
 
 create policy "rooms_select" on public.rooms
     for select to authenticated
-    using (public.can_access_room(id));
+    using (
+        owner_id = auth.uid()
+        or public.can_access_room(id)
+    );
 
 create policy "rooms_insert" on public.rooms
     for insert to authenticated

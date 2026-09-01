@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Disable Envoy's request timeout for streamed Supabase Storage responses."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import re
+import shutil
+
+
+STORAGE_ROUTE = re.compile(
+    r"(?P<route>^[ ]+- match:\n"
+    r"[ ]+prefix: /storage/v1/\n"
+    r"[ ]+route:\n"
+    r"[ ]+cluster: storage\n"
+    r"[ ]+prefix_rewrite: /\n"
+    r"[ ]+timeout: )(?P<timeout>[^\n]+)$",
+    re.MULTILINE,
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "template",
+        nargs="?",
+        default="volumes/api/envoy/lds.template.yaml",
+        type=Path,
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    path = parse_args().template
+    text = path.read_text(encoding="utf-8")
+    matches = list(STORAGE_ROUTE.finditer(text))
+    if len(matches) != 1:
+        raise SystemExit(f"Expected one /storage/v1/ route in {path}, found {len(matches)}")
+
+    current_timeout = matches[0].group("timeout").strip()
+    if current_timeout == "0s":
+        print(f"envoy_storage_timeout_ok path={path} timeout=0s")
+        return
+    if current_timeout != "30s":
+        raise SystemExit(
+            f"Refusing to replace unexpected Storage timeout {current_timeout!r} in {path}"
+        )
+
+    backup = path.with_name(f"{path.name}.pre-lpmview")
+    if not backup.exists():
+        shutil.copy2(path, backup)
+
+    updated = STORAGE_ROUTE.sub(r"\g<route>0s", text, count=1)
+    path.write_text(updated, encoding="utf-8")
+    print(f"envoy_storage_timeout_updated path={path} timeout=0s backup={backup}")
+
+
+if __name__ == "__main__":
+    main()
