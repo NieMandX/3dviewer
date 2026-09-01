@@ -95,10 +95,20 @@ docker exec supabase-db psql \
 ## Storage migration
 
 Do not copy files directly into `volumes/storage`. Configure Yandex Object
-Storage as the S3 backend, then use the Supabase S3 protocol and `rclone` so the
-Storage service owns the copy workflow. Compare object count and total bytes on
-both sides, and download at least one small and one large model through the
-self-hosted API.
+Storage as the S3 backend, then stream the managed objects through both Storage
+APIs. The migration utility copies one object at a time, verifies its SHA-256
+digest through the destination API, and restores the original owner and
+timestamps without restoring the source Storage version identifier:
+
+```bash
+sudo infra/supabase-yandex/migrate-storage.py \
+  --source-env /opt/lpmview/platform-export/.env.platform \
+  --target-env /opt/lpmview/supabase/.env
+```
+
+Use `--min-size 1 --max-objects 1` for a first-object probe. Compare object count
+and total bytes on both sides, and download at least one small and one large
+model through the self-hosted API.
 
 ## Backups
 
