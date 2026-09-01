@@ -1,0 +1,11 @@
+[Unit]
+Description=LPMVIEW Supabase PostgreSQL backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/lpmview-supabase-backup
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

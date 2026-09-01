@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR="/var/backups/lpmview-supabase"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+TMP_DB="${BACKUP_DIR}/.${STAMP}.dump.tmp"
+FINAL_DB="${BACKUP_DIR}/db-${STAMP}.dump"
+TMP_ROLES="${BACKUP_DIR}/.${STAMP}.roles.sql.gz.tmp"
+FINAL_ROLES="${BACKUP_DIR}/roles-${STAMP}.sql.gz"
+
+install -d -m 700 "${BACKUP_DIR}"
+umask 077
+trap 'rm -f "${TMP_DB}" "${TMP_ROLES}"' EXIT
+
+docker exec supabase-db pg_dump \
+  -U supabase_admin \
+  -d postgres \
+  --format=custom \
+  --compress=6 > "${TMP_DB}"
+docker exec -i supabase-db pg_restore --list < "${TMP_DB}" >/dev/null
+mv "${TMP_DB}" "${FINAL_DB}"
+
+docker exec supabase-db pg_dumpall \
+  -U supabase_admin \
+  --globals-only | gzip -9 > "${TMP_ROLES}"
+gzip -t "${TMP_ROLES}"
+mv "${TMP_ROLES}" "${FINAL_ROLES}"
+
+find "${BACKUP_DIR}" -type f \
+  \( -name "db-*.dump" -o -name "roles-*.sql.gz" \) \
+  -mtime +7 -delete
+find "${BACKUP_DIR}" -type f -name ".*.tmp" -delete
+trap - EXIT
+
+printf 'backup_ok db=%s roles=%s\n' \
+  "$(basename "${FINAL_DB}")" \
+  "$(basename "${FINAL_ROLES}")"
