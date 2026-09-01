@@ -1464,7 +1464,12 @@ async function runCollabCrudStaleSmoke(browser, baseUrl) {
 
 async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
     const page = await browser.newPage();
-    const diagnostics = attachPageDiagnostics(page);
+    const diagnostics = attachPageDiagnostics(page, {
+        ignoreConsoleError: (text) => (
+            text.includes('Collab init failed')
+            || text.includes('Collab auto-resume failed')
+        ),
+    });
     await page.addInitScript(() => {
         window.__SUPABASE_URL = 'https://smoke.supabase.co';
         window.__SUPABASE_ANON_KEY = 'smoke-key';
@@ -1495,6 +1500,7 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
             signIn: 0,
             removeChannel: 0,
             roomChannelCreates: 0,
+            roomChannelFailures: 0,
             roomModelQueries: 0,
         };
         window.__lpmResumeSmoke = calls;
@@ -1589,9 +1595,16 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
             }
             on() { return this; }
             subscribe(callback) {
-                this.state = 'joined';
-                if (this.name === 'room:room-1') calls.roomChannelCreates += 1;
-                queueMicrotask(() => callback?.('SUBSCRIBED'));
+                let status = 'SUBSCRIBED';
+                if (this.name === 'room:room-1') {
+                    calls.roomChannelCreates += 1;
+                    if (calls.roomChannelCreates === 2) {
+                        calls.roomChannelFailures += 1;
+                        status = 'CHANNEL_ERROR';
+                    }
+                }
+                this.state = status === 'SUBSCRIBED' ? 'joined' : 'errored';
+                queueMicrotask(() => callback?.(status));
                 return this;
             }
             presenceState() {
@@ -1639,7 +1652,7 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
             },
         };
     });
-    await page.goto(`${baseUrl}/?renderer=webgl`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto(`${baseUrl}/?renderer=webgl&debug=1`, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForFunction(() => (
         !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
     ), null, { timeout: 45000 });
@@ -1689,16 +1702,24 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
 
         window.dispatchEvent(new Event('offline'));
         window.dispatchEvent(new Event('online'));
-        await waitFor(() => (globalThis.__lpmResumeSmoke?.roomChannelCreates || 0) >= 2, 5000);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        const recovered = await waitFor(() => (
+            (globalThis.__lpmResumeSmoke?.roomChannelCreates || 0) >= 3
+            && globalThis.__LPMVIEW_DIAGNOSTICS?.getSnapshot?.().collab?.connected === true
+        ), 10000);
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
         const afterRecord = globalThis.viewerApp.loadedModels.find((record) => record?.obj === root) || null;
+        const collabDiagnostics = globalThis.__LPMVIEW_DIAGNOSTICS?.getSnapshot?.().collab || null;
         const after = {
+            recovered,
             loadedCount: globalThis.viewerApp.loadedModels.length,
             preservedRecord: !!afterRecord,
             inScene: root.parent === globalThis.viewerApp.scene,
             roomChannelCreates: globalThis.__lpmResumeSmoke.roomChannelCreates,
+            roomChannelFailures: globalThis.__lpmResumeSmoke.roomChannelFailures,
             removeChannel: globalThis.__lpmResumeSmoke.removeChannel,
+            connected: collabDiagnostics?.connected === true,
+            realtimeChannels: Number(collabDiagnostics?.totalRealtimeChannels || 0),
         };
 
         await globalThis.viewerApp.dispose();
@@ -1712,8 +1733,12 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
     assert.equal(result.calls.signIn, 1, 'Collab auto-resume smoke: login did not start');
     assert.equal(result.before.loadedCount, 1, 'Collab auto-resume smoke: seeded room model missing before reconnect');
     assert.equal(result.before.inScene, true, 'Collab auto-resume smoke: seeded room model was not in scene');
-    assert.equal(result.after.roomChannelCreates >= 2, true, 'Collab auto-resume smoke: reconnect did not create a new room channel');
+    assert.equal(result.after.roomChannelFailures, 1, 'Collab auto-resume smoke: transient reconnect failure was not exercised');
+    assert.equal(result.after.roomChannelCreates >= 3, true, 'Collab auto-resume smoke: failed reconnect was not retried');
     assert.equal(result.after.removeChannel > 0, true, 'Collab auto-resume smoke: old realtime channels were not disposed');
+    assert.equal(result.after.recovered, true, 'Collab auto-resume smoke: reconnect did not become stable');
+    assert.equal(result.after.connected, true, 'Collab auto-resume smoke: diagnostics remained offline after retry');
+    assert.equal(result.after.realtimeChannels > 0, true, 'Collab auto-resume smoke: retry restored no realtime channels');
     assert.equal(result.after.loadedCount, 1, 'Collab auto-resume smoke: reconnect removed loaded room model');
     assert.equal(result.after.preservedRecord, true, 'Collab auto-resume smoke: loaded model record was not preserved');
     assert.equal(result.after.inScene, true, 'Collab auto-resume smoke: loaded room model was removed from scene');

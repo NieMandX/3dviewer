@@ -1556,6 +1556,7 @@ export class ViewerApp {
             collabAutoResumeInFlight = true;
             collabAutoResumeAttempt += 1;
             setCollabStatus('reconnecting');
+            let retryAfterResume = false;
             try {
                 const displayName = String(collabController?.getDisplayName?.() || collabNameEl?.value || '').trim() || 'Guest';
                 if (collabController) {
@@ -1569,9 +1570,14 @@ export class ViewerApp {
                 if (appDisposed || !collabAutoResumeEnabled) return;
                 console.error('Collab auto-resume failed', err);
                 setCollabConnectionState(false, `resume-failed:${String(trigger || '')}`);
-                scheduleCollabAutoResume('retry');
+                retryAfterResume = true;
             } finally {
-                if (!appDisposed) collabAutoResumeInFlight = false;
+                if (!appDisposed) {
+                    collabAutoResumeInFlight = false;
+                    if (retryAfterResume && collabAutoResumeEnabled) {
+                        scheduleCollabAutoResume('retry');
+                    }
+                }
             }
         }
 
