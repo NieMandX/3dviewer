@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import { runProjectAdminTreeSmoke } from './smoke-project-admin.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const roomProject = process.env.LPMVIEW_SMOKE_PROJECT || 'shmit';
@@ -1873,6 +1874,18 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 return this.filters.every((entry) => String(row?.[entry.column] || '') === entry.value);
             }
             async execute() {
+                if (['projects', 'rooms'].includes(this.table) && this.operation !== 'select') {
+                    const list = this.table === 'projects' ? projects : rooms;
+                    if (this.operation === 'insert') {
+                        const row = { id: `${this.table}-admin-created`, created_at: '2026-01-01', ...this.payload };
+                        list.push(row);
+                        return { data: [row], error: null };
+                    }
+                    const affected = list.filter((row) => this.matchesFilters(row));
+                    if (this.operation === 'update') affected.forEach((row) => Object.assign(row, this.payload));
+                    if (this.operation === 'delete') affected.forEach((row) => list.splice(list.indexOf(row), 1));
+                    return { data: affected, error: null };
+                }
                 if (this.operation === 'delete') {
                     if (this.table === 'room_models') {
                         const before = roomContent.roomModels.length;
@@ -1933,6 +1946,10 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 return { data: [], error: null };
             }
             async maybeSingle() {
+                if (['projects', 'rooms'].includes(this.table) && this.operation !== 'select') {
+                    const result = await this.execute();
+                    return { ...result, data: result.data?.[0] || null };
+                }
                 if (this.table === 'profiles') {
                     return { data: { display_name: 'Switch User' }, error: null };
                 }
@@ -1952,6 +1969,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
                 return { data: null, error: null };
             }
             async single() {
+                if (['projects', 'rooms'].includes(this.table) && this.operation !== 'select') return this.maybeSingle();
                 return { data: { id: `${this.table}-row`, ...(this.payload || {}) }, error: null };
             }
             then(resolve, reject) {
@@ -2003,6 +2021,9 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             rpc: (name) => {
                 if (name === 'is_superuser') return Promise.resolve({ data: false, error: null });
                 if (name === 'ensure_room_invite') return Promise.resolve({ data: { token: 'switch-token' }, error: null });
+                if (name === 'project_admin_owners' && window.__holdAdminOwners) {
+                    return new Promise((resolve) => { window.__resolveAdminOwners = resolve; });
+                }
                 return Promise.resolve({ data: null, error: null });
             },
             channel: (name) => new FakeChannel(String(name || '')),
@@ -2096,6 +2117,55 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
         const managerButtonVisible = !!managerButton && !managerButton.hidden && managerButton.disabled === false;
         managerButton?.click();
         await waitFor(() => document.querySelector('#roomContentModal')?.classList.contains('show'));
+        await waitFor(() => document.querySelectorAll('.project-admin-project').length === 2
+            && !document.querySelector('#roomContentRefresh').disabled);
+        const adminDefault = document.querySelector('#roomContentTabProjects')?.getAttribute('aria-selected');
+        const adminCollapsed = document.querySelectorAll('.project-admin-project[open]').length;
+        const press = (root, label) => Array.from(root.querySelectorAll('button')).find((button) => button.textContent === label)?.click();
+        const submitAdminName = async (name) => {
+            if (!await waitFor(() => document.querySelector('#promptModal')?.classList.contains('show'))) throw new Error('Admin prompt did not open');
+            document.querySelector('#promptInput').value = name;
+            document.querySelector('#promptOk').click();
+            if (!await waitFor(() => document.querySelector('#roomContentStatus')?.textContent === 'Сохранено'
+                && !document.querySelector('#roomContentRefresh').disabled)) {
+                throw new Error(`Admin save failed: ${document.querySelector('#roomContentStatus')?.textContent}`);
+            }
+        };
+        press(document.querySelector('#roomContentList'), 'Создать проект');
+        await submitAdminName('Empty admin project');
+        const emptyProjectShown = !!document.querySelector('[data-project-id="projects-admin-created"]');
+        const emptyProjectFilter = Array.from(document.querySelector('#roomContentRoomSelect').options)
+            .some((option) => option.textContent === 'Empty admin project');
+        press(document.querySelector('[data-project-id="projects-admin-created"]'), 'Переименовать проект');
+        await submitAdminName('Renamed admin project');
+        const renamedProjectShown = document.querySelector('[data-project-id="projects-admin-created"]')?.textContent.includes('Renamed admin project');
+        press(document.querySelector('[data-project-id="projects-admin-created"]'), 'Создать комнату');
+        await submitAdminName('Admin room');
+        const newRoomShown = !!document.querySelector('[data-room-id="rooms-admin-created"]');
+        press(document.querySelector('[data-room-id="rooms-admin-created"]'), 'Переименовать');
+        await submitAdminName('Renamed room');
+        const renamedRoomShown = document.querySelector('[data-room-id="rooms-admin-created"]')?.textContent.includes('Renamed room');
+        press(document.querySelector('[data-room-id="rooms-admin-created"]'), 'Удалить комнату');
+        await waitFor(() => document.querySelector('#confirmModal')?.classList.contains('show'));
+        document.querySelector('#confirmOk').click();
+        await waitFor(() => !document.querySelector('[data-room-id="rooms-admin-created"]'));
+        press(document.querySelector('[data-project-id="projects-admin-created"]'), 'Удалить проект');
+        await waitFor(() => document.querySelector('#confirmModal')?.classList.contains('show'));
+        document.querySelector('#confirmOk').click();
+        await waitFor(() => !document.querySelector('[data-project-id="projects-admin-created"]'));
+        const adminNeverJoined = globalThis.__lpmSwitchSmoke.roomAChannelCreates === 0;
+        document.querySelector('#roomContentClose').click();
+        globalThis.__holdAdminOwners = true;
+        managerButton.click();
+        if (!await waitFor(() => !!globalThis.__resolveAdminOwners)) throw new Error('Admin stale request was not started');
+        document.querySelector('#roomContentClose').click();
+        globalThis.__holdAdminOwners = false;
+        managerButton.click();
+        await waitFor(() => !document.querySelector('#roomContentRefresh').disabled);
+        globalThis.__resolveAdminOwners({ data: [{ user_id: 'registered-user', email: 'stale@example.com' }], error: null });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const staleOwnerIgnored = !document.querySelector('#roomContentList').textContent.includes('stale@example.com');
+        document.querySelector('#roomContentTabModels')?.click();
         await waitFor(() => document.querySelector('#roomContentList')?.textContent?.includes('inventory-model.fbx'));
         const managerBeforeDelete = {
             summary: document.querySelector('#roomContentSummary')?.textContent || '',
@@ -2226,6 +2296,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
         await globalThis.viewerApp.dispose();
         return {
             calls: { ...globalThis.__lpmSwitchSmoke },
+            adminDefault, adminCollapsed, emptyProjectShown, emptyProjectFilter, newRoomShown, renamedProjectShown, renamedRoomShown, adminNeverJoined, staleOwnerIgnored,
             managerButtonVisible,
             projectOptionsAfterLogin,
             managerBeforeDelete,
@@ -2237,6 +2308,15 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
     });
 
     assert.equal(result.calls.signIn, 1, 'Registered room switch smoke: login did not start');
+    assert.equal(result.adminDefault, 'true', 'Admin: projects must be the initial tab');
+    assert.equal(result.adminCollapsed, 0, 'Admin: projects must open collapsed');
+    assert.equal(result.emptyProjectShown, true, 'Admin: empty project missing from panel');
+    assert.equal(result.emptyProjectFilter, true, 'Admin: empty project missing from filter');
+    assert.equal(result.renamedProjectShown, true, 'Admin: project rename failed');
+    assert.equal(result.newRoomShown, true, 'Admin: room creation failed');
+    assert.equal(result.renamedRoomShown, true, 'Admin: room rename failed');
+    assert.equal(result.adminNeverJoined, true, 'Admin: management unexpectedly joined a room');
+    assert.equal(result.staleOwnerIgnored, true, 'Admin: response from closed panel leaked into reopened panel');
     assert.equal(result.calls.roomAChannelCreates >= 1, true, 'Registered room switch smoke: first room did not connect');
     assert.equal(result.projectOptionsAfterLogin.includes('project-foreign'), false, 'Registered room switch smoke: non-owned project was exposed to registered user');
     assert.equal(result.managerButtonVisible, true, 'Registered room switch smoke: room content manager button is not available after registered login');
@@ -13800,6 +13880,8 @@ try {
     console.log('Collab CRUD stale smoke passed.');
     await runCollabAutoResumeKeepsModelsSmoke(browserContext, smokeServer.baseUrl);
     console.log('Collab auto-resume keeps models smoke passed.');
+    await runProjectAdminTreeSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Project admin permissions and responsive UI smoke passed.');
     await runCollabRegisteredRoomSwitchSmoke(browserContext, smokeServer.baseUrl);
     console.log('Registered room switch smoke passed.');
     await runDisposeReinitSmoke(browserContext, smokeServer.baseUrl);

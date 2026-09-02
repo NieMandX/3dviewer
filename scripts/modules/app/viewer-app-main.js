@@ -31,6 +31,8 @@ import { createCameraPickController } from '../ui/camera-pick.js';
 import { createAnnotations3DController } from '../annotations/annotations-3d.js';
 import { createPromptModalController } from '../ui/prompt-modal.js';
 import { createConfirmModalController } from '../ui/confirm-modal.js';
+import { renderProjectAdminTree } from '../ui/project-admin-tree.js';
+import { isRegisteredAccount, canManageProject, canManageRoom } from '../collab/project-permissions.js';
 import { createPasswordResetModalController } from '../ui/password-reset-modal.js';
 import { createTransitionModalController } from '../ui/transition-modal.js';
 import { createExportModalController } from '../ui/export-modal.js';
@@ -887,11 +889,13 @@ export class ViewerApp {
         let collabAuthMode = 'initial';
         const collabCreateOptionValue = '__create__';
         let collabDrawerRestoreEmptyHint = false;
-        let roomContentActiveTab = 'models';
+        let roomContentActiveTab = 'projects';
+        let roomContentOwners = new Map();
         let roomContentInventory = null;
         let roomContentRooms = [];
         let roomContentLoadGeneration = 0;
         let roomContentActionInFlight = false;
+        let roomContentLoading = false;
         const ROOM_CONTENT_ALL_PROJECTS_VALUE = '__all_projects__';
 
         function isEmptyHintVisibleForCollabDrawer() {
@@ -1893,10 +1897,6 @@ export class ViewerApp {
             );
         }
 
-        function isMissingJoinProjectRpcSignature(error) {
-            return isMissingRpcSignature(error, 'join_project_by_slug');
-        }
-
         function isMissingJoinRoomInviteRpcSignature(error) {
             return isMissingRpcSignature(error, 'join_room_by_invite');
         }
@@ -2053,15 +2053,11 @@ export class ViewerApp {
         }
 
         function canDeleteProjectItem(project) {
-            if (!project || !collabUser) return false;
-            return collabIsSuperuser || project.owner_id === collabUser.id;
+            return canManageProject(collabUser, collabIsSuperuser, project);
         }
 
         function canDeleteRoomItem(room) {
-            if (!room || !collabUser) return false;
-            if (collabIsSuperuser) return true;
-            if (room.owner_id === collabUser.id) return true;
-            return collabProject?.owner_id === collabUser.id;
+            return canManageRoom(collabUser, collabIsSuperuser, room, getRoomContentProject(room));
         }
 
         function getProjectById(projectId) {
@@ -2080,9 +2076,7 @@ export class ViewerApp {
             const owningProject = project
                 || getProjectById(roomProjectId)
                 || (String(collabProject?.id || '') === roomProjectId ? collabProject : null);
-            if (collabIsSuperuser) return true;
-            if (room.owner_id === collabUser.id) return true;
-            return owningProject?.owner_id === collabUser.id;
+            return canManageRoom(collabUser, collabIsSuperuser, room, owningProject);
         }
 
         function canManageRoomModels(room = collabRoom, project = null) {
@@ -2091,9 +2085,7 @@ export class ViewerApp {
             const owningProject = project
                 || getProjectById(roomProjectId)
                 || (String(collabProject?.id || '') === roomProjectId ? collabProject : null);
-            if (collabIsSuperuser) return true;
-            if (room.owner_id === collabUser.id) return true;
-            return owningProject?.owner_id === collabUser.id;
+            return canManageRoom(collabUser, collabIsSuperuser, room, owningProject);
         }
 
         function canImportLocalModelFile() {
@@ -2186,12 +2178,87 @@ export class ViewerApp {
                 || ROOM_CONTENT_ALL_PROJECTS_VALUE;
         }
 
-        async function loadRoomContentRooms() {
+        function isCurrentRoomContentLoad(generation) {
+            return !appDisposed && generation === roomContentLoadGeneration
+                && canOpenRoomContentManager() && roomContentModalEl?.classList.contains('show');
+        }
+
+        function getAdminProjects() {
+            const selected = getRoomContentSelectionValue();
+            return collabProjects.filter((project) => canDeleteProjectItem(project)
+                && (selected === ROOM_CONTENT_ALL_PROJECTS_VALUE || project.id === selected));
+        }
+
+        async function editAdminStructure(kind, record = null, parentProject = null) {
+            if (!canOpenRoomContentManager() || roomContentActionInFlight || roomContentLoading) return;
+            if (record && kind === 'project' && !canDeleteProjectItem(record)) return;
+            if (kind === 'room' && !canDeleteProjectItem(parentProject)) return;
+            const supabase = collabSupabase;
+            const user = collabUser;
+            const generation = ++roomContentLoadGeneration;
+            const isCurrent = () => isCurrentRoomContentLoad(generation)
+                && collabUser?.id === user.id && collabSupabase === supabase;
+            roomContentActionInFlight = true;
+            renderRoomContent();
+            try {
+                const name = await promptModal.open({
+                    title: `${record ? 'Переименовать' : 'Создать'} ${kind === 'project' ? 'проект' : 'комнату'}`,
+                    value: record ? (kind === 'project' ? record.name : record.slug) : '',
+                    placeholder: 'Название',
+                });
+                if (!isCurrent() || name == null) return;
+                const trimmed = name.trim();
+                if (!trimmed || trimmed.length > 120) throw new Error('Название должно содержать от 1 до 120 символов.');
+                const table = kind === 'project' ? 'projects' : 'rooms';
+                const payload = kind === 'project' ? { name: trimmed } : { slug: trimmed };
+                if (!record) {
+                    if (kind === 'project') {
+                        payload.owner_id = user.id;
+                        payload.slug = `${slugifyName(trimmed) || 'project'}-${makeSlug(10)}`;
+                    } else {
+                        payload.owner_id = parentProject.owner_id;
+                        payload.project_id = parentProject.id;
+                    }
+                }
+                setRoomContentStatus('Сохранение…');
+                const query = record
+                    ? supabase.from(table).update(payload).eq('id', record.id)
+                    : supabase.from(table).insert(payload);
+                const { data, error } = await query.select('*').single();
+                if (!isCurrent()) return;
+                if (error) throw error;
+                if (!data?.id) throw new Error('Изменение не подтверждено сервером.');
+                roomContentInventory = null;
+                if (kind === 'project' && collabProject?.id === data.id) Object.assign(collabProject, data);
+                if (kind === 'room' && collabRoom?.id === data.id) {
+                    Object.assign(collabRoom, data);
+                    setRoomSlugInUrl(collabProject?.slug || '', data.slug);
+                }
+                await loadRoomContentRooms(generation);
+                if (!isCurrent()) return;
+                if (collabProject) await loadRooms(collabProject.id, { isCurrent });
+                if (!isCurrent()) return;
+                renderRoomContentProjectOptions(getRoomContentSelectionValue());
+                setRoomContentStatus('Сохранено');
+            } catch (err) {
+                if (isCurrent()) setRoomContentStatus(`Ошибка: ${err?.message || err}`);
+            } finally {
+                roomContentActionInFlight = false;
+                if (isCurrent()) renderRoomContent();
+            }
+        }
+
+        async function loadRoomContentRooms(generation = roomContentLoadGeneration) {
+            const supabase = collabSupabase;
+            const userId = collabUser?.id;
+            const isCurrent = () => isCurrentRoomContentLoad(generation)
+                && collabSupabase === supabase && collabUser?.id === userId;
             if (!canOpenRoomContentManager()) {
                 roomContentRooms = [];
                 return roomContentRooms;
             }
-            await loadProjects();
+            await loadProjects({ isCurrent });
+            if (!isCurrent()) return [];
             const projectIds = collabProjects
                 .map((project) => String(project?.id || '').trim())
                 .filter(Boolean);
@@ -2200,7 +2267,7 @@ export class ViewerApp {
                 return roomContentRooms;
             }
             const roomLists = await Promise.all(projectIds.map(async (projectId) => {
-                const { data, error } = await collabSupabase
+                const { data, error } = await supabase
                     .from('rooms')
                     .select(ROOM_SELECT_FIELDS)
                     .eq('project_id', projectId)
@@ -2208,6 +2275,7 @@ export class ViewerApp {
                 if (error) throw error;
                 return Array.isArray(data) ? data : [];
             }));
+            if (!isCurrent()) return [];
             const seen = new Set();
             roomContentRooms = roomLists
                 .flat()
@@ -2217,6 +2285,11 @@ export class ViewerApp {
                     seen.add(roomId);
                     return canManageRoomContent(room, getProjectById(room?.project_id));
                 });
+            const owners = await supabase.rpc('project_admin_owners');
+            if (!isCurrent()) return [];
+            // Older backends can still show owner UUIDs until the migration is applied.
+            roomContentOwners = new Map((Array.isArray(owners.data) ? owners.data : [])
+                .map((owner) => [owner.user_id, owner.email]));
             return roomContentRooms;
         }
 
@@ -2238,26 +2311,26 @@ export class ViewerApp {
             roomContentModalEl.setAttribute('aria-hidden', next ? 'false' : 'true');
             if (next) renderRoomContentUserEmail();
             if (!next) {
+                roomContentLoadGeneration += 1;
+                roomContentLoading = false;
                 roomContentInventory = null;
+                roomContentOwners.clear();
                 setRoomContentStatus('');
             }
         }
 
         function renderRoomContentProjectOptions(selectedProjectId = ROOM_CONTENT_ALL_PROJECTS_VALUE) {
             if (!roomContentRoomSelectEl) return;
-            const rooms = roomContentRooms.length
-                ? roomContentRooms
-                : collabRooms.filter((room) => canManageRoomContent(room, getRoomContentProject(room)));
+            const projects = collabProjects.filter(canDeleteProjectItem);
             roomContentRoomSelectEl.innerHTML = '';
             const allOpt = document.createElement('option');
             allOpt.value = ROOM_CONTENT_ALL_PROJECTS_VALUE;
-            allOpt.textContent = rooms.length ? 'Все проекты' : 'Нет доступных проектов';
+            allOpt.textContent = projects.length ? 'Все проекты' : 'Нет доступных проектов';
             roomContentRoomSelectEl.appendChild(allOpt);
 
             const grouped = new Map();
-            rooms.forEach((room) => {
-                const project = getRoomContentProject(room);
-                const projectId = String(project?.id || room?.project_id || '').trim() || '__unknown_project__';
+            projects.forEach((project) => {
+                const projectId = String(project.id);
                 if (!grouped.has(projectId)) {
                     grouped.set(projectId, {
                         id: projectId,
@@ -2274,7 +2347,7 @@ export class ViewerApp {
             const requested = String(selectedProjectId || '').trim();
             const hasRequestedProject = grouped.has(requested);
             roomContentRoomSelectEl.value = hasRequestedProject ? requested : ROOM_CONTENT_ALL_PROJECTS_VALUE;
-            roomContentRoomSelectEl.disabled = roomContentActionInFlight || rooms.length === 0;
+            roomContentRoomSelectEl.disabled = roomContentActionInFlight || projects.length === 0;
         }
 
         function getProjectModelMetaSize(model) {
@@ -2443,6 +2516,12 @@ export class ViewerApp {
 
         function renderRoomContentSummary() {
             if (!roomContentSummaryEl) return;
+            if (roomContentActiveTab === 'projects') {
+                const projects = getAdminProjects();
+                const ids = new Set(projects.map((project) => project.id));
+                roomContentSummaryEl.textContent = `Проектов: ${projects.length} · Комнат: ${roomContentRooms.filter((room) => ids.has(room.project_id)).length}`;
+                return;
+            }
             const inventory = roomContentInventory;
             if (!inventory) {
                 roomContentSummaryEl.textContent = '—';
@@ -2540,6 +2619,7 @@ export class ViewerApp {
                 return project.rooms.get(key);
             };
 
+            getAdminProjects().forEach((project) => ensureProject(project.id, getProjectLabel(project)));
             const rooms = Array.isArray(roomContentInventory?.rooms) ? roomContentInventory.rooms : [];
             rooms.forEach((room) => {
                 const project = getRoomContentProject(room);
@@ -2636,6 +2716,20 @@ export class ViewerApp {
 
         function renderRoomContentList() {
             if (!roomContentListEl) return;
+            if (roomContentActiveTab === 'projects') {
+                renderProjectAdminTree(roomContentListEl, {
+                    projects: getAdminProjects(), rooms: roomContentRooms,
+                    user: collabUser, isSuperuser: collabIsSuperuser, owners: roomContentOwners,
+                    busy: roomContentActionInFlight || roomContentLoading,
+                    onCreateProject: () => { void editAdminStructure('project'); },
+                    onCreateRoom: (project) => { void editAdminStructure('room', null, project); },
+                    onRenameProject: (project) => { void editAdminStructure('project', project); },
+                    onRenameRoom: (room, project) => { void editAdminStructure('room', room, project); },
+                    onDeleteProject: (project) => { void deleteRoomContentProject(project); },
+                    onDeleteRoom: (room) => { void deleteRoomContentRoom(room); },
+                });
+                return;
+            }
             roomContentListEl.innerHTML = '';
             const rows = getRoomContentRowsForTab();
             const groups = buildRoomContentTreeGroups(rows);
@@ -2725,11 +2819,16 @@ export class ViewerApp {
         }
 
         function renderRoomContent() {
+            if (roomContentRefreshBtn) roomContentRefreshBtn.disabled = roomContentActionInFlight || roomContentLoading;
+            if (roomContentCloseBtn) roomContentCloseBtn.disabled = roomContentActionInFlight;
+            if (roomContentRoomSelectEl) roomContentRoomSelectEl.disabled = roomContentActionInFlight || roomContentLoading || !collabProjects.length;
             if (Array.isArray(roomContentTabs)) {
                 roomContentTabs.forEach((btn) => {
                     const tab = String(btn?.dataset?.tab || '');
                     btn.classList.toggle('active', tab === roomContentActiveTab);
-                    btn.disabled = roomContentActionInFlight;
+                    btn.setAttribute('role', 'tab');
+                    btn.setAttribute('aria-selected', String(tab === roomContentActiveTab));
+                    btn.disabled = roomContentActionInFlight || roomContentLoading;
                 });
             }
             renderRoomContentSummary();
@@ -2741,12 +2840,19 @@ export class ViewerApp {
             const selection = String(projectId || getRoomContentSelectionValue()).trim() || ROOM_CONTENT_ALL_PROJECTS_VALUE;
             const generation = ++roomContentLoadGeneration;
             setRoomContentStatus('Загрузка…');
-            roomContentActionInFlight = false;
+            roomContentLoading = true;
+            if (roomContentActiveTab === 'projects') {
+                roomContentLoading = false;
+                setRoomContentStatus('');
+                renderRoomContentProjectOptions(selection);
+                renderRoomContent();
+                return;
+            }
             renderRoomContentProjectOptions(selection);
             renderRoomContent();
             try {
                 const inventory = await fetchRoomContentInventory(selection);
-                if (generation !== roomContentLoadGeneration) return;
+                if (appDisposed || generation !== roomContentLoadGeneration) return;
                 roomContentInventory = inventory;
                 setRoomContentStatus('');
                 renderRoomContent();
@@ -2756,21 +2862,34 @@ export class ViewerApp {
                 roomContentInventory = null;
                 setRoomContentStatus(`Ошибка: ${err?.message || err}`);
                 renderRoomContent();
+            } finally {
+                if (isCurrentRoomContentLoad(generation)) {
+                    roomContentLoading = false;
+                    renderRoomContent();
+                }
             }
         }
 
         async function openRoomContentManager() {
-            if (!canOpenRoomContentManager()) return;
+            if (!canOpenRoomContentManager() || roomContentActionInFlight) return;
             setRoomContentOpen(true);
+            roomContentLoading = true;
+            roomContentActiveTab = 'projects';
+            roomContentListEl?.replaceChildren();
             roomContentInventory = null;
+            roomContentRooms = [];
             setRoomContentStatus('Загрузка проектов…');
             renderRoomContentProjectOptions(ROOM_CONTENT_ALL_PROJECTS_VALUE);
             renderRoomContent();
+            const generation = ++roomContentLoadGeneration;
             try {
-                await loadRoomContentRooms();
+                await loadRoomContentRooms(generation);
+                if (!isCurrentRoomContentLoad(generation)) return;
                 renderRoomContentProjectOptions(ROOM_CONTENT_ALL_PROJECTS_VALUE);
                 await loadRoomContentInventory(ROOM_CONTENT_ALL_PROJECTS_VALUE);
             } catch (err) {
+                if (!isCurrentRoomContentLoad(generation)) return;
+                roomContentLoading = false;
                 console.error('Room content rooms load failed', err);
                 roomContentInventory = null;
                 setRoomContentStatus(`Ошибка: ${err?.message || err}`);
@@ -2888,33 +3007,59 @@ export class ViewerApp {
 
         async function reloadRoomContentStructure() {
             if (!roomContentModalEl?.classList?.contains('show')) return;
+            const generation = ++roomContentLoadGeneration;
+            const selection = getRoomContentSelectionValue();
+            roomContentLoading = true;
+            setRoomContentStatus('Загрузка проектов…');
+            renderRoomContent();
             roomContentInventory = null;
-            await loadRoomContentRooms();
-            renderRoomContentProjectOptions(ROOM_CONTENT_ALL_PROJECTS_VALUE);
-            await loadRoomContentInventory(ROOM_CONTENT_ALL_PROJECTS_VALUE);
+            try {
+                await loadRoomContentRooms(generation);
+                if (!isCurrentRoomContentLoad(generation)) return;
+                renderRoomContentProjectOptions(selection);
+                await loadRoomContentInventory(getRoomContentSelectionValue());
+            } finally {
+                if (isCurrentRoomContentLoad(generation)) {
+                    roomContentLoading = false;
+                    renderRoomContent();
+                }
+            }
         }
 
         async function deleteRoomContentProject(project) {
-            if (!project || roomContentActionInFlight) return;
-            const deleted = await deleteProjectById(project.id, project);
-            if (!deleted) return;
-            await reloadRoomContentStructure();
+            if (!project || roomContentActionInFlight || roomContentLoading) return;
+            await deleteAdminStructure(() => deleteProjectById(project.id, project));
         }
 
         async function deleteRoomContentRoom(room) {
-            if (!room || roomContentActionInFlight) return;
-            const deleted = await deleteRoomById(room.id, room);
-            if (!deleted) return;
-            await reloadRoomContentStructure();
+            if (!room || roomContentActionInFlight || roomContentLoading) return;
+            await deleteAdminStructure(() => deleteRoomById(room.id, room));
+        }
+
+        async function deleteAdminStructure(remove) {
+            roomContentActionInFlight = true;
+            const userId = collabUser?.id;
+            renderRoomContent();
+            try {
+                const deleted = await remove();
+                if (collabUser?.id !== userId || appDisposed) return;
+                if (deleted) await reloadRoomContentStructure();
+            } catch (err) {
+                if (collabUser?.id === userId && !appDisposed) setRoomContentStatus(`Ошибка: ${err?.message || err}`);
+            } finally {
+                roomContentActionInFlight = false;
+                if (!appDisposed) renderRoomContent();
+            }
         }
 
         async function deleteProjectById(projectId, projectOverride = null) {
             if (!collabSupabase || !projectId || appDisposed) return false;
             const crudGeneration = bumpCollabCrudGeneration();
             const supabase = collabSupabase;
-            const isCurrent = () => isActiveCollabCrud(crudGeneration) && collabSupabase === supabase;
+            const userId = collabUser?.id;
+            const isCurrent = () => isActiveCollabCrud(crudGeneration) && collabSupabase === supabase && collabUser?.id === userId;
             const project = projectOverride || collabProjects.find((p) => p.id === projectId) || collabProject;
-            if (!canDeleteProjectItem(project)) return false;
+            if (project?.id !== projectId || !canDeleteProjectItem(project)) return false;
             const name = project?.name || project?.slug || 'проект';
             const confirmed = await confirmModal.open({
                 title: 'Удалить проект',
@@ -2926,9 +3071,10 @@ export class ViewerApp {
             try {
                 const storagePaths = await listProjectStorageObjectPaths(projectId);
                 if (!isCurrent()) return false;
-                const { error } = await supabase.from('projects').delete().eq('id', projectId);
+                const { data, error } = await supabase.from('projects').delete().eq('id', projectId).select('id').maybeSingle();
                 if (!isCurrent()) return false;
                 if (error) throw error;
+                if (!data?.id) throw new Error('Проект не удалён: он отсутствует или недостаточно прав.');
                 if (storagePaths.length) {
                     try {
                         await removeModelStorageObjects(storagePaths, supabase);
@@ -2960,6 +3106,7 @@ export class ViewerApp {
                 if (isCurrent()) {
                     console.error('Project delete failed', err);
                     setCollabStatus('error');
+                    setRoomContentStatus(`Ошибка удаления: ${err?.message || err}`);
                 }
                 return false;
             } finally {
@@ -2971,21 +3118,23 @@ export class ViewerApp {
             if (!collabSupabase || !roomId || appDisposed) return false;
             const crudGeneration = bumpCollabCrudGeneration();
             const supabase = collabSupabase;
-            const isCurrent = () => isActiveCollabCrud(crudGeneration) && collabSupabase === supabase;
+            const userId = collabUser?.id;
+            const isCurrent = () => isActiveCollabCrud(crudGeneration) && collabSupabase === supabase && collabUser?.id === userId;
             const room = roomOverride || collabRooms.find((r) => r.id === roomId) || collabRoom;
-            if (!canDeleteRoomItem(room)) return false;
+            if (room?.id !== roomId || !canDeleteRoomItem(room)) return false;
             const name = room?.slug || 'комната';
             const confirmed = await confirmModal.open({
                 title: 'Удалить комнату',
-                message: `Удалить комнату "${name}"?`,
+                message: `Удалить комнату "${name}" со всеми её аннотациями, камерами и сообщениями?`,
                 okText: 'Удалить',
                 cancelText: 'Отмена',
             });
             if (!confirmed || !isCurrent()) return false;
             try {
-                const { error } = await supabase.from('rooms').delete().eq('id', roomId);
+                const { data, error } = await supabase.from('rooms').delete().eq('id', roomId).select('id').maybeSingle();
                 if (!isCurrent()) return false;
                 if (error) throw error;
+                if (!data?.id) throw new Error('Комната не удалена: она отсутствует или недостаточно прав.');
                 if (collabController?.room?.id === roomId) {
                     await teardownCollabSession({ resetScene: true });
                     if (!isCurrent()) return false;
@@ -3006,6 +3155,7 @@ export class ViewerApp {
                 if (isCurrent()) {
                     console.error('Room delete failed', err);
                     setCollabStatus('error');
+                    setRoomContentStatus(`Ошибка удаления: ${err?.message || err}`);
                 }
                 return false;
             } finally {
@@ -3186,7 +3336,7 @@ export class ViewerApp {
         }
 
         function isRegisteredUser(user) {
-            return !!(user && user.email);
+            return isRegisteredAccount(user);
         }
 
         async function refreshSuperuserFlag(options = {}) {
@@ -3638,7 +3788,7 @@ export class ViewerApp {
                 collabRoomSelectEl.appendChild(opt);
             });
             const enabled = !!collabProject;
-            if (canManageCollabItems() && enabled) {
+            if (canManageCollabItems() && enabled && canDeleteProjectItem(collabProject)) {
                 const createOpt = document.createElement('option');
                 createOpt.value = collabCreateOptionValue;
                 createOpt.textContent = '+ Создать комнату';
@@ -3741,6 +3891,7 @@ export class ViewerApp {
         async function createRoomFlow(nameOverride) {
             if (!collabSupabase || !collabUser || !collabProject || appDisposed) return false;
             if (!requireRegistered()) return false;
+            if (!canDeleteProjectItem(collabProject)) return false;
             const crudGeneration = bumpCollabCrudGeneration();
             const supabase = collabSupabase;
             const userId = collabUser.id;
@@ -3763,7 +3914,7 @@ export class ViewerApp {
                     .insert({
                         project_id: projectId,
                         slug: nextSlug,
-                        owner_id: userId,
+                        owner_id: collabProject.owner_id,
                     })
                     .select(ROOM_SELECT_FIELDS)
                     .single();
@@ -3775,7 +3926,7 @@ export class ViewerApp {
                 nextSlug = `${baseSlug}-${makeSlug(4)}`;
             }
             if (!created || !isCurrent()) return false;
-            if (!created.owner_id) created.owner_id = userId;
+            if (!created.owner_id) created.owner_id = collabProject.owner_id;
             collabRoom = created;
             clearRoomInviteTokenState();
             await loadRooms(projectId, { isCurrent });
@@ -4236,9 +4387,7 @@ export class ViewerApp {
                         invite_token: inviteToken,
                     });
                     if (joinedRoom.error && isMissingJoinRoomInviteRpcSignature(joinedRoom.error)) {
-                        if (!projectSlug || !roomSlug) {
-                            throw new Error('Invite links are not enabled on the server yet.');
-                        }
+                        throw new Error('Invite links are not enabled on the server yet.');
                     } else if (joinedRoom.error) {
                         throw joinedRoom.error;
                     }
@@ -4279,11 +4428,6 @@ export class ViewerApp {
                         project_slug: projectSlug,
                         room_slug: roomSlug,
                     });
-                    if (joinedProject.error && isMissingJoinProjectRpcSignature(joinedProject.error)) {
-                        joinedProject = await collabSupabase.rpc('join_project_by_slug', {
-                            project_slug: projectSlug,
-                        });
-                    }
                     if (!isCurrentAuthRequest()) return;
                     if (joinedProject.error) throw joinedProject.error;
                     collabProject = joinedProject.data;
@@ -4690,7 +4834,7 @@ export class ViewerApp {
 
         if (roomContentCloseBtn) {
             addAppEventListener(roomContentCloseBtn, 'click', () => {
-                setRoomContentOpen(false);
+                if (!roomContentActionInFlight) setRoomContentOpen(false);
             });
         }
 
@@ -4704,19 +4848,20 @@ export class ViewerApp {
 
         if (roomContentRoomSelectEl) {
             addAppEventListener(roomContentRoomSelectEl, 'change', () => {
+                if (roomContentActionInFlight) return;
                 void loadRoomContentInventory(roomContentRoomSelectEl.value);
             });
         }
 
         if (roomContentRefreshBtn) {
             addAppEventListener(roomContentRefreshBtn, 'click', () => {
+                if (roomContentActionInFlight || roomContentLoading) return;
                 void (async () => {
                     try {
-                        await loadRoomContentRooms();
+                        await reloadRoomContentStructure();
                     } catch (err) {
-                        console.error('Room content rooms refresh failed', err);
+                        setRoomContentStatus(`Ошибка: ${err?.message || err}`);
                     }
-                    await loadRoomContentInventory(getRoomContentSelectionValue());
                 })();
             });
         }
@@ -4725,9 +4870,10 @@ export class ViewerApp {
             roomContentTabs.forEach((btn) => {
                 addAppEventListener(btn, 'click', () => {
                     const tab = String(btn?.dataset?.tab || 'models');
-                    if (!tab || tab === roomContentActiveTab) return;
+                    if (!tab || tab === roomContentActiveTab || roomContentActionInFlight) return;
                     roomContentActiveTab = tab;
-                    renderRoomContent();
+                    if (tab === 'projects' || roomContentInventory) renderRoomContent();
+                    else void loadRoomContentInventory();
                 });
             });
         }

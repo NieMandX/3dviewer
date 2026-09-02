@@ -1,0 +1,31 @@
+name: Database Permissions
+on:
+  workflow_call:
+  pull_request:
+jobs:
+  permissions:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: permissions_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: test-only
+      PGDATABASE: permissions_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test project and room permissions on PostgreSQL
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          -f supabase/tests/bootstrap.sql
+          -f supabase/schema.sql
+          -f supabase/migrations/20260902000100_project_administration.sql
+          -f supabase/tests/project-administration.sql

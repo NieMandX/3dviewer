@@ -52,7 +52,9 @@ returns boolean
 language sql
 stable
 as $$
-    select coalesce(auth.jwt() ->> 'email', '') <> '';
+    select auth.uid() is not null
+        and coalesce(auth.jwt() ->> 'email', '') <> ''
+        and coalesce(auth.jwt() ->> 'is_anonymous', 'false') <> 'true';
 $$;
 
 create or replace function public.delete_project_model_storage_object()
@@ -185,6 +187,20 @@ drop trigger if exists rooms_updated_at on public.rooms;
 create trigger rooms_updated_at
 before update on public.rooms
 for each row execute function public.set_updated_at();
+
+create or replace function public.set_room_project_owner()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+    select p.owner_id into new.owner_id from public.projects p where p.id = new.project_id;
+    if new.owner_id is null then
+        raise exception 'project not found' using errcode = '23503';
+    end if;
+    return new;
+end;
+$$;
+revoke all on function public.set_room_project_owner() from public, anon, authenticated;
+create trigger rooms_project_owner before insert or update of owner_id, project_id on public.rooms
+    for each row execute function public.set_room_project_owner();
 
 create table if not exists public.room_invites (
     room_id uuid primary key,
@@ -345,14 +361,10 @@ stable
 security definer
 set search_path = public
 as $$
-    select public.is_superuser()
-        or exists (
-            select 1
-            from public.rooms r
-            join public.projects p on p.id = r.project_id
-            where r.id = check_room_id
-              and (r.owner_id = auth.uid() or p.owner_id = auth.uid())
-        );
+    select exists (
+        select 1 from public.rooms r
+        where r.id = check_room_id and public.is_project_owner(r.project_id)
+    );
 $$;
 
 create or replace function public.can_access_room(check_room_id uuid)
@@ -466,39 +478,30 @@ set search_path = public
 as $$
 declare
     proj public.projects;
-    room_row public.rooms;
 begin
     if auth.uid() is null then
-        raise exception 'not authenticated';
+        raise exception 'not authenticated' using errcode = '42501';
     end if;
-    if coalesce(trim(room_slug), '') = '' then
-        raise exception 'room slug required';
-    end if;
-    select r.*
-    into room_row
-    from public.projects p
+    select p.* into proj from public.projects p
     join public.rooms r on r.project_id = p.id
-    where p.slug = project_slug
-      and r.slug = room_slug
+    where p.slug = project_slug and r.slug = room_slug and public.can_access_room(r.id)
     limit 1;
-
-    if room_row.id is null then
-        raise exception 'project room link not found';
+    if proj.id is null then
+        raise exception 'room unavailable; a valid invitation is required' using errcode = '42501';
     end if;
-
-    select *
-    into proj
-    from public.projects
-    where id = room_row.project_id
-    limit 1;
-
-    insert into public.room_members (room_id, project_id, user_id, role)
-    values (room_row.id, room_row.project_id, auth.uid(), 'guest')
-    on conflict do nothing;
-
     return proj;
 end;
 $$;
+
+create or replace function public.project_admin_owners()
+returns table (user_id uuid, email text)
+language sql stable security definer set search_path = public as $$
+    select distinct u.id, u.email::text
+    from public.projects p join auth.users u on u.id = p.owner_id
+    where public.is_registered_user() and public.is_project_owner(p.id);
+$$;
+revoke all on function public.project_admin_owners() from public, anon;
+grant execute on function public.project_admin_owners() to authenticated, service_role;
 
 create or replace function public.ensure_room_invite(room_id uuid)
 returns table (token text)
@@ -726,8 +729,7 @@ create policy "rooms_select" on public.rooms
 create policy "rooms_insert" on public.rooms
     for insert to authenticated
     with check (
-        owner_id = auth.uid()
-        and public.is_registered_user()
+        public.is_registered_user()
         and public.is_project_owner(project_id)
     );
 
@@ -844,6 +846,10 @@ create policy "messages_insert" on public.messages
 create policy "messages_delete" on public.messages
     for delete to authenticated
     using (author_id = auth.uid() or public.is_superuser());
+
+revoke update on public.projects, public.rooms from anon, authenticated;
+grant update (name, slug, meta) on public.projects to authenticated;
+grant update (slug, active_model_id, camera_state, camera_owner_id) on public.rooms to authenticated;
 
 -- Superuser bootstrap (run after the user registers).
 insert into public.user_roles (user_id, role)

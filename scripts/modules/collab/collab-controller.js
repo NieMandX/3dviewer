@@ -232,7 +232,7 @@ export async function createCollabController(options = {}) {
         if (roomId) {
             room = await awaitCurrent(() => fetchRoomById(supabase, roomId));
         } else {
-            const result = await awaitCurrent(() => ensureRoom(supabase, project.id, roomSlug, user.id));
+            const result = await awaitCurrent(() => ensureRoom(supabase, project.id, roomSlug, project.owner_id));
             room = result.room;
             slug = result.slug;
             created = result.created;
