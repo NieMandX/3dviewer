@@ -274,7 +274,10 @@ async function runBootSmoke(browser, baseUrl) {
         appReady: !!globalThis.viewerApp,
         loading: document.body.classList.contains('app-loading'),
         activeRenderer: globalThis.__LPMVIEW_ACTIVE_RENDERER || null,
+        appVersion: document.querySelector('#viewerVersion')?.textContent,
     }));
+    const release = JSON.parse(await readFile(join(projectRoot, 'version.json'), 'utf8'));
+    assert.equal(state.appVersion, release.version, 'Boot smoke: visible release version mismatch');
     const webgpuImports = await page.evaluate(async () => {
         const [webgpu, tsl] = await Promise.all([
             import('three/webgpu'),

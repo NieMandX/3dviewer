@@ -2708,6 +2708,7 @@ body.bg-black .custom-select-option.is-selected {
 }
 
 .app-footer .footer-right { margin-left: auto; }
+.app-footer .viewer-version { flex:0 0 auto; color:var(--muted); font-size:11px; white-space:nowrap; }
 
 .app-footer .footer-left {
     white-space: nowrap;

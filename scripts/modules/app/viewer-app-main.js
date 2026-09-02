@@ -7938,6 +7938,7 @@ export class ViewerApp {
 
                 return {
                     timestamp: new Date().toISOString(),
+                    appVersion: document.querySelector('meta[name="application-version"]')?.content || '',
                     disposed: appDisposed,
                     renderer: {
                         mode: activeRendererMode,

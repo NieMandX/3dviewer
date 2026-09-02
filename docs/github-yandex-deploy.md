@@ -2,11 +2,16 @@
 
 ## Goal
 
-Make `gh-pages` the production branch:
+Use `gh-pages` for the current tested viewer build:
 
 - develop/fix features in GitHub
 - merge/cherry-pick to `gh-pages`
 - GitHub Actions automatically syncs viewer files to Yandex Object Storage
+
+The public `agr.vision` domain is a separately promoted release on Caddy,
+not a direct alias of this bucket. A push updates GitHub Pages and Object
+Storage, but does not automatically replace the domain's pinned release.
+See [Viewer releases](viewer-releases.md) for promotion and rollback.
 
 Workflow file:
 
@@ -61,7 +66,9 @@ Manual:
 Sync uploads only static viewer files:
 
 - `index.html`
+- `version.json`
 - `favicon.ico`
+- `config/*`
 - `scripts/*`
 - `styles/*`
 - `hdr/*`
@@ -99,21 +106,20 @@ git revert <bad_commit_sha>
 git push origin gh-pages
 ```
 
-Action will redeploy previous working version.
+Action will redeploy the previous build to GitHub Pages and Object Storage.
+For `agr.vision`, use the separate Caddy release rollback described in
+[Viewer releases](viewer-releases.md).
 
 ## 7) Custom Domain (agr.vision)
 
-Recommended setup:
+Current routing, verified on 2026-09-02:
 
-1. Create a dedicated static bucket named `agr.vision`.
-2. Keep model storage in another bucket (for example `maragojeep`).
-3. Workflow in this repository already deploys to:
-   - `YC_S3_BUCKET=agr.vision`
-   - `YC_S3_PREFIX` empty
-4. Enable static website hosting for the bucket:
-   - index document: `index.html`
-5. Configure HTTPS certificate for the bucket domain in Yandex Cloud.
-6. Runtime backend config now lives in `config/runtime.js`.
-   - Edit `supabaseUrl` and `supabaseAnonKey` there when switching backend.
-   - After push to `gh-pages`, GitHub Action deploys the updated runtime config to Yandex Object Storage together with the static viewer.
-7. In DNS, point `agr.vision` to the website endpoint (`ANAME/ALIAS` for apex domain).
+- DNS points to `viewer-voice-01` (`93.77.182.247`), with HTTPS served by
+  the `deploy-caddy-1` container.
+- Static files are bind-mounted from `/opt/lpmview/viewer/current` to `/srv`.
+- The domain's Caddy root selects a complete staged release. Other Caddy
+  virtual hosts provide voice API and LiveKit; do not recreate the stack to
+  publish viewer files.
+- `s3://agr.vision/` is a separate copy populated by this workflow.
+- `config/runtime.js` supplies the current Supabase and voice API endpoints.
+  Include it when packaging a domain release.

@@ -78,6 +78,7 @@ jobs:
             --no-progress \
             --exclude "*" \
             --include "index.html" \
+            --include "version.json" \
             --include "favicon.ico" \
             --include "config/*" \
             --include "scripts/*" \

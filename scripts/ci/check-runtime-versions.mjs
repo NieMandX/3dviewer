@@ -19,6 +19,12 @@ const [indexHtml, fbxWorker, zipWorker, supabaseClient, smokeViewer, tusClient, 
     readProjectFile('scripts/modules/voice/livekit-browser.js'),
 ]);
 
+const release = JSON.parse(await readProjectFile('version.json'));
+assert.match(release.version, /^\d+\.\d+(?:\.\d+)?$/, 'Viewer release version must be numeric.');
+assert.ok(indexHtml.includes(`<meta name="application-version" content="${release.version}" />`), 'Viewer version metadata drift.');
+assert.equal(indexHtml.match(/id="viewerVersion"[^>]*>([^<]+)<\//)?.[1], release.version, 'Visible viewer version drift.');
+console.log(`Viewer release: ${release.version}`);
+
 const importMapThreeVersion = indexHtml.match(/"three"\s*:\s*"https:\/\/cdn\.jsdelivr\.net\/npm\/three@([^/]+)\/build\/three\.module\.js"/)?.[1] || '';
 assert.match(importMapThreeVersion, /^\d+\.\d+\.\d+$/, 'Three import-map version must be exact semver.');
 assert.ok(!indexHtml.includes('"three/src/"'), 'Import map must not expose three/src/ alongside build modules.');
