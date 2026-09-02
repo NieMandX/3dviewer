@@ -11,6 +11,7 @@
 | Read room content | Own rooms and individually invited rooms | Invited room only | All rooms |
 | Upload or delete models | Own projects | No | Any project |
 | Add annotations, cameras and chat messages | Accessible room | Invited room | Any room |
+| List registered accounts | No | No | All registered accounts, including those without projects |
 
 A participant can own one project and be a guest in somebody else's room.
 Registration alone is not an entitlement to other users' projects.
@@ -35,11 +36,28 @@ does not fetch every annotation payload or camera in every room. Owners' emails
 come from `project_admin_owners`, restricted to manageable projects; an older
 backend falls back to owner IDs.
 
+The Users tab is visible only to a superuser, independently of the project
+filter. It shows email, profile name, database-backed role, registration and
+last-sign-in dates, and email confirmation status. Email/name search uses literal
+case-insensitive matching, with 50 users per page (server maximum 100).
+Anonymous and soft-deleted Auth accounts are excluded; unconfirmed registered
+accounts remain visible. Account deletion, role changes, passwords, identities,
+and session/token details are not exposed.
+
+`admin_list_registered_users` checks the registered caller and the database role
+on every request. It does not grant clients access to `auth.users`. Closing the
+modal aborts its request and clears directory data; generation and account
+checks reject stale responses after close/reopen or app disposal.
+
 ## Server rollout
 
 Do not run `schema.sql` against production: it is a destructive fresh-install
 schema. Back up production, inspect ownership differences, then apply only
-`migrations/20260902000100_project_administration.sql` in one transaction.
+`migrations/20260902000100_project_administration.sql`, followed by
+`migrations/20260902000200_superuser_user_directory.sql`, in one transaction.
+The second migration only adds the read-only directory RPC and its grants;
+it does not assign or change any user's role. Until applied, the Users tab
+reports that a database update is required, rather than showing a false empty list.
 
 Preflight queries:
 
@@ -66,6 +84,12 @@ invitations or make all existing members leave their rooms.
 - `supabase/tests/project-administration.sql`: real RLS allow/deny tests, invite
   isolation, column permissions, superuser access and cascade deletion of room
   data. The database-permissions workflow runs these against PostgreSQL 17.
+- `supabase/tests/user-directory.sql`: direct API denial for owners/guests,
+  safe-field allowlist, role revocation, search, pagination, and account filtering.
+- `scripts/ci/smoke-user-directory.mjs`: actual login and tab flow against a fake
+  backend, search/pages, empty/error states, HTML escaping, close/reopen races,
+  disposal and desktop/mobile screenshots. Browser plugin not available;
+  validation uses the repository's Playwright smoke runner.
 
 ## Remaining administration work
 

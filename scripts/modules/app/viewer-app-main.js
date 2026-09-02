@@ -32,6 +32,7 @@ import { createAnnotations3DController } from '../annotations/annotations-3d.js'
 import { createPromptModalController } from '../ui/prompt-modal.js';
 import { createConfirmModalController } from '../ui/confirm-modal.js';
 import { renderProjectAdminTree } from '../ui/project-admin-tree.js';
+import { emptyUserDirectory, renderUserDirectory, USER_DIRECTORY_PAGE_SIZE } from '../ui/user-directory.js';
 import { isRegisteredAccount, canManageProject, canManageRoom } from '../collab/project-permissions.js';
 import { createPasswordResetModalController } from '../ui/password-reset-modal.js';
 import { createTransitionModalController } from '../ui/transition-modal.js';
@@ -896,6 +897,8 @@ export class ViewerApp {
         let roomContentLoadGeneration = 0;
         let roomContentActionInFlight = false;
         let roomContentLoading = false;
+        let roomContentUsers = emptyUserDirectory();
+        let roomContentUsersAbort = null;
         const ROOM_CONTENT_ALL_PROJECTS_VALUE = '__all_projects__';
 
         function isEmptyHintVisibleForCollabDrawer() {
@@ -2183,6 +2186,64 @@ export class ViewerApp {
                 && canOpenRoomContentManager() && roomContentModalEl?.classList.contains('show');
         }
 
+        function canViewUserDirectory() {
+            return canOpenRoomContentManager() && collabIsSuperuser;
+        }
+
+        async function loadRoomContentUsers(query = roomContentUsers.query, page = roomContentUsers.page) {
+            if (!canViewUserDirectory() || roomContentActiveTab !== 'users'
+                || !roomContentModalEl?.classList.contains('show') || roomContentActionInFlight) return;
+            const supabase = collabSupabase;
+            const userId = collabUser.id;
+            const generation = ++roomContentLoadGeneration;
+            const isCurrent = () => isCurrentRoomContentLoad(generation) && canViewUserDirectory()
+                && roomContentActiveTab === 'users' && collabSupabase === supabase && collabUser?.id === userId;
+            roomContentUsersAbort?.abort();
+            const abort = new AbortController();
+            roomContentUsersAbort = abort;
+            roomContentUsers = { ...emptyUserDirectory(), query: String(query).trim().slice(0, 200),
+                page: Math.max(0, Math.trunc(Number(page) || 0)) };
+            roomContentLoading = true;
+            setRoomContentStatus('Загрузка пользователей…');
+            renderRoomContent();
+            try {
+                const fetchPage = async () => {
+                    const { data, error } = await supabase.rpc('admin_list_registered_users', {
+                        search_text: roomContentUsers.query,
+                        page_offset: roomContentUsers.page * USER_DIRECTORY_PAGE_SIZE,
+                        page_size: USER_DIRECTORY_PAGE_SIZE,
+                    }).abortSignal(abort.signal);
+                    if (error) throw error;
+                    if (!data || !Array.isArray(data.users) || !Number.isSafeInteger(data.total) || data.total < 0) {
+                        throw new Error('Некорректный ответ списка пользователей.');
+                    }
+                    return data;
+                };
+                let data = await fetchPage();
+                if (!isCurrent()) return;
+                // Another administrator may have removed accounts on the last page.
+                const lastPage = Math.max(0, Math.ceil(data.total / USER_DIRECTORY_PAGE_SIZE) - 1);
+                if (roomContentUsers.page > lastPage) {
+                    roomContentUsers.page = lastPage;
+                    data = await fetchPage();
+                    if (!isCurrent()) return;
+                }
+                roomContentUsers = { ...roomContentUsers, total: data.total, users: data.users };
+                setRoomContentStatus('');
+            } catch (err) {
+                if (!isCurrent()) return;
+                setRoomContentStatus(['PGRST202', '42883'].includes(err?.code)
+                    ? 'Список пользователей недоступен: требуется обновление базы данных.'
+                    : `Не удалось загрузить пользователей: ${err?.message || err}`);
+            } finally {
+                if (roomContentUsersAbort === abort) roomContentUsersAbort = null;
+                if (isCurrent()) {
+                    roomContentLoading = false;
+                    renderRoomContent();
+                }
+            }
+        }
+
         function getAdminProjects() {
             const selected = getRoomContentSelectionValue();
             return collabProjects.filter((project) => canDeleteProjectItem(project)
@@ -2312,6 +2373,13 @@ export class ViewerApp {
             if (next) renderRoomContentUserEmail();
             if (!next) {
                 roomContentLoadGeneration += 1;
+                roomContentUsersAbort?.abort();
+                roomContentUsersAbort = null;
+                roomContentUsers = emptyUserDirectory();
+                if (roomContentActiveTab === 'users') {
+                    roomContentListEl?.replaceChildren();
+                    if (roomContentSummaryEl) roomContentSummaryEl.textContent = '';
+                }
                 roomContentLoading = false;
                 roomContentInventory = null;
                 roomContentOwners.clear();
@@ -2516,6 +2584,11 @@ export class ViewerApp {
 
         function renderRoomContentSummary() {
             if (!roomContentSummaryEl) return;
+            if (roomContentActiveTab === 'users') {
+                roomContentSummaryEl.textContent = roomContentUsers.total === null ? ''
+                    : `${roomContentUsers.query ? 'Найдено пользователей' : 'Зарегистрированных пользователей'}: ${roomContentUsers.total}`;
+                return;
+            }
             if (roomContentActiveTab === 'projects') {
                 const projects = getAdminProjects();
                 const ids = new Set(projects.map((project) => project.id));
@@ -2716,6 +2789,15 @@ export class ViewerApp {
 
         function renderRoomContentList() {
             if (!roomContentListEl) return;
+            if (roomContentActiveTab === 'users') {
+                if (!canViewUserDirectory()) { roomContentListEl.replaceChildren(); return; }
+                renderUserDirectory(roomContentListEl, {
+                    state: roomContentUsers, busy: roomContentLoading,
+                    onSearch: (query) => { void loadRoomContentUsers(query, 0); },
+                    onPage: (page) => { void loadRoomContentUsers(roomContentUsers.query, page); },
+                });
+                return;
+            }
             if (roomContentActiveTab === 'projects') {
                 renderProjectAdminTree(roomContentListEl, {
                     projects: getAdminProjects(), rooms: roomContentRooms,
@@ -2819,12 +2901,20 @@ export class ViewerApp {
         }
 
         function renderRoomContent() {
+            const canViewUsers = canViewUserDirectory();
+            if (!canViewUsers) {
+                roomContentUsers = emptyUserDirectory();
+                if (roomContentActiveTab === 'users') roomContentActiveTab = 'projects';
+            }
+            const projectFilter = roomContentRoomSelectEl?.closest('.room-content-field');
+            if (projectFilter) projectFilter.hidden = roomContentActiveTab === 'users';
             if (roomContentRefreshBtn) roomContentRefreshBtn.disabled = roomContentActionInFlight || roomContentLoading;
             if (roomContentCloseBtn) roomContentCloseBtn.disabled = roomContentActionInFlight;
             if (roomContentRoomSelectEl) roomContentRoomSelectEl.disabled = roomContentActionInFlight || roomContentLoading || !collabProjects.length;
             if (Array.isArray(roomContentTabs)) {
                 roomContentTabs.forEach((btn) => {
                     const tab = String(btn?.dataset?.tab || '');
+                    btn.hidden = tab === 'users' && !canViewUsers;
                     btn.classList.toggle('active', tab === roomContentActiveTab);
                     btn.setAttribute('role', 'tab');
                     btn.setAttribute('aria-selected', String(tab === roomContentActiveTab));
@@ -2837,6 +2927,7 @@ export class ViewerApp {
 
         async function loadRoomContentInventory(projectId = '') {
             if (!roomContentModalEl?.classList?.contains('show')) return;
+            if (roomContentActiveTab === 'users') return loadRoomContentUsers();
             const selection = String(projectId || getRoomContentSelectionValue()).trim() || ROOM_CONTENT_ALL_PROJECTS_VALUE;
             const generation = ++roomContentLoadGeneration;
             setRoomContentStatus('Загрузка…');
@@ -2875,6 +2966,9 @@ export class ViewerApp {
             setRoomContentOpen(true);
             roomContentLoading = true;
             roomContentActiveTab = 'projects';
+            roomContentUsersAbort?.abort();
+            roomContentUsersAbort = null;
+            roomContentUsers = emptyUserDirectory();
             roomContentListEl?.replaceChildren();
             roomContentInventory = null;
             roomContentRooms = [];
@@ -4856,6 +4950,7 @@ export class ViewerApp {
         if (roomContentRefreshBtn) {
             addAppEventListener(roomContentRefreshBtn, 'click', () => {
                 if (roomContentActionInFlight || roomContentLoading) return;
+                if (roomContentActiveTab === 'users') { void loadRoomContentUsers(); return; }
                 void (async () => {
                     try {
                         await reloadRoomContentStructure();
@@ -4870,8 +4965,11 @@ export class ViewerApp {
             roomContentTabs.forEach((btn) => {
                 addAppEventListener(btn, 'click', () => {
                     const tab = String(btn?.dataset?.tab || 'models');
-                    if (!tab || tab === roomContentActiveTab || roomContentActionInFlight) return;
+                    if (!tab || tab === roomContentActiveTab || roomContentActionInFlight || roomContentLoading) return;
+                    if (tab === 'users' && !canViewUserDirectory()) return;
                     roomContentActiveTab = tab;
+                    setRoomContentStatus('');
+                    if (tab === 'users') { void loadRoomContentUsers(); return; }
                     if (tab === 'projects' || roomContentInventory) renderRoomContent();
                     else void loadRoomContentInventory();
                 });

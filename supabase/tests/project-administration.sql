@@ -22,7 +22,7 @@ begin
 end;
 $$;
 
-insert into auth.users values
+insert into auth.users (id, email) values
 ('00000000-0000-0000-0000-000000000001','owner-a@example.com'),
 ('00000000-0000-0000-0000-000000000002','owner-b@example.com'),
 ('00000000-0000-0000-0000-000000000003','admin@example.com'),

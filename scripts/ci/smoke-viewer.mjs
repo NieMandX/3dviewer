@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { runProjectAdminTreeSmoke } from './smoke-project-admin.mjs';
+import { runUserDirectorySmoke } from './smoke-user-directory.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const roomProject = process.env.LPMVIEW_SMOKE_PROJECT || 'shmit';
@@ -1747,7 +1748,7 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
     await page.close();
 }
 
-async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
+async function createRegisteredRoomSmokePage(browser, baseUrl) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
     await page.addInitScript(() => {
@@ -2038,6 +2039,7 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             },
         };
 
+        window.__adminSmokeClient = client;
         window.supabase = {
             createClient() {
                 return client;
@@ -2049,6 +2051,11 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
         !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
     ), null, { timeout: 45000 });
 
+    return { page, diagnostics };
+}
+
+async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
+    const { page, diagnostics } = await createRegisteredRoomSmokePage(browser, baseUrl);
     const result = await page.evaluate(async () => {
         const waitFor = async (predicate, timeoutMs = 8000) => {
             const started = performance.now();
@@ -2121,6 +2128,11 @@ async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
             && !document.querySelector('#roomContentRefresh').disabled);
         const adminDefault = document.querySelector('#roomContentTabProjects')?.getAttribute('aria-selected');
         const adminCollapsed = document.querySelectorAll('.project-admin-project[open]').length;
+        if (!document.querySelector('#roomContentTabUsers').hidden) throw new Error('User directory tab exposed to ordinary owner');
+        document.querySelector('#roomContentTabUsers').click();
+        if (document.querySelector('#roomContentTabProjects').getAttribute('aria-selected') !== 'true') {
+            throw new Error('Hidden user directory tab bypassed role guard');
+        }
         const press = (root, label) => Array.from(root.querySelectorAll('button')).find((button) => button.textContent === label)?.click();
         const submitAdminName = async (name) => {
             if (!await waitFor(() => document.querySelector('#promptModal')?.classList.contains('show'))) throw new Error('Admin prompt did not open');
@@ -13884,6 +13896,8 @@ try {
     console.log('Project admin permissions and responsive UI smoke passed.');
     await runCollabRegisteredRoomSwitchSmoke(browserContext, smokeServer.baseUrl);
     console.log('Registered room switch smoke passed.');
+    await runUserDirectorySmoke(await createRegisteredRoomSmokePage(browserContext, smokeServer.baseUrl));
+    console.log('Superuser directory search, pagination and lifecycle smoke passed.');
     await runDisposeReinitSmoke(browserContext, smokeServer.baseUrl);
     console.log('Dispose/reinit smoke passed.');
     await runRendererDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);

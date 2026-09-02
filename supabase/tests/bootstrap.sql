@@ -6,7 +6,11 @@ create schema auth;
 create schema storage;
 create schema extensions;
 create extension if not exists pgcrypto with schema extensions;
-create table auth.users (id uuid primary key, email text);
+create table auth.users (
+    id uuid primary key, email text,
+    created_at timestamptz default now(), last_sign_in_at timestamptz,
+    email_confirmed_at timestamptz, is_anonymous boolean default false, deleted_at timestamptz
+);
 create function auth.jwt() returns jsonb language sql stable as $$
     select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb;
 $$;
