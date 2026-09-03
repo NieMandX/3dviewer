@@ -275,9 +275,17 @@ async function runBootSmoke(browser, baseUrl) {
         loading: document.body.classList.contains('app-loading'),
         activeRenderer: globalThis.__LPMVIEW_ACTIVE_RENDERER || null,
         appVersion: document.querySelector('#viewerVersion')?.textContent,
+        statsHidden: document.querySelector('#statsOverlay')?.hidden,
+        statsActive: document.querySelector('#statsBtn')?.classList.contains('active'),
     }));
     const release = JSON.parse(await readFile(join(projectRoot, 'version.json'), 'utf8'));
     assert.equal(state.appVersion, release.version, 'Boot smoke: visible release version mismatch');
+    assert.equal(state.statsHidden, true, 'Boot smoke: statistics must start hidden');
+    assert.equal(state.statsActive, false, 'Boot smoke: Stats must start off');
+    await page.click('#statsBtn');
+    assert.equal(await page.locator('#statsOverlay').isVisible(), true, 'Boot smoke: Stats did not turn on');
+    await page.click('#statsBtn');
+    assert.equal(await page.locator('#statsOverlay').isVisible(), false, 'Boot smoke: Stats did not turn off');
     const webgpuImports = await page.evaluate(async () => {
         const [webgpu, tsl] = await Promise.all([
             import('three/webgpu'),
@@ -2024,7 +2032,10 @@ async function createRegisteredRoomSmokePage(browser, baseUrl) {
             from: (table) => new FakeQuery(table),
             rpc: (name) => {
                 if (name === 'is_superuser') return Promise.resolve({ data: false, error: null });
-                if (name === 'ensure_room_invite') return Promise.resolve({ data: { token: 'switch-token' }, error: null });
+                if (name === 'ensure_room_invite') {
+                    if (window.__holdRoomInvite) return new Promise(resolve => { window.__resolveRoomInvite = resolve; });
+                    return Promise.resolve({ data: { token: 'switch-token' }, error: null });
+                }
                 if (name === 'project_admin_owners' && window.__holdAdminOwners) {
                     return new Promise((resolve) => { window.__resolveAdminOwners = resolve; });
                 }
@@ -2055,6 +2066,73 @@ async function createRegisteredRoomSmokePage(browser, baseUrl) {
     ), null, { timeout: 45000 });
 
     return { page, diagnostics };
+}
+
+async function runConnectedResetViewerSmoke(browser, baseUrl) {
+    const { page, diagnostics } = await createRegisteredRoomSmokePage(browser, baseUrl);
+    try {
+        await page.evaluate(() => {
+            window.__holdRoomInvite = true;
+            document.querySelector('#collabEmail').value = 'switch@example.com';
+            document.querySelector('#collabPassword').value = 'secret123';
+            document.querySelector('#collabJoinBtn').click();
+        });
+        await page.waitForFunction(() => Array.from(document.querySelector('#collabProjectSelect').options).some(option => option.value === 'project-switch'), null, { timeout: 8000 });
+        await page.selectOption('#collabProjectSelect', 'project-switch', { force: true, timeout: 8000 });
+        await page.waitForFunction(() => Array.from(document.querySelector('#collabRoomSelect').options).some(option => option.value === 'room-a'), null, { timeout: 8000 });
+        await page.selectOption('#collabRoomSelect', 'room-a', { force: true, timeout: 8000 });
+        await page.waitForFunction(() => window.viewerApp?.getDiagnostics().collab.connected && window.__resolveRoomInvite, null, { timeout: 8000 });
+        await page.waitForFunction(() => !document.querySelector('#collabChatToggleBtn').hidden, null, { timeout: 8000 });
+        assert.equal(await page.locator('#collabChatPanel').isVisible(), false, 'Room entry: chat must start hidden');
+        assert.equal(await page.locator('#collabChatToggleBtn').getAttribute('aria-pressed'), 'false');
+        await page.click('#collabChatToggleBtn');
+        assert.equal(await page.locator('#collabChatPanel').isVisible(), true, 'Room entry: chat toggle did not open chat');
+        assert.equal(await page.locator('#collabChatToggleBtn').getAttribute('aria-pressed'), 'true');
+        await page.click('#collabChatToggleBtn');
+        assert.equal(await page.locator('#collabChatPanel').isVisible(), false, 'Room entry: chat toggle did not close chat');
+        await page.evaluate(() => {
+            history.replaceState({}, '', '?project=switch-project&room=room-a&invite=old-token#room');
+            document.querySelector('#statsBtn').click();
+            window.__resetHistoryWrites = [];
+            const replaceState = history.replaceState.bind(history);
+            history.replaceState = (state, unused, url) => {
+                window.__resetHistoryWrites.push(String(url));
+                return replaceState(state, unused, url);
+            };
+        });
+
+        // Resolve the old RPC in microtasks before the new document commits.
+        const resetting = await page.evaluate(async () => {
+            document.querySelector('#resetViewerBtn').click();
+            window.__resolveRoomInvite({ data: { token: 'late-token' }, error: null });
+            for (let i = 0; i < 8; i += 1) await Promise.resolve();
+            return { url: location.href, historyWrites: window.__resetHistoryWrites, snapshot: window.viewerApp.getDiagnostics() };
+        });
+        assert.equal(resetting.url, `${baseUrl}/`, 'Connected reset: late invite response restored the room URL');
+        assert.ok(resetting.historyWrites.every(url => !new URL(url, baseUrl).search), 'Connected reset: wrote room parameters after Reset');
+        assert.equal(resetting.snapshot.disposed, true, 'Connected reset: old application remained active during navigation');
+        assert.equal(resetting.snapshot.collab.autoResumeEnabled, false, 'Connected reset: reconnect remained enabled');
+
+        await page.waitForURL(`${baseUrl}/`, { waitUntil: 'load', timeout: 45000 });
+        await page.waitForFunction(() => window.viewerApp && !window.viewerApp.getDiagnostics().disposed && !document.body.classList.contains('app-loading'), null, { timeout: 45000 });
+        const clean = await page.evaluate(() => ({
+            search: location.search,
+            hash: location.hash,
+            connected: window.viewerApp.getDiagnostics().collab.connected,
+            models: window.viewerApp.getDiagnostics().models.loaded,
+            roomEntry: document.body.classList.contains('room-entry-landing'),
+            drawerHidden: document.querySelector('#collabDrawer').hidden,
+            emptyHintVisible: !document.querySelector('#emptyHint').hidden,
+            statsHidden: document.querySelector('#statsOverlay').hidden,
+            chatHidden: document.querySelector('#collabChatPanel').hidden,
+            chatButtonHidden: document.querySelector('#collabChatToggleBtn').hidden,
+        }));
+        assert.deepEqual(clean, { search: '', hash: '', connected: false, models: 0, roomEntry: false, drawerHidden: true, emptyHintVisible: true, statsHidden: true, chatHidden: true, chatButtonHidden: true });
+        diagnostics.assertNoErrors('Connected reset viewer smoke');
+    } finally {
+        await page.evaluate(() => { void window.viewerApp?.dispose?.(); }).catch(() => {});
+        await page.close();
+    }
 }
 
 async function runCollabRegisteredRoomSwitchSmoke(browser, baseUrl) {
@@ -13873,6 +13951,8 @@ await installSmokeCdnRoute(browserContext);
 
 try {
     console.log(`Smoke server: ${smokeServer.baseUrl}`);
+    await runConnectedResetViewerSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Connected reset viewer and late invite smoke passed.');
     await runBootSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot smoke passed.');
     await runBootRuntimeFailureSmoke(browserContext, smokeServer.baseUrl);

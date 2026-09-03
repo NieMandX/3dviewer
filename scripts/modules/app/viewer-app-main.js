@@ -1136,7 +1136,7 @@ export class ViewerApp {
             }
             return Number(window.innerWidth || 0) <= 980;
         };
-        let chatPanelVisible = !isMobileUi();
+        let chatPanelVisible = false;
         const seenChatMessageIds = new Set();
         const collabContributors = new Map();
         let contributorsRenderQueued = false;
@@ -1630,8 +1630,6 @@ export class ViewerApp {
             }
             if (!enabled) {
                 setChatPanelVisible(false);
-            } else {
-                setChatPanelVisible(!isMobileUi());
             }
         }
 
@@ -1849,6 +1847,7 @@ export class ViewerApp {
         }
 
         function setRoomSlugInUrl(projectSlug, roomSlug, inviteToken = '', options = {}) {
+            if (appDisposed) return '';
             try {
                 const nextUrl = buildRoomLinkUrl(projectSlug, roomSlug, inviteToken);
                 if (nextUrl && options?.replaceHistory !== false) {
@@ -3482,9 +3481,14 @@ export class ViewerApp {
         }
 
         function reloadViewerFromCleanUrl() {
-            if (typeof window === 'undefined') return;
+            if (appDisposed || typeof window === 'undefined') return;
             const cleanUrl = buildCleanViewerReloadUrl();
-            if (cleanUrl && cleanUrl !== window.location.href) {
+            if (cleanUrl) {
+                try { window.history.replaceState({}, '', cleanUrl); } catch (_) {}
+            }
+            // Stop old room callbacks before a pending invite can restore its URL.
+            void app.dispose?.();
+            if (cleanUrl) {
                 if (typeof window.location.replace === 'function') {
                     window.location.replace(cleanUrl);
                 } else {
@@ -4123,6 +4127,7 @@ export class ViewerApp {
         }
 
         async function refreshRoomShareLink(options = {}) {
+            if (appDisposed) return '';
             const updateHistory = !!options?.updateHistory;
             if (!collabProject || !collabRoom) {
                 if (collabRoomLinkEl) collabRoomLinkEl.value = '';
@@ -4138,6 +4143,7 @@ export class ViewerApp {
                 }
             }
 
+            if (appDisposed) return '';
             const shareUrl = updateHistory
                 ? setRoomSlugInUrl(collabProject.slug, collabRoom.slug, inviteToken)
                 : buildRoomLinkUrl(collabProject.slug, collabRoom.slug, inviteToken);

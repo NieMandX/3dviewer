@@ -14,7 +14,7 @@ export function createAppbarControlsController(options = {}) {
     const setGridVisible = typeof options.setGridVisible === 'function' ? options.setGridVisible : () => {};
     const isGridVisible = typeof options.isGridVisible === 'function' ? options.isGridVisible : () => false;
 
-    const initialStatsVisible = typeof options.initialStatsVisible === 'boolean' ? options.initialStatsVisible : true;
+    const initialStatsVisible = typeof options.initialStatsVisible === 'boolean' ? options.initialStatsVisible : false;
     const initialGridVisible = typeof options.initialGridVisible === 'boolean' ? options.initialGridVisible : true;
 
     const listeners = [];
