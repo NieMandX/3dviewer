@@ -114,3 +114,44 @@ during image decode, stale model bounds, HTTP errors, timeout, resource disposal
 and desktop/mobile controls. It uses synthetic tiles and never a real API key.
 Live verification also loaded the Antonova-Ovsienko FBX archive with 49 actual
 tiles in WebGPU. Alignment is cartographic, subject to the CRS limits above.
+
+## Building surroundings (pilot)
+
+The **Здания окружения** checkbox uses the same in-memory 2GIS key, independently
+of the raster underlay. It requests Places API building hover polygons within
+500 m and OSM building height/address tags from Overpass. OSM geometry is not
+displayed or used for nearest-neighbour matching. The 2GIS hover geometry is
+cartographic selection geometry, not a guaranteed surveyed building footprint.
+
+Matching uses full normalized addresses, preserving house suffixes, corpus,
+structure and slash order. Missing OSM city is scoped to Moscow for this MGGT
+pilot. For several contours at one address, equally many OSM records are paired
+in source contour order. Missing heights keep their position; unequal counts
+remain unresolved. Initial pairings are retained in a bounded localStorage
+identity cache (at most 1000 pairs), so response reordering does not swap heights.
+Provider keys and height values are never stored in that cache. These ordered
+matches are assumptions, not verified building-part identities.
+
+Height priority is `height` (metres or explicitly marked feet), then
+`building:levels * 3 m` as an estimate. The common base elevation comes from the
+loaded model's minimum height, not a terrain survey. Unknown-height footprints
+remain flat outlines. Polygon holes are preserved and the display is clipped
+to a 128-sided 500 m circle using polygon-clipping; WKT is parsed by Terraformer.
+The independent layer is excluded from bounds, exports, picking and shading
+overrides. Import cleanup/finalization invalidates it; disable/dispose aborts
+pending requests and frees its geometries and shared materials.
+
+The pilot deliberately caps 2GIS at five pages of ten records, matching the demo
+key's limit. Partial coverage is shown in the UI, never described as the full
+room surroundings. There is one OSM query per explicit load, no polling/retry,
+and a five-minute in-memory response cache. An OSM failure leaves flat contours.
+Both providers are attributed while visible. Public Overpass is for this small,
+manual feasibility test: a broadly used production integration must use a
+permitted hosted/self-hosted endpoint or the planned 2GIS height export, not
+depend on the community public instance as its backend.
+
+`smoke-building-heights.mjs` and `smoke-map-buildings.mjs` run in `ci:verify`:
+address normalization, contour order and persisted pairing, missing/conflicting
+counts, source height/estimated floors, real WKT/clip/extrusion, holes and radius,
+Y-up/Z-up, WebGL pixels, material preservation, cancellation/stale writes,
+timeouts/provider failures, bounded pagination/cache, disposal and mobile UI.

@@ -61,6 +61,7 @@ export function createShadingController(options = {}) {
 
     const MATERIAL_PRESERVE_FLAGS = [
         'mapUnderlay',
+        'mapBuilding',
         'annotationRoot',
         'annotationLayer',
         'annotationStroke',

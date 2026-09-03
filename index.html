@@ -568,6 +568,9 @@
                     </label>
                     <div id="mapUnderlayStatus" class="muted" role="status" aria-live="polite"></div>
                     <progress id="mapUnderlayProgress" aria-label="Загрузка карты" hidden></progress>
+                    <label class="map-underlay-toggle"><input id="mapBuildingsToggle" type="checkbox" /> Здания окружения</label>
+                    <div id="mapBuildingsStatus" class="muted" role="status" aria-live="polite"></div>
+                    <progress id="mapBuildingsProgress" aria-label="Загрузка зданий" hidden></progress>
                 </div>
             </details>
 
@@ -587,7 +590,10 @@
         </div>
     </div>
 
-    <a id="mapUnderlayAttribution" class="map-underlay-attribution" href="https://2gis.ru" target="_blank" rel="noopener noreferrer" hidden>&copy; 2ГИС</a>
+    <div class="map-underlay-attribution">
+        <a id="mapUnderlayAttribution" href="https://2gis.ru" target="_blank" rel="noopener noreferrer" hidden>&copy; 2ГИС</a>
+        <a id="mapOsmAttribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" hidden>&copy; OpenStreetMap contributors</a>
+    </div>
     <div id="drop" class="drop">Бросайте сюда один или несколько .fbx .zip</div>
 
     <div id="texModal" class="modal">

@@ -10,6 +10,8 @@ import { runProjectAdminTreeSmoke } from './smoke-project-admin.mjs';
 import { runUserDirectorySmoke } from './smoke-user-directory.mjs';
 import { runMapCoordinatesSmoke } from './smoke-map-coordinates.mjs';
 import { runMapUnderlaySmoke, runMapUnderlayUISmoke } from './smoke-map-underlay.mjs';
+import { runBuildingHeightMatchingSmoke } from './smoke-building-heights.mjs';
+import { runMapBuildingsSmoke, runMapBuildingsUISmoke } from './smoke-map-buildings.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const roomProject = process.env.LPMVIEW_SMOKE_PROJECT || 'shmit';
@@ -13958,6 +13960,10 @@ try {
     await runMapUnderlaySmoke(browserContext, smokeServer.baseUrl);
     console.log('Map underlay rendering, cancellation, resource disposal and errors smoke passed.');
     await runMapUnderlayUISmoke(browserContext, smokeServer.baseUrl);
+    runBuildingHeightMatchingSmoke();
+    await runMapBuildingsSmoke(browserContext, smokeServer.baseUrl);
+    await runMapBuildingsUISmoke(browserContext, smokeServer.baseUrl);
+    console.log('Map building height order, lifecycle and UI smoke passed');
     console.log('Map underlay controls and responsive layout smoke passed.');
     await runConnectedResetViewerSmoke(browserContext, smokeServer.baseUrl);
     console.log('Connected reset viewer and late invite smoke passed.');

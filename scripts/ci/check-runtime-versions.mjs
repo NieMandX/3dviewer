@@ -30,6 +30,9 @@ const mapCoordinates = await readProjectFile('scripts/modules/geo/map-coordinate
 const proj4Version = mapCoordinates.match(/proj4@([^/]+)\/\+esm/)?.[1] || '';
 assert.match(proj4Version, /^\d+\.\d+\.\d+$/, 'Proj4js CDN version must be pinned.');
 assert.equal(proj4Version, packageJson.devDependencies.proj4, 'Browser and CI Proj4js versions must match.');
+const buildingData = await readProjectFile('scripts/modules/geo/map-buildings-data.js');
+assert.ok(buildingData.includes('@terraformer/wkt@2.2.2/+esm'), 'Building WKT parser must stay pinned.');
+assert.ok(buildingData.includes('polygon-clipping@0.15.7/+esm'), 'Building polygon clipping must stay pinned.');
 
 const importMapThreeVersion = indexHtml.match(/"three"\s*:\s*"https:\/\/cdn\.jsdelivr\.net\/npm\/three@([^/]+)\/build\/three\.module\.js"/)?.[1] || '';
 assert.match(importMapThreeVersion, /^\d+\.\d+\.\d+$/, 'Three import-map version must be exact semver.');
