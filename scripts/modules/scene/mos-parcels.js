@@ -29,7 +29,6 @@ export function createMosParcelsController(options = {}) {
         baseUrl: config.baseUrl,
         filter: defaultFilter,
         targetGlobalId: defaultTargetGlobalId,
-        resetOrigin: config.resetOrigin ?? true,
     });
 
     let parcelsGroup = null;
@@ -71,6 +70,7 @@ export function createMosParcelsController(options = {}) {
             origin: parcelsOrigin,
             verticalIsZ: isZUp(),
             referenceHeight: overrides.referenceHeight ?? getVPMReferenceHeight(),
+            coordinateSpace: config.coordinateSpace ?? 'wgs84',
         });
     }
 
@@ -185,14 +185,13 @@ export function createMosParcelsController(options = {}) {
             }
 
             const aggregated = { type: 'FeatureCollection', features };
-            const group = buildParcelsGroup(aggregated, { referenceHeight });
-            if (!group) {
-                setStatusMessage(`Участки не найдены (0 контуров среди ${features.length} записей)`);
-                return null;
-            }
-
+            const group = await buildParcelsGroup(aggregated, { referenceHeight });
             if (!isCurrent()) {
                 disposeParcelsGroup(group);
+                return null;
+            }
+            if (!group) {
+                setStatusMessage(`Участки не найдены (0 контуров среди ${features.length} записей)`);
                 return null;
             }
 

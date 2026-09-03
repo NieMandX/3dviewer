@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { runProjectAdminTreeSmoke } from './smoke-project-admin.mjs';
 import { runUserDirectorySmoke } from './smoke-user-directory.mjs';
+import { runMapCoordinatesSmoke } from './smoke-map-coordinates.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const roomProject = process.env.LPMVIEW_SMOKE_PROJECT || 'shmit';
@@ -12737,7 +12738,7 @@ async function runMosParcelsLifecycleSmoke(browser, baseUrl) {
         const controller = createMosParcelsController({
             world,
             northGrid,
-            config: { apiKey: 'smoke' },
+            config: { apiKey: 'smoke', coordinateSpace: 'model' },
             setStatusMessage: (message) => statusEvents.push(message),
             loadParcels: ({ signal, onProgress }) => {
                 const id = pending.length + 1;
@@ -13951,6 +13952,8 @@ await installSmokeCdnRoute(browserContext);
 
 try {
     console.log(`Smoke server: ${smokeServer.baseUrl}`);
+    await runMapCoordinatesSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Map coordinates, rebase, axis order and disposal smoke passed.');
     await runConnectedResetViewerSmoke(browserContext, smokeServer.baseUrl);
     console.log('Connected reset viewer and late invite smoke passed.');
     await runBootSmoke(browserContext, smokeServer.baseUrl);

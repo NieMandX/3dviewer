@@ -10,6 +10,7 @@ import { extractImagesFromFBX, sniffImage } from '../fbx/embedded-images.js';
 import { createNorthGridController } from '../scene/north-grid.js';
 import { createImportedLightsController } from '../scene/imported-lights.js';
 import { createMosParcelsController } from '../scene/mos-parcels.js';
+import { createMapReferenceController } from '../scene/map-reference.js';
 import { createWorldOffsetController } from '../scene/world-offset.js';
 import { createSceneCore } from '../scene/scene-core.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
@@ -5109,7 +5110,6 @@ export class ViewerApp {
 	                baseUrl: MOS_PARCELS.baseUrl,
 	                filter: MOS_PARCELS_FILTER,
 	                targetGlobalId: MOS_PARCELS_TARGET_GLOBAL_ID,
-	                resetOrigin: true,
 	            },
 	        });
 
@@ -5223,6 +5223,8 @@ export class ViewerApp {
          * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson?, scope? }
          */
         const loadedModels = app.loadedModels = [];
+        const mapReference = createMapReferenceController({ THREE, world, isZUp, getModels: () => loadedModels });
+        app.mapReference = mapReference;
         const sceneIndex = createLoadedModelSceneIndex({ loadedModels });
         app.sceneIndex = sceneIndex;
         environmentWiring.setMaterialSources?.({ loadedModels, sceneIndex });
@@ -8085,6 +8087,7 @@ export class ViewerApp {
 	            try { environmentWiring?.dispose?.(); } catch (_) {}
 	            try { sunShadows?.dispose?.(); } catch (_) {}
 	            try { mosParcels?.dispose?.(); } catch (_) {}
+	            try { mapReference?.dispose?.(); } catch (_) {}
 	            try { northGrid?.dispose?.(); } catch (_) {}
 	            try { geoJsonModal?.dispose?.(); } catch (_) {}
 	            try { promptModal?.dispose?.(); } catch (_) {}

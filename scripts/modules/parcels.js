@@ -1,34 +1,5 @@
 import * as THREE from 'three';
-
-const DEG2RAD = Math.PI / 180;
-const RAD2DEG = 180 / Math.PI;
-const ARCSEC_TO_RAD = Math.PI / (180 * 3600);
-
-const WGS84_PARAMS = Object.freeze({
-    a: 6378137.0,
-    invF: 298.257223563,
-});
-
-const HELMERT_WGS84_TO_BESSEL = Object.freeze({
-    // dx: -23.92,
-    dx: -23.92,
-    dy: 141.27,
-    dz: -80.9,
-    rxSec: 0.0,
-    rySec: 0.0,
-    rzSec: -0.35,
-    scalePpm: 0.12,
-});
-
-const MSK77_PARAMS = Object.freeze({
-    a: 6377397.155,
-    invF: 299.1528128,
-    lon0Deg: 37.5,
-    lat0Deg: 55 + 40 / 60,
-    k0: 1.0,
-    falseEasting: 5,
-    falseNorthing: 0,
-});
+import { loadMapCoordinateSystem } from './geo/map-coordinates.js';
 
 const DEFAULT_PARCELS_CONFIG = Object.freeze({
     datasetId: 1497,
@@ -39,7 +10,6 @@ const DEFAULT_PARCELS_CONFIG = Object.freeze({
 });
 
 let parcelsConfig = { ...DEFAULT_PARCELS_CONFIG };
-let _msk77Origin = null;
 let _vpmReferenceHeight = null;
 
 // ------------------------------------------------------------------
@@ -54,129 +24,6 @@ function parseGeoNumber(value, fallback = null) {
         return Number.isFinite(num) ? num : fallback;
     }
     return fallback;
-}
-
-function geodeticToCartesian(lonDeg, latDeg, ellipsoid, height = 0) {
-    const { a, invF } = ellipsoid;
-    const f = 1 / invF;
-    const e2 = 2 * f - f * f;
-    const lon = lonDeg * DEG2RAD;
-    const lat = latDeg * DEG2RAD;
-
-    const sinLat = Math.sin(lat);
-    const cosLat = Math.cos(lat);
-    const sinLon = Math.sin(lon);
-    const cosLon = Math.cos(lon);
-
-    const N = a / Math.sqrt(1 - e2 * sinLat * sinLat);
-    const X = (N + height) * cosLat * cosLon;
-    const Y = (N + height) * cosLat * sinLon;
-    const Z = (N * (1 - e2) + height) * sinLat;
-    return { x: X, y: Y, z: Z };
-}
-
-function cartesianToGeodetic(X, Y, Z, ellipsoid) {
-    const { a, invF } = ellipsoid;
-    const f = 1 / invF;
-    const e2 = 2 * f - f * f;
-    const ePrime2 = e2 / (1 - e2);
-
-    const p = Math.sqrt(X * X + Y * Y);
-    if (p === 0) {
-        return { lon: 0, lat: Z >= 0 ? 90 : -90 };
-    }
-
-    let lat = Math.atan2(Z, p * (1 - e2));
-    for (let i = 0; i < 5; i++) {
-        const sinLat = Math.sin(lat);
-        const N = a / Math.sqrt(1 - e2 * sinLat * sinLat);
-        lat = Math.atan2(Z + ePrime2 * N * sinLat, p);
-    }
-
-    const lon = Math.atan2(Y, X);
-    const lonDeg = ((lon * RAD2DEG + 540) % 360) - 180;
-    const latDeg = lat * RAD2DEG;
-    return { lon: lonDeg, lat: latDeg };
-}
-
-function applyHelmertTransform(x, y, z, params) {
-    const s = params.scalePpm * 1e-6;
-    const rx = params.rxSec * ARCSEC_TO_RAD;
-    const ry = params.rySec * ARCSEC_TO_RAD;
-    const rz = params.rzSec * ARCSEC_TO_RAD;
-
-    const x2 = params.dx + (1 + s) * x - rz * y + ry * z;
-    const y2 = params.dy + rz * x + (1 + s) * y - rx * z;
-    const z2 = params.dz - ry * x + rx * y + (1 + s) * z;
-    return { x: x2, y: y2, z: z2 };
-}
-
-function wgs84ToBessel(lonDeg, latDeg) {
-    const cart = geodeticToCartesian(lonDeg, latDeg, WGS84_PARAMS, 0);
-    const transformed = applyHelmertTransform(cart.x, cart.y, cart.z, HELMERT_WGS84_TO_BESSEL);
-    return cartesianToGeodetic(transformed.x, transformed.y, transformed.z, MSK77_PARAMS);
-}
-
-function projectToGaussKruger(lonDeg, latDeg, params) {
-    const { a, invF, lon0Deg, k0 } = params;
-    const lon0 = lon0Deg * DEG2RAD;
-    const f = 1 / invF;
-    const e2 = 2 * f - f * f;
-    const e2Prime = e2 / (1 - e2);
-
-    const B = latDeg * DEG2RAD;
-    const L = lonDeg * DEG2RAD;
-    const dLon = L - lon0;
-    const l = Math.atan2(Math.sin(dLon), Math.cos(dLon));
-
-    const sinB = Math.sin(B);
-    const cosB = Math.cos(B);
-    const t = Math.tan(B);
-    const t2 = t * t;
-    const t4 = t2 * t2;
-    const t6 = t4 * t2;
-    const eta2 = e2Prime * cosB * cosB;
-
-    const cosB2 = cosB * cosB;
-    const cosB3 = cosB2 * cosB;
-    const cosB4 = cosB2 * cosB2;
-    const cosB5 = cosB4 * cosB;
-    const cosB6 = cosB3 * cosB3;
-    const cosB7 = cosB6 * cosB;
-
-    const N = a / Math.sqrt(1 - e2 * sinB * sinB);
-
-    const e4 = e2 * e2;
-    const e6 = e4 * e2;
-
-    const A0 = 1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256;
-    const A2 = (3 / 8) * (e2 + e4 / 4 + 15 * e6 / 128);
-    const A4 = (15 / 256) * (e4 + 3 * e6 / 4);
-    const A6 = (35 * e6) / 3072;
-
-    const sigma = a * (A0 * B - A2 * Math.sin(2 * B) + A4 * Math.sin(4 * B) - A6 * Math.sin(6 * B));
-
-    const l2 = l * l;
-    const l3 = l2 * l;
-    const l4 = l2 * l2;
-    const l5 = l4 * l;
-    const l6 = l4 * l2;
-    const l7 = l6 * l;
-
-    const northing = sigma
-        + (N * t * cosB2 * l2) / 2
-        + (N * t * cosB4 * l4 / 24) * (5 - t2 + 9 * eta2 + 4 * eta2 * eta2)
-        + (N * t * cosB6 * l6 / 720) * (61 - 58 * t2 + t4 + 270 * eta2 - 330 * t2 * eta2);
-
-    const easting = N * cosB * l
-        + (N * cosB3 * l3 / 6) * (1 - t2 + eta2)
-        + (N * cosB5 * l5 / 120) * (5 - 18 * t2 + t4 + 14 * eta2 - 58 * t2 * eta2)
-        + (N * cosB7 * l7 / 5040) * (61 - 479 * t2 + 179 * t4 - t6);
-
-    return {
-        x: easting * k0,
-        y: northing * k0,
-    };
 }
 
 function normalizeGeomFromFeature(feature) {
@@ -257,7 +104,6 @@ export function configureParcels(options = {}) {
         ...parcelsConfig,
         ...Object.fromEntries(Object.entries(cleaned).filter(([, v]) => v !== undefined)),
     };
-    if (options.resetOrigin) _msk77Origin = null;
     return { ...parcelsConfig };
 }
 
@@ -278,53 +124,26 @@ export function resetVPMReferenceHeight() {
     _vpmReferenceHeight = null;
 }
 
-export function lonLatToMSK77(lonDeg, latDeg) {
-    const { falseEasting, falseNorthing, lat0Deg } = MSK77_PARAMS;
-
-    if (!_msk77Origin) {
-        const originProjected = projectToGaussKruger(MSK77_PARAMS.lon0Deg, lat0Deg, MSK77_PARAMS);
-        _msk77Origin = {
-            x: originProjected.x - falseEasting,
-            y: originProjected.y - falseNorthing,
-        };
-    }
-
-    const besselCoords = wgs84ToBessel(lonDeg, latDeg);
-    const projLon = Number.isFinite(besselCoords.lon) ? besselCoords.lon : lonDeg;
-    const projLat = Number.isFinite(besselCoords.lat) ? besselCoords.lat : latDeg;
-    const projected = projectToGaussKruger(projLon, projLat, MSK77_PARAMS);
-    return {
-        x: projected.x - _msk77Origin.x + falseEasting,
-        y: projected.y - _msk77Origin.y + falseNorthing,
-    };
-}
-
-export function createParcelsGroupFromGeoJSON(geojson, options = {}) {
+export async function createParcelsGroupFromGeoJSON(geojson, options = {}) {
     let features = Array.isArray(geojson?.features) ? geojson.features : [];
     if (!features.length && Array.isArray(geojson)) features = geojson;
     if (!features.length) return null;
+
+    const coordinateSpace = options.coordinateSpace ?? 'wgs84';
+    if (!['wgs84', 'model'].includes(coordinateSpace)) throw new Error('Unknown parcel coordinate space');
+    const coordinateSystem = coordinateSpace === 'wgs84'
+        ? (options.coordinateSystem || await loadMapCoordinateSystem()) : null;
 
     const verticalIsZ = options.verticalIsZ ?? true;
     let originMeters = options.origin ? { ...options.origin } : null;
     let heightMeters = Number.isFinite(options.referenceHeight) ? options.referenceHeight : _vpmReferenceHeight;
 
-    const group = new THREE.Group();
-    group.name = options.groupName || 'Parcels (data.mos.ru)';
-    group.userData.excludeFromBounds = false;
-
-    const lineMaterial = options.material || new THREE.LineBasicMaterial({
-        color: 0xff8c42,
-        transparent: true,
-        opacity: 0.9,
-    });
+    const rings = [];
 
     const convert = (lon, lat) => {
-        let meters;
-        if (Math.abs(lon) > 180 || Math.abs(lat) > 90) {
-            meters = { x: Number(lon), y: Number(lat) };
-        } else {
-            meters = lonLatToMSK77(lon, lat);
-        }
+        const point = coordinateSystem ? coordinateSystem.wgs84ToModel({ lon, lat }) : { east: lon, north: lat };
+        if (![point.east, point.north].every(Number.isFinite)) throw new Error('Invalid parcel coordinate');
+        const meters = { x: point.east, y: point.north };
 
         if (!originMeters) originMeters = { ...meters };
 
@@ -361,12 +180,7 @@ export function createParcelsGroupFromGeoJSON(geojson, options = {}) {
             }
         }
         if (positions.length < 6) return;
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        geometry.computeBoundingSphere();
-        const line = new THREE.LineLoop(geometry, isHole ? lineMaterial.clone() : lineMaterial);
-        line.userData.excludeFromBounds = false;
-        group.add(line);
+        rings.push({ positions, isHole });
     };
 
     features.forEach((feature) => {
@@ -389,7 +203,23 @@ export function createParcelsGroupFromGeoJSON(geojson, options = {}) {
         }
     });
 
-    if (!group.children.length) return null;
+    if (!rings.length) return null;
+
+    // Projection/validation completes before allocating scene resources.
+    const group = new THREE.Group();
+    group.name = options.groupName || 'Parcels (data.mos.ru)';
+    group.userData.excludeFromBounds = false;
+    const lineMaterial = options.material || new THREE.LineBasicMaterial({
+        color: 0xff8c42, transparent: true, opacity: 0.9,
+    });
+    for (const { positions, isHole } of rings) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.computeBoundingSphere();
+        const line = new THREE.LineLoop(geometry, isHole ? lineMaterial.clone() : lineMaterial);
+        line.userData.excludeFromBounds = false;
+        group.add(line);
+    }
 
     group.userData.originMeters = originMeters;
     group.userData.verticalIsZ = verticalIsZ;

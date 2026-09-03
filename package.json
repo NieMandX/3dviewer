@@ -9,6 +9,7 @@
     "ci:verify": "npm run ci:syntax && npm run ci:versions && npm run ci:smoke"
   },
   "devDependencies": {
-    "playwright": "^1.58.2"
+    "playwright": "^1.58.2",
+    "proj4": "2.22.0"
   }
 }

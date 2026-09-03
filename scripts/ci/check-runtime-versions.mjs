@@ -25,6 +25,12 @@ assert.ok(indexHtml.includes(`<meta name="application-version" content="${releas
 assert.equal(indexHtml.match(/id="viewerVersion"[^>]*>([^<]+)<\//)?.[1], release.version, 'Visible viewer version drift.');
 console.log(`Viewer release: ${release.version}`);
 
+const packageJson = JSON.parse(await readProjectFile('package.json'));
+const mapCoordinates = await readProjectFile('scripts/modules/geo/map-coordinates.js');
+const proj4Version = mapCoordinates.match(/proj4@([^/]+)\/\+esm/)?.[1] || '';
+assert.match(proj4Version, /^\d+\.\d+\.\d+$/, 'Proj4js CDN version must be pinned.');
+assert.equal(proj4Version, packageJson.devDependencies.proj4, 'Browser and CI Proj4js versions must match.');
+
 const importMapThreeVersion = indexHtml.match(/"three"\s*:\s*"https:\/\/cdn\.jsdelivr\.net\/npm\/three@([^/]+)\/build\/three\.module\.js"/)?.[1] || '';
 assert.match(importMapThreeVersion, /^\d+\.\d+\.\d+$/, 'Three import-map version must be exact semver.');
 assert.ok(!indexHtml.includes('"three/src/"'), 'Import map must not expose three/src/ alongside build modules.');
