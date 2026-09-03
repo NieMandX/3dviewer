@@ -61,6 +61,13 @@ export function collectViewerDom(document) {
         // Appbar / buttons
         toggleSideBtn: get('toggleSideBtn'),
         loadParcelsBtn: get('loadParcelsBtn'),
+        mapUnderlayToggle: get('mapUnderlayToggle'),
+        mapUnderlayKey: get('mapUnderlayKey'),
+        mapUnderlayOpacity: get('mapUnderlayOpacity'),
+        mapUnderlayOpacityValue: get('mapUnderlayOpacityValue'),
+        mapUnderlayStatus: get('mapUnderlayStatus'),
+        mapUnderlayProgress: get('mapUnderlayProgress'),
+        mapUnderlayAttribution: get('mapUnderlayAttribution'),
         resetViewerBtn: get('resetViewerBtn'),
         resetViewBtn: get('resetViewBtn'),
         focusPickBtn: get('focusPickBtn'),

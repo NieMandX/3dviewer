@@ -555,6 +555,22 @@
                 </div>
             </details>
 
+            <details id="mapUnderlayDetails">
+                <summary>Карта</summary>
+                <div class="map-underlay-controls">
+                    <label class="map-underlay-toggle"><input id="mapUnderlayToggle" type="checkbox" /> Подложка 2ГИС</label>
+                    <label for="mapUnderlayKey">API-ключ 2ГИС</label>
+                    <input id="mapUnderlayKey" type="password" autocomplete="off" spellcheck="false" aria-label="API-ключ 2ГИС" />
+                    <label class="map-underlay-opacity" for="mapUnderlayOpacity">
+                        <span>Непрозрачность</span>
+                        <input id="mapUnderlayOpacity" type="range" min="0" max="100" step="1" value="85" />
+                        <output id="mapUnderlayOpacityValue" for="mapUnderlayOpacity">85%</output>
+                    </label>
+                    <div id="mapUnderlayStatus" class="muted" role="status" aria-live="polite"></div>
+                    <progress id="mapUnderlayProgress" aria-label="Загрузка карты" hidden></progress>
+                </div>
+            </details>
+
             <details id="futureDevDetails" open>
                 <summary>Future Dev</summary>
                 <div class="future-controls">
@@ -571,6 +587,7 @@
         </div>
     </div>
 
+    <a id="mapUnderlayAttribution" class="map-underlay-attribution" href="https://2gis.ru" target="_blank" rel="noopener noreferrer" hidden>&copy; 2ГИС</a>
     <div id="drop" class="drop">Бросайте сюда один или несколько .fbx .zip</div>
 
     <div id="texModal" class="modal">

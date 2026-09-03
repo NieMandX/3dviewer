@@ -11,6 +11,8 @@ import { createNorthGridController } from '../scene/north-grid.js';
 import { createImportedLightsController } from '../scene/imported-lights.js';
 import { createMosParcelsController } from '../scene/mos-parcels.js';
 import { createMapReferenceController } from '../scene/map-reference.js';
+import { createMapUnderlayController } from '../scene/map-underlay.js';
+import { bindMapUnderlayUI } from '../ui/map-underlay-ui.js';
 import { createWorldOffsetController } from '../scene/world-offset.js';
 import { createSceneCore } from '../scene/scene-core.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
@@ -5225,6 +5227,19 @@ export class ViewerApp {
         const loadedModels = app.loadedModels = [];
         const mapReference = createMapReferenceController({ THREE, world, isZUp, getModels: () => loadedModels });
         app.mapReference = mapReference;
+        let mapUnderlayUI = null;
+        const mapUnderlay = createMapUnderlayController({
+            THREE, world, mapReference, isZUp,
+            requestRender: () => requestSceneRenderBurst(4),
+            onChange: (state) => mapUnderlayUI?.update(state),
+        });
+        app.mapUnderlay = mapUnderlay;
+        mapUnderlayUI = bindMapUnderlayUI({
+            controller: mapUnderlay, toggle: dom.mapUnderlayToggle, key: dom.mapUnderlayKey,
+            opacity: dom.mapUnderlayOpacity, value: dom.mapUnderlayOpacityValue,
+            status: dom.mapUnderlayStatus, progress: dom.mapUnderlayProgress,
+            attribution: dom.mapUnderlayAttribution,
+        });
         const sceneIndex = createLoadedModelSceneIndex({ loadedModels });
         app.sceneIndex = sceneIndex;
         environmentWiring.setMaterialSources?.({ loadedModels, sceneIndex });
@@ -5327,6 +5342,7 @@ export class ViewerApp {
             removedEntries.forEach((entry) => revokeEmbeddedEntryUrl(entry));
 
             if (removedModels.length) {
+                mapUnderlay.invalidate();
                 lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
                 sceneIndex.invalidateAll?.();
                 materialsPanel?.markNeedsFullRefresh?.();
@@ -5688,6 +5704,7 @@ export class ViewerApp {
             });
 
             if (roomModelRecords.length) {
+                mapUnderlay.invalidate();
                 loadedModels.splice(0, loadedModels.length, ...keptModels);
                 lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
                 sceneIndex.invalidateAll?.();
@@ -7868,6 +7885,7 @@ export class ViewerApp {
          */
 		        async function finalizeBatchAfterAllFiles(options = {}) {
 		            const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : null;
+		            if ((!isCurrent || isCurrent()) && loadedModels.length > lastFinalizedModelIndex) mapUnderlay.invalidate();
 		            const result = await batchFinalizer.finalizeBatchAfterAllFiles({ isCurrent });
 		            if (result && (!isCurrent || isCurrent())) await syncPendingLocalModels();
 		            return result;
@@ -8087,6 +8105,8 @@ export class ViewerApp {
 	            try { environmentWiring?.dispose?.(); } catch (_) {}
 	            try { sunShadows?.dispose?.(); } catch (_) {}
 	            try { mosParcels?.dispose?.(); } catch (_) {}
+	            try { mapUnderlay?.dispose?.(); } catch (_) {}
+	            try { mapUnderlayUI?.dispose?.(); } catch (_) {}
 	            try { mapReference?.dispose?.(); } catch (_) {}
 	            try { northGrid?.dispose?.(); } catch (_) {}
 	            try { geoJsonModal?.dispose?.(); } catch (_) {}

@@ -9,6 +9,7 @@ import { chromium } from 'playwright';
 import { runProjectAdminTreeSmoke } from './smoke-project-admin.mjs';
 import { runUserDirectorySmoke } from './smoke-user-directory.mjs';
 import { runMapCoordinatesSmoke } from './smoke-map-coordinates.mjs';
+import { runMapUnderlaySmoke, runMapUnderlayUISmoke } from './smoke-map-underlay.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const roomProject = process.env.LPMVIEW_SMOKE_PROJECT || 'shmit';
@@ -13954,6 +13955,10 @@ try {
     console.log(`Smoke server: ${smokeServer.baseUrl}`);
     await runMapCoordinatesSmoke(browserContext, smokeServer.baseUrl);
     console.log('Map coordinates, rebase, axis order and disposal smoke passed.');
+    await runMapUnderlaySmoke(browserContext, smokeServer.baseUrl);
+    console.log('Map underlay rendering, cancellation, resource disposal and errors smoke passed.');
+    await runMapUnderlayUISmoke(browserContext, smokeServer.baseUrl);
+    console.log('Map underlay controls and responsive layout smoke passed.');
     await runConnectedResetViewerSmoke(browserContext, smokeServer.baseUrl);
     console.log('Connected reset viewer and late invite smoke passed.');
     await runBootSmoke(browserContext, smokeServer.baseUrl);

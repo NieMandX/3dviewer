@@ -70,8 +70,35 @@ bounding rectangle for the circular filter. Tile coverage is rectangular and
 may include areas outside the circle; crop the displayed environment separately.
 This service computes the tile range without allocating or fetching the tiles.
 
-The 2GIS demo key is deliberately absent from the source and configuration.
-Data retrieval and rendering of a new environment layer are a separate step.
+## Map Underlay
+
+After importing an MGGT model, open the sidebar's **Карта** section, enter a
+2GIS API key, and enable **Подложка 2ГИС**. **Непрозрачность** controls opacity:
+100% is opaque, 0% is invisible. The key stays in the current page's password
+input, is cleared on disposal/reload, and is not stored in localStorage,
+sessionStorage, configuration, diagnostics, exports or the repository.
+
+The layer uses the public [2GIS Raster Tiles API](https://docs.2gis.com/maps/others/rastertiles/overview),
+not the MapGL-only vector tiles. The key must have Raster Tiles API access;
+demo access is temporary and provider quotas still apply. Requests go directly
+to 2GIS over HTTPS with no credentials or referrer. There is no persistent tile
+cache or automatic background retry/download. Attribution remains visible while
+the map is enabled, including with the sidebar closed.
+
+The atlas covers a 500 m radius around the union of attached model bounds,
+at XYZ zoom 17, with at most 64 tiles and four concurrent requests. Display
+geometry is circular in source ground metres; each vertex's UV is projected
+into Web Mercator. Local mesh coordinates avoid Float32 precision loss. The
+plane is 0.2 m below the model's lowest source elevation; it is not a terrain
+height model. This is a raster map, not extracted buildings or road geometry.
+
+The underlay follows `world` rebase but is excluded from scene framing,
+export and picking. It preserves its material across shading modes and adds
+one mesh/texture, with no per-frame tile lookup. Opacity changes only request a
+short render burst. Import finalization and room/model cleanup invalidate the
+layer; enable it again after the new model finishes loading. Disabling or
+disposing aborts requests, rejects late results, closes decoded bitmaps and
+disposes GPU resources. A failed/partial atlas is never attached to the scene.
 
 ## Tests
 
@@ -80,3 +107,10 @@ Data retrieval and rendering of a new environment layer are a separate step.
 rebase and world transforms, late initialization during model changes, disposal,
 and the migrated parcel conversion. Existing parcel load/dispose races remain
 covered by the viewer smoke suite.
+
+`smoke-map-underlay.mjs`, included in `ci:verify`, checks bounded downloads,
+reprojected geometry/UVs, WebGL pixels, shading preservation, cancellation
+during image decode, stale model bounds, HTTP errors, timeout, resource disposal,
+and desktop/mobile controls. It uses synthetic tiles and never a real API key.
+Live verification also loaded the Antonova-Ovsienko FBX archive with 49 actual
+tiles in WebGPU. Alignment is cartographic, subject to the CRS limits above.

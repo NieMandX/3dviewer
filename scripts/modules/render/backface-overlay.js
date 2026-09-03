@@ -187,6 +187,7 @@ export function createBackfaceOverlayController(options = {}) {
     }
 
     const MATERIAL_PRESERVE_FLAGS = [
+        'mapUnderlay',
         'annotationRoot',
         'annotationLayer',
         'annotationStroke',
