@@ -9,7 +9,8 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
         const result = await page.evaluate(async () => {
             const THREE = await import('three');
             const { loadMapCoordinateSystem } = await import('/scripts/modules/geo/map-coordinates.js');
-            const { loadBuildingGeometryTools, fetchBuildingContours, prepareBuildingContours } = await import('/scripts/modules/geo/map-buildings-data.js');
+            const { loadBuildingGeometryTools, fetchBuildingContours, fetchMapSurfaceContours,
+                prepareBuildingContours, prepareMapSurfaceContours } = await import('/scripts/modules/geo/map-buildings-data.js');
             const { createMapReferenceController } = await import('/scripts/modules/scene/map-reference.js');
             const { createMapBuildingsController, createMapBuildingsLayer } = await import('/scripts/modules/scene/map-buildings.js');
             const { createShadingController } = await import('/scripts/modules/render/shading-controller.js');
@@ -34,6 +35,12 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
             const elements = [143, 260].map((height, i) => ({ type: 'way', id: 10 + i, tags: {
                 building: 'office', 'addr:street': 'улица Тестовая', 'addr:housenumber': '1 с1', height: String(height),
             } }));
+            const roadItems = [{ id: 'road', type: 'street', name: 'Тестовый проезд', mapSurfaceKind: 'road',
+                geometry: { hover: `POLYGON ((${ring(470, 0, 60)}),(${ring(480, 10, 10)}))` } }];
+            const parkingItems = [{ id: 'parking', type: 'parking', subtype: 'ground', mapSurfaceKind: 'parking',
+                geometry: { selection: `POLYGON ((${ring(100, 100, 30)}))` } }];
+            const areaItems = [{ id: 'area', type: 'adm_div', subtype: 'place', mapSurfaceKind: 'area',
+                geometry: { selection: `POLYGON ((${ring(-200, -200, 60)}))` } }];
             let calls = 0, writes = 0, frames = 0;
             let saved = new Map();
             const states = [];
@@ -42,7 +49,9 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
                 if (options.credentials !== 'omit') throw new Error('Unexpected credentials');
                 const isOsm = String(url).includes('overpass');
                 if (isOsm && String(options.body).includes('smoke-key')) throw new Error('Key leaked to OSM');
-                return Response.json(isOsm ? { elements } : { meta: { code: 200 }, result: { total: items.length, items } });
+                const type = !isOsm && new URL(url).searchParams.get('type');
+                const selected = type === 'street,road' ? roadItems : type === 'parking' ? parkingItems : type === 'adm_div.place' ? areaItems : items;
+                return Response.json(isOsm ? { elements } : { meta: { code: 200 }, result: { total: selected.length, items: selected } });
             };
             const config = { THREE, world, mapReference: reference, isZUp: () => false, fetchImpl,
                 loadCoordinateSystem: async () => system, loadGeometryTools: async () => tools,
@@ -58,7 +67,7 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
                 const p = child.geometry.attributes.position, last = p.count - 1;
                 return p.getX(0) === p.getX(last) && p.getY(0) === p.getY(last) && p.getZ(0) === p.getZ(last);
             })()));
-            const meshHeights = layer.children.filter((child) => child.isMesh).map((mesh) => {
+            const meshHeights = layer.children.filter((child) => child.userData.mapHeight).map((mesh) => {
                 mesh.geometry.computeBoundingBox();
                 return mesh.geometry.boundingBox.max.y;
             });
@@ -66,6 +75,15 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
             const prepared = prepareBuildingContours(items, system, area, tools);
             const holePreserved = prepared.contours[0].polygons[0].length === 2;
             const allWithinRadius = prepared.contours.every((c) => c.polygons.flat(2).every(([x, y]) => Math.hypot(x, y) <= 500.001));
+            const surfaces = prepareMapSurfaceContours([...roadItems, ...parkingItems,
+                { ...parkingItems[0], id: 'point', geometry: { hover: `POLYGON ((${ring(200, 0, 5)}))`, selection: 'POINT(37.5 55.7)' } },
+                { ...parkingItems[0], id: 'underground', subtype: 'underground' }], system, area, tools);
+            const surfaceValidation = surfaces.contours.length === 2 && surfaces.skipped === 1
+                && surfaces.contours[0].polygons[0].length === 2
+                && surfaces.contours.every((c) => c.polygons.flat(2).every(([x, y]) => Math.hypot(x, y) <= 500.001));
+            const shiftedArea = { ...area, modelCenter: { ...area.modelCenter, east: area.modelCenter.east + 1 } };
+            const stableIds = JSON.stringify(prepared.contours.map(c => c.id)) === JSON.stringify(
+                prepareBuildingContours(items, system, shiftedArea, tools).contours.map(c => c.id));
             const scene = new THREE.Scene(); scene.add(world, new THREE.HemisphereLight(0xffffff, 0x606060, 2));
             const originals = layer.children.map((child) => child.material);
             const shading = createShadingController({ THREE, world, scene, requestRender: () => {}, schedulePanelRefresh: () => {},
@@ -120,6 +138,16 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
             const forbidden = createMapBuildingsController({ ...config, fetchImpl: async () => Response.json({ meta: { code: 403, error: { message: 'smoke-key' } } }) });
             await forbidden.enable('smoke-key');
             const forbiddenState = forbidden.getState(); forbidden.dispose();
+            const emptySurfaces = await fetchMapSurfaceContours({ area, key: 'smoke-key', signal: new AbortController().signal,
+                fetchImpl: async () => Response.json({ meta: { code: 404 } }) });
+            const partialSurfaces = await fetchMapSurfaceContours({ area, key: 'smoke-key', signal: new AbortController().signal,
+                fetchImpl: async (url, options) => new URL(url).searchParams.get('type') === 'parking'
+                    ? new Response('unavailable', { status: 503 }) : fetchImpl(url, options) });
+            const surfacesFailure = createMapBuildingsController({ ...config, fetchImpl: async (url, options) =>
+                !String(url).includes('overpass') && new URL(url).searchParams.get('type') !== 'building'
+                    ? new Response('unavailable', { status: 503 }) : fetchImpl(url, options) });
+            await surfacesFailure.enable('smoke-key');
+            const surfacesFallback = surfacesFailure.getState(); surfacesFailure.dispose();
             let pages = 0;
             const paged = await fetchBuildingContours({ area, key: 'smoke-key', signal: new AbortController().signal,
                 fetchImpl: async (url) => { pages++; return Response.json({ meta: { code: 200 }, result: {
@@ -134,7 +162,9 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
             return { noKey, enabled, state, meshHeights, unchangedBounds, holePreserved, allWithinRadius, preservedMaterials,
                 coloredPixels, resourcesOnce, initialCalls, cachedCalls, invalidated, silentAfterDispose,
                 staleResult, noStaleWrites, timeoutState, fallback, forbiddenState, pages, pageCount: paged.items.length, partial: paged.partial,
-                zBounds, compatibleLines, remainingLayers: world.children.filter((child) => child.userData.mapBuilding).length,
+                zBounds, compatibleLines, surfaceValidation, stableIds, emptySurfaceCount: emptySurfaces.items.length, surfacesFallback,
+                partialKinds: partialSurfaces.items.map(item => item.mapSurfaceKind), failedKinds: partialSurfaces.failed,
+                remainingLayers: world.children.filter((child) => child.userData.mapBuilding).length,
                 leakedKey: JSON.stringify(states).includes('smoke-key') };
         });
         assert.equal(result.noKey, false);
@@ -142,10 +172,13 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
         assert.equal(result.state.extruded, 2);
         assert.equal(result.state.unknown, 2);
         assert.equal(result.state.byOrder, 2);
+        assert.equal(result.state.roads, 1);
+        assert.equal(result.state.parking, 1);
+        assert.equal(result.state.areas, 1);
         assert.deepEqual(result.meshHeights, [143, 260]);
         for (const field of ['unchangedBounds', 'holePreserved', 'allWithinRadius', 'preservedMaterials', 'resourcesOnce', 'invalidated', 'silentAfterDispose', 'noStaleWrites']) assert.equal(result[field], true, field);
         assert.ok(result.coloredPixels > 250, `Blank building render: ${result.coloredPixels}`);
-        assert.equal(result.initialCalls, 2);
+        assert.equal(result.initialCalls, 5);
         assert.equal(result.cachedCalls, 0);
         assert.equal(result.staleResult, false);
         assert.match(result.timeoutState.message, /время ожидания/);
@@ -159,6 +192,15 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
         assert.equal(result.partial, true);
         assert.deepEqual(result.zBounds, [4, 20]);
         assert.equal(result.compatibleLines, true);
+        assert.equal(result.surfaceValidation, true);
+        assert.equal(result.stableIds, true);
+        assert.equal(result.emptySurfaceCount, 0);
+        assert.equal(result.surfacesFallback.enabled, true);
+        assert.equal(result.surfacesFallback.extruded, 2);
+        assert.equal(result.surfacesFallback.roads, 0);
+        assert.match(result.surfacesFallback.message, /не загрузились дороги, площадки, территории/);
+        assert.deepEqual(result.partialKinds, ['road', 'area']);
+        assert.deepEqual(result.failedKinds, ['parking']);
         assert.equal(result.remainingLayers, 0);
         assert.equal(result.leakedKey, false);
         assert.deepEqual(errors, []);
@@ -199,7 +241,12 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
         });
         await page.route('https://catalog.api.2gis.com/**', (route) => {
             requests++;
-            return route.fulfill({ json: data, headers: { 'access-control-allow-origin': '*' } });
+            const type = new URL(route.request().url()).searchParams.get('type');
+            const response = type === 'building' ? data : { meta: { code: 200 }, result: { total: 1, items: [
+                { id: type, type: type === 'parking' ? 'parking' : 'street', subtype: type === 'parking' ? 'ground' : undefined,
+                    geometry: { hover: data.result.items[0].geometry.hover, selection: data.result.items[0].geometry.hover } },
+            ] } };
+            return route.fulfill({ json: response, headers: { 'access-control-allow-origin': '*' } });
         });
         await page.route('https://overpass-api.de/**', (route) => {
             requests++;
@@ -209,6 +256,9 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
         });
         await page.locator('#mapBuildingsToggle').check();
         await page.waitForFunction(() => viewerApp.mapBuildings.getState().extruded === 1);
+        assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().roads), 1);
+        assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().parking), 1);
+        assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().areas), 1);
         assert.equal(await page.locator('#mapUnderlayKey').isDisabled(), true);
         assert.equal(await page.locator('#mapUnderlayAttribution').isVisible(), true);
         assert.equal(await page.locator('#mapOsmAttribution').isVisible(), true);

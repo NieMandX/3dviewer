@@ -115,11 +115,11 @@ and desktop/mobile controls. It uses synthetic tiles and never a real API key.
 Live verification also loaded the Antonova-Ovsienko FBX archive with 49 actual
 tiles in WebGPU. Alignment is cartographic, subject to the CRS limits above.
 
-## Building surroundings (pilot)
+## 2GIS surroundings and building heights (pilot)
 
-The **Здания окружения** checkbox uses the same in-memory 2GIS key, independently
-of the raster underlay. It requests Places API building hover polygons within
-500 m and OSM building height/address tags from Overpass. OSM geometry is not
+The **Окружение 2ГИС** checkbox uses the same in-memory 2GIS key, independently
+of the raster underlay. It requests Places API building, street/road, parking and place
+hover polygons within 500 m, plus OSM building height/address tags from Overpass. OSM geometry is not
 displayed or used for nearest-neighbour matching. The 2GIS hover geometry is
 cartographic selection geometry, not a guaranteed surveyed building footprint.
 
@@ -132,6 +132,16 @@ identity cache (at most 1000 pairs), so response reordering does not swap height
 Provider keys and height values are never stored in that cache. These ordered
 matches are assumptions, not verified building-part identities.
 
+Street and road hover polygons are drawn as road surfaces, and ground-parking
+selection polygons as lighter paved areas. Point-only parking records and underground
+or multilevel parking are not turned into ground surfaces. These are selection geometry rather than surveyed
+road edges. Place (`adm_div.place`) polygons are shown only as territory outlines,
+not as invented paving or grass. Places API does not expose the complete basemap land-use, vegetation,
+yard, marking or terrain geometry through this endpoint; the raster underlay remains
+the complete visual context for those categories. Surface results are clipped to
+the same 500 m circle and share the building layer lifecycle and five-minute cache.
+A failed surface category does not discard other successfully loaded categories.
+
 Height priority is `height` (metres or explicitly marked feet), then
 `building:levels * 3 m` as an estimate. The common base elevation comes from the
 loaded model's minimum height, not a terrain survey. Unknown-height footprints
@@ -141,8 +151,8 @@ The independent layer is excluded from bounds, exports, picking and shading
 overrides. Import cleanup/finalization invalidates it; disable/dispose aborts
 pending requests and frees its geometries and shared materials.
 
-The pilot deliberately caps 2GIS at five pages of ten records, matching the demo
-key's limit. Partial coverage is shown in the UI, never described as the full
+The pilot deliberately caps each 2GIS query (buildings, streets/roads, parking, places)
+at five pages of ten records, matching the demo key's limit. Partial coverage is shown in the UI, never described as the full
 room surroundings. There is one OSM query per explicit load, no polling/retry,
 and a five-minute in-memory response cache. An OSM failure leaves flat contours.
 Both providers are attributed while visible. Public Overpass is for this small,
@@ -155,3 +165,6 @@ address normalization, contour order and persisted pairing, missing/conflicting
 counts, source height/estimated floors, real WKT/clip/extrusion, holes and radius,
 Y-up/Z-up, WebGL pixels, material preservation, cancellation/stale writes,
 timeouts/provider failures, bounded pagination/cache, disposal and mobile UI.
+Surface checks also cover roads, ground parking, territory outlines, rejection of
+point-only and underground parking, clipping and holes, per-category failures,
+empty results and preservation of existing building contour IDs.
