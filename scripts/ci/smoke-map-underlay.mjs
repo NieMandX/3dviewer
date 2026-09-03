@@ -28,10 +28,12 @@ export async function runMapUnderlaySmoke(browser, baseUrl) {
             let requests = 0, closed = 0, inFlight = 0, maxInFlight = 0, frames = 0;
             const states = [];
             const config = { THREE, world, mapReference: reference, isZUp: () => false,
+                apiBaseUrl: 'https://gis-proxy.example',
                 loadCoordinateSystem: async () => system,
                 requestRender: () => frames++, onChange: (state) => states.push(state),
                 fetchImpl: async (url, options) => {
-                    if (url.origin !== 'https://tile0.maps.2gis.com' || options.credentials !== 'omit') throw new Error('unsafe endpoint');
+                    if (url.origin !== 'https://gis-proxy.example' || !url.pathname.startsWith('/v1/2gis/tiles/')
+                        || options.credentials !== 'omit') throw new Error('unsafe endpoint');
                     requests++; inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
                     await new Promise((resolve) => setTimeout(resolve, 1));
                     inFlight--;
@@ -45,9 +47,12 @@ export async function runMapUnderlaySmoke(browser, baseUrl) {
                 },
             };
             const controller = createMapUnderlayController(config);
-            const noKey = await controller.enable('');
+            const missingService = createMapUnderlayController({ ...config, apiBaseUrl: '' });
+            const noService = await missingService.enable();
+            const noServiceState = missingService.getState();
+            missingService.dispose();
             const before = reference.getModelBounds();
-            const enabled = await controller.enable('test-key');
+            const enabled = await controller.enable();
             const layer = world.children.find((child) => child.userData.mapUnderlay);
             const boundsUnchanged = JSON.stringify(before) === JSON.stringify(reference.getModelBounds());
             const initialRequests = requests;
@@ -92,7 +97,7 @@ export async function runMapUnderlaySmoke(browser, baseUrl) {
             mat.addEventListener('dispose', () => disposedResources.material++);
             controller.disable(); controller.disable(); controller.dispose();
             const afterDisposeFrames = frames;
-            const lateEnable = await controller.enable('test-key');
+            const lateEnable = await controller.enable();
             const silenceAfterDispose = frames === afterDisposeFrames;
 
             let resumeDecode;
@@ -103,37 +108,38 @@ export async function runMapUnderlaySmoke(browser, baseUrl) {
                 await gate;
                 return { width: 256, height: 256, close: () => lateClosed++ };
             } });
-            const pending = pendingController.enable('test-key');
+            const pending = pendingController.enable();
             while (!decodes) await new Promise((resolve) => setTimeout(resolve, 1));
             pendingController.disable(); resumeDecode();
             const cancelled = await pending;
             pendingController.dispose();
 
             const failController = createMapUnderlayController({ ...config, fetchImpl: async () => new Response('', { status: 403 }) });
-            const forbidden = await failController.enable('never-print-me');
+            const forbidden = await failController.enable();
             const forbiddenState = failController.getState(); failController.dispose();
             const timeoutController = createMapUnderlayController({ ...config, timeoutMs: 5,
                 fetchImpl: (_, { signal }) => new Promise((resolve, reject) => {
                     signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true });
                 }) });
-            await timeoutController.enable('test-key');
+            await timeoutController.enable();
             const timeoutState = timeoutController.getState(); timeoutController.dispose();
             const staleController = createMapUnderlayController({ ...config,
                 fetchImpl: async (...args) => { model.position.x += 1; return config.fetchImpl(...args); } });
-            const stale = await staleController.enable('test-key');
+            const stale = await staleController.enable();
             const staleState = staleController.getState(); staleController.dispose();
             const area = system.getMapArea(before.center);
             const zGeometry = createMapUnderlayGeometry(THREE, system, area, true);
             const normalZ = zGeometry.attributes.normal.getZ(0); zGeometry.dispose();
             const remainingLayers = world.children.filter((child) => child.userData.mapUnderlay).length;
             reference.dispose(); model.geometry.dispose(); model.material.dispose();
-            return { noKey, enabled, boundsUnchanged, initialRequests, initialClosed, northV, southV, opacityRequests, materialOpacity,
+            return { noService, noServiceState, enabled, boundsUnchanged, initialRequests, initialClosed, northV, southV, opacityRequests, materialOpacity,
                 position, radius, validUVs, topPixel, bottomPixel, maxInFlight, preserved, coloredPixels,
                 disposedResources, canvasReleased: canvas.width === 1, lateEnable, silenceAfterDispose,
                 cancelled, decodes, lateClosed, forbidden, forbiddenState, timeoutState, stale, staleState,
-                normalZ, remainingLayers, statesLeakKey: JSON.stringify(states).includes('test-key') };
+                normalZ, remainingLayers };
         });
-        assert.equal(result.noKey, false);
+        assert.equal(result.noService, false);
+        assert.match(result.noServiceState.message, /Сервис 2ГИС/);
         assert.equal(result.enabled, true);
         assert.equal(result.boundsUnchanged, true);
         assert.equal(result.initialRequests, 49);
@@ -156,13 +162,12 @@ export async function runMapUnderlaySmoke(browser, baseUrl) {
         assert.equal(result.cancelled, false);
         assert.equal(result.decodes, result.lateClosed);
         assert.equal(result.forbidden, false);
-        assert.match(result.forbiddenState.message, /Raster Tiles API/);
+        assert.match(result.forbiddenState.message, /сервер отклонил запрос/);
         assert.match(result.timeoutState.message, /минуту/);
         assert.equal(result.stale, false);
         assert.match(result.staleState.message, /Модель изменилась/);
         assert.ok(result.normalZ > 0.99);
         assert.equal(result.remainingLayers, 0);
-        assert.equal(result.statesLeakKey, false);
         assert.deepEqual(errors, []);
     } finally { await page.close(); }
 }
@@ -177,10 +182,6 @@ export async function runMapUnderlayUISmoke(browser, baseUrl) {
         await page.waitForFunction(() => globalThis.viewerApp && !document.body.classList.contains('app-loading'));
         await page.locator('#toggleSideBtn').click();
         await page.locator('#mapUnderlayDetails > summary').click();
-        await page.locator('#mapUnderlayToggle').click();
-        assert.equal(await page.locator('#mapUnderlayToggle').isChecked(), false);
-        assert.match(await page.locator('#mapUnderlayStatus').textContent(), /API-ключ/);
-        await page.locator('#mapUnderlayKey').fill('smoke-only-key');
         await page.locator('#mapUnderlayToggle').click();
         await page.waitForFunction(() => !viewerApp.mapUnderlay.getState().loading);
         assert.match(await page.locator('#mapUnderlayStatus').textContent(), /Сначала загрузите модель/);
@@ -199,7 +200,7 @@ export async function runMapUnderlayUISmoke(browser, baseUrl) {
             canvas.getContext('2d').fillRect(0, 0, 256, 256);
             return canvas.toDataURL().split(',')[1];
         });
-        await page.route('https://tile0.maps.2gis.com/**', async (route) => {
+        await page.route('https://voice-api.agr.vision/v1/2gis/tiles/**', async (route) => {
             requests++;
             await route.fulfill({ status: 200, contentType: 'image/png',
                 headers: { 'access-control-allow-origin': '*' }, body: Buffer.from(png, 'base64') });
@@ -207,7 +208,6 @@ export async function runMapUnderlayUISmoke(browser, baseUrl) {
         await page.locator('#mapUnderlayToggle').check();
         await page.waitForFunction(() => viewerApp.mapUnderlay.getState().enabled && !viewerApp.mapUnderlay.getState().loading);
         const count = requests;
-        assert.equal(await page.locator('#mapUnderlayKey').isDisabled(), true);
         assert.equal(await page.locator('#mapUnderlayAttribution').isVisible(), true);
         await page.locator('#toggleSideBtn').click();
         const cameraBefore = await page.evaluate(() => viewerApp.camera.position.toArray());
@@ -238,7 +238,6 @@ export async function runMapUnderlayUISmoke(browser, baseUrl) {
             assert.equal(layoutOK, true, `Map controls overflow at ${width}px`);
         }
         await page.locator('#mapUnderlayToggle').uncheck();
-        assert.equal(await page.locator('#mapUnderlayKey').isDisabled(), false);
         assert.equal(await page.locator('#mapUnderlayAttribution').isVisible(), false);
         assert.equal(await page.evaluate(() => viewerApp.world.children.some((child) => child.userData.mapUnderlay)), false);
         assert.deepEqual(errors, []);

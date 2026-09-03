@@ -38,6 +38,7 @@ import { createPromptModalController } from '../ui/prompt-modal.js';
 import { createConfirmModalController } from '../ui/confirm-modal.js';
 import { renderProjectAdminTree } from '../ui/project-admin-tree.js';
 import { emptyUserDirectory, renderUserDirectory, USER_DIRECTORY_PAGE_SIZE } from '../ui/user-directory.js';
+import { renderGisAdmin } from '../ui/gis-admin.js';
 import { isRegisteredAccount, canManageProject, canManageRoom } from '../collab/project-permissions.js';
 import { createPasswordResetModalController } from '../ui/password-reset-modal.js';
 import { createTransitionModalController } from '../ui/transition-modal.js';
@@ -904,6 +905,8 @@ export class ViewerApp {
         let roomContentLoading = false;
         let roomContentUsers = emptyUserDirectory();
         let roomContentUsersAbort = null;
+        let gisAdminAbort = null;
+        let gisAdminState = { loading: false, configured: false, fingerprint: '', updatedAt: '' };
         const ROOM_CONTENT_ALL_PROJECTS_VALUE = '__all_projects__';
 
         function isEmptyHintVisibleForCollabDrawer() {
@@ -1077,6 +1080,9 @@ export class ViewerApp {
         const voiceApiUrl =
             (typeof window !== 'undefined' && window.__VOICE_API_URL ? String(window.__VOICE_API_URL) : '') ||
             (typeof localStorage !== 'undefined' ? String(localStorage.getItem('lpmview.voiceApiUrl') || '') : '');
+        const gisApiUrl =
+            (typeof window !== 'undefined' && window.__GIS_API_URL ? String(window.__GIS_API_URL) : '') ||
+            voiceApiUrl;
 
         const collabReady = !!(supabaseUrl && supabaseAnonKey);
         const voiceReady = !!voiceApiUrl;
@@ -2194,6 +2200,135 @@ export class ViewerApp {
             return canOpenRoomContentManager() && collabIsSuperuser;
         }
 
+        function canAdministerGis() {
+            return canOpenRoomContentManager() && collabIsSuperuser && !!gisApiUrl;
+        }
+
+        async function requestGisAdmin(method = 'GET', apiKey = '', signal = null) {
+            if (!canAdministerGis()) throw new Error('Требуются права суперпользователя.');
+            const sessionResult = await collabSupabase.auth.getSession();
+            if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+            if (sessionResult?.error) throw sessionResult.error;
+            const accessToken = String(sessionResult?.data?.session?.access_token || '');
+            if (!accessToken || sessionResult?.data?.session?.user?.id !== collabUser?.id) {
+                throw new Error('Сессия истекла. Войдите снова.');
+            }
+            const url = new URL('/v1/admin/2gis', `${String(gisApiUrl).replace(/\/$/, '')}/`);
+            const response = await fetch(url, {
+                method,
+                signal,
+                mode: 'cors',
+                credentials: 'omit',
+                cache: 'no-store',
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    ...(method === 'PUT' ? { 'Content-Type': 'application/json' } : {}),
+                },
+                body: method === 'PUT' ? JSON.stringify({ apiKey }) : undefined,
+            });
+            const text = await response.text();
+            let payload = {};
+            try { payload = text ? JSON.parse(text) : {}; } catch (_) {}
+            if (!response.ok) {
+                if (response.status === 401) throw new Error('Сессия истекла. Войдите снова.');
+                if (response.status === 403) throw new Error('Требуются права суперпользователя.');
+                throw new Error(String(payload?.error || `Сервис 2ГИС недоступен (${response.status}).`));
+            }
+            return payload;
+        }
+
+        function applyGisAdminPayload(payload = {}) {
+            gisAdminState = {
+                loading: false,
+                configured: payload.configured === true,
+                fingerprint: String(payload.fingerprint || ''),
+                updatedAt: String(payload.updatedAt || ''),
+            };
+        }
+
+        async function loadGisAdminStatus() {
+            if (!canAdministerGis() || roomContentActiveTab !== '2gis'
+                || !roomContentModalEl?.classList.contains('show') || roomContentActionInFlight) return;
+            const generation = ++roomContentLoadGeneration;
+            gisAdminAbort?.abort();
+            const abort = new AbortController();
+            gisAdminAbort = abort;
+            gisAdminState = { ...gisAdminState, loading: true };
+            setRoomContentStatus('');
+            renderRoomContent();
+            try {
+                const payload = await requestGisAdmin('GET', '', abort.signal);
+                if (!isCurrentRoomContentLoad(generation) || roomContentActiveTab !== '2gis') return;
+                applyGisAdminPayload(payload);
+            } catch (error) {
+                if (abort.signal.aborted || !isCurrentRoomContentLoad(generation)) return;
+                gisAdminState = { ...gisAdminState, loading: false };
+                setRoomContentStatus(`Ошибка: ${error?.message || error}`);
+            } finally {
+                if (gisAdminAbort === abort) gisAdminAbort = null;
+                if (isCurrentRoomContentLoad(generation) && roomContentActiveTab === '2gis') renderRoomContent();
+            }
+        }
+
+        async function saveGisApiKey(apiKey) {
+            if (!canAdministerGis() || roomContentActionInFlight) return;
+            const generation = ++roomContentLoadGeneration;
+            gisAdminAbort?.abort();
+            const abort = new AbortController();
+            gisAdminAbort = abort;
+            roomContentActionInFlight = true;
+            setRoomContentStatus('Сохранение ключа…');
+            renderRoomContent();
+            try {
+                const payload = await requestGisAdmin('PUT', apiKey, abort.signal);
+                if (!isCurrentRoomContentLoad(generation) || roomContentActiveTab !== '2gis') return;
+                applyGisAdminPayload(payload);
+                setRoomContentStatus('Ключ сохранён. Он уже используется всеми посетителями viewer.');
+            } catch (error) {
+                if (abort.signal.aborted || !isCurrentRoomContentLoad(generation)) return;
+                setRoomContentStatus(`Ошибка: ${error?.message || error}`);
+            } finally {
+                if (gisAdminAbort === abort) gisAdminAbort = null;
+                if (isCurrentRoomContentLoad(generation)) {
+                    roomContentActionInFlight = false;
+                    renderRoomContent();
+                }
+            }
+        }
+
+        async function clearGisApiKey() {
+            if (!canAdministerGis() || roomContentActionInFlight || !gisAdminState.configured) return;
+            const confirmed = await confirmModal.open({
+                title: 'Удалить API-ключ 2ГИС',
+                message: 'Подложка и окружение 2ГИС перестанут загружаться у всех пользователей.',
+                okText: 'Удалить ключ',
+                cancelText: 'Отмена',
+            });
+            if (!confirmed || !canAdministerGis() || roomContentActiveTab !== '2gis') return;
+            const generation = ++roomContentLoadGeneration;
+            gisAdminAbort?.abort();
+            const abort = new AbortController();
+            gisAdminAbort = abort;
+            roomContentActionInFlight = true;
+            setRoomContentStatus('Удаление ключа…');
+            renderRoomContent();
+            try {
+                const payload = await requestGisAdmin('DELETE', '', abort.signal);
+                if (!isCurrentRoomContentLoad(generation) || roomContentActiveTab !== '2gis') return;
+                applyGisAdminPayload(payload);
+                setRoomContentStatus('Ключ удалён.');
+            } catch (error) {
+                if (abort.signal.aborted || !isCurrentRoomContentLoad(generation)) return;
+                setRoomContentStatus(`Ошибка: ${error?.message || error}`);
+            } finally {
+                if (gisAdminAbort === abort) gisAdminAbort = null;
+                if (isCurrentRoomContentLoad(generation)) {
+                    roomContentActionInFlight = false;
+                    renderRoomContent();
+                }
+            }
+        }
+
         async function loadRoomContentUsers(query = roomContentUsers.query, page = roomContentUsers.page) {
             if (!canViewUserDirectory() || roomContentActiveTab !== 'users'
                 || !roomContentModalEl?.classList.contains('show') || roomContentActionInFlight) return;
@@ -2379,8 +2514,11 @@ export class ViewerApp {
                 roomContentLoadGeneration += 1;
                 roomContentUsersAbort?.abort();
                 roomContentUsersAbort = null;
+                gisAdminAbort?.abort();
+                gisAdminAbort = null;
+                gisAdminState = { loading: false, configured: false, fingerprint: '', updatedAt: '' };
                 roomContentUsers = emptyUserDirectory();
-                if (roomContentActiveTab === 'users') {
+                if (roomContentActiveTab === 'users' || roomContentActiveTab === '2gis') {
                     roomContentListEl?.replaceChildren();
                     if (roomContentSummaryEl) roomContentSummaryEl.textContent = '';
                 }
@@ -2588,6 +2726,10 @@ export class ViewerApp {
 
         function renderRoomContentSummary() {
             if (!roomContentSummaryEl) return;
+            if (roomContentActiveTab === '2gis') {
+                roomContentSummaryEl.textContent = '';
+                return;
+            }
             if (roomContentActiveTab === 'users') {
                 roomContentSummaryEl.textContent = roomContentUsers.total === null ? ''
                     : `${roomContentUsers.query ? 'Найдено пользователей' : 'Зарегистрированных пользователей'}: ${roomContentUsers.total}`;
@@ -2793,6 +2935,17 @@ export class ViewerApp {
 
         function renderRoomContentList() {
             if (!roomContentListEl) return;
+            if (roomContentActiveTab === '2gis') {
+                if (!canAdministerGis()) { roomContentListEl.replaceChildren(); return; }
+                renderGisAdmin(roomContentListEl, {
+                    state: gisAdminState,
+                    busy: roomContentActionInFlight,
+                    onSave: (value) => { void saveGisApiKey(value); },
+                    onClear: () => { void clearGisApiKey(); },
+                    onRefresh: () => { void loadGisAdminStatus(); },
+                });
+                return;
+            }
             if (roomContentActiveTab === 'users') {
                 if (!canViewUserDirectory()) { roomContentListEl.replaceChildren(); return; }
                 renderUserDirectory(roomContentListEl, {
@@ -2906,19 +3059,21 @@ export class ViewerApp {
 
         function renderRoomContent() {
             const canViewUsers = canViewUserDirectory();
+            const canViewGisAdmin = canAdministerGis();
             if (!canViewUsers) {
                 roomContentUsers = emptyUserDirectory();
                 if (roomContentActiveTab === 'users') roomContentActiveTab = 'projects';
             }
+            if (!canViewGisAdmin && roomContentActiveTab === '2gis') roomContentActiveTab = 'projects';
             const projectFilter = roomContentRoomSelectEl?.closest('.room-content-field');
-            if (projectFilter) projectFilter.hidden = roomContentActiveTab === 'users';
+            if (projectFilter) projectFilter.hidden = ['users', '2gis'].includes(roomContentActiveTab);
             if (roomContentRefreshBtn) roomContentRefreshBtn.disabled = roomContentActionInFlight || roomContentLoading;
             if (roomContentCloseBtn) roomContentCloseBtn.disabled = roomContentActionInFlight;
             if (roomContentRoomSelectEl) roomContentRoomSelectEl.disabled = roomContentActionInFlight || roomContentLoading || !collabProjects.length;
             if (Array.isArray(roomContentTabs)) {
                 roomContentTabs.forEach((btn) => {
                     const tab = String(btn?.dataset?.tab || '');
-                    btn.hidden = tab === 'users' && !canViewUsers;
+                    btn.hidden = (tab === 'users' && !canViewUsers) || (tab === '2gis' && !canViewGisAdmin);
                     btn.classList.toggle('active', tab === roomContentActiveTab);
                     btn.setAttribute('role', 'tab');
                     btn.setAttribute('aria-selected', String(tab === roomContentActiveTab));
@@ -2932,6 +3087,7 @@ export class ViewerApp {
         async function loadRoomContentInventory(projectId = '') {
             if (!roomContentModalEl?.classList?.contains('show')) return;
             if (roomContentActiveTab === 'users') return loadRoomContentUsers();
+            if (roomContentActiveTab === '2gis') return loadGisAdminStatus();
             const selection = String(projectId || getRoomContentSelectionValue()).trim() || ROOM_CONTENT_ALL_PROJECTS_VALUE;
             const generation = ++roomContentLoadGeneration;
             setRoomContentStatus('Загрузка…');
@@ -2972,6 +3128,9 @@ export class ViewerApp {
             roomContentActiveTab = 'projects';
             roomContentUsersAbort?.abort();
             roomContentUsersAbort = null;
+            gisAdminAbort?.abort();
+            gisAdminAbort = null;
+            gisAdminState = { loading: false, configured: false, fingerprint: '', updatedAt: '' };
             roomContentUsers = emptyUserDirectory();
             roomContentListEl?.replaceChildren();
             roomContentInventory = null;
@@ -4962,6 +5121,7 @@ export class ViewerApp {
             addAppEventListener(roomContentRefreshBtn, 'click', () => {
                 if (roomContentActionInFlight || roomContentLoading) return;
                 if (roomContentActiveTab === 'users') { void loadRoomContentUsers(); return; }
+                if (roomContentActiveTab === '2gis') { void loadGisAdminStatus(); return; }
                 void (async () => {
                     try {
                         await reloadRoomContentStructure();
@@ -4978,9 +5138,11 @@ export class ViewerApp {
                     const tab = String(btn?.dataset?.tab || 'models');
                     if (!tab || tab === roomContentActiveTab || roomContentActionInFlight || roomContentLoading) return;
                     if (tab === 'users' && !canViewUserDirectory()) return;
+                    if (tab === '2gis' && !canAdministerGis()) return;
                     roomContentActiveTab = tab;
                     setRoomContentStatus('');
                     if (tab === 'users') { void loadRoomContentUsers(); return; }
+                    if (tab === '2gis') { void loadGisAdminStatus(); return; }
                     if (tab === 'projects' || roomContentInventory) renderRoomContent();
                     else void loadRoomContentInventory();
                 });
@@ -5232,6 +5394,7 @@ export class ViewerApp {
         let mapUnderlayUI = null;
         const mapUnderlay = createMapUnderlayController({
             THREE, world, mapReference, isZUp,
+            apiBaseUrl: gisApiUrl,
             requestRender: () => requestSceneRenderBurst(4),
             onChange: (state) => mapUnderlayUI?.update(state),
         });
@@ -5239,20 +5402,20 @@ export class ViewerApp {
         let mapBuildingsUI = null;
         const mapBuildings = createMapBuildingsController({
             THREE, world, mapReference, isZUp,
+            apiBaseUrl: gisApiUrl,
             requestRender: () => requestSceneRenderBurst(4),
             onChange: (state) => mapBuildingsUI?.update(state),
         });
         app.mapBuildings = mapBuildings;
         mapUnderlayUI = bindMapUnderlayUI({
-            controller: mapUnderlay, toggle: dom.mapUnderlayToggle, key: dom.mapUnderlayKey,
+            controller: mapUnderlay, toggle: dom.mapUnderlayToggle,
             opacity: dom.mapUnderlayOpacity, value: dom.mapUnderlayOpacityValue,
             status: dom.mapUnderlayStatus, progress: dom.mapUnderlayProgress,
             attribution: dom.mapUnderlayAttribution,
-            additionalActive: () => mapBuildings.getState().enabled,
             additionalVisible: () => mapBuildings.getState().enabled && !mapBuildings.getState().loading,
         });
         mapBuildingsUI = bindMapBuildingsUI({
-            controller: mapBuildings, toggle: dom.mapBuildingsToggle, key: dom.mapUnderlayKey,
+            controller: mapBuildings, toggle: dom.mapBuildingsToggle,
             status: dom.mapBuildingsStatus, progress: dom.mapBuildingsProgress, attribution: dom.mapOsmAttribution,
             updateShared: () => mapUnderlayUI?.update(mapUnderlay.getState()),
         });
@@ -8094,6 +8257,8 @@ export class ViewerApp {
 	        async function disposeApp() {
 	            if (appDisposed) return;
 	            appDisposed = true;
+                roomContentUsersAbort?.abort();
+                gisAdminAbort?.abort();
                 if (typeof globalThis !== 'undefined' && globalThis.__LPMVIEW_DIAGNOSTICS === runtimeDiagnosticsApi) {
                     try { delete globalThis.__LPMVIEW_DIAGNOSTICS; } catch (_) { globalThis.__LPMVIEW_DIAGNOSTICS = null; }
                 }

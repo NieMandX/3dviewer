@@ -2342,6 +2342,17 @@ body.bg-black .collab-chat-panel {
 .user-directory-email { font-weight:600; }
 .user-directory-name { color:var(--muted); margin-top:4px; }
 .user-directory-pagination { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); padding-top:8px; }
+.gis-admin-panel { display:flex; flex-direction:column; gap:12px; max-width:680px; padding:4px 0; }
+.gis-admin-title { font-size:16px; font-weight:700; }
+.gis-admin-description { max-width:620px; color:var(--muted); font-size:13px; line-height:1.45; }
+.gis-admin-key-status { padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--surfaceWeak); }
+.gis-admin-key-status.configured { border-color:rgba(25, 135, 84, 0.35); }
+.gis-admin-key-state { font-size:13px; font-weight:600; }
+.gis-admin-key-meta { margin-top:4px; color:var(--muted); font-size:12px; }
+.gis-admin-key-field { display:flex; flex-direction:column; gap:6px; font-size:13px; }
+.gis-admin-key-field input { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:var(--controlBg); color:var(--ink); font:inherit; }
+.gis-admin-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.gis-admin-actions .danger { color:#b42318; }
 @media (max-width: 540px) {
     .user-directory-table, .user-directory-table tbody { display:block; }
     .user-directory-table thead { display:none; }

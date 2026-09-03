@@ -12,6 +12,7 @@
 | Upload or delete models | Own projects | No | Any project |
 | Add annotations, cameras and chat messages | Accessible room | Invited room | Any room |
 | List registered accounts | No | No | All registered accounts, including those without projects |
+| Configure the shared 2GIS API key | No | No | Yes; the key remains server-side |
 
 A participant can own one project and be a guest in somebody else's room.
 Registration alone is not an entitlement to other users' projects.
@@ -43,6 +44,12 @@ case-insensitive matching, with 50 users per page (server maximum 100).
 Anonymous and soft-deleted Auth accounts are excluded; unconfirmed registered
 accounts remain visible. Account deletion, role changes, passwords, identities,
 and session/token details are not exposed.
+
+The 2GIS tab is also superuser-only. It shows whether the shared key is
+configured, its non-reversible fingerprint and update time. The browser can
+replace or delete the key through the backend, but cannot read it. Public map
+requests use the backend proxy without requiring a viewer account; see
+`docs/2gis-integration.md`.
 
 `admin_list_registered_users` checks the registered caller and the database role
 on every request. It does not grant clients access to `auth.users`. Closing the

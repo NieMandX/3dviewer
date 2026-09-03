@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "ci:syntax": "node ./scripts/ci/check-syntax.mjs",
-    "ci:smoke": "node ./scripts/ci/smoke-release-cache.mjs && node ./scripts/ci/smoke-viewer.mjs",
+    "ci:smoke": "node --test ./services/voice-api/gis-service.test.mjs && node ./scripts/ci/smoke-release-cache.mjs && node ./scripts/ci/smoke-viewer.mjs",
     "ci:release-cache": "node ./scripts/ci/smoke-release-cache.mjs",
     "ci:versions": "node ./scripts/ci/check-runtime-versions.mjs",
     "ci:verify": "npm run ci:syntax && npm run ci:versions && npm run ci:smoke"

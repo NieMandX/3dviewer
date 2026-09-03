@@ -48,19 +48,23 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
                 calls++;
                 if (options.credentials !== 'omit') throw new Error('Unexpected credentials');
                 const isOsm = String(url).includes('overpass');
-                if (isOsm && String(options.body).includes('smoke-key')) throw new Error('Key leaked to OSM');
+                if (!isOsm && new URL(url).origin !== 'https://gis-proxy.example') throw new Error('Unsafe GIS endpoint');
                 const type = !isOsm && new URL(url).searchParams.get('type');
                 const selected = type === 'street,road' ? roadItems : type === 'parking' ? parkingItems : type === 'adm_div.place' ? areaItems : items;
                 return Response.json(isOsm ? { elements } : { meta: { code: 200 }, result: { total: selected.length, items: selected } });
             };
             const config = { THREE, world, mapReference: reference, isZUp: () => false, fetchImpl,
+                apiBaseUrl: 'https://gis-proxy.example',
                 loadCoordinateSystem: async () => system, loadGeometryTools: async () => tools,
                 readBindings: () => new Map(saved), writeBindings: (bindings) => { writes++; saved = bindings; },
                 requestRender: () => frames++, onChange: (state) => states.push(state),
             };
             const controller = createMapBuildingsController(config);
-            const noKey = await controller.enable('');
-            const enabled = await controller.enable('smoke-key');
+            const missingService = createMapBuildingsController({ ...config, apiBaseUrl: '' });
+            const noService = await missingService.enable();
+            const noServiceState = missingService.getState();
+            missingService.dispose();
+            const enabled = await controller.enable();
             const state = controller.getState();
             const layer = world.children.find((child) => child.userData.mapBuilding);
             const compatibleLines = layer.children.every((child) => !child.isLineLoop && (!child.isLine || (() => {
@@ -106,19 +110,19 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
             controller.disable(); controller.disable();
             const resourcesOnce = [...resources.values()].every((count) => count === 1);
             const initialCalls = calls;
-            await controller.enable('smoke-key');
+            await controller.enable();
             const cachedCalls = calls - initialCalls;
             controller.invalidate();
             const invalidated = !controller.getState().enabled && !world.children.some((child) => child.userData.mapBuilding);
             controller.dispose();
             const framesBefore = frames;
-            await controller.enable('smoke-key'); controller.disable();
+            await controller.enable(); controller.disable();
             const silentAfterDispose = framesBefore === frames;
 
             let resume, started = false;
             const wait = new Promise((resolve) => { resume = resolve; });
             const stale = createMapBuildingsController({ ...config, fetchImpl: async (...args) => { started = true; await wait; return fetchImpl(...args); } });
-            const pending = stale.enable('smoke-key');
+            const pending = stale.enable();
             while (!started) await new Promise((resolve) => setTimeout(resolve, 1));
             const writesBefore = writes;
             stale.disable(); resume();
@@ -129,27 +133,27 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
                 if (signal.aborted) reject(new DOMException('Cancelled', 'AbortError'));
                 else signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true });
             }) });
-            await timeout.enable('smoke-key');
+            await timeout.enable();
             const timeoutState = timeout.getState(); timeout.dispose();
             const osmFailure = createMapBuildingsController({ ...config, fetchImpl: async (url, options) => String(url).includes('overpass')
                 ? new Response('unavailable', { status: 503 }) : fetchImpl(url, options) });
-            await osmFailure.enable('smoke-key');
+            await osmFailure.enable();
             const fallback = osmFailure.getState(); osmFailure.dispose();
             const forbidden = createMapBuildingsController({ ...config, fetchImpl: async () => Response.json({ meta: { code: 403, error: { message: 'smoke-key' } } }) });
-            await forbidden.enable('smoke-key');
+            await forbidden.enable();
             const forbiddenState = forbidden.getState(); forbidden.dispose();
-            const emptySurfaces = await fetchMapSurfaceContours({ area, key: 'smoke-key', signal: new AbortController().signal,
+            const emptySurfaces = await fetchMapSurfaceContours({ area, apiBaseUrl: 'https://gis-proxy.example', signal: new AbortController().signal,
                 fetchImpl: async () => Response.json({ meta: { code: 404 } }) });
-            const partialSurfaces = await fetchMapSurfaceContours({ area, key: 'smoke-key', signal: new AbortController().signal,
+            const partialSurfaces = await fetchMapSurfaceContours({ area, apiBaseUrl: 'https://gis-proxy.example', signal: new AbortController().signal,
                 fetchImpl: async (url, options) => new URL(url).searchParams.get('type') === 'parking'
                     ? new Response('unavailable', { status: 503 }) : fetchImpl(url, options) });
             const surfacesFailure = createMapBuildingsController({ ...config, fetchImpl: async (url, options) =>
                 !String(url).includes('overpass') && new URL(url).searchParams.get('type') !== 'building'
                     ? new Response('unavailable', { status: 503 }) : fetchImpl(url, options) });
-            await surfacesFailure.enable('smoke-key');
+            await surfacesFailure.enable();
             const surfacesFallback = surfacesFailure.getState(); surfacesFailure.dispose();
             let pages = 0;
-            const paged = await fetchBuildingContours({ area, key: 'smoke-key', signal: new AbortController().signal,
+            const paged = await fetchBuildingContours({ area, apiBaseUrl: 'https://gis-proxy.example', signal: new AbortController().signal,
                 fetchImpl: async (url) => { pages++; return Response.json({ meta: { code: 200 }, result: {
                     total: 219, items: Array.from({ length: 10 }, (_, i) => ({ id: `${url.searchParams.get('page')}-${i}` })),
                 } }); } });
@@ -159,15 +163,15 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
             const zBounds = [zLayer.children[0].geometry.boundingBox.min.z, zLayer.children[0].geometry.boundingBox.max.z];
             zLayer.traverse((child) => { child.geometry?.dispose(); child.material?.dispose(); });
             reference.dispose(); model.geometry.dispose(); model.material.dispose();
-            return { noKey, enabled, state, meshHeights, unchangedBounds, holePreserved, allWithinRadius, preservedMaterials,
+            return { noService, noServiceState, enabled, state, meshHeights, unchangedBounds, holePreserved, allWithinRadius, preservedMaterials,
                 coloredPixels, resourcesOnce, initialCalls, cachedCalls, invalidated, silentAfterDispose,
                 staleResult, noStaleWrites, timeoutState, fallback, forbiddenState, pages, pageCount: paged.items.length, partial: paged.partial,
                 zBounds, compatibleLines, surfaceValidation, stableIds, emptySurfaceCount: emptySurfaces.items.length, surfacesFallback,
                 partialKinds: partialSurfaces.items.map(item => item.mapSurfaceKind), failedKinds: partialSurfaces.failed,
-                remainingLayers: world.children.filter((child) => child.userData.mapBuilding).length,
-                leakedKey: JSON.stringify(states).includes('smoke-key') };
+                remainingLayers: world.children.filter((child) => child.userData.mapBuilding).length };
         });
-        assert.equal(result.noKey, false);
+        assert.equal(result.noService, false);
+        assert.match(result.noServiceState.message, /Сервис 2ГИС/);
         assert.equal(result.enabled, true);
         assert.equal(result.state.extruded, 2);
         assert.equal(result.state.unknown, 2);
@@ -202,7 +206,6 @@ export async function runMapBuildingsSmoke(browser, baseUrl) {
         assert.deepEqual(result.partialKinds, ['road', 'area']);
         assert.deepEqual(result.failedKinds, ['parking']);
         assert.equal(result.remainingLayers, 0);
-        assert.equal(result.leakedKey, false);
         assert.deepEqual(errors, []);
     } finally { await page.close(); }
 }
@@ -217,9 +220,6 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
         await page.waitForFunction(() => globalThis.viewerApp && !document.body.classList.contains('app-loading'));
         await page.locator('#toggleSideBtn').click();
         await page.locator('#mapUnderlayDetails > summary').click();
-        await page.locator('#mapBuildingsToggle').click();
-        assert.match(await page.locator('#mapBuildingsStatus').textContent(), /API-ключ/);
-        await page.locator('#mapUnderlayKey').fill('smoke-key');
         await page.locator('#mapBuildingsToggle').click();
         await page.waitForFunction(() => !viewerApp.mapBuildings.getState().loading);
         assert.match(await page.locator('#mapBuildingsStatus').textContent(), /Сначала загрузите модель/);
@@ -239,7 +239,7 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
                 address: { components: [{ type: 'street_number', street: 'улица Тестовая', number: '1' }] },
                 adm_div: [{ type: 'city', name: 'Москва' }], geometry: { hover: `POLYGON ((${ring}))` } }] } };
         });
-        await page.route('https://catalog.api.2gis.com/**', (route) => {
+        await page.route('https://voice-api.agr.vision/v1/2gis/items**', (route) => {
             requests++;
             const type = new URL(route.request().url()).searchParams.get('type');
             const response = type === 'building' ? data : { meta: { code: 200 }, result: { total: 1, items: [
@@ -259,7 +259,6 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
         assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().roads), 1);
         assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().parking), 1);
         assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().areas), 1);
-        assert.equal(await page.locator('#mapUnderlayKey').isDisabled(), true);
         assert.equal(await page.locator('#mapUnderlayAttribution').isVisible(), true);
         assert.equal(await page.locator('#mapOsmAttribution').isVisible(), true);
         const count = requests;
@@ -275,7 +274,6 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
             }), true);
         }
         await page.locator('#mapBuildingsToggle').uncheck();
-        assert.equal(await page.locator('#mapUnderlayKey').isDisabled(), false);
         assert.equal(await page.locator('#mapOsmAttribution').isVisible(), false);
         assert.equal(await page.locator('#mapUnderlayAttribution').isVisible(), false);
         await page.locator('#mapBuildingsToggle').check();
@@ -284,7 +282,6 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
         await page.evaluate(() => viewerApp.mapBuildings.invalidate());
         assert.equal(await page.locator('#mapBuildingsToggle').isChecked(), false);
         assert.match(await page.locator('#mapBuildingsStatus').textContent(), /Модель изменилась/);
-        assert.equal(await page.locator('#mapUnderlayKey').isDisabled(), false);
         assert.deepEqual(errors, []);
     } finally { await page.close(); }
 }

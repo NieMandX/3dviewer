@@ -1,4 +1,4 @@
-export function bindMapBuildingsUI({ controller, toggle, key, status, progress, attribution, updateShared = () => {} }) {
+export function bindMapBuildingsUI({ controller, toggle, status, progress, attribution, updateShared = () => {} }) {
     function update(state) {
         toggle.checked = state.enabled;
         status.textContent = state.message;
@@ -8,8 +8,7 @@ export function bindMapBuildingsUI({ controller, toggle, key, status, progress, 
     }
     function change() {
         if (toggle.checked) {
-            void controller.enable(key.value);
-            if (!key.value.trim()) key.focus();
+            void controller.enable();
         } else controller.disable();
     }
     toggle.addEventListener('change', change);

@@ -62,7 +62,6 @@ export function collectViewerDom(document) {
         toggleSideBtn: get('toggleSideBtn'),
         loadParcelsBtn: get('loadParcelsBtn'),
         mapUnderlayToggle: get('mapUnderlayToggle'),
-        mapUnderlayKey: get('mapUnderlayKey'),
         mapUnderlayOpacity: get('mapUnderlayOpacity'),
         mapUnderlayOpacityValue: get('mapUnderlayOpacityValue'),
         mapUnderlayStatus: get('mapUnderlayStatus'),

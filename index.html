@@ -27,6 +27,7 @@
             window.__SUPABASE_URL = window.__SUPABASE_URL || runtime.supabaseUrl || 'https://supabase.agr.vision';
             window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || runtime.supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg4MjY2NzAwLCJleHAiOjE5NDU5NDY3MDB9.WZ3JGCeU_xEMeSvRaSP9RsqQcJVPXcFrZrWNbHKI048';
             window.__VOICE_API_URL = window.__VOICE_API_URL || runtime.voiceApiUrl || 'https://voice-api.agr.vision';
+            window.__GIS_API_URL = window.__GIS_API_URL || runtime.gisApiUrl || window.__VOICE_API_URL;
         })();
     </script>
 
@@ -559,8 +560,6 @@
                 <summary>Карта</summary>
                 <div class="map-underlay-controls">
                     <label class="map-underlay-toggle"><input id="mapUnderlayToggle" type="checkbox" /> Подложка 2ГИС</label>
-                    <label for="mapUnderlayKey">API-ключ 2ГИС</label>
-                    <input id="mapUnderlayKey" type="password" autocomplete="off" spellcheck="false" aria-label="API-ключ 2ГИС" />
                     <label class="map-underlay-opacity" for="mapUnderlayOpacity">
                         <span>Непрозрачность</span>
                         <input id="mapUnderlayOpacity" type="range" min="0" max="100" step="1" value="85" />
@@ -721,6 +720,7 @@
                     <button id="roomContentTabAnnotations" class="btn room-content-tab" type="button" data-tab="annotations">Аннотации</button>
                     <button id="roomContentTabCameras" class="btn room-content-tab" type="button" data-tab="cameras">Камеры</button>
                     <button id="roomContentTabUsers" class="btn room-content-tab" type="button" data-tab="users" hidden>Пользователи</button>
+                    <button id="roomContentTab2gis" class="btn room-content-tab" type="button" data-tab="2gis" hidden>2ГИС</button>
                 </div>
                 <div id="roomContentStatus" class="room-content-status" aria-live="polite"></div>
                 <div id="roomContentList" class="room-content-list"></div>

@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const scriptsDir = join(projectRoot, 'scripts');
+const servicesDir = join(projectRoot, 'services', 'voice-api');
 const extraFiles = [join(projectRoot, 'config', 'runtime.js')];
 
 async function walkJsFiles(dir) {
@@ -17,7 +18,7 @@ async function walkJsFiles(dir) {
             files.push(...await walkJsFiles(entryPath));
             continue;
         }
-        if (entry.isFile() && entry.name.endsWith('.js')) {
+        if (entry.isFile() && /\.m?js$/.test(entry.name)) {
             files.push(entryPath);
         }
     }
@@ -49,7 +50,8 @@ function runSyntaxCheck(filePath) {
 }
 
 const scriptFiles = await walkJsFiles(scriptsDir);
-const filesToCheck = [...new Set([...scriptFiles, ...extraFiles])].sort();
+const serviceFiles = await walkJsFiles(servicesDir);
+const filesToCheck = [...new Set([...scriptFiles, ...serviceFiles, ...extraFiles])].sort();
 
 console.log(`Checking syntax for ${filesToCheck.length} files...`);
 

@@ -1,5 +1,5 @@
-export function bindMapUnderlayUI({ controller, toggle, key, opacity, value, status, progress, attribution,
-    additionalActive = () => false, additionalVisible = () => false }) {
+export function bindMapUnderlayUI({ controller, toggle, opacity, value, status, progress, attribution,
+    additionalVisible = () => false }) {
     const listeners = [];
     function listen(element, event, callback) {
         element.addEventListener(event, callback);
@@ -7,7 +7,6 @@ export function bindMapUnderlayUI({ controller, toggle, key, opacity, value, sta
     }
     function update(state) {
         toggle.checked = state.enabled;
-        key.disabled = state.enabled || additionalActive();
         status.textContent = state.loading && state.total
             ? `Загрузка карты: ${state.loaded} / ${state.total}` : state.message;
         progress.hidden = !state.loading;
@@ -17,8 +16,7 @@ export function bindMapUnderlayUI({ controller, toggle, key, opacity, value, sta
     }
     listen(toggle, 'change', () => {
         if (toggle.checked) {
-            void controller.enable(key.value);
-            if (!key.value.trim()) key.focus();
+            void controller.enable();
         } else controller.disable();
     });
     listen(opacity, 'input', () => {
@@ -28,7 +26,6 @@ export function bindMapUnderlayUI({ controller, toggle, key, opacity, value, sta
     update(controller.getState());
     return { update, dispose() {
         listeners.forEach((remove) => remove());
-        key.value = '';
         attribution.hidden = true;
     } };
 }

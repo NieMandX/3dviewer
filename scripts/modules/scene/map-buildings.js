@@ -2,6 +2,7 @@ import { loadMapCoordinateSystem } from '../geo/map-coordinates.js';
 import { assignBuildingHeights, loadHeightBindings, saveHeightBindings } from '../geo/building-heights.js';
 import { loadBuildingGeometryTools, fetchBuildingContours, fetchMapSurfaceContours, fetchOsmBuildingHeights,
     prepareBuildingContours, prepareMapSurfaceContours } from '../geo/map-buildings-data.js';
+import { normalizeGisApiBaseUrl } from '../geo/gis-api.js';
 
 function disposeLayer(layer) {
     if (!layer) return;
@@ -107,8 +108,10 @@ export function createMapBuildingsLayer(THREE, contours, source, zUp, surfaces =
 export function createMapBuildingsController({ THREE, world, mapReference, isZUp,
     requestRender = () => {}, onChange = () => {}, timeoutMs = 90000,
     fetchImpl = (...args) => globalThis.fetch(...args), loadCoordinateSystem = loadMapCoordinateSystem,
-    loadGeometryTools = loadBuildingGeometryTools, readBindings = loadHeightBindings, writeBindings = saveHeightBindings }) {
+    loadGeometryTools = loadBuildingGeometryTools, readBindings = loadHeightBindings, writeBindings = saveHeightBindings,
+    apiBaseUrl = '' }) {
     let disposed = false, generation = 0, active = null, layer = null, cached = null;
+    const gisApiBaseUrl = normalizeGisApiBaseUrl(apiBaseUrl);
     let state = { enabled: false, loading: false, loaded: 0, total: 0, extruded: 0, unknown: 0,
         roads: 0, parking: 0, areas: 0, byOrder: 0, message: '' };
     function publish(next) {
@@ -123,11 +126,10 @@ export function createMapBuildingsController({ THREE, world, mapReference, isZUp
         publish({ enabled: false, loading: false, loaded: 0, total: 0, extruded: 0, unknown: 0,
             roads: 0, parking: 0, areas: 0, byOrder: 0, message });
     }
-    async function enable(apiKey) {
+    async function enable() {
         if (disposed) return false;
         disable();
-        const key = String(apiKey || '').trim();
-        if (!key) { publish({ message: 'Введите API-ключ 2ГИС.' }); return false; }
+        if (!gisApiBaseUrl) { publish({ message: 'Сервис 2ГИС не настроен.' }); return false; }
         const current = generation, abort = active = new AbortController();
         const isCurrent = () => !disposed && current === generation && !abort.signal.aborted;
         const requireCurrent = () => { if (!isCurrent()) throw new DOMException('Cancelled', 'AbortError'); };
@@ -143,16 +145,16 @@ export function createMapBuildingsController({ THREE, world, mapReference, isZUp
             const area = system.getMapArea(source.center, { radiusMeters: 500, zoom: 17 });
             const tools = await loadGeometryTools();
             requireCurrent();
-            let data = cached?.signature === signature && cached.key === key && Date.now() - cached.time < 300000 ? cached.data : null;
+            let data = cached?.signature === signature && Date.now() - cached.time < 300000 ? cached.data : null;
             const reused = !!data;
             if (!data) {
-                const gis = await fetchBuildingContours({ area, key, signal: abort.signal, fetchImpl,
+                const gis = await fetchBuildingContours({ area, apiBaseUrl: gisApiBaseUrl, signal: abort.signal, fetchImpl,
                     onProgress: ({ loaded, total }) => { if (isCurrent()) publish({ loaded, total, message: `Контуры 2ГИС: ${loaded} / ${total}` }); } });
                 requireCurrent();
                 publish({ message: 'Получение дорог и площадок 2ГИС...' });
                 let surfaces = { items: [], totals: {}, partial: false }, surfaceWarning = '';
                 try {
-                    surfaces = await fetchMapSurfaceContours({ area, key, signal: abort.signal, fetchImpl,
+                    surfaces = await fetchMapSurfaceContours({ area, apiBaseUrl: gisApiBaseUrl, signal: abort.signal, fetchImpl,
                         onProgress: ({ kind, loaded, total }) => { if (isCurrent()) publish({
                             message: `${kind === 'road' ? 'Дороги' : kind === 'parking' ? 'Площадки' : 'Территории'} 2ГИС: ${loaded} / ${total}` }); } });
                     if (surfaces.failed.length) {
@@ -185,7 +187,7 @@ export function createMapBuildingsController({ THREE, world, mapReference, isZUp
             requireCurrent();
             world.add(pendingLayer); layer = pendingLayer; pendingLayer = null;
             writeBindings(matched.bindings);
-            if (!data.osmWarning && !data.surfaceWarning && !reused) cached = { data, signature, key, time: Date.now() };
+            if (!data.osmWarning && !data.surfaceWarning && !reused) cached = { data, signature, time: Date.now() };
             const visible = matched.contours.filter((contour) => contour.polygons.length);
             const extruded = visible.filter((contour) => contour.height).length;
             const byOrder = visible.filter((contour) => contour.height && contour.byOrder).length;
@@ -211,7 +213,7 @@ export function createMapBuildingsController({ THREE, world, mapReference, isZUp
                 const message = timedOut ? 'Окружение не загрузилось. Превышено время ожидания.'
                     : error?.message === 'No georeferenced model is loaded' ? 'Сначала загрузите модель в координатах МГГТ.'
                         : /^(2ГИС:|Модель изменилась)/.test(error?.message || '') ? error.message
-                            : 'Не удалось загрузить окружение. Проверьте соединение и API-ключ.';
+                            : 'Не удалось загрузить окружение. Проверьте соединение.';
                 if (layer) { disposeLayer(layer); layer = null; requestRender(); }
                 publish({ enabled: false, loading: false, message });
             }

@@ -16,6 +16,7 @@ drop table if exists public.project_members cascade;
 drop table if exists public.projects cascade;
 drop table if exists public.profiles cascade;
 drop table if exists public.user_roles cascade;
+drop table if exists public.integration_secrets cascade;
 
 drop function if exists public.release_camera(uuid);
 drop function if exists public.claim_camera(uuid);
@@ -287,6 +288,15 @@ create table if not exists public.user_roles (
     role text not null,
     created_at timestamptz not null default now(),
     primary key (user_id, role)
+);
+
+create table if not exists public.integration_secrets (
+    name text primary key,
+    secret_value text not null,
+    updated_at timestamptz not null default now(),
+    updated_by uuid references auth.users(id) on delete set null,
+    constraint integration_secrets_name_format check (name ~ '^[a-z0-9_]{1,64}$'),
+    constraint integration_secrets_value_size check (char_length(secret_value) between 1 and 4096)
 );
 
 create or replace function public.is_superuser()
@@ -699,11 +709,15 @@ alter table public.room_transitions enable row level security;
 alter table public.room_invites enable row level security;
 alter table public.profiles enable row level security;
 alter table public.user_roles enable row level security;
+alter table public.integration_secrets enable row level security;
+alter table public.integration_secrets force row level security;
 alter table public.annotations enable row level security;
 alter table public.messages enable row level security;
 
 grant all on table public.room_members to authenticated;
 grant all on table public.room_members to service_role;
+revoke all on table public.integration_secrets from public, anon, authenticated;
+grant select, insert, update, delete on table public.integration_secrets to service_role;
 
 create policy "projects_select" on public.projects
     for select to authenticated

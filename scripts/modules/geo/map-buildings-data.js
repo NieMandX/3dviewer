@@ -1,4 +1,5 @@
 import { buildingAddressKey } from './building-heights.js';
+import { createGisApiUrl, getGisProxyError } from './gis-api.js';
 
 let geometryToolsPromise;
 export function loadBuildingGeometryTools() {
@@ -13,20 +14,22 @@ export function loadBuildingGeometryTools() {
 }
 
 async function readResponse(response, provider) {
-    if (!response.ok) throw new Error(`${provider}: ошибка запроса (${response.status}).`);
+    if (!response.ok) throw new Error(provider === '2ГИС'
+        ? getGisProxyError(response, `${provider}: ошибка запроса (${response.status}).`)
+        : `${provider}: ошибка запроса (${response.status}).`);
     const text = await response.text();
     if (text.length > 8 * 1024 * 1024) throw new Error(`${provider}: слишком большой ответ.`);
     try { return JSON.parse(text); } catch (_) { throw new Error(`${provider}: некорректный ответ.`); }
 }
 
-async function fetch2gisPages({ area, key, types, signal, fetchImpl, fields, sort, onProgress = () => {} }) {
+async function fetch2gisPages({ area, apiBaseUrl, types, signal, fetchImpl, fields, sort, onProgress = () => {} }) {
     const items = new Map();
     let total = 0;
     // The demo Places key allows ten items and five pages. Never split an area to bypass its limit.
     for (let page = 1; page <= 5; page += 1) {
         signal.throwIfAborted();
-        const url = new URL('https://catalog.api.2gis.com/3.0/items');
-        url.search = new URLSearchParams({ key, point: `${area.wgs84Center.lon},${area.wgs84Center.lat}`,
+        const url = createGisApiUrl(apiBaseUrl, '/v1/2gis/items');
+        url.search = new URLSearchParams({ point: `${area.wgs84Center.lon},${area.wgs84Center.lat}`,
             radius: String(area.radiusMeters), type: types, page_size: '10', page: String(page), fields }).toString();
         if (sort) url.searchParams.set('sort', sort);
         const data = await readResponse(await fetchImpl(url, { signal, mode: 'cors', credentials: 'omit',
@@ -43,12 +46,12 @@ async function fetch2gisPages({ area, key, types, signal, fetchImpl, fields, sor
     return { items: [...items.values()], total, partial: items.size < total };
 }
 
-export async function fetchBuildingContours({ area, key, signal, fetchImpl, onProgress = () => {} }) {
-    return fetch2gisPages({ area, key, types: 'building', signal, fetchImpl,
+export async function fetchBuildingContours({ area, apiBaseUrl, signal, fetchImpl, onProgress = () => {} }) {
+    return fetch2gisPages({ area, apiBaseUrl, types: 'building', signal, fetchImpl,
         fields: 'items.address,items.adm_div,items.geometry.hover', onProgress });
 }
 
-export async function fetchMapSurfaceContours({ area, key, signal, fetchImpl, onProgress = () => {} }) {
+export async function fetchMapSurfaceContours({ area, apiBaseUrl, signal, fetchImpl, onProgress = () => {} }) {
     const groups = [
         { types: 'street,road', kind: 'road' },
         { types: 'parking', kind: 'parking' },
@@ -57,7 +60,7 @@ export async function fetchMapSurfaceContours({ area, key, signal, fetchImpl, on
     const result = { items: [], totals: {}, partial: false, failed: [] };
     for (const group of groups) {
         try {
-            const page = await fetch2gisPages({ area, key, types: group.types, signal, fetchImpl,
+            const page = await fetch2gisPages({ area, apiBaseUrl, types: group.types, signal, fetchImpl,
                 fields: 'items.geometry.hover,items.geometry.selection', sort: 'distance',
                 onProgress: ({ loaded, total }) => onProgress({ kind: group.kind, loaded, total }) });
             result.items.push(...page.items.map((item) => ({ ...item, mapSurfaceKind: group.kind })));

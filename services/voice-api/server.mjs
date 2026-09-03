@@ -1,13 +1,17 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { AccessToken } from 'livekit-server-sdk';
+import { createFixedWindowRateLimiter, createGisService, GisServiceError } from './gis-service.mjs';
 
 const PORT = Number.parseInt(process.env.PORT || '8080', 10);
 const LIVEKIT_API_KEY = String(process.env.LIVEKIT_API_KEY || '').trim();
 const LIVEKIT_API_SECRET = String(process.env.LIVEKIT_API_SECRET || '').trim();
 const LIVEKIT_WS_URL = String(process.env.LIVEKIT_WS_URL || 'wss://rtc.agr.vision').trim();
 const TOKEN_TTL = String(process.env.VOICE_TOKEN_TTL || '6h').trim();
-const ALLOWED_ORIGINS = String(process.env.VOICE_API_ALLOWED_ORIGINS || 'https://agr.vision,https://www.agr.vision')
+const SUPABASE_URL = String(process.env.SUPABASE_URL || 'https://supabase.agr.vision').trim();
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const ALLOWED_ORIGINS = String(process.env.VOICE_API_ALLOWED_ORIGINS
+    || 'https://agr.vision,https://www.agr.vision,https://niemandx.github.io,http://127.0.0.1:5173,http://localhost:5173,null')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
@@ -29,7 +33,7 @@ function applyCors(request, response) {
         response.setHeader('Access-Control-Allow-Origin', allowOrigin);
         response.setHeader('Vary', 'Origin');
     }
-    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
@@ -43,6 +47,32 @@ function sendText(request, response, statusCode, payload) {
     applyCors(request, response);
     response.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
     response.end(payload);
+}
+
+function sendProxyResponse(request, response, payload) {
+    applyCors(request, response);
+    response.writeHead(payload.status, {
+        'Content-Type': payload.contentType,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+    });
+    response.end(payload.body);
+}
+
+function sendServiceError(request, response, error) {
+    const status = error instanceof GisServiceError ? error.status : 500;
+    const message = error instanceof GisServiceError ? error.message : 'Сервис 2ГИС временно недоступен.';
+    sendJson(request, response, status, { ok: false, error: message });
+}
+
+function isAllowedRequestOrigin(request) {
+    const origin = String(request.headers.origin || '');
+    return !origin || pickCorsOrigin(origin) !== null;
+}
+
+function getClientIp(request) {
+    const forwarded = String(request.headers['x-forwarded-for'] || '').split(',').map((value) => value.trim()).filter(Boolean);
+    return forwarded.at(-1) || request.socket?.remoteAddress || 'unknown';
 }
 
 function readJsonBody(request) {
@@ -142,6 +172,22 @@ async function createJoinToken(body) {
     };
 }
 
+const gisService = createGisService({
+    supabaseUrl: SUPABASE_URL,
+    serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+});
+const consumeTileRequest = createFixedWindowRateLimiter({ limit: 240 });
+const consumeCatalogRequest = createFixedWindowRateLimiter({ limit: 40 });
+const consumeAdminRequest = createFixedWindowRateLimiter({ limit: 30 });
+
+function enforceRateLimit(request, response, consume) {
+    const result = consume(getClientIp(request));
+    if (result.allowed) return true;
+    response.setHeader('Retry-After', String(result.retryAfter));
+    sendJson(request, response, 429, { ok: false, error: 'Слишком много запросов. Повторите позже.' });
+    return false;
+}
+
 const server = http.createServer(async (request, response) => {
     const method = request.method || 'GET';
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
@@ -163,8 +209,67 @@ const server = http.createServer(async (request, response) => {
             ok: true,
             service: 'voice-api',
             wsUrl: LIVEKIT_WS_URL,
+            gisBackendConfigured: gisService.isBackendConfigured(),
             timestamp: new Date().toISOString(),
         });
+        return;
+    }
+
+    if (url.pathname.startsWith('/v1/2gis/') || url.pathname === '/v1/admin/2gis') {
+        if (!isAllowedRequestOrigin(request)) {
+            sendJson(request, response, 403, { ok: false, error: 'Origin is not allowed' });
+            return;
+        }
+    }
+
+    if (method === 'GET' && url.pathname === '/v1/2gis/status') {
+        if (!enforceRateLimit(request, response, consumeCatalogRequest)) return;
+        try {
+            sendJson(request, response, 200, await gisService.getPublicStatus());
+        } catch (error) {
+            sendServiceError(request, response, error);
+        }
+        return;
+    }
+
+    if (method === 'GET' && url.pathname === '/v1/2gis/items') {
+        if (!enforceRateLimit(request, response, consumeCatalogRequest)) return;
+        try {
+            sendProxyResponse(request, response, await gisService.proxyItems(url.searchParams));
+        } catch (error) {
+            sendServiceError(request, response, error);
+        }
+        return;
+    }
+
+    const tileMatch = url.pathname.match(/^\/v1\/2gis\/tiles\/(\d+)\/(\d+)\/(\d+)\.png$/);
+    if (method === 'GET' && tileMatch) {
+        if (!enforceRateLimit(request, response, consumeTileRequest)) return;
+        try {
+            sendProxyResponse(request, response, await gisService.proxyTile({
+                z: tileMatch[1], x: tileMatch[2], y: tileMatch[3],
+            }));
+        } catch (error) {
+            sendServiceError(request, response, error);
+        }
+        return;
+    }
+
+    if (url.pathname === '/v1/admin/2gis' && ['GET', 'PUT', 'DELETE'].includes(method)) {
+        if (!enforceRateLimit(request, response, consumeAdminRequest)) return;
+        try {
+            const authorization = request.headers.authorization || '';
+            if (method === 'GET') {
+                sendJson(request, response, 200, await gisService.getAdminStatus(authorization));
+            } else if (method === 'PUT') {
+                const body = await readJsonBody(request);
+                sendJson(request, response, 200, await gisService.setAdminKey(authorization, body.apiKey));
+            } else {
+                sendJson(request, response, 200, await gisService.clearAdminKey(authorization));
+            }
+        } catch (error) {
+            sendServiceError(request, response, error);
+        }
         return;
     }
 

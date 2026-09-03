@@ -1,4 +1,5 @@
 import { loadMapCoordinateSystem } from '../geo/map-coordinates.js';
+import { createGisApiUrl, getGisProxyError, normalizeGisApiBaseUrl } from '../geo/gis-api.js';
 
 const TILE_SIZE = 256;
 const MAX_TILES = 64;
@@ -47,8 +48,9 @@ export function createMapUnderlayGeometry(THREE, system, area, zUp) {
 export function createMapUnderlayController({ THREE, world, mapReference, isZUp,
     requestRender = () => {}, onChange = () => {}, loadCoordinateSystem = loadMapCoordinateSystem,
     fetchImpl = (...args) => globalThis.fetch(...args), decodeImage = (blob) => globalThis.createImageBitmap(blob),
-    createCanvas = () => document.createElement('canvas'), timeoutMs = 60000 }) {
+    createCanvas = () => document.createElement('canvas'), timeoutMs = 60000, apiBaseUrl = '' }) {
     let disposed = false, generation = 0, active = null, layer = null, opacity = 0.85;
+    const gisApiBaseUrl = normalizeGisApiBaseUrl(apiBaseUrl);
     let state = { enabled: false, loading: false, loaded: 0, total: 0, message: '' };
 
     function publish(next) {
@@ -75,12 +77,11 @@ export function createMapUnderlayController({ THREE, world, mapReference, isZUp,
         publish({ enabled: false, loading: false, loaded: 0, total: 0, message });
     }
 
-    async function enable(apiKey) {
+    async function enable() {
         if (disposed) return false;
         disable();
-        const key = String(apiKey || '').trim();
-        if (!key) {
-            publish({ message: 'Введите API-ключ 2ГИС.' });
+        if (!gisApiBaseUrl) {
+            publish({ message: 'Сервис 2ГИС не настроен.' });
             return false;
         }
         const current = generation;
@@ -117,17 +118,14 @@ export function createMapUnderlayController({ THREE, world, mapReference, isZUp,
                 while (isCurrent() && nextTile < tiles.count) {
                     const index = nextTile++;
                     const col = index % columns, row = Math.floor(index / columns);
-                    const url = new URL(`https://tile0.maps.2gis.com/v2/tiles/online_sd/${tiles.z}/${tiles.minX + col}/${tiles.minY + row}.png`);
-                    url.searchParams.set('key', key);
+                    const url = createGisApiUrl(gisApiBaseUrl,
+                        `/v1/2gis/tiles/${tiles.z}/${tiles.minX + col}/${tiles.minY + row}.png`);
                     const response = await fetchImpl(url, { signal: abort.signal, mode: 'cors',
                         credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store' });
                     requireCurrent();
                     if (!response.ok) {
-                        if (response.status === 401 || response.status === 403) {
-                            throw new Error('2ГИС: проверьте ключ и доступ к Raster Tiles API.');
-                        }
-                        if (response.status === 429) throw new Error('2ГИС: исчерпан лимит запросов.');
-                        throw new Error(`2ГИС: ошибка загрузки карты (${response.status}).`);
+                        throw new Error(getGisProxyError(response,
+                            `2ГИС: ошибка загрузки карты (${response.status}).`));
                     }
                     const blob = await response.blob();
                     requireCurrent();
@@ -182,11 +180,10 @@ export function createMapUnderlayController({ THREE, world, mapReference, isZUp,
             return true;
         } catch (error) {
             if (!disposed && generation === current) {
-                // Never report provider URLs or response bodies: they can contain the API key.
                 const message = timedOut ? 'Карта не загрузилась за минуту. Проверьте соединение.'
                     : error?.message === 'No georeferenced model is loaded' ? 'Сначала загрузите модель в координатах МГГТ.'
                         : /^(2ГИС|Модель изменилась|Область карты|Не удалось подготовить)/.test(error?.message || '')
-                            ? error.message : 'Не удалось загрузить карту. Проверьте соединение и API-ключ.';
+                            ? error.message : 'Не удалось загрузить карту. Проверьте соединение.';
                 publish({ enabled: false, loading: false, message });
             }
             return false;

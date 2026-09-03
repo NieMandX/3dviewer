@@ -29,5 +29,7 @@ jobs:
           -f supabase/schema.sql
           -f supabase/migrations/20260902000100_project_administration.sql
           -f supabase/migrations/20260902000200_superuser_user_directory.sql
+          -f supabase/migrations/20260903000100_secure_2gis_api_key.sql
           -f supabase/tests/project-administration.sql
           -f supabase/tests/user-directory.sql
+          -f supabase/tests/integration-secrets.sql

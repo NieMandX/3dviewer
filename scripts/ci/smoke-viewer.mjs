@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { runProjectAdminTreeSmoke } from './smoke-project-admin.mjs';
 import { runUserDirectorySmoke } from './smoke-user-directory.mjs';
+import { runGisAdminSmoke } from './smoke-gis-admin.mjs';
 import { runMapCoordinatesSmoke } from './smoke-map-coordinates.mjs';
 import { runMapUnderlaySmoke, runMapUnderlayUISmoke } from './smoke-map-underlay.mjs';
 import { runBuildingHeightMatchingSmoke } from './smoke-building-heights.mjs';
@@ -13995,6 +13996,8 @@ try {
     console.log('Registered room switch smoke passed.');
     await runUserDirectorySmoke(await createRegisteredRoomSmokePage(browserContext, smokeServer.baseUrl));
     console.log('Superuser directory search, pagination and lifecycle smoke passed.');
+    await runGisAdminSmoke(await createRegisteredRoomSmokePage(browserContext, smokeServer.baseUrl));
+    console.log('Superuser 2GIS key administration smoke passed.');
     await runDisposeReinitSmoke(browserContext, smokeServer.baseUrl);
     console.log('Dispose/reinit smoke passed.');
     await runRendererDisposeLifecycleSmoke(browserContext, smokeServer.baseUrl);
