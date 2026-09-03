@@ -219,7 +219,7 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
         await page.goto(`${baseUrl}/?renderer=webgl`);
         await page.waitForFunction(() => globalThis.viewerApp && !document.body.classList.contains('app-loading'));
         await page.locator('#toggleSideBtn').click();
-        await page.locator('#mapUnderlayDetails > summary').click();
+        await page.locator('#mapDetails > summary').click();
         await page.locator('#mapBuildingsToggle').click();
         await page.waitForFunction(() => !viewerApp.mapBuildings.getState().loading);
         assert.match(await page.locator('#mapBuildingsStatus').textContent(), /Сначала загрузите модель/);
@@ -259,13 +259,13 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
         assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().roads), 1);
         assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().parking), 1);
         assert.equal(await page.evaluate(() => viewerApp.mapBuildings.getState().areas), 1);
-        assert.equal(await page.locator('#mapUnderlayAttribution').isVisible(), true);
+        assert.equal(await page.locator('#map2gisAttribution').isVisible(), true);
         assert.equal(await page.locator('#mapOsmAttribution').isVisible(), true);
         const count = requests;
         for (const width of [1440, 390]) {
             await page.setViewportSize({ width, height: 900 });
             await page.locator('#mapBuildingsToggle').scrollIntoViewIfNeeded();
-            assert.equal(await page.locator('#mapUnderlayDetails').evaluate((root) => {
+            assert.equal(await page.locator('#mapDetails').evaluate((root) => {
                 const bounds = root.getBoundingClientRect();
                 return [...root.querySelectorAll('label, input, progress')].filter((node) => !node.hidden).every((node) => {
                     const box = node.getBoundingClientRect();
@@ -275,7 +275,7 @@ export async function runMapBuildingsUISmoke(browser, baseUrl) {
         }
         await page.locator('#mapBuildingsToggle').uncheck();
         assert.equal(await page.locator('#mapOsmAttribution').isVisible(), false);
-        assert.equal(await page.locator('#mapUnderlayAttribution').isVisible(), false);
+        assert.equal(await page.locator('#map2gisAttribution').isVisible(), false);
         await page.locator('#mapBuildingsToggle').check();
         await page.waitForFunction(() => viewerApp.mapBuildings.getState().extruded === 1);
         assert.equal(requests, count, 'Re-enabling must reuse data without repeating API requests');

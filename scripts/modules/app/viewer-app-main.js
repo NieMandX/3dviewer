@@ -11,8 +11,6 @@ import { createNorthGridController } from '../scene/north-grid.js';
 import { createImportedLightsController } from '../scene/imported-lights.js';
 import { createMosParcelsController } from '../scene/mos-parcels.js';
 import { createMapReferenceController } from '../scene/map-reference.js';
-import { createMapUnderlayController } from '../scene/map-underlay.js';
-import { bindMapUnderlayUI } from '../ui/map-underlay-ui.js';
 import { createMapBuildingsController } from '../scene/map-buildings.js';
 import { bindMapBuildingsUI } from '../ui/map-buildings-ui.js';
 import { createWorldOffsetController } from '../scene/world-offset.js';
@@ -5391,14 +5389,6 @@ export class ViewerApp {
         const loadedModels = app.loadedModels = [];
         const mapReference = createMapReferenceController({ THREE, world, isZUp, getModels: () => loadedModels });
         app.mapReference = mapReference;
-        let mapUnderlayUI = null;
-        const mapUnderlay = createMapUnderlayController({
-            THREE, world, mapReference, isZUp,
-            apiBaseUrl: gisApiUrl,
-            requestRender: () => requestSceneRenderBurst(4),
-            onChange: (state) => mapUnderlayUI?.update(state),
-        });
-        app.mapUnderlay = mapUnderlay;
         let mapBuildingsUI = null;
         const mapBuildings = createMapBuildingsController({
             THREE, world, mapReference, isZUp,
@@ -5407,17 +5397,10 @@ export class ViewerApp {
             onChange: (state) => mapBuildingsUI?.update(state),
         });
         app.mapBuildings = mapBuildings;
-        mapUnderlayUI = bindMapUnderlayUI({
-            controller: mapUnderlay, toggle: dom.mapUnderlayToggle,
-            opacity: dom.mapUnderlayOpacity, value: dom.mapUnderlayOpacityValue,
-            status: dom.mapUnderlayStatus, progress: dom.mapUnderlayProgress,
-            attribution: dom.mapUnderlayAttribution,
-            additionalVisible: () => mapBuildings.getState().enabled && !mapBuildings.getState().loading,
-        });
         mapBuildingsUI = bindMapBuildingsUI({
             controller: mapBuildings, toggle: dom.mapBuildingsToggle,
-            status: dom.mapBuildingsStatus, progress: dom.mapBuildingsProgress, attribution: dom.mapOsmAttribution,
-            updateShared: () => mapUnderlayUI?.update(mapUnderlay.getState()),
+            status: dom.mapBuildingsStatus, progress: dom.mapBuildingsProgress,
+            gisAttribution: dom.map2gisAttribution, osmAttribution: dom.mapOsmAttribution,
         });
         const sceneIndex = createLoadedModelSceneIndex({ loadedModels });
         app.sceneIndex = sceneIndex;
@@ -5521,7 +5504,6 @@ export class ViewerApp {
             removedEntries.forEach((entry) => revokeEmbeddedEntryUrl(entry));
 
             if (removedModels.length) {
-                mapUnderlay.invalidate();
                 mapBuildings.invalidate();
                 lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
                 sceneIndex.invalidateAll?.();
@@ -5884,7 +5866,6 @@ export class ViewerApp {
             });
 
             if (roomModelRecords.length) {
-                mapUnderlay.invalidate();
                 mapBuildings.invalidate();
                 loadedModels.splice(0, loadedModels.length, ...keptModels);
                 lastFinalizedModelIndex = Math.min(lastFinalizedModelIndex, loadedModels.length);
@@ -8067,7 +8048,6 @@ export class ViewerApp {
 		        async function finalizeBatchAfterAllFiles(options = {}) {
 		            const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : null;
 		            if ((!isCurrent || isCurrent()) && loadedModels.length > lastFinalizedModelIndex) {
-                        mapUnderlay.invalidate();
                         mapBuildings.invalidate();
                     }
 		            const result = await batchFinalizer.finalizeBatchAfterAllFiles({ isCurrent });
@@ -8291,10 +8271,8 @@ export class ViewerApp {
 	            try { environmentWiring?.dispose?.(); } catch (_) {}
 	            try { sunShadows?.dispose?.(); } catch (_) {}
 	            try { mosParcels?.dispose?.(); } catch (_) {}
-	            try { mapUnderlay?.dispose?.(); } catch (_) {}
 	            try { mapBuildings?.dispose?.(); } catch (_) {}
 	            try { mapBuildingsUI?.dispose?.(); } catch (_) {}
-	            try { mapUnderlayUI?.dispose?.(); } catch (_) {}
 	            try { mapReference?.dispose?.(); } catch (_) {}
 	            try { northGrid?.dispose?.(); } catch (_) {}
 	            try { geoJsonModal?.dispose?.(); } catch (_) {}

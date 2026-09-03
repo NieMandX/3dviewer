@@ -30,24 +30,10 @@ near(area.wgs84Center.lat, 55.754497223512494, 2e-8, 'Model latitude');
 assert.equal(area.radiusMeters, 500);
 assert.equal(area.modelBounds.east - area.modelBounds.west, 1000);
 assert.equal(area.modelBounds.north - area.modelBounds.south, 1000);
-const sw = system.wgs84ToMercator({ lon: area.bounds.west, lat: area.bounds.south });
-const ne = system.wgs84ToMercator({ lon: area.bounds.east, lat: area.bounds.north });
-assert.ok(ne.x - sw.x > 1700, '500 ground metres must not become 500 Web Mercator metres');
-assert.ok(ne.y - sw.y > 1700);
-const northWest = system.tileBounds({ x: area.tiles.minX, y: area.tiles.minY, z: area.tiles.z });
-const southEast = system.tileBounds({ x: area.tiles.maxX, y: area.tiles.maxY, z: area.tiles.z });
-assert.ok(northWest.west <= area.bounds.west && northWest.north >= area.bounds.north);
-assert.ok(southEast.east >= area.bounds.east && southEast.south <= area.bounds.south);
-assert.deepEqual(system.wgs84ToTile({ lon: 139.7006793, lat: 35.6590699 }, 18), { z: 18, x: 232798, y: 103246 });
-assert.deepEqual(system.wgs84ToTile({ lon: 180, lat: 85.0511287798066 }, 0), { z: 0, x: 0, y: 0 });
-near(system.tileBounds({ z: 0, x: 0, y: 0 }).south, -85.0511287798066, 1e-10, 'World tile south');
 assert.throws(() => system.modelToWgs84({ east: NaN, north: 1 }), /finite/);
 assert.throws(() => system.wgs84ToModel({ lon: '37', lat: 55 }), /finite/);
-assert.throws(() => system.wgs84ToMercator({ lon: 0, lat: 90 }), /domain/);
 assert.throws(() => system.getMapArea(modelCenter, { radiusMeters: -1 }), /radius/);
-assert.throws(() => system.getMapArea(modelCenter, { zoom: 99 }), /zoom/);
-assert.throws(() => system.tileBounds({ z: 1, x: 2, y: 0 }), /indices/);
-console.log('MGGT, WGS84, Web Mercator and XYZ coordinate checks passed.');
+console.log('MGGT, WGS84 and map search-area coordinate checks passed.');
 
 export async function runMapCoordinatesSmoke(browser, baseUrl) {
     const page = await browser.newPage();

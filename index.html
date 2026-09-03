@@ -556,18 +556,10 @@
                 </div>
             </details>
 
-            <details id="mapUnderlayDetails">
+            <details id="mapDetails">
                 <summary>Карта</summary>
-                <div class="map-underlay-controls">
-                    <label class="map-underlay-toggle"><input id="mapUnderlayToggle" type="checkbox" /> Подложка 2ГИС</label>
-                    <label class="map-underlay-opacity" for="mapUnderlayOpacity">
-                        <span>Непрозрачность</span>
-                        <input id="mapUnderlayOpacity" type="range" min="0" max="100" step="1" value="85" />
-                        <output id="mapUnderlayOpacityValue" for="mapUnderlayOpacity">85%</output>
-                    </label>
-                    <div id="mapUnderlayStatus" class="muted" role="status" aria-live="polite"></div>
-                    <progress id="mapUnderlayProgress" aria-label="Загрузка карты" hidden></progress>
-                    <label class="map-underlay-toggle"><input id="mapBuildingsToggle" type="checkbox" /> Окружение 2ГИС</label>
+                <div class="map-controls">
+                    <label class="map-toggle"><input id="mapBuildingsToggle" type="checkbox" /> Окружение 2ГИС</label>
                     <div id="mapBuildingsStatus" class="muted" role="status" aria-live="polite"></div>
                     <progress id="mapBuildingsProgress" aria-label="Загрузка окружения" hidden></progress>
                 </div>
@@ -589,8 +581,8 @@
         </div>
     </div>
 
-    <div class="map-underlay-attribution">
-        <a id="mapUnderlayAttribution" href="https://2gis.ru" target="_blank" rel="noopener noreferrer" hidden>&copy; 2ГИС</a>
+    <div class="map-attribution">
+        <a id="map2gisAttribution" href="https://2gis.ru" target="_blank" rel="noopener noreferrer" hidden>&copy; 2ГИС</a>
         <a id="mapOsmAttribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" hidden>&copy; OpenStreetMap contributors</a>
     </div>
     <div id="drop" class="drop">Бросайте сюда один или несколько .fbx .zip</div>

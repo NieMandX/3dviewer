@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 const SETTING_NAME = '2gis_api_key';
 const KEY_CACHE_MS = 30_000;
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
-const MAX_TILE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_TYPES = new Map([
     ['building', 'items.address,items.adm_div,items.geometry.hover'],
     ['street,road', 'items.geometry.hover,items.geometry.selection'],
@@ -285,39 +284,12 @@ export function createGisService({
         };
     }
 
-    async function proxyTile({ z, x, y }) {
-        const zoom = parseInteger(z, { min: 0, max: 20, name: 'z' });
-        const maxCoordinate = 2 ** zoom - 1;
-        const tileX = parseInteger(x, { min: 0, max: maxCoordinate, name: 'x' });
-        const tileY = parseInteger(y, { min: 0, max: maxCoordinate, name: 'y' });
-        const apiKey = await requireApiKey();
-        const url = new URL(`https://tile0.maps.2gis.com/v2/tiles/online_sd/${zoom}/${tileX}/${tileY}.png`);
-        url.searchParams.set('key', apiKey);
-        const response = await fetchImpl(url, {
-            headers: { Accept: 'image/png,image/*;q=0.8' },
-            redirect: 'error',
-            cache: 'no-store',
-            signal: withTimeout(timeoutMs),
-        });
-        const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim();
-        if (response.ok && !contentType.startsWith('image/')) {
-            throw new GisServiceError(502, '2ГИС вернул некорректный тайл.', 'INVALID_UPSTREAM_TILE');
-        }
-        const body = await readLimitedBody(response, MAX_TILE_BYTES);
-        return {
-            status: response.status,
-            contentType: contentType || 'application/octet-stream',
-            body,
-        };
-    }
-
     return Object.freeze({
         getPublicStatus,
         getAdminStatus,
         setAdminKey,
         clearAdminKey,
         proxyItems,
-        proxyTile,
         isBackendConfigured: () => !!(databaseUrl && serviceKey),
     });
 }

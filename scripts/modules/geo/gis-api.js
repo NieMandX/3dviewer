@@ -22,7 +22,7 @@ export function getGisProxyError(response, fallback = '2ГИС: ошибка з�
     if (response?.status === 429) return '2ГИС: слишком много запросов. Повторите позже.';
     if (response?.status === 503) return '2ГИС: API-ключ не настроен администратором.';
     if (response?.status === 401 || response?.status === 403) {
-        return '2ГИС: API-ключ отклонён. Проверьте лицензию для Places API и Raster Tiles API.';
+        return '2ГИС: API-ключ отклонён. Проверьте лицензию для Places API.';
     }
     return fallback;
 }

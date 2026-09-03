@@ -1,10 +1,11 @@
-export function bindMapBuildingsUI({ controller, toggle, status, progress, attribution, updateShared = () => {} }) {
+export function bindMapBuildingsUI({ controller, toggle, status, progress, gisAttribution, osmAttribution }) {
     function update(state) {
         toggle.checked = state.enabled;
         status.textContent = state.message;
         progress.hidden = !state.loading;
-        attribution.hidden = !state.enabled || state.loading;
-        updateShared();
+        const hidden = !state.enabled || state.loading;
+        gisAttribution.hidden = hidden;
+        osmAttribution.hidden = hidden;
     }
     function change() {
         if (toggle.checked) {
@@ -13,5 +14,9 @@ export function bindMapBuildingsUI({ controller, toggle, status, progress, attri
     }
     toggle.addEventListener('change', change);
     update(controller.getState());
-    return { update, dispose() { toggle.removeEventListener('change', change); attribution.hidden = true; } };
+    return { update, dispose() {
+        toggle.removeEventListener('change', change);
+        gisAttribution.hidden = true;
+        osmAttribution.hidden = true;
+    } };
 }

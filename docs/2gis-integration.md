@@ -9,15 +9,14 @@ viewer.
 
 Allowed public operations:
 
-- raster tiles for the calculated map area;
 - Places geometry for buildings, roads, ground parking and administrative
   areas;
 - radius up to 500 metres, ten records per page and five pages.
 
 The proxy rejects other 2GIS item types, arbitrary fields, larger areas and
-invalid tile coordinates. Public requests are rate-limited by client IP and are
-not cached by the application service. The upstream URL, response errors and
-API key must not be logged.
+invalid query parameters. Public requests are rate-limited by client IP and are
+not cached by the application service. Raster tiles are not requested or
+proxied. The upstream URL, response errors and API key must not be logged.
 
 The `2GIS` tab in the project administration modal is visible only to a
 registered database-backed superuser. Every read, replacement and deletion of
@@ -53,12 +52,12 @@ VOICE_API_ALLOWED_ORIGINS=https://agr.vision,https://www.agr.vision,https://niem
 be copied into `config/runtime.js`, GitHub secrets used for static deployment,
 browser storage or logs.
 
-Static runtime configuration points both map modes at the backend:
+Static runtime configuration points the 2GIS environment mode at the backend:
 
 ```js
 gisApiUrl: 'https://voice-api.agr.vision'
 ```
 
 After deploying the migration and backend, a superuser opens `СОСТАВ` ->
-`2ГИС`, saves the production key and then verifies both `Подложка 2ГИС` and
+`2ГИС`, saves a key with Places API access and then verifies
 `Окружение 2ГИС` in a georeferenced room while signed out.

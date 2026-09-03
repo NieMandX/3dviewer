@@ -2629,19 +2629,15 @@ body.side-hidden { --sideW: 0px; }
     font-size: 13px;
 }
 
-.map-underlay-controls { display:grid; gap:8px; padding:8px; font-size:12px; }
-.map-underlay-toggle { display:flex; align-items:center; gap:6px; }
-.map-underlay-controls input[type="password"] { box-sizing:border-box; min-width:0; width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:4px; color:var(--ink); background:var(--controlBg); font:inherit; }
-.map-underlay-opacity { display:grid; grid-template-columns:auto minmax(0, 1fr) 36px; gap:8px; align-items:center; }
-.map-underlay-opacity input { min-width:0; width:100%; }
-.map-underlay-opacity output { text-align:right; }
-#mapUnderlayStatus:empty, #mapBuildingsStatus:empty { display:none; }
-#mapUnderlayStatus, #mapBuildingsStatus { overflow-wrap:anywhere; }
-#mapUnderlayProgress, #mapBuildingsProgress { width:100%; height:4px; }
-.map-underlay-attribution { position:fixed; left:10px; bottom:calc(var(--footerH) + 8px); z-index:20; display:flex; flex-wrap:wrap; gap:8px; max-width:calc(100% - 20px); box-sizing:border-box; padding:3px 6px; color:var(--ink); background:var(--surfaceStrong); font-size:11px; }
-.map-underlay-attribution a { color:inherit; text-decoration:none; }
-.map-underlay-attribution:not(:has(a:not([hidden]))) { display:none; }
-#mapUnderlayProgress[hidden], #mapBuildingsProgress[hidden], #mapUnderlayAttribution[hidden], #mapOsmAttribution[hidden] { display:none; }
+.map-controls { display:grid; gap:8px; padding:8px; font-size:12px; }
+.map-toggle { display:flex; align-items:center; gap:6px; }
+#mapBuildingsStatus:empty { display:none; }
+#mapBuildingsStatus { overflow-wrap:anywhere; }
+#mapBuildingsProgress { width:100%; height:4px; }
+.map-attribution { position:fixed; left:10px; bottom:calc(var(--footerH) + 8px); z-index:20; display:flex; flex-wrap:wrap; gap:8px; max-width:calc(100% - 20px); box-sizing:border-box; padding:3px 6px; color:var(--ink); background:var(--surfaceStrong); font-size:11px; }
+.map-attribution a { color:inherit; text-decoration:none; }
+.map-attribution:not(:has(a:not([hidden]))) { display:none; }
+#mapBuildingsProgress[hidden], #map2gisAttribution[hidden], #mapOsmAttribution[hidden] { display:none; }
 
 .future-controls {
     display: flex;

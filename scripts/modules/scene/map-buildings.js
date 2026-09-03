@@ -142,7 +142,7 @@ export function createMapBuildingsController({ THREE, world, mapReference, isZUp
             requireCurrent();
             const source = mapReference.getModelBounds(), zUp = isZUp();
             const signature = JSON.stringify({ source, zUp });
-            const area = system.getMapArea(source.center, { radiusMeters: 500, zoom: 17 });
+            const area = system.getMapArea(source.center, { radiusMeters: 500 });
             const tools = await loadGeometryTools();
             requireCurrent();
             let data = cached?.signature === signature && Date.now() - cached.time < 300000 ? cached.data : null;

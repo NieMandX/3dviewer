@@ -11,7 +11,6 @@ camera, interpret model heights as GPS heights, or download map tiles itself.
   into the viewer's normalized Cartesian X/Y axes.
 - Normalized Y-up scene: `(east, height, -north)`; Z-up: `(east, north, height)`.
 - WGS84/API: longitude then latitude, EPSG:4326.
-- XYZ tile grid: EPSG:3857, X grows east, Y grows south. This is not TMS.
 - Radius 500 means ground/model metres. It is not 500 EPSG:3857 metres.
 - World rebase is a display transform, never part of a CRS definition.
 - Heights retain the model's vertical reference. No vertical datum conversion
@@ -44,7 +43,7 @@ not an invented EPSG code. A different documented project CRS can be passed to
 Regression coordinates: [Alabyshevo published report, printed page 31](https://www.mos.ru/upload/documents/files/5663/Alabyshevo.pdf).
 Three published coordinate pairs check both directions independently of a
 round-trip test. The current model centre also has a separately computed PROJ
-reference result. XYZ numbering follows [OpenStreetMap's XYZ specification](https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames).
+reference result.
 
 These are cartographic checks, not survey certification. A second published
 dataset ([Podosinki report](https://www.mos.ru/upload/documents/files/8238/AKTGIKEPodosinki1.pdf))
@@ -58,67 +57,29 @@ preset when available.
 ## Viewer API
 
 ```js
-const area = await viewerApp.mapReference.getMapArea({ radiusMeters: 500, zoom: 17 });
+const area = await viewerApp.mapReference.getMapArea({ radiusMeters: 500 });
 // area.modelCenter: { east, north }
 // area.wgs84Center: { lon, lat }
 // area.bounds: WGS84 bounding rectangle enclosing the search area
-// area.tiles: { z, minX, minY, maxX, maxY, count }
 ```
 
 For 2GIS Places, pass `point=lon,lat` and `radius=500`. Do not substitute the
-bounding rectangle for the circular filter. Tile coverage is rectangular and
-may include areas outside the circle; crop the displayed environment separately.
-This service computes the tile range without allocating or fetching the tiles.
-
-## Map Underlay
-
-After importing an MGGT model, open the sidebar's **Карта** section, enter a
-2GIS API key, and enable **Подложка 2ГИС**. **Непрозрачность** controls opacity:
-100% is opaque, 0% is invisible. The key stays in the current page's password
-input, is cleared on disposal/reload, and is not stored in localStorage,
-sessionStorage, configuration, diagnostics, exports or the repository.
-
-The layer uses the public [2GIS Raster Tiles API](https://docs.2gis.com/maps/others/rastertiles/overview),
-not the MapGL-only vector tiles. The key must have Raster Tiles API access;
-demo access is temporary and provider quotas still apply. Requests go directly
-to 2GIS over HTTPS with no credentials or referrer. There is no persistent tile
-cache or automatic background retry/download. Attribution remains visible while
-the map is enabled, including with the sidebar closed.
-
-The atlas covers a 500 m radius around the union of attached model bounds,
-at XYZ zoom 17, with at most 64 tiles and four concurrent requests. Display
-geometry is circular in source ground metres; each vertex's UV is projected
-into Web Mercator. Local mesh coordinates avoid Float32 precision loss. The
-plane is 0.2 m below the model's lowest source elevation; it is not a terrain
-height model. This is a raster map, not extracted buildings or road geometry.
-
-The underlay follows `world` rebase but is excluded from scene framing,
-export and picking. It preserves its material across shading modes and adds
-one mesh/texture, with no per-frame tile lookup. Opacity changes only request a
-short render burst. Import finalization and room/model cleanup invalidate the
-layer; enable it again after the new model finishes loading. Disabling or
-disposing aborts requests, rejects late results, closes decoded bitmaps and
-disposes GPU resources. A failed/partial atlas is never attached to the scene.
+bounding rectangle for the circular filter. Displayed geometry is cropped to
+the search circle in source ground metres. The viewer does not request raster
+or vector map tiles.
 
 ## Tests
 
-`node scripts/ci/smoke-map-coordinates.mjs` checks projections and tile math.
+`node scripts/ci/smoke-map-coordinates.mjs` checks projections and search-area math.
 `npm run ci:verify` also covers the actual CDN module in Chromium, Y-up/Z-up,
 rebase and world transforms, late initialization during model changes, disposal,
 and the migrated parcel conversion. Existing parcel load/dispose races remain
 covered by the viewer smoke suite.
 
-`smoke-map-underlay.mjs`, included in `ci:verify`, checks bounded downloads,
-reprojected geometry/UVs, WebGL pixels, shading preservation, cancellation
-during image decode, stale model bounds, HTTP errors, timeout, resource disposal,
-and desktop/mobile controls. It uses synthetic tiles and never a real API key.
-Live verification also loaded the Antonova-Ovsienko FBX archive with 49 actual
-tiles in WebGPU. Alignment is cartographic, subject to the CRS limits above.
-
 ## 2GIS surroundings and building heights (pilot)
 
-The **Окружение 2ГИС** checkbox uses the same in-memory 2GIS key, independently
-of the raster underlay. It requests Places API building, street/road, parking and place
+The **Окружение 2ГИС** checkbox uses the server-side shared 2GIS key. It requests
+Places API building, street/road, parking and place
 hover polygons within 500 m, plus OSM building height/address tags from Overpass. OSM geometry is not
 displayed or used for nearest-neighbour matching. The 2GIS hover geometry is
 cartographic selection geometry, not a guaranteed surveyed building footprint.
@@ -137,8 +98,7 @@ selection polygons as lighter paved areas. Point-only parking records and underg
 or multilevel parking are not turned into ground surfaces. These are selection geometry rather than surveyed
 road edges. Place (`adm_div.place`) polygons are shown only as territory outlines,
 not as invented paving or grass. Places API does not expose the complete basemap land-use, vegetation,
-yard, marking or terrain geometry through this endpoint; the raster underlay remains
-the complete visual context for those categories. Surface results are clipped to
+yard, marking or terrain geometry through this endpoint. Surface results are clipped to
 the same 500 m circle and share the building layer lifecycle and five-minute cache.
 A failed surface category does not discard other successfully loaded categories.
 

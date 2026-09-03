@@ -30,11 +30,6 @@ function makeFetch({ superuser = true, setting = apiKey,
         if (url.hostname === 'catalog.api.2gis.com') {
             return Response.json(catalogPayload);
         }
-        if (url.hostname === 'tile0.maps.2gis.com') {
-            return new Response(new Uint8Array([137, 80, 78, 71]), {
-                headers: { 'Content-Type': 'image/png' },
-            });
-        }
         throw new Error(`Unexpected request: ${url}`);
     };
     return { fetchImpl, calls };
@@ -90,16 +85,6 @@ test('catalog proxy exposes only the viewer allowlist and keeps the key server-s
     })), (error) => error instanceof GisServiceError && error.status === 400);
 });
 
-test('tile proxy validates coordinates and relays only an image body', async () => {
-    const { service, calls } = createService();
-    const result = await service.proxyTile({ z: '17', x: '79198', y: '40975' });
-    assert.equal(result.status, 200);
-    assert.equal(result.contentType, 'image/png');
-    assert.equal(calls.some((call) => call.url.hostname === 'tile0.maps.2gis.com'
-        && call.url.searchParams.get('key') === apiKey), true);
-    await assert.rejects(() => service.proxyTile({ z: '17', x: '-1', y: '0' }), GisServiceError);
-});
-
 test('admin can replace and clear the key without receiving its value', async () => {
     const { service } = createService();
     const authorization = 'Bearer user-access-token';
@@ -124,7 +109,9 @@ test('public calls fail closed when the backend or key is absent', async () => {
     await assert.rejects(() => missingBackend.getPublicStatus(),
         (error) => error instanceof GisServiceError && error.status === 503);
     const { service } = createService({ setting: '' });
-    await assert.rejects(() => service.proxyTile({ z: '1', x: '1', y: '1' }),
+    await assert.rejects(() => service.proxyItems(new URLSearchParams({
+        point: '37.6176,55.7558', radius: '500', type: 'building', page_size: '10', page: '1',
+    })),
         (error) => error instanceof GisServiceError && error.code === 'API_KEY_NOT_CONFIGURED');
 });
 

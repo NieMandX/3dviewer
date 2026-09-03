@@ -44,7 +44,8 @@ export async function runGisAdminSmoke({ page, diagnostics }) {
         await page.locator('#collabRoomManageBtn').click();
         await page.waitForFunction(() => !document.querySelector('#roomContentRefresh').disabled);
         assert.equal(await page.locator('#roomContentTab2gis').isVisible(), true);
-        assert.equal(await page.locator('#mapUnderlayKey').count(), 0, '2GIS key field remained in public map controls');
+        assert.equal(await page.locator('#mapUnderlayToggle').count(), 0, 'Raster underlay control is still public');
+        assert.equal(await page.getByText('Окружение 2ГИС', { exact: true }).count(), 1);
         await page.locator('#roomContentTab2gis').click();
         await page.getByText('API-ключ не настроен', { exact: true }).waitFor();
         assert.equal(await page.locator('#roomContentRoomSelect').isVisible(), false);

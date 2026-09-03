@@ -176,7 +176,6 @@ const gisService = createGisService({
     supabaseUrl: SUPABASE_URL,
     serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
 });
-const consumeTileRequest = createFixedWindowRateLimiter({ limit: 240 });
 const consumeCatalogRequest = createFixedWindowRateLimiter({ limit: 40 });
 const consumeAdminRequest = createFixedWindowRateLimiter({ limit: 30 });
 
@@ -236,19 +235,6 @@ const server = http.createServer(async (request, response) => {
         if (!enforceRateLimit(request, response, consumeCatalogRequest)) return;
         try {
             sendProxyResponse(request, response, await gisService.proxyItems(url.searchParams));
-        } catch (error) {
-            sendServiceError(request, response, error);
-        }
-        return;
-    }
-
-    const tileMatch = url.pathname.match(/^\/v1\/2gis\/tiles\/(\d+)\/(\d+)\/(\d+)\.png$/);
-    if (method === 'GET' && tileMatch) {
-        if (!enforceRateLimit(request, response, consumeTileRequest)) return;
-        try {
-            sendProxyResponse(request, response, await gisService.proxyTile({
-                z: tileMatch[1], x: tileMatch[2], y: tileMatch[3],
-            }));
         } catch (error) {
             sendServiceError(request, response, error);
         }
