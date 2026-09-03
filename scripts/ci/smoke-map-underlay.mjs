@@ -162,7 +162,7 @@ export async function runMapUnderlaySmoke(browser, baseUrl) {
         assert.equal(result.cancelled, false);
         assert.equal(result.decodes, result.lateClosed);
         assert.equal(result.forbidden, false);
-        assert.match(result.forbiddenState.message, /сервер отклонил запрос/);
+        assert.match(result.forbiddenState.message, /API-ключ отклонён/);
         assert.match(result.timeoutState.message, /минуту/);
         assert.equal(result.stale, false);
         assert.match(result.staleState.message, /Модель изменилась/);

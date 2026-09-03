@@ -86,6 +86,28 @@ async function readLimitedBody(response, maxBytes) {
     return body;
 }
 
+function assertCatalogPayload(body) {
+    let payload;
+    try {
+        payload = JSON.parse(new TextDecoder().decode(body));
+    } catch (_) {
+        return;
+    }
+    const upstreamError = payload?.meta?.error;
+    if (!upstreamError) return;
+    const details = typeof upstreamError === 'string'
+        ? upstreamError
+        : `${upstreamError.type || upstreamError.code || ''} ${upstreamError.message || ''}`;
+    const authorizationFailure = /(auth|key|token|forbidden|permission)/i.test(details);
+    throw new GisServiceError(
+        authorizationFailure ? 403 : 502,
+        authorizationFailure
+            ? 'API-ключ 2ГИС отклонён. Проверьте ключ и доступ к Places API.'
+            : '2ГИС вернул ошибку каталога.',
+        authorizationFailure ? 'UPSTREAM_AUTH_FAILED' : 'UPSTREAM_CATALOG_ERROR',
+    );
+}
+
 function withTimeout(timeoutMs) {
     return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
         ? AbortSignal.timeout(timeoutMs) : undefined;
@@ -255,6 +277,7 @@ export function createGisService({
             signal: withTimeout(timeoutMs),
         });
         const body = await readLimitedBody(response, MAX_JSON_BYTES);
+        if (response.ok) assertCatalogPayload(body);
         return {
             status: response.status,
             contentType: 'application/json; charset=utf-8',

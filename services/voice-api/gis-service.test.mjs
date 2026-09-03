@@ -5,7 +5,8 @@ import { createFixedWindowRateLimiter, createGisService, GisServiceError, normal
 const serviceKey = 'service-role-test-token';
 const apiKey = '2gis-production-test-key';
 
-function makeFetch({ superuser = true, setting = apiKey } = {}) {
+function makeFetch({ superuser = true, setting = apiKey,
+    catalogPayload = { meta: { code: 200 }, result: { items: [], total: 0 } } } = {}) {
     const calls = [];
     const fetchImpl = async (input, options = {}) => {
         const url = new URL(input);
@@ -27,7 +28,7 @@ function makeFetch({ superuser = true, setting = apiKey } = {}) {
             return Response.json(setting ? [{ secret_value: setting, updated_at: '2026-09-03T12:00:00Z' }] : []);
         }
         if (url.hostname === 'catalog.api.2gis.com') {
-            return Response.json({ meta: { code: 200 }, result: { items: [], total: 0 } });
+            return Response.json(catalogPayload);
         }
         if (url.hostname === 'tile0.maps.2gis.com') {
             return new Response(new Uint8Array([137, 80, 78, 71]), {
@@ -55,6 +56,18 @@ test('2GIS key validation rejects short and whitespace-bearing values', () => {
     assert.throws(() => normalize2gisApiKey('short'), GisServiceError);
     assert.throws(() => normalize2gisApiKey('valid-looking key with spaces'), GisServiceError);
     assert.equal(normalize2gisApiKey(apiKey), apiKey);
+});
+
+test('catalog proxy rejects provider authorization errors returned with HTTP 200', async () => {
+    const { service } = createService({
+        catalogPayload: { meta: { code: 200, error: { message: 'Authorization error, incorrect key.' } } },
+    });
+    await assert.rejects(() => service.proxyItems(new URLSearchParams({
+        point: '37.6176,55.7558', radius: '500', type: 'building', page_size: '10', page: '1',
+    })), (error) => error instanceof GisServiceError
+        && error.status === 403
+        && error.code === 'UPSTREAM_AUTH_FAILED'
+        && !error.message.includes(apiKey));
 });
 
 test('catalog proxy exposes only the viewer allowlist and keeps the key server-side', async () => {
