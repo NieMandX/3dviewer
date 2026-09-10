@@ -1,9 +1,11 @@
 import { createFBXFileHandler } from './fbx-file.js';
+import { createGLBFileHandler } from './glb-file.js';
 import { createZIPFileHandler } from './zip-file.js';
 
 export function createImportHandlers(options = {}) {
     const THREE = options.THREE;
     const fbxLoader = options.fbxLoader || null;
+    const gltfLoader = options.gltfLoader || null;
 
     const basename = typeof options.basename === 'function' ? options.basename : (p) => (p || '').split(/[\\/]/).pop();
 
@@ -128,6 +130,30 @@ export function createImportHandlers(options = {}) {
         markSceneStatsDirty,
     });
 
+    const handleGLBFileImpl = createGLBFileHandler({
+        THREE,
+        gltfLoader,
+        basename,
+        logSessionHeader,
+        logBind,
+        hideSidePanel,
+        setStatusMessage,
+        requestRender,
+        schedulePanelRefresh,
+        world,
+        loadedModels,
+        disableShadowsOnImportedLights,
+        ensureLightHelpers,
+        renameMaterialsByFBXObject,
+        markCollisionMeshes,
+        optimizeGlassMeshes,
+        setImportedLightsEnabled,
+        getImportedLightsEnabled,
+        applyGlassControlsToScene,
+        setEmptyHintVisible,
+        markSceneStatsDirty,
+    });
+
     const handleZIPFileImpl = createZIPFileHandler({
         basename,
         unpackZIPInWorker,
@@ -173,8 +199,13 @@ export function createImportHandlers(options = {}) {
         return handleZIPFileImpl(file, callOptions);
     }
 
+    async function handleGLBFile(file, callOptions = null) {
+        return handleGLBFileImpl(file, callOptions);
+    }
+
     return {
         handleFBXFile,
+        handleGLBFile,
         handleZIPFile,
     };
 }

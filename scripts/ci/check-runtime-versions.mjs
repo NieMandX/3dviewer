@@ -9,10 +9,11 @@ async function readProjectFile(path) {
     return readFile(join(projectRoot, path), 'utf8');
 }
 
-const [indexHtml, fbxWorker, zipWorker, supabaseClient, smokeViewer, tusClient, livekitBrowser] = await Promise.all([
+const [indexHtml, fbxWorker, zipWorker, assetLoaders, supabaseClient, smokeViewer, tusClient, livekitBrowser] = await Promise.all([
     readProjectFile('index.html'),
     readProjectFile('scripts/fbx-worker.js'),
     readProjectFile('scripts/zip-worker.js'),
+    readProjectFile('scripts/modules/io/asset-loaders.js'),
     readProjectFile('scripts/modules/collab/supabase-client.js'),
     readProjectFile('scripts/ci/smoke-viewer.mjs'),
     readProjectFile('scripts/modules/collab/tus-client.js'),
@@ -64,6 +65,7 @@ for (const specifier of expectedThreeImportMapEntries.keys()) {
 const threeVersions = [
     ...indexHtml.matchAll(/three@([^/"']+)/g),
     ...fbxWorker.matchAll(/three@([^/"']+)/g),
+    ...assetLoaders.matchAll(/three@([^/"']+)/g),
     ...smokeViewer.matchAll(/three@([^/"']+)/g),
 ].map((match) => match[1]);
 

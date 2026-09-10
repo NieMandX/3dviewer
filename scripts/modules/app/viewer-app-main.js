@@ -5334,7 +5334,8 @@ export class ViewerApp {
 	        // =====================
 	        assetLoaders = createAssetLoaders({ THREE });
 	        const {
-		            fbxLoader,
+	            fbxLoader,
+	            gltfLoader,
 		            textureLoader,
 	            texLd,
 	            parseFBXInWorker,
@@ -5382,7 +5383,7 @@ export class ViewerApp {
         // Asset Loading · Shared State
         // =====================================================================
         /**
-         * Все загруженные модели (FBX) в рамках текущей сессии.
+         * Все загруженные модели в рамках текущей сессии.
          * Храним объект сцены, имя файла и дополнительную мета-информацию.
          * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson?, scope? }
          */
@@ -5614,8 +5615,15 @@ export class ViewerApp {
                 geometries: setFrom(source?.geometries),
                 materials: setFrom(source?.materials),
                 textures: setFrom(source?.textures),
+                images: setFrom(source?.images),
                 skeletons: setFrom(source?.skeletons),
             };
+        }
+
+        function collectTextureImages(texture) {
+            const image = texture?.source?.data || texture?.image || null;
+            if (!image) return [];
+            return Array.isArray(image) ? image.filter(Boolean) : [image];
         }
 
         function addImportedMaterialResources(resources, material) {
@@ -5623,6 +5631,7 @@ export class ViewerApp {
             resources.materials.add(material);
             collectMaterialTextures(material).forEach((texture) => {
                 resources.textures.add(texture);
+                collectTextureImages(texture).forEach((image) => resources.images.add(image));
             });
         }
 
@@ -5687,15 +5696,21 @@ export class ViewerApp {
             const sharedTextures = new Set();
             if (scene?.environment?.isTexture) sharedTextures.add(scene.environment);
             if (scene?.background?.isTexture) sharedTextures.add(scene.background);
+            const preservedImages = preservedResources.images;
+            sharedTextures.forEach((texture) => {
+                collectTextureImages(texture).forEach((image) => preservedImages.add(image));
+            });
 
             return {
                 disposedGeometries: new Set(),
                 disposedMaterials: new Set(),
                 disposedTextures: new Set(),
+                disposedImages: new Set(),
                 disposedSkeletons: new Set(),
                 preservedGeometries: preservedResources.geometries,
                 preservedMaterials: preservedResources.materials,
                 preservedTextures: preservedResources.textures,
+                preservedImages,
                 preservedSkeletons: preservedResources.skeletons,
                 sharedTextures,
             };
@@ -5708,10 +5723,12 @@ export class ViewerApp {
                 disposedGeometries,
                 disposedMaterials,
                 disposedTextures,
+                disposedImages,
                 disposedSkeletons,
                 preservedGeometries,
                 preservedMaterials,
                 preservedTextures,
+                preservedImages,
                 preservedSkeletons,
                 sharedTextures,
             } = disposeContext;
@@ -5735,6 +5752,13 @@ export class ViewerApp {
                             return;
                         }
                         disposedTextures.add(value);
+                        collectTextureImages(value).forEach((image) => {
+                            if (preservedImages.has(image) || disposedImages.has(image)) return;
+                            disposedImages.add(image);
+                            if (typeof image.close === 'function') {
+                                try { image.close(); } catch (_) {}
+                            }
+                        });
                         value.dispose?.();
                     });
                 }
@@ -6451,12 +6475,12 @@ export class ViewerApp {
         // =====================================================================
 
         /**
-         * Загружает одиночный FBX-файл: парсит ориентацию, применяет смещения (GeoJSON),
-         * извлекает embedded текстуры, выполняет автопривязку и обновляет панель/шейдинг.
+         * Создаёт обработчики поддерживаемых форматов и их общей постобработки.
          */
         const importHandlers = createImportHandlers({
             THREE,
             fbxLoader,
+            gltfLoader,
             basename,
             logSessionHeader,
             logBind,
@@ -6511,6 +6535,7 @@ export class ViewerApp {
             },
         });
         const rawHandleFBXFile = importHandlers.handleFBXFile;
+        const rawHandleGLBFile = importHandlers.handleGLBFile;
         const rawHandleZIPFile = importHandlers.handleZIPFile;
         const pendingLocalModelFiles = [];
         const pendingLocalModelKeys = new Set();
@@ -6601,9 +6626,22 @@ export class ViewerApp {
             queueLocalModelFile(file);
         }
 
+        async function handleGLBFile(file, callOptions = null) {
+            if (!isRemoteModelLoad && !canImportLocalModelFile()) {
+                return rejectRoomModelImportForGuest();
+            }
+            await runImportWithScope({
+                kind: 'local',
+                fileKey: getModelFileKey(file),
+                fileName: file?.name || '',
+            }, () => rawHandleGLBFile(file, callOptions), { signal: callOptions?.signal || null });
+            queueLocalModelFile(file);
+        }
+
         function getModelKindFromName(name) {
             if (!name) return 'zip';
             if (/\.fbx$/i.test(name)) return 'fbx';
+            if (/\.glb$/i.test(name)) return 'glb';
             if (/\.zip$/i.test(name)) return 'zip';
             return 'zip';
         }
@@ -7177,6 +7215,14 @@ export class ViewerApp {
                 if (kind === 'fbx') {
                     await runImportWithScope(roomImportScope, () => (
                         rawHandleFBXFile(file, null, null, null, { signal: importSignal })
+                    ), {
+                        signal: importSignal,
+                        isCurrent: () => !isStaleLoad(),
+                        abortMessage: 'Room model load superseded',
+                    });
+                } else if (kind === 'glb') {
+                    await runImportWithScope(roomImportScope, () => (
+                        rawHandleGLBFile(file, { signal: importSignal })
                     ), {
                         signal: importSignal,
                         isCurrent: () => !isStaleLoad(),
@@ -7946,6 +7992,7 @@ export class ViewerApp {
 	            sampleModels: SAMPLE_MODELS,
             onSampleChosen: () => setOrderModalVisible(false),
 	            handleFBXFile,
+	            handleGLBFile,
 	            handleZIPFile,
             finalizeBatchAfterAllFiles,
             hideSidePanel,

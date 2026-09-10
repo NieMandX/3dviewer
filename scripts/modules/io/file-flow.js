@@ -8,6 +8,7 @@ export function createFileFlowController(options = {}) {
     const sampleModels = Array.isArray(options.sampleModels) ? options.sampleModels : [];
 
     const handleFBXFile = typeof options.handleFBXFile === 'function' ? options.handleFBXFile : async () => {};
+    const handleGLBFile = typeof options.handleGLBFile === 'function' ? options.handleGLBFile : async () => {};
     const handleZIPFile = typeof options.handleZIPFile === 'function' ? options.handleZIPFile : async () => {};
     const finalizeBatchAfterAllFiles =
         typeof options.finalizeBatchAfterAllFiles === 'function' ? options.finalizeBatchAfterAllFiles : async () => {};
@@ -79,6 +80,8 @@ export function createFileFlowController(options = {}) {
             try {
                 if (/\.fbx$/i.test(f.name)) {
                     await handleFBXFile(f, callOptions);
+                } else if (/\.glb$/i.test(f.name)) {
+                    await handleGLBFile(f, callOptions);
                 } else if (/\.zip$/i.test(f.name)) {
                     await handleZIPFile(f, callOptions);
                 }

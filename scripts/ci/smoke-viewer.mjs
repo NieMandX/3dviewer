@@ -26,6 +26,7 @@ const MIME_TYPES = new Map([
     ['.css', 'text/css; charset=utf-8'],
     ['.exr', 'application/octet-stream'],
     ['.fbx', 'application/octet-stream'],
+    ['.glb', 'model/gltf-binary'],
     ['.hdr', 'application/octet-stream'],
     ['.html', 'text/html; charset=utf-8'],
     ['.ico', 'image/x-icon'],
@@ -365,6 +366,168 @@ async function runBootSmoke(browser, baseUrl) {
     assert.equal(collabDrawerSwap.closed.drawerSwapClass, false, 'Boot smoke: collab drawer retained empty hint position after close');
     diagnostics.assertNoErrors('Boot smoke');
     await page.evaluate(() => globalThis.viewerApp?.dispose?.()).catch(() => {});
+    await page.close();
+}
+
+async function runGLBImportSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/?renderer=webgl`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => (
+        !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
+    ), null, { timeout: 45000 });
+
+    await page.evaluate(() => {
+        function createMinimalGLB() {
+            const json = {
+                asset: { version: '2.0', generator: 'LPMVIEW smoke' },
+                scene: 0,
+                scenes: [{ nodes: [0] }],
+                nodes: [{ name: 'GLB Triangle', mesh: 0 }],
+                meshes: [{
+                    name: 'GLB Triangle Mesh',
+                    primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, indices: 2, material: 0 }],
+                }],
+                materials: [{
+                    name: 'GLB Smoke Material',
+                    pbrMetallicRoughness: {
+                        baseColorFactor: [0.2, 0.4, 0.6, 1],
+                        metallicFactor: 0,
+                        roughnessFactor: 1,
+                    },
+                }],
+                accessors: [
+                    {
+                        bufferView: 0,
+                        componentType: 5126,
+                        count: 3,
+                        type: 'VEC3',
+                        min: [-1, -1, 0],
+                        max: [1, 1, 0],
+                    },
+                    { bufferView: 1, componentType: 5126, count: 3, type: 'VEC3' },
+                    { bufferView: 2, componentType: 5123, count: 3, type: 'SCALAR' },
+                ],
+                bufferViews: [
+                    { buffer: 0, byteOffset: 0, byteLength: 36, target: 34962 },
+                    { buffer: 0, byteOffset: 36, byteLength: 36, target: 34962 },
+                    { buffer: 0, byteOffset: 72, byteLength: 6, target: 34963 },
+                ],
+                buffers: [{ byteLength: 80 }],
+            };
+
+            const encoder = new TextEncoder();
+            const encodedJson = encoder.encode(JSON.stringify(json));
+            const jsonLength = Math.ceil(encodedJson.length / 4) * 4;
+            const binLength = 80;
+            const totalLength = 12 + 8 + jsonLength + 8 + binLength;
+            const buffer = new ArrayBuffer(totalLength);
+            const view = new DataView(buffer);
+            const bytes = new Uint8Array(buffer);
+            view.setUint32(0, 0x46546c67, true);
+            view.setUint32(4, 2, true);
+            view.setUint32(8, totalLength, true);
+            view.setUint32(12, jsonLength, true);
+            view.setUint32(16, 0x4e4f534a, true);
+            bytes.fill(0x20, 20, 20 + jsonLength);
+            bytes.set(encodedJson, 20);
+
+            const binHeaderOffset = 20 + jsonLength;
+            view.setUint32(binHeaderOffset, binLength, true);
+            view.setUint32(binHeaderOffset + 4, 0x004e4942, true);
+            const binOffset = binHeaderOffset + 8;
+            new Float32Array(buffer, binOffset, 9).set([
+                -1, -1, 0,
+                1, -1, 0,
+                0, 1, 0,
+            ]);
+            new Float32Array(buffer, binOffset + 36, 9).set([
+                0, 0, 1,
+                0, 0, 1,
+                0, 0, 1,
+            ]);
+            new Uint16Array(buffer, binOffset + 72, 3).set([0, 1, 2]);
+            return buffer;
+        }
+
+        const fileInput = document.querySelector('#fileInput');
+        const file = new File([createMinimalGLB()], 'smoke-triangle.glb', {
+            type: 'model/gltf-binary',
+            lastModified: 1,
+        });
+        Object.defineProperty(fileInput, 'files', {
+            configurable: true,
+            value: [file],
+        });
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await page.waitForFunction(() => {
+        const imported = globalThis.viewerApp?.loadedModels?.some((model) => model?.name === 'smoke-triangle.glb');
+        const status = document.querySelector('#status')?.textContent?.trim().toLowerCase() || '';
+        return imported && status.startsWith('готово');
+    }, null, { timeout: 45000 });
+
+    const result = await page.evaluate(async () => {
+        const app = globalThis.viewerApp;
+        const record = app.loadedModels.find((model) => model?.name === 'smoke-triangle.glb');
+        let mesh = null;
+        record?.obj?.traverse?.((object) => {
+            if (!mesh && object?.isMesh) mesh = object;
+        });
+
+        let geometryDisposed = 0;
+        let materialDisposed = 0;
+        const geometry = mesh?.geometry || null;
+        const material = Array.isArray(mesh?.material) ? mesh.material[0] : mesh?.material;
+        if (geometry?.dispose) {
+            const originalDispose = geometry.dispose.bind(geometry);
+            geometry.dispose = () => {
+                geometryDisposed += 1;
+                originalDispose();
+            };
+        }
+        if (material?.dispose) {
+            const originalDispose = material.dispose.bind(material);
+            material.dispose = () => {
+                materialDisposed += 1;
+                originalDispose();
+            };
+        }
+
+        const beforeDispose = {
+            accept: document.querySelector('#fileInput')?.accept || '',
+            format: record?.format || '',
+            sourceFormat: record?.obj?.userData?.sourceFormat || '',
+            meshCount: record?.obj ? (() => {
+                let count = 0;
+                record.obj.traverse((object) => { if (object?.isMesh) count += 1; });
+                return count;
+            })() : 0,
+            positionCount: geometry?.attributes?.position?.count || 0,
+            materialName: material?.name || '',
+            inScene: !!record?.obj?.parent,
+        };
+        await app.dispose();
+        return {
+            beforeDispose,
+            geometryDisposed,
+            materialDisposed,
+            detached: !record?.obj?.parent,
+        };
+    });
+
+    assert.match(result.beforeDispose.accept, /\.glb/i, 'GLB import smoke: file picker does not accept GLB');
+    assert.equal(result.beforeDispose.format, 'glb', 'GLB import smoke: model record format is missing');
+    assert.equal(result.beforeDispose.sourceFormat, 'glb', 'GLB import smoke: root source format is missing');
+    assert.equal(result.beforeDispose.meshCount, 1, 'GLB import smoke: parsed scene has unexpected mesh count');
+    assert.equal(result.beforeDispose.positionCount, 3, 'GLB import smoke: parsed geometry is incomplete');
+    assert.equal(result.beforeDispose.materialName, 'GLB Smoke Material', 'GLB import smoke: material was not preserved');
+    assert.equal(result.beforeDispose.inScene, true, 'GLB import smoke: parsed scene was not added to the world');
+    assert.equal(result.geometryDisposed, 1, 'GLB import smoke: geometry was not disposed exactly once');
+    assert.equal(result.materialDisposed, 1, 'GLB import smoke: material was not disposed exactly once');
+    assert.equal(result.detached, true, 'GLB import smoke: model root stayed attached after dispose');
+    diagnostics.assertNoErrors('GLB import smoke');
     await page.close();
 }
 
@@ -5122,6 +5285,10 @@ async function runFileFlowFailureSmoke(browser, baseUrl) {
                 calls.push(`fbx:${file.name}`);
                 throw new Error('broken import');
             },
+            handleGLBFile: async (file) => {
+                calls.push(`glb:${file.name}`);
+                loadedCount += 1;
+            },
             handleZIPFile: async (file) => {
                 calls.push(`zip:${file.name}`);
                 loadedCount += 1;
@@ -5136,6 +5303,7 @@ async function runFileFlowFailureSmoke(browser, baseUrl) {
 
         const files = [
             new File(['bad'], 'broken.fbx', { type: 'application/octet-stream' }),
+            new File(['glb'], 'model.glb', { type: 'model/gltf-binary' }),
             new File(['ok'], 'ok.zip', { type: 'application/zip' }),
         ];
         Object.defineProperty(fileInput, 'files', {
@@ -5156,6 +5324,7 @@ async function runFileFlowFailureSmoke(browser, baseUrl) {
     assert.deepEqual(result.calls, [
         'empty:off',
         'fbx:broken.fbx',
+        'glb:model.glb',
         'zip:ok.zip',
         'empty:off',
         'finalize',
@@ -13965,6 +14134,8 @@ try {
     console.log('Connected reset viewer and late invite smoke passed.');
     await runBootSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot smoke passed.');
+    await runGLBImportSmoke(browserContext, smokeServer.baseUrl);
+    console.log('GLB import and disposal smoke passed.');
     await runBootRuntimeFailureSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot runtime failure smoke passed.');
     await runBootJSZipCdnNonBlockingSmoke(browserContext, smokeServer.baseUrl);

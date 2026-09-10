@@ -1,12 +1,22 @@
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { createFBXWorkerClient } from '../workers/fbx-worker-client.js';
 import { createZIPWorkerClient } from '../workers/zip-worker-client.js';
+
+const DEFAULT_DRACO_DECODER_PATH = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/draco/';
 
 export function createAssetLoaders(options = {}) {
     const THREE = options.THREE;
     if (!THREE) throw new Error('createAssetLoaders: THREE is required');
 
     const fbxLoader = new FBXLoader();
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath(options.dracoDecoderPath || DEFAULT_DRACO_DECODER_PATH);
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.setDRACOLoader(dracoLoader);
+    gltfLoader.setMeshoptDecoder(MeshoptDecoder);
     const textureLoader = new THREE.TextureLoader();
     const texLd = new THREE.TextureLoader(); // for small helper textures
 
@@ -48,6 +58,9 @@ export function createAssetLoaders(options = {}) {
         try {
             zipWorkerClient.dispose?.();
         } catch (_) {}
+        try {
+            dracoLoader.dispose?.();
+        } catch (_) {}
     }
 
     function getDiagnostics() {
@@ -68,6 +81,7 @@ export function createAssetLoaders(options = {}) {
 
     return {
         fbxLoader,
+        gltfLoader,
         textureLoader,
         texLd,
         parseFBXInWorker,

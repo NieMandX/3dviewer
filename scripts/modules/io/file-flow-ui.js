@@ -11,6 +11,7 @@ export function createFileFlowUIController(options = {}) {
     const hideSidePanel = typeof options.hideSidePanel === 'function' ? options.hideSidePanel : () => {};
 
     const handleFBXFile = typeof options.handleFBXFile === 'function' ? options.handleFBXFile : async () => {};
+    const handleGLBFile = typeof options.handleGLBFile === 'function' ? options.handleGLBFile : async () => {};
     const handleZIPFile = typeof options.handleZIPFile === 'function' ? options.handleZIPFile : async () => {};
     const finalizeBatchAfterAllFiles =
         typeof options.finalizeBatchAfterAllFiles === 'function' ? options.finalizeBatchAfterAllFiles : async () => {};
@@ -37,6 +38,7 @@ export function createFileFlowUIController(options = {}) {
         sampleSelect,
         sampleModels,
         handleFBXFile,
+        handleGLBFile,
         handleZIPFile,
         finalizeBatchAfterAllFiles,
         loadSampleModel: sampleLoader.loadSampleModel,
