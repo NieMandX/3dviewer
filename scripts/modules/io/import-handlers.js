@@ -132,6 +132,7 @@ export function createImportHandlers(options = {}) {
 
     const handleGLBFileImpl = createGLBFileHandler({
         THREE,
+        useWebGPU: options.useWebGPU,
         gltfLoader,
         basename,
         logSessionHeader,

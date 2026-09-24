@@ -531,6 +531,72 @@ async function runGLBImportSmoke(browser, baseUrl) {
     await page.close();
 }
 
+async function runRiverFlowImportSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const diagnostics = attachPageDiagnostics(page);
+    await page.goto(`${baseUrl}/?renderer=webgl`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => globalThis.viewerApp && !document.body.classList.contains('app-loading'));
+    await page.evaluate(async () => {
+        const THREE = await import('three');
+        const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
+        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 2;
+        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#8080ff'; ctx.fillRect(0, 0, 2, 2);
+        const normalMap = new THREE.CanvasTexture(canvas);
+        const material = new THREE.MeshPhysicalMaterial({ normalMap, roughness: 0.055, transmission: 0.32, ior: 1.333 });
+        material.name = 'River smoke';
+        material.userData.lpmview_water = {
+            version: 1, origin: [-1, -1], extent: [2, 2], tileMeters: 6,
+            cycleSeconds: 8, metersPerSecond: 0.2, speed: 1,
+            flowMap: canvas.toDataURL(), specularColor: [2, 2, 2],
+        };
+        const scene = new THREE.Scene();
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material); mesh.name = 'River smoke'; scene.add(mesh);
+        const bytes = await new GLTFExporter().parseAsync(scene, { binary: true });
+        mesh.geometry.dispose(); material.dispose(); normalMap.dispose();
+        const input = document.querySelector('#fileInput');
+        Object.defineProperty(input, 'files', { configurable: true, value: [new File([bytes], 'river-smoke.glb')] });
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.waitForFunction(() => {
+        let flow;
+        globalThis.viewerApp?.world?.traverse((o) => { if (o.material?.riverFlow) flow = o.material.riverFlow; });
+        return flow?.time?.value > 0.02;
+    }, null, { timeout: 45000 });
+    const result = await page.evaluate(async () => {
+        const app = globalThis.viewerApp;
+        const root = app.loadedModels.find((r) => r.name === 'river-smoke.glb').obj;
+        let water; root.traverse((o) => { if (o.material?.riverFlow) water = o; });
+        const material = water.material, field = material.riverFlowMap, hook = water.onBeforeRender;
+        const state = material.riverFlow;
+        state.playing = false;
+        const pausedTime = state.time.value;
+        app.api.requestRender();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const paused = state.time.value === pausedTime;
+        state.playing = true;
+        root.removeFromParent();
+        hook.call(water, null, null, null, null, material);
+        const detachedStopped = state.time.value === pausedTime;
+        app.world.add(root);
+        let fieldsDisposed = 0, materialsDisposed = 0;
+        field.addEventListener('dispose', () => { fieldsDisposed += 1; });
+        material.addEventListener('dispose', () => { materialsDisposed += 1; });
+        const before = { moving: pausedTime > 0, paused, detachedStopped, specular: material.specularColor.toArray() };
+        await app.dispose();
+        return { ...before, fieldsDisposed, materialsDisposed, hookRemoved: water.onBeforeRender !== hook, detached: !root.parent };
+    });
+    assert.equal(result.moving, true, 'River flow: imported material did not animate');
+    assert.equal(result.paused, true, 'River flow: paused material kept advancing');
+    assert.equal(result.detachedStopped, true, 'River flow: detached model kept advancing');
+    assert.deepEqual(result.specular, [2, 2, 2], 'River flow: reflection setting was lost');
+    assert.equal(result.fieldsDisposed, 1, 'River flow: embedded flow texture must be disposed once');
+    assert.equal(result.materialsDisposed, 1, 'River flow: material must be disposed once');
+    assert.equal(result.hookRemoved, true, 'River flow: render hook survived disposal');
+    assert.equal(result.detached, true, 'River flow: root survived disposal');
+    diagnostics.assertNoErrors('River flow import smoke');
+    await page.close();
+}
+
 async function runBootRuntimeFailureSmoke(browser, baseUrl) {
     const rootBrowser = typeof browser.browser === 'function' ? browser.browser() : browser;
     const context = await rootBrowser.newContext();
@@ -14136,6 +14202,8 @@ try {
     console.log('Boot smoke passed.');
     await runGLBImportSmoke(browserContext, smokeServer.baseUrl);
     console.log('GLB import and disposal smoke passed.');
+    await runRiverFlowImportSmoke(browserContext, smokeServer.baseUrl);
+    console.log('River flow GLB import, animation and disposal smoke passed.');
     await runBootRuntimeFailureSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot runtime failure smoke passed.');
     await runBootJSZipCdnNonBlockingSmoke(browserContext, smokeServer.baseUrl);

@@ -6479,6 +6479,7 @@ export class ViewerApp {
          */
         const importHandlers = createImportHandlers({
             THREE,
+            useWebGPU: USE_WEBGPU,
             fbxLoader,
             gltfLoader,
             basename,

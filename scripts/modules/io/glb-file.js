@@ -171,6 +171,18 @@ export function createGLBFileHandler(options = {}) {
             root.userData.orientationHandedness = 'right';
             root.userData.orientationUpAxis = 'Y';
 
+            // Lazy-load custom water only for files that explicitly carry its metadata.
+            let hasRiverFlow = false;
+            root.traverse((object) => {
+                const materials = Array.isArray(object.material) ? object.material : [object.material];
+                if (materials.some((m) => m?.userData?.lpmview_water)) hasRiverFlow = true;
+            });
+            if (hasRiverFlow) {
+                const { installRiverFlow } = await import('../material/river-flow.js');
+                await installRiverFlow(root, { useWebGPU: !!options.useWebGPU, requestRender, signal });
+                throwIfAborted();
+            }
+
             setStatusMessage('Обработка сцены…');
             world?.add?.(root);
             addedToWorld = true;
