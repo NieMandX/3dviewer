@@ -20,6 +20,26 @@
 
 ## Top issues by severity
 
+### P1. Destroyed texture при работе с редактором материалов (2026-09-24)
+
+Сообщение WebGPU: `Destroyed texture ... RGBA16Float used in a submit`.
+На полной M8 воспроизводится при создании миниатюр воды: отдельная маленькая
+сцена с transmission затрагивает общие screen-space transmission nodes r184.
+Трассировка показывает уничтожение full-size FramebufferTexture в
+`Textures.updateTexture -> copyFramebufferToTexture -> ViewportTextureNode`.
+
+WebGPU-миниатюры теперь приближают transmission через opacity на временной
+копии материала. Они не запускают экранное преломление; физическое стекло и
+течение воды в большой сцене остаются прежними. Миниатюры используют отдельный
+output render target с восстановлением состояния общего renderer и корректной
+цветовой конверсией. Второй renderer или цикл анимации не создаётся.
+
+Проверка: `smoke-material-thumbnails.mjs` и `material-thumbnails-fixture.js` —
+стекло, шейдер течения, миниатюры, resize, сохранность свойств исходных материалов
+и render targets. WebGL выполняется всегда; WebGPU — при наличии адаптера с
+явным сообщением о пропуске. Дополнительно проверяется полная M8 в аппаратном
+WebGPU Chrome. Уже повреждённой вкладке со старым кодом нужна перезагрузка.
+
 ### P0. WebGPU падал при выключении HDRI
 
 Симптом: при отключении HDRI render loop останавливался:

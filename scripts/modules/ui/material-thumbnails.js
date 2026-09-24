@@ -39,13 +39,27 @@ export function createMaterialThumbnails({ renderer, ready, getEnvironment, requ
             else if (material.isMeshStandardMaterial) THREE.MeshStandardMaterial.prototype.copy.call(preview, material);
             else { preview.color.copy(material.color || new THREE.Color('white')); preview.map = material.map || null; }
             preview.userData = {}; preview.envMap = null;
+            // r184's screen-space transmission nodes share state with the main
+            // scene. A small offscreen preview can leave glass/water bindings
+            // referencing a destroyed full-size framebuffer. Keep thumbnails
+            // independent of that pass; opacity approximates transmission here.
+            // The scene material and its physical refraction remain untouched.
+            if (renderer.isWebGPURenderer && preview.transmission > 0) {
+                preview.opacity *= 1 - .75 * Math.min(1, preview.transmission);
+                preview.transmission = 0;
+                preview.transparent = true;
+                preview.depthWrite = false;
+            }
             sphere.material = preview; scene.environment = getEnvironment?.() || null;
             const oldTarget = renderer.getRenderTarget(), oldAuto = renderer.autoClear;
+            const oldOutput = renderer.isWebGPURenderer ? renderer.getOutputRenderTarget() : null;
             const viewport = renderer.getViewport(new THREE.Vector4()), scissor = renderer.getScissor(new THREE.Vector4()), scissorTest = renderer.getScissorTest();
             try {
                 renderer.setRenderTarget(target); renderer.autoClear = true; renderer.setViewport(0, 0, 128, 128); renderer.setScissorTest(false);
+                if (renderer.isWebGPURenderer) renderer.setOutputRenderTarget(target);
                 renderer.render(scene, camera);
             } finally {
+                if (renderer.isWebGPURenderer) renderer.setOutputRenderTarget(oldOutput);
                 renderer.setRenderTarget(oldTarget); renderer.autoClear = oldAuto; renderer.setViewport(viewport); renderer.setScissor(scissor); renderer.setScissorTest(scissorTest); requestRender();
             }
             const pixels = renderer.isWebGPURenderer ? await renderer.readRenderTargetPixelsAsync(target, 0, 0, 128, 128)
