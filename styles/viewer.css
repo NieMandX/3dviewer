@@ -3253,3 +3253,9 @@ body.bg-black input[type="range"]::-ms-track {
     body.material-flow-edit .side { top: auto; height: 43vh; bottom: var(--footerH, 34px); border-top: 1px solid var(--border, #ddd); }
     body.material-flow-edit .side-tabs { display: none; }
 }
+.side:has(#materialsTab[aria-selected="true"]) { background: #f8fafb; }
+body.bg-black .side:has(#materialsTab[aria-selected="true"]) { background: #171c23; }
+@media (max-width: 980px) {
+    .side:has(#materialsTab[aria-selected="true"]) { left: auto; width: min(460px, 85vw); }
+    body.material-flow-edit .side:has(#materialsTab[aria-selected="true"]) { left: 0; width: 100vw; }
+}
