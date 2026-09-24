@@ -14,9 +14,14 @@ export async function runMaterialEditorSmoke(browser, baseUrl) {
             const { createRoomMaterialSettings } = await import('/scripts/modules/collab/material-settings.js');
             document.body.innerHTML = '<button id="sceneTab">Сцена</button><button id="materialsTab">Материалы</button><div id="scenePanel"></div><section id="materialEditor" hidden></section>';
             const renderer = new T.WebGLRenderer(); renderer.setSize(256, 256); document.body.append(renderer.domElement);
+            let thumbnailRenders = 0;
+            const render = renderer.render.bind(renderer);
+            renderer.render = (...args) => { thumbnailRenders++; return render(...args); };
             const scene = new T.Scene(), world = new T.Group(), root = new T.Group(); scene.add(world); world.add(root);
             world.position.set(-100000, 0, -200000); root.position.set(100000, 3, 200000);
             const original = new T.MeshPhysicalMaterial({ color: '#a65322', roughness: .82 }); original.name = 'Кирпич';
+            const mapCanvas = document.createElement('canvas'); mapCanvas.width = mapCanvas.height = 512;
+            mapCanvas.getContext('2d').fillRect(0, 0, 512, 512); original.map = new T.CanvasTexture(mapCanvas);
             const a = new T.Mesh(new T.PlaneGeometry(10, 10), original); a.rotation.x = -Math.PI / 2;
             const b = new T.Mesh(a.geometry, original); b.rotation.x = -Math.PI / 2; b.position.x = 12; root.add(a, b);
             captureParsedMaterials(root);
@@ -27,10 +32,28 @@ export async function runMaterialEditorSmoke(browser, baseUrl) {
             const editor = createMaterialEditor({ renderer, rendererReady: Promise.resolve(), scene, world, camera, controls, loadedModels: models, requestRender() {}, getEnvironment() { return null; } });
             document.querySelector('#materialsTab').click();
             const cards = document.querySelectorAll('.me-card').length;
-            await new Promise((resolve) => setTimeout(resolve, 250));
+            await readyThumbnails();
             const thumbnail = document.querySelector('.me-card img').src.startsWith('data:image/png');
+            const texturePreview = document.querySelector('[data-map-image=map]'); await texturePreview.decode();
+            const texturePreviewSmall = texturePreview.naturalWidth === 128 && original.map.image.width === 512;
+            const other = new T.Mesh(a.geometry, new T.MeshPhysicalMaterial({ color: '#929ba5', metalness: 1 }));
+            other.material.name = 'Металл'; other.position.x = 24; root.add(other); editor.refresh();
+            async function readyThumbnails() {
+                for (let i = 0; i < 250 && [...document.querySelectorAll('.me-card img')].some((image) => !image.src.startsWith('data:image/png')); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            await readyThumbnails();
+            const card = document.querySelector(`[data-material="${original.uuid}"]`);
+            const beforeSelection = thumbnailRenders, imageBeforeSelection = card.querySelector('img');
+            card.click();
+            const selectionKeepsThumbnail = document.querySelector(`[data-material="${original.uuid}"] img`) === imageBeforeSelection;
+            document.querySelector('#sceneTab').click(); document.querySelector('#materialsTab').click();
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const thumbnailCache = thumbnailRenders === beforeSelection;
             const edit = document.querySelector('#me-roughness'); edit.value = '.21'; edit.dispatchEvent(new Event('change', { bubbles: true }));
             const sharedEdit = a.material === b.material && Math.abs(a.material.roughness - .21) < 1e-6;
+            await readyThumbnails();
+            const onlyEditedThumbnailRendered = thumbnailRenders === beforeSelection + 1;
+            root.remove(other); editor.refresh();
             editor.setMode(true); const parseRestored = a.material.roughness === .82 && a.material === b.material;
             editor.setMode(false); const editsRestored = a.material.roughness === .21;
             const file = editor.serialize();
@@ -70,7 +93,7 @@ export async function runMaterialEditorSmoke(browser, baseUrl) {
             const pending = stale.refresh(models); context.roomId = 'other'; finish({ data: { document: file, revision: 1 } }); await pending;
             const rejectsStale = lateApply === 0;
             persistence.dispose(); stale.dispose(); flowEditor.dispose(); background.dispose(); editor.dispose(); renderer.dispose();
-            return { cards, thumbnail, sharedEdit, parseRestored, editsRestored, roundtrip, waterRoundtrip, legacyWaterRoundtrip, validGraph, hasBranches, surfaceSnap, controlsRestored, backgroundInsideFar, roomLoadedOnce, rejectsStale };
+            return { cards, thumbnail, texturePreviewSmall, selectionKeepsThumbnail, thumbnailCache, onlyEditedThumbnailRendered, sharedEdit, parseRestored, editsRestored, roundtrip, waterRoundtrip, legacyWaterRoundtrip, validGraph, hasBranches, surfaceSnap, controlsRestored, backgroundInsideFar, roomLoadedOnce, rejectsStale };
         });
         assert.equal(result.cards, 1, 'Shared material appears once');
         for (const [key, value] of Object.entries(result)) if (key !== 'cards') assert.equal(value, true, key);

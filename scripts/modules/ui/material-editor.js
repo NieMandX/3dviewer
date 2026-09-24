@@ -26,7 +26,7 @@ export function createMaterialEditor(options) {
     if (!host || !options.renderer) return null;
     const { loadedModels, world, requestRender } = options;
     let entries = new Map(), selectedId = '', originals = false, alive = true, generation = 0, query = '', active = false, flowDraft = null;
-    const changed = new Set(), undo = new Map(), comparisons = new WeakMap();
+    const changed = new Set(), undo = new Map(), comparisons = new WeakMap(), texturePreviews = new WeakMap();
     const thumbs = createMaterialThumbnails({ renderer: options.renderer, ready: options.rendererReady, getEnvironment: options.getEnvironment, requestRender });
     const flow = createFlowNetworkEditor({ ...options, onActive: (value) => document.body.classList.toggle('material-flow-edit', value), canvas: options.renderer.domElement, onChange: (network) => { flowDraft = structuredClone(network); updateFlowCount(); } });
     host.innerHTML = `
@@ -47,7 +47,7 @@ export function createMaterialEditor(options) {
         active = show; host.hidden = !show; scenePanel.hidden = show;
         sceneTab.setAttribute('aria-selected', String(!show)); materialTab.setAttribute('aria-selected', String(show));
         sceneTab.tabIndex = show ? -1 : 0; materialTab.tabIndex = show ? 0 : -1;
-        if (!show) flow.stop(); else refresh();
+        if (!show) { flow.stop(); thumbs.clear(); } else refresh();
     }
     const sceneClick = () => tab(false), materialClick = () => tab(true);
     function tabKey(event) { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); tab(event.key === 'Home' ? false : event.key === 'End' ? true : !active); (active ? materialTab : sceneTab).focus(); } }
@@ -97,7 +97,16 @@ export function createMaterialEditor(options) {
           </fieldset>${originals ? '<p class="me-note">Показаны исходные материалы. Правки сохранены — нажмите «Изменённые», чтобы продолжить.</p>' : ''}`;
         for (const [key] of MAPS) {
             const image = inspector.querySelector(`[data-map-image="${key}"]`);
-            if (image && m[key]) { try { image.src = textureURL(m[key]); } catch (_) {} }
+            if (image && m[key]) {
+                try {
+                    const texture = m[key], cached = texturePreviews.get(texture);
+                    if (cached?.version === texture.version && cached.image === texture.image) image.src = cached.url;
+                    else {
+                        image.src = textureURL(texture, 128);
+                        texturePreviews.set(texture, { version: texture.version, image: texture.image, url: image.src });
+                    }
+                } catch (_) {}
+            }
         }
     }
     function setMode(value) {
@@ -186,7 +195,11 @@ export function createMaterialEditor(options) {
     async function click(event) {
         const button = event.target.closest('button'); if (!button) return;
         try {
-            if (button.dataset.material) { flow.stop(); selectedId = button.dataset.material; renderList(); renderInspector(); return; }
+            if (button.dataset.material) {
+                flow.stop(); selectedId = button.dataset.material;
+                for (const card of grid.children) card.setAttribute('aria-pressed', String(card.dataset.material === selectedId));
+                renderInspector(); return;
+            }
             if (button.dataset.mode) { setMode(button.dataset.mode === 'original'); return; }
             const entry = selected(), m = entry?.material, action = button.dataset.action;
             if (action === 'download') { const data = serialize(); download(data); tell('Настройки сохранены в файл.'); return; }
@@ -335,9 +348,9 @@ export function createMaterialEditor(options) {
     };
 }
 
-function textureURL(texture) {
+function textureURL(texture, maxSize = 1024) {
     const image = texture.source?.data || texture.image; if (!image) return emptyImage;
-    const canvas = document.createElement('canvas'); const max = Math.max(image.width || 1, image.height || 1); const scale = Math.min(1, 1024 / max);
+    const canvas = document.createElement('canvas'); const max = Math.max(image.width || 1, image.height || 1); const scale = Math.min(1, maxSize / max);
     canvas.width = Math.max(1, Math.round((image.width || 1) * scale)); canvas.height = Math.max(1, Math.round((image.height || 1) * scale));
     const ctx = canvas.getContext('2d');
     if (image.data) { const temp = document.createElement('canvas'); temp.width = image.width; temp.height = image.height; temp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.data), image.width, image.height), 0, 0); ctx.drawImage(temp, 0, 0, canvas.width, canvas.height); }
