@@ -12,6 +12,7 @@ import { runGisAdminSmoke } from './smoke-gis-admin.mjs';
 import { runMapCoordinatesSmoke } from './smoke-map-coordinates.mjs';
 import { runBuildingHeightMatchingSmoke } from './smoke-building-heights.mjs';
 import { runMapBuildingsSmoke, runMapBuildingsUISmoke } from './smoke-map-buildings.mjs';
+import { runDepthPrioritySmoke } from './smoke-depth-priority.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const roomProject = process.env.LPMVIEW_SMOKE_PROJECT || 'shmit';
@@ -14204,6 +14205,8 @@ try {
     console.log('GLB import and disposal smoke passed.');
     await runRiverFlowImportSmoke(browserContext, smokeServer.baseUrl);
     console.log('River flow GLB import, animation and disposal smoke passed.');
+    await runDepthPrioritySmoke(browserContext, smokeServer.baseUrl);
+    console.log('Material depth priority rendering, reset and shared-material UI smoke passed.');
     await runBootRuntimeFailureSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot runtime failure smoke passed.');
     await runBootJSZipCdnNonBlockingSmoke(browserContext, smokeServer.baseUrl);

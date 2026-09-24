@@ -1,3 +1,5 @@
+import { installDepthBiasCacheFix } from './depth-bias-cache.js';
+
 export function createRenderer(options = {}) {
     const THREE = options.THREE || null;
     const rootEl = options.rootEl || null;
@@ -18,6 +20,7 @@ export function createRenderer(options = {}) {
     }
 
     let disposed = false;
+    let restoreDepthBiasCache = () => {};
     let rendererReady = !useWebGPU;
     let rendererInitError = null;
     let rendererInitPromise = Promise.resolve();
@@ -26,6 +29,7 @@ export function createRenderer(options = {}) {
         rendererInitPromise = renderer.init()
             .then(() => {
                 if (disposed) return;
+                restoreDepthBiasCache = installDepthBiasCacheFix(renderer);
                 rendererReady = true;
                 rendererInitError = null;
                 requestRender();
@@ -65,6 +69,7 @@ export function createRenderer(options = {}) {
         if (disposed) return;
         disposed = true;
         rendererReady = false;
+        restoreDepthBiasCache();
         try {
             renderer.setAnimationLoop?.(null);
         } catch (_) {}

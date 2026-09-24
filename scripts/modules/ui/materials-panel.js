@@ -1,6 +1,7 @@
 import { clamp01 } from '../utils/math.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 import { asMaterialArray, isGeneratedDisplayMaterial } from '../material/texture-utils.js';
+import { getDepthPriority, setDepthPriority } from '../material/depth-priority.js';
 
 const PANEL_TEX_KEYS = [
     'map',
@@ -338,6 +339,13 @@ export function createMaterialsPanelController(options = {}) {
                                 <tr><td class="k">AO</td><td>${m.aoMap ? texInfo(m.aoMap) : '<span class="muted">—</span>'}</td></tr>
                                 <tr><td class="k">Roughness</td><td>${m.roughnessMap ? texInfo(m.roughnessMap) : '<span class="muted">—</span>'}</td></tr>
                                 <tr><td class="k">Metalness</td><td>${m.metalnessMap ? texInfo(m.metalnessMap) : '<span class="muted">—</span>'}</td></tr>
+                                <tr><td class="k">Z-приоритет</td><td>
+                                    <input type="number" min="-8" max="8" step="1" value="${getDepthPriority(m)}"
+                                        class="depth-priority-input" data-uuid="${obj.uuid}" data-mat-index="${idx}"
+                                        aria-label="Z-приоритет: ${escapeHtml(matName)}" style="width:64px"
+                                        title="Выше — впереди при наложении; 0 — исходное значение. Для всех объектов с этим материалом, в режиме PBR.">
+                                    <div class="muted">0 — исходный; + — впереди; − — позади.<br>Для всех объектов с этим материалом. Только текущая загрузка, режим PBR.</div>
+                                </td></tr>
                                 ${glassInfoRow(obj, m, idx)}
                             </table>
                             </details>
@@ -515,6 +523,33 @@ export function createMaterialsPanelController(options = {}) {
         input.addEventListener('change', handleGlassColorInput);
     }
 
+    function resolveDepthMaterial(input) {
+        const uuid = input.dataset.uuid;
+        const index = Number(input.dataset.matIndex);
+        if (!uuid || !Number.isInteger(index) || index < 0) return null;
+        for (const model of loadedModels) {
+            const mesh = sceneIndex.getModelRenderables(model).find(obj => obj.uuid === uuid);
+            if (mesh) return getPanelMaterials(mesh)[index] || null;
+        }
+        return null;
+    }
+
+    function bindDepthPriority(input) {
+        if (!input || input.dataset.boundDepthPriority) return;
+        input.dataset.boundDepthPriority = '1';
+        input.addEventListener('change', () => {
+            if (disposed) return;
+            const material = resolveDepthMaterial(input);
+            if (!material) return;
+            const value = setDepthPriority(material, input.valueAsNumber);
+            // One material can appear in several mesh rows. Keep their controls in sync.
+            outEl?.querySelectorAll('.depth-priority-input').forEach(other => {
+                if (resolveDepthMaterial(other) === material) other.value = String(value);
+            });
+            requestRender();
+        });
+    }
+
     function attachPanelEvents(root) {
         if (!root) return;
         const elements = [];
@@ -544,6 +579,8 @@ export function createMaterialsPanelController(options = {}) {
             root.querySelectorAll('.glass-color-input').forEach(el => glassColors.push(el));
         }
         glassColors.forEach(bindGlassColorInput);
+
+        root.querySelectorAll?.('.depth-priority-input').forEach(bindDepthPriority);
     }
 
     /**
