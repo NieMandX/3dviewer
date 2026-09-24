@@ -1,3 +1,4 @@
+import { createMaterialEditor } from './material-editor.js';
 import { createMaterialsUI } from './materials-ui.js';
 import { createTexturesUI } from './textures-ui.js';
 
@@ -17,8 +18,9 @@ export function createInspectorPanels(options = {}) {
     });
     const materialsPanel = materialsUi?.materialsPanel || null;
 
+    const materialEditor = createMaterialEditor({ ...options, onMaterialsChanged: () => materialsPanel?.scheduleRefresh?.() });
     function schedulePanelRefresh(afterRender) {
-        materialsPanel?.scheduleRefresh?.(afterRender);
+        materialsPanel?.scheduleRefresh?.(() => { materialEditor?.refresh(); afterRender?.(); });
     }
 
     function syncCollisionButtons() {
@@ -52,10 +54,12 @@ export function createInspectorPanels(options = {}) {
 
     return Object.freeze({
         materialsPanel,
+        materialEditor,
         renderGallery: texturesUi?.renderGallery,
         schedulePanelRefresh,
         syncCollisionButtons,
         dispose: () => {
+            materialEditor?.dispose();
             materialsPanel?.dispose?.();
             texturesUi?.dispose?.();
         },

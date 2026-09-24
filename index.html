@@ -349,7 +349,11 @@
     </details>
 
     <div class="side">
-        <div class="list">
+        <div class="side-tabs" role="tablist" aria-label="Панель сцены">
+            <button id="sceneTab" type="button" role="tab" aria-selected="true" aria-controls="scenePanel">Сцена</button>
+            <button id="materialsTab" type="button" role="tab" aria-selected="false" aria-controls="materialEditor" tabindex="-1">Материалы</button>
+        </div>
+        <div class="list" id="scenePanel" role="tabpanel" aria-labelledby="sceneTab">
             <div id="out"></div>
 
             <details id="camsDetails" open>
@@ -579,6 +583,7 @@
                 <div id="bindLog" class="bind-log" style="font-size:13px; line-height:1.4; padding:6px; max-height:220px; overflow:auto; white-space:pre-wrap;">— пока пусто —</div>
             </details>
         </div>
+        <section id="materialEditor" role="tabpanel" aria-labelledby="materialsTab" hidden></section>
     </div>
 
     <div class="map-attribution">

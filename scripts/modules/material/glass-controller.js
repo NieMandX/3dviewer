@@ -166,7 +166,8 @@ export function createGlassController(options = {}) {
             materialState.materials.forEach((m, i) => {
                 const nameStr = `${m.name || ''} ${o.name || ''}`;
                 const geomSuffix = findGeomSuffix(nameStr);
-                const glass = isGlassByName(nameStr) || isGlassGeomSuffix(geomSuffix);
+                const preset = m.userData?.viewerPreset;
+                const glass = preset ? preset === 'glass' : isGlassByName(nameStr) || isGlassGeomSuffix(geomSuffix);
                 if (!glass) return;
 
                 const previousMaterial = m;
@@ -390,7 +391,8 @@ export function createGlassController(options = {}) {
             materialState.materials.forEach((m, i) => {
                 const nameStr = `${m.name || ''} ${o.name || ''}`;
                 const geomSuffix = findGeomSuffix(nameStr);
-                const glass = isGlassByName(nameStr) || isGlassGeomSuffix(geomSuffix);
+                const preset = m.userData?.viewerPreset;
+                const glass = preset ? preset === 'glass' : isGlassByName(nameStr) || isGlassGeomSuffix(geomSuffix);
                 if (!glass) return;
 
                 const previousMaterial = m;

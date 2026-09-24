@@ -1,3 +1,4 @@
+import { createRoomMaterialSettings } from '../collab/material-settings.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
@@ -5656,6 +5657,8 @@ export class ViewerApp {
                 [
                     ...asMaterialArray(child?.userData?._origMaterial),
                     ...asMaterialArray(child?.userData?._removedMaterials),
+                    ...asMaterialArray(child?.userData?._editorOriginalMaterials),
+                    ...asMaterialArray(child?.userData?._editorEditedMaterials),
                     ...asMaterialArray(child?.userData?._bfFront),
                     ...asMaterialArray(child?.userData?._bfBack),
                     ...asMaterialArray(child?.userData?._wireBase),
@@ -5785,6 +5788,8 @@ export class ViewerApp {
                 const originalMaterials = [
                     ...asMaterialArray(child?.userData?._origMaterial),
                     ...asMaterialArray(child?.userData?._removedMaterials),
+                    ...asMaterialArray(child?.userData?._editorOriginalMaterials),
+                    ...asMaterialArray(child?.userData?._editorEditedMaterials),
                 ];
                 originalMaterials.forEach((material) => disposeMaterial(material, { disposeTextures: true }));
 
@@ -6322,7 +6327,18 @@ export class ViewerApp {
 			        // =====================================================================
 			        // UI · Materials Panel & Gallery
 			        // =====================================================================
-			        inspectorPanels = createInspectorPanels({
+			        const roomMaterialSettings = createRoomMaterialSettings({
+                        getContext: () => ({ controller: collabController, roomId: String(collabController?.room?.id || '') }),
+                        apply: (data, guards) => inspectorPanels?.materialEditor?.applySettings(data, guards),
+                        onStatus: (message) => logBind(message, 'warn'),
+                    });
+                    async function saveRoomMaterialSettings(data) { return roomMaterialSettings.save(data); }
+                    inspectorPanels = createInspectorPanels({
+                        persistence: { refresh: () => { void roomMaterialSettings.refresh(loadedModels).catch((error) => logBind(error.message, 'warn')); } },
+                        renderer, rendererReady: rendererInitPromise, scene, camera, controls,
+                        useWebGPU: USE_WEBGPU, focusOn,
+                        ensurePBR: () => { if (shadingSel.value !== 'pbr') { shadingSel.value = 'pbr'; applyShading('pbr'); } },
+                        saveSettings: (data) => saveRoomMaterialSettings(data),
 			            THREE,
 			            dom,
 			            world,
@@ -8303,6 +8319,7 @@ export class ViewerApp {
 	            try { cameraPickController?.dispose?.(); } catch (_) {}
 	            try { fileFlowUI?.dispose?.(); } catch (_) {}
 	            try { assetLoaders?.dispose?.(); } catch (_) {}
+	            try { roomMaterialSettings.dispose(); } catch (_) {}
 	            try { inspectorPanels?.dispose?.(); } catch (_) {}
 	            try { batchFinalizer?.dispose?.(); } catch (_) {}
 	            try { shadingController?.dispose?.(); } catch (_) {}
@@ -8361,6 +8378,7 @@ export class ViewerApp {
             fitAll,
             computeSceneBounds,
             layout,
+            materialEditor: inspectorPanels.materialEditor,
             updateBgVisibility: backgroundController.updateVisibility,
 	            computeWorldCenter,
 	            setStatsVisible,

@@ -3206,3 +3206,50 @@ body.bg-black input[type="range"]::-ms-track {
     border: 1px solid rgba(255,255,255,0.15);
 }
 #geoModal .muted { color: #ddd; }
+
+/* Material workspace shares the existing sidebar and renderer. */
+.side:has(.side-tabs)::before { display: none; }
+.side:has(.side-tabs) { justify-content: flex-start; overflow: hidden; }
+.side-tabs { display: flex; padding: 10px 16px 0; gap: 8px; border-bottom: 1px solid var(--border, #ddd); flex: 0 0 auto; }
+.side-tabs button { flex: 1; border: 0; background: transparent; border-bottom: 3px solid transparent; border-radius: 0; padding: 10px; color: inherit; cursor: pointer; }
+.side-tabs [aria-selected="true"] { border-color: var(--accent, #2784bd); font-weight: 650; }
+#scenePanel { flex: 1 1 auto; }
+#scenePanel[hidden], #materialEditor[hidden] { display: none; }
+#materialEditor { overflow-y: auto; flex: 1; padding: 16px; min-height: 0; font-size: 13px; }
+.me-toolbar, .me-actions, .me-presets, .me-modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+.me-modes button { flex: 1; }
+.me-modes button[aria-pressed="true"] { background: var(--accent, #2784bd); color: white; }
+.me-note { color: var(--muted, #717781); font-size: 12px; line-height: 1.45; margin: 7px 0 12px; }
+.me-presets button { flex: 1; min-width: 54px; padding: 8px 3px; font-size: 11px; cursor: pointer; }
+.me-preset-ball { display: block; margin: 0 auto 6px; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 30% 22%, #ffffffac, transparent 40%), var(--sample); box-shadow: inset -5px -4px 8px #0005; }
+.me-search { width: 100%; box-sizing: border-box; margin: 0 0 10px; }
+.me-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-height: 280px; overflow: auto; padding: 2px; }
+.me-card { min-width: 0; display: flex; align-items: center; flex-direction: column; padding: 6px; cursor: pointer; border: 1px solid var(--border, #ddd); }
+.me-card[aria-pressed="true"] { outline: 2px solid var(--accent, #2784bd); }
+.me-card img { width: 72px; height: 72px; border-radius: 8px; background: radial-gradient(circle at 30% 22%, #fff8, transparent 40%), var(--sample, #aaa); object-fit: cover; }
+.me-card span { width: 100%; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; margin-top: 5px; }
+.me-card small { align-self: flex-start; color: var(--muted, #777); font-size: 10px; }
+.me-inspector { border-top: 1px solid var(--border, #ddd); margin-top: 15px; padding-top: 14px; }
+.me-inspector h3 { margin: 0 0 5px; overflow-wrap: anywhere; font-size: 15px; }
+.me-controls { display: grid; grid-template-columns: 1fr 98px; gap: 8px; align-items: center; margin: 12px 0; }
+.me-controls input, .me-controls select { width: 100%; min-width: 0; box-sizing: border-box; }
+.me-controls input[type=color] { height: 30px; padding: 2px; }
+.me-textures { display: grid; gap: 8px; }
+.me-texture { display: flex; align-items: center; gap: 7px; }
+.me-texture img { width: 34px; height: 34px; object-fit: cover; border-radius: 4px; background: #8883; }
+.me-texture span { flex: 1; }
+.me-texture button { font-size: 11px; padding: 5px; }
+.me-water { padding: 12px; background: #2588ac0c; border: 1px solid #2588ac40; border-radius: 8px; margin-top: 12px; }
+.me-water h4 { margin: 0 0 10px; }
+.me-status { min-height: 18px; font-size: 12px; margin-top: 8px; overflow-wrap: anywhere; }
+#materialEditor fieldset { padding: 0; border: 0; margin: 0; min-width: 0; }
+#materialEditor button:disabled { opacity: .45; cursor: default; }
+@media (max-width: 600px) { .me-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: 180px; } #materialEditor { padding: 12px; } }
+#materialEditor button, #materialEditor input, #materialEditor select { font: inherit; border: 1px solid var(--border, #d4d9e0); border-radius: 6px; color: inherit; background-color: var(--controlBg, #f6f7f9); padding: 6px 8px; }
+#materialEditor button:hover:not(:disabled) { border-color: var(--accent, #2784bd); }
+#materialEditor .me-card { padding: 6px; }
+#materialEditor .me-modes button[aria-pressed=true] { background: var(--accent, #2784bd); color: white; }
+@media (max-width: 980px) {
+    body.material-flow-edit .side { top: auto; height: 43vh; bottom: var(--footerH, 34px); border-top: 1px solid var(--border, #ddd); }
+    body.material-flow-edit .side-tabs { display: none; }
+}

@@ -142,6 +142,10 @@ export function createBackgroundController(options = {}) {
     function syncToCamera() {
         if (disposed) return;
         if (!bgMesh || !camera) return;
+        // Preview cameras can use a much shorter far plane than the main scene.
+        // Keep the backdrop inside that range without changing scene bounds.
+        const radius = Math.max(camera.near * 2, Math.min(100000, camera.far * 0.8));
+        bgMesh.scale.setScalar(radius / 100000);
         if (worldCameraPos && typeof camera.getWorldPosition === 'function') {
             camera.getWorldPosition(worldCameraPos);
             bgMesh.position.copy(worldCameraPos);

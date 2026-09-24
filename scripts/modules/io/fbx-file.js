@@ -1,3 +1,4 @@
+import { captureParsedMaterials } from '../material/scene-materials.js';
 import { collectMaterialTextures } from '../material/texture-utils.js';
 
 export function createFBXFileHandler(options = {}) {
@@ -116,6 +117,8 @@ export function createFBXFileHandler(options = {}) {
             [
                 ...asMaterialArray(node?.userData?._origMaterial),
                 ...asMaterialArray(node?.userData?._removedMaterials),
+                ...asMaterialArray(node?.userData?._editorOriginalMaterials),
+                ...asMaterialArray(node?.userData?._editorEditedMaterials),
             ].forEach((material) => disposeMaterial(material, { disposeTextures: true }));
             [
                 ...asMaterialArray(node?.userData?._bfFront),
@@ -279,6 +282,7 @@ export function createFBXFileHandler(options = {}) {
             logBind(`⚠️ Парсер FBX вернул пустой объект для ${file.name}`, 'warn');
             throw new Error(`FBX parser returned empty object for ${file.name}`);
         }
+        captureParsedMaterials(obj);
         if (embedded.length) {
             allEmbedded.push(...embedded);
             embeddedPushed = true;

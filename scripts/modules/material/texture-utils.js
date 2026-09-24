@@ -160,6 +160,8 @@ export function objectTreeUsesMaterial(root, material) {
     const userDataMaterialKeys = [
         '_origMaterial',
         '_removedMaterials',
+        '_editorOriginalMaterials',
+        '_editorEditedMaterials',
         '_bfFront',
         '_bfBack',
         '_wireBase',
@@ -199,6 +201,8 @@ export function objectTreeUsesTexture(root, texture) {
     const userDataMaterialKeys = [
         '_origMaterial',
         '_removedMaterials',
+        '_editorOriginalMaterials',
+        '_editorEditedMaterials',
         '_bfFront',
         '_bfBack',
         '_wireBase',

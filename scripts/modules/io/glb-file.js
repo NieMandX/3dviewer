@@ -1,3 +1,4 @@
+import { captureParsedMaterials } from '../material/scene-materials.js';
 import { collectMaterialTextures } from '../material/texture-utils.js';
 
 export function createGLBFileHandler(options = {}) {
@@ -107,6 +108,8 @@ export function createGLBFileHandler(options = {}) {
             [
                 ...asMaterialArray(node?.userData?._origMaterial),
                 ...asMaterialArray(node?.userData?._removedMaterials),
+                ...asMaterialArray(node?.userData?._editorOriginalMaterials),
+                ...asMaterialArray(node?.userData?._editorEditedMaterials),
             ].forEach((material) => disposeMaterial(material, { disposeTextures: true }));
             [
                 ...asMaterialArray(node?.userData?._bfFront),
@@ -162,6 +165,7 @@ export function createGLBFileHandler(options = {}) {
             throwIfAborted();
             if (!root) throw new Error(`GLTFLoader returned no scene for ${file.name}`);
 
+            captureParsedMaterials(root);
             const fileBaseName = basename(file.name).replace(/\.glb$/i, '') || 'GLB';
             if (!root.name) root.name = fileBaseName;
             root.animations = Array.isArray(gltf.animations) ? gltf.animations : [];
@@ -179,7 +183,7 @@ export function createGLBFileHandler(options = {}) {
             });
             if (hasRiverFlow) {
                 const { installRiverFlow } = await import('../material/river-flow.js');
-                await installRiverFlow(root, { useWebGPU: !!options.useWebGPU, requestRender, signal });
+                await installRiverFlow(root, { useWebGPU: !!options.useWebGPU, requestRender, signal, world });
                 throwIfAborted();
             }
 
