@@ -28,6 +28,7 @@ export async function checkMaterialThumbnails({ device, webgpu = true } = {}) {
     const glass = new T.MeshPhysicalMaterial({ transmission: 1, roughness: .03, thickness: .2, side: T.DoubleSide });
     const solid = new T.MeshStandardMaterial({ color: '#b7753c', roughness: .6 });
     const sphere = new T.Mesh(geometry, glass); scene.add(sphere);
+    const roof = new T.Mesh(geometry, solid); roof.position.set(1.5, 0, -1); scene.add(roof);
     const normal = new T.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
     const field = new T.DataTexture(new Uint8Array([255, 128, 255, 0]), 1, 1);
     normal.needsUpdate = field.needsUpdate = true;
@@ -55,10 +56,23 @@ export async function checkMaterialThumbnails({ device, webgpu = true } = {}) {
             r.setSize(256 + i * 8, 256 + i * 8); r.render(scene, camera);
             thumbnails.clear();
         }
+        // Roof-color editing with glass and flowing water present must refresh
+        // the thumbnail without invalidating the scene's material program.
+        const colorVersion = solid.version, colorImages = new Set();
+        for (const color of ['#d83224', '#289b54', '#3159dd']) {
+            solid.color.set(color); thumbnails.invalidate(solid);
+            r.render(scene, camera);
+            image.removeAttribute('src'); thumbnails.enqueue(image, solid);
+            for (let n = 0; n < 250 && !image.src.startsWith('data:image/png'); n++) await new Promise((resolve) => setTimeout(resolve, 20));
+            if (!image.src.startsWith('data:image/png')) throw new Error('Color thumbnail did not finish');
+            colorImages.add(image.src); r.render(scene, camera);
+        }
+        if (gpu) await gpu.queue.onSubmittedWorkDone();
         const error = await gpu?.popErrorScope();
         scopeOpen = false;
         if (error) errors.push(error.message);
-        return { errors, thumbnailCount, backend: gpu ? 'webgpu' : 'webgl', sceneDrawn: r.info.render.calls > 0,
+        return { errors, thumbnailCount, uniformColorEdits: solid.version === colorVersion && colorImages.size === 3,
+            backend: gpu ? 'webgpu' : 'webgl', sceneDrawn: r.info.render.calls > 0,
             physicalMaterialsPreserved: glass.transmission === 1 && glass.opacity === 1 && water.material.transmission === .32 && water.material.opacity === 1,
             targetsRestored: r.getRenderTarget() === null && (!webgpu || r.getOutputRenderTarget() === null) };
     } finally {

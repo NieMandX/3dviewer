@@ -190,7 +190,7 @@ export function createMaterialEditor(options) {
         undo.get(m)?.clone?.dispose();
         undo.set(m, { clone: m.clone(), priority: getDepthPriority(m), speed: m.riverFlow?.speed, playing: m.riverFlow?.playing });
     }
-    function mark(entry) {
+    function mark(entry, recompile = true) {
         const m = entry.material;
         m.userData.viewerBaseColorNeutralized = false;
         if (m.color) m.userData.viewerSourceBaseColor = m.color.toArray();
@@ -198,7 +198,9 @@ export function createMaterialEditor(options) {
             ...m.userData.glassOverrides, color: '#' + m.color.getHexString(), opacity: m.opacity, roughness: m.roughness,
             metalness: m.metalness, transmission: m.transmission, refraction: m.ior, envIntensity: m.envMapIntensity,
         };
-        changed.add(m); m.needsUpdate = true; requestRender();
+        changed.add(m);
+        if (recompile) m.needsUpdate = true;
+        thumbs.invalidate(m); requestRender();
         if (!batching) { renderList(); options.onMaterialsChanged?.(); tell('Есть несохранённые изменения.'); }
     }
     function physical(entry) {
@@ -308,7 +310,10 @@ export function createMaterialEditor(options) {
             else if (input.dataset.select === 'side') m.side = Number(input.value);
             else if (input.dataset.select === 'alpha') m.transparent = input.value === 'blend';
             else return;
-            mark(entry); const undoButton = inspector.querySelector('[data-action=undo]'); if (undoButton) undoButton.disabled = false;
+            // Colors are shader uniforms, not a change in shader structure.
+            // Keep live scene pipelines/bindings intact and invalidate only the
+            // thumbnail, rather than forcing a compile on each color change.
+            mark(entry, !input.dataset.color); const undoButton = inspector.querySelector('[data-action=undo]'); if (undoButton) undoButton.disabled = false;
         } catch (error) { tell(error.message); }
     }
     const search = (event) => { query = event.target.value; renderList(); };

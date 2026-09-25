@@ -12,7 +12,8 @@ export function createMaterialThumbnails({ renderer, ready, getEnvironment, requ
     const placeholder = sphere.material;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshStandardMaterial({ color: 0xb8bec7, roughness: 0.8 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -1.05; scene.add(floor);
     const target = new THREE.WebGLRenderTarget(128, 128, { type: THREE.UnsignedByteType, format: THREE.RGBAFormat });
-    const queue = new Map(), cache = new WeakMap();
+    const queue = new Map(), cache = new WeakMap(), revisions = new WeakMap();
+    const materialKey = (material) => `${material.version}:${revisions.get(material) || 0}`;
     let busy = false, disposed = false, generation = 0, timer = null;
     const environmentKey = () => {
         const environment = getEnvironment?.();
@@ -20,14 +21,14 @@ export function createMaterialThumbnails({ renderer, ready, getEnvironment, requ
     };
     function cached(material) {
         const entry = cache.get(material);
-        return entry?.version === material.version && entry.environment === environmentKey() ? entry.url : null;
+        return entry?.version === materialKey(material) && entry.environment === environmentKey() ? entry.url : null;
     }
     async function next() {
         timer = null;
         if (busy || disposed || !queue.size) return;
         busy = true;
         const [image, material] = queue.entries().next().value; queue.delete(image);
-        const token = generation, version = material.version, environment = environmentKey();
+        const token = generation, version = materialKey(material), environment = environmentKey();
         let preview;
         try {
             await ready;
@@ -64,7 +65,7 @@ export function createMaterialThumbnails({ renderer, ready, getEnvironment, requ
             }
             const pixels = renderer.isWebGPURenderer ? await renderer.readRenderTargetPixelsAsync(target, 0, 0, 128, 128)
                 : await renderer.readRenderTargetPixelsAsync(target, 0, 0, 128, 128, new Uint8Array(128 * 128 * 4));
-            if (disposed || token !== generation || !image.isConnected || queue.has(image) || material.version !== version || environmentKey() !== environment) return;
+            if (disposed || token !== generation || !image.isConnected || queue.has(image) || materialKey(material) !== version || environmentKey() !== environment) return;
             const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
             const ctx = canvas.getContext('2d'), data = ctx.createImageData(128, 128);
             for (let y = 0; y < 128; y++) data.data.set(pixels.subarray(y * 512, (y + 1) * 512), (renderer.isWebGPURenderer ? y : 127 - y) * 512);
@@ -75,6 +76,9 @@ export function createMaterialThumbnails({ renderer, ready, getEnvironment, requ
     }
     const observer = new IntersectionObserver((items) => { for (const item of items) if (item.isIntersecting) { const material = item.target._thumbnailMaterial; observer.unobserve(item.target); queue.set(item.target, material); next(); } }, { rootMargin: '100px' });
     return {
+        // Color/uniform edits do not need to recompile the scene shader. Their
+        // preview revision is independent, including any pending GPU readback.
+        invalidate(material) { revisions.set(material, (revisions.get(material) || 0) + 1); cache.delete(material); },
         enqueue(image, material) { const url = cached(material); if (url) { image.src = url; return; } image._thumbnailMaterial = material; observer.observe(image); },
         clear() { generation++; observer.disconnect(); queue.clear(); clearTimeout(timer); timer = null; },
         dispose() { disposed = true; generation++; observer.disconnect(); queue.clear(); clearTimeout(timer); timer = null; sphere.geometry.dispose(); placeholder.dispose(); floor.geometry.dispose(); floor.material.dispose(); if (!busy) target.dispose(); },

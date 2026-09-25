@@ -18,6 +18,7 @@ export async function runMaterialThumbnailsSmoke(browser, baseUrl) {
             assert.equal(value.sceneDrawn, true);
             assert.equal(value.physicalMaterialsPreserved, true);
             assert.equal(value.targetsRestored, true);
+            assert.equal(value.uniformColorEdits, true, 'Color edits refresh previews without a shader rebuild');
         }
         assert.deepEqual(errors, []);
         console.log(`[smoke] glass, flowing water, thumbnails and resize passed (WebGL${result.webgpu ? ' + WebGPU' : '; WebGPU adapter unavailable in this runner'})`);

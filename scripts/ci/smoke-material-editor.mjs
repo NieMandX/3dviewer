@@ -53,6 +53,11 @@ export async function runMaterialEditorSmoke(browser, baseUrl) {
             const sharedEdit = a.material === b.material && Math.abs(a.material.roughness - .21) < 1e-6;
             await readyThumbnails();
             const onlyEditedThumbnailRendered = thumbnailRenders === beforeSelection + 1;
+            const colorVersion = a.material.version, rendersBeforeColor = thumbnailRenders;
+            const colorInput = document.querySelector('#meColor'); colorInput.value = '#35aa68'; colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+            await readyThumbnails();
+            const colorUniformOnly = a.material.version === colorVersion && a.material.color.getHexString() === '35aa68'
+                && a.material === b.material && thumbnailRenders === rendersBeforeColor + 1;
             root.remove(other); editor.refresh();
             editor.setMode(true); const parseRestored = a.material.roughness === .82 && a.material === b.material;
             editor.setMode(false); const editsRestored = a.material.roughness === .21;
@@ -98,7 +103,7 @@ export async function runMaterialEditorSmoke(browser, baseUrl) {
             const pending = stale.refresh(models); context.roomId = 'other'; finish({ data: { document: file, revision: 1 } }); await pending;
             const rejectsStale = lateApply === 0;
             persistence.dispose(); stale.dispose(); flowEditor.dispose(); background.dispose(); editor.dispose(); renderer.dispose();
-            return { cards, thumbnail, texturePreviewSmall, selectionKeepsThumbnail, thumbnailCache, onlyEditedThumbnailRendered, sharedEdit, parseRestored, editsRestored, roundtrip, waterRoundtrip, legacyWaterRoundtrip, validGraph, hasBranches, surfaceSnap, controlsRestored, backgroundInsideFar, roomLoadedOnce, onlineRetry, rejectsStale };
+            return { cards, thumbnail, texturePreviewSmall, selectionKeepsThumbnail, thumbnailCache, onlyEditedThumbnailRendered, colorUniformOnly, sharedEdit, parseRestored, editsRestored, roundtrip, waterRoundtrip, legacyWaterRoundtrip, validGraph, hasBranches, surfaceSnap, controlsRestored, backgroundInsideFar, roomLoadedOnce, onlineRetry, rejectsStale };
         });
         assert.equal(result.cards, 1, 'Shared material appears once');
         for (const [key, value] of Object.entries(result)) if (key !== 'cards') assert.equal(value, true, key);
