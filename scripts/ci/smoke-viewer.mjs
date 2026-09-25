@@ -15,6 +15,7 @@ import { runMapBuildingsSmoke, runMapBuildingsUISmoke } from './smoke-map-buildi
 import { runMaterialEditorSmoke } from './smoke-material-editor.mjs';
 import { runDepthPrioritySmoke } from './smoke-depth-priority.mjs';
 import { runMaterialThumbnailsSmoke } from './smoke-material-thumbnails.mjs';
+import { runMaterialPacksSmoke } from './smoke-material-packs.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const roomProject = process.env.LPMVIEW_SMOKE_PROJECT || 'shmit';
@@ -14210,6 +14211,7 @@ try {
     await runDepthPrioritySmoke(browserContext, smokeServer.baseUrl);
     await runMaterialEditorSmoke(browserContext, smokeServer.baseUrl);
     await runMaterialThumbnailsSmoke(browserContext, smokeServer.baseUrl);
+    await runMaterialPacksSmoke(browserContext, smokeServer.baseUrl);
     console.log('Material depth priority rendering, reset and shared-material UI smoke passed.');
     await runBootRuntimeFailureSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot runtime failure smoke passed.');

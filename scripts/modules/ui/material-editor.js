@@ -6,6 +6,9 @@ import { MATERIAL_PRESETS, createPresetMaterial } from '../material/material-pre
 import { createFlowNetworkEditor, createFlowField, validateFlowNetwork } from '../material/flow-network.js';
 import { createRiverMaterial, attachRiverRuntime, readRiverFlowSettings } from '../material/river-flow.js';
 import { createMaterialThumbnails } from './material-thumbnails.js';
+import { createMaterialPicker } from './material-picker.js';
+import { createMaterialPackPanel } from './material-pack-panel.js';
+import { describeMaterial, PACK_MAPS, preparePackMaterials, packAbort } from '../material/material-pack.js';
 
 const NUMBERS = [
     ['roughness', 'Шероховатость', 0, 1, .01], ['metalness', 'Металличность', 0, 1, .01],
@@ -25,13 +28,16 @@ export function createMaterialEditor(options) {
     const host = document.getElementById('materialEditor');
     if (!host || !options.renderer) return null;
     const { loadedModels, world, requestRender } = options;
-    let entries = new Map(), selectedId = '', originals = false, alive = true, generation = 0, query = '', active = false, flowDraft = null;
+    let entries = new Map(), selectedId = '', originals = false, alive = true, generation = 0, query = '', active = false, flowDraft = null, batching = false, packBusy = false;
+    let rootKey = '', packs;
+    const suspendedFlows = new Map();
     const changed = new Set(), undo = new Map(), comparisons = new WeakMap(), texturePreviews = new WeakMap();
     const thumbs = createMaterialThumbnails({ renderer: options.renderer, ready: options.rendererReady, getEnvironment: options.getEnvironment, requestRender });
     const flow = createFlowNetworkEditor({ ...options, onActive: (value) => document.body.classList.toggle('material-flow-edit', value), canvas: options.renderer.domElement, onChange: (network) => { flowDraft = structuredClone(network); updateFlowCount(); } });
     host.innerHTML = `
         <div class="me-modes" role="group" aria-label="Сравнение материалов"><button data-mode="edited" aria-pressed="true">Изменённые</button><button data-mode="original" aria-pressed="false">Исходные</button></div>
-        <div class="me-toolbar"><button data-action="save">Сохранить в комнате</button><button data-action="download">Скачать настройки</button><button data-action="load">Открыть настройки</button></div>
+        <div class="me-toolbar"><button data-action="pick" aria-pressed="false">⌖ Пипетка — выбрать на модели</button><button data-action="save">Сохранить в комнате</button><button data-action="download">Скачать настройки</button><button data-action="load">Открыть настройки</button></div>
+        <p class="me-pick-hint me-note" hidden>Щёлкните по поверхности модели. Esc или повторное нажатие — отмена.</p><div data-pack-host></div>
         <p class="me-note">Материалы сохраняются отдельно от модели. Исходные доступны для сравнения в любой момент.</p>
         <div class="me-presets" aria-label="Готовые материалы">${MATERIAL_PRESETS.map((p) => `<button data-preset="${p.id}" title="Применить к выбранному материалу"><i class="me-preset-ball" style="--sample:${p.color}"></i>${p.name}</button>`).join('')}</div>
         <input class="me-search" type="search" aria-label="Поиск материалов" placeholder="Найти материал…">
@@ -43,11 +49,36 @@ export function createMaterialEditor(options) {
     const selected = () => entries.get(selectedId);
     const tell = (text) => { if (alive) status.textContent = text; };
     const live = (entry) => entry && entry.uses.some((u) => loadedModels.some((m) => m.obj === u.root) && asMaterialArray(u.object.userData._editorEditedMaterials || u.object.material).includes(entry.material));
+    function selectEntry(entry) {
+        flow.stop(); selectedId = entry.material.uuid;
+        if (query && !entry.material.name.toLowerCase().includes(query.toLowerCase())) { query = ''; host.querySelector('.me-search').value = ''; renderList(); }
+        for (const card of grid.children) card.setAttribute('aria-pressed', String(card.dataset.material === selectedId));
+        renderInspector(); grid.querySelector(`[data-material="${selectedId}"]`)?.scrollIntoView({ block: 'nearest' });
+    }
+    const picker = createMaterialPicker({ canvas: options.renderer.domElement, camera: options.camera, controls: options.controls, getEntries: () => entries,
+        onPick: (entry) => { selectEntry(entry); tell(`Выбран материал «${entry.material.name || 'Без имени'}».`); },
+        onMiss: () => tell('Здесь нет видимой поверхности модели. Выберите другую точку или нажмите Esc.'),
+        onActive: (value) => { document.body.classList.toggle('material-picking', value); host.querySelector('[data-action=pick]').setAttribute('aria-pressed', String(value)); host.querySelector('.me-pick-hint').hidden = !value; },
+    });
+    packs = createMaterialPackPanel({ host: host.querySelector('[data-pack-host]'), store: options.projectPacks, getModels: () => loadedModels,
+        getEntries: (model) => [...entries.values()].filter((e) => e.uses.some((u) => u.root === model.obj)).map((e) => ({ ...e, uses: e.uses.filter((u) => u.root === model.obj) })), apply: applyPack,
+        onSaved: (entries, result) => { entries.forEach((entry, index) => { linkPack(entry.material, result.id, result.pack.materials[index]); changed.add(entry.material); }); renderList(); },
+        onBusy: (value) => {
+            packBusy = value;
+            if (value) {
+                picker.stop(); flow.stop(); thumbs.clear();
+                for (const { material } of entries.values()) if (material.riverFlow && !suspendedFlows.has(material.riverFlow)) {
+                    suspendedFlows.set(material.riverFlow, material.riverFlow.suspended); material.riverFlow.suspended = true;
+                }
+            } else { resumeWater(); if (active) renderList(); }
+            host.setAttribute('aria-busy', String(value));
+        }, tell });
+    function resumeWater() { for (const [state, previous] of suspendedFlows) state.suspended = previous; suspendedFlows.clear(); requestRender(); }
     function tab(show) {
         active = show; host.hidden = !show; scenePanel.hidden = show;
         sceneTab.setAttribute('aria-selected', String(!show)); materialTab.setAttribute('aria-selected', String(show));
         sceneTab.tabIndex = show ? -1 : 0; materialTab.tabIndex = show ? 0 : -1;
-        if (!show) { flow.stop(); thumbs.clear(); } else refresh();
+        if (!show) { picker.stop(); flow.stop(); thumbs.clear(); } else refresh();
     }
     const sceneClick = () => tab(false), materialClick = () => tab(true);
     function tabKey(event) { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); tab(event.key === 'Home' ? false : event.key === 'End' ? true : !active); (active ? materialTab : sceneTab).focus(); } }
@@ -56,12 +87,15 @@ export function createMaterialEditor(options) {
 
     function refresh() {
         if (!alive) return;
+        const nextRoots = loadedModels.map((m) => m.obj.uuid).join('|');
+        if (nextRoots !== rootKey) { generation++; picker.stop(); rootKey = nextRoots; }
         loadedModels.forEach((m) => captureParsedMaterials(m.obj));
         entries = collectSceneMaterials(loadedModels);
         if (!entries.has(selectedId)) { selectedId = entries.keys().next().value || ''; if (flow.active) flow.stop(); }
         for (const material of changed) if (![...entries.values()].some((e) => e.material === material)) changed.delete(material);
-        for (const material of undo.keys()) if (![...entries.values()].some((e) => e.material === material)) undo.delete(material);
+        for (const material of undo.keys()) if (![...entries.values()].some((e) => e.material === material)) { undo.get(material).clone.dispose(); undo.delete(material); }
         if (active) { renderList(); renderInspector(); }
+        packs?.refresh();
         options.persistence?.refresh?.();
     }
     function renderList() {
@@ -110,7 +144,7 @@ export function createMaterialEditor(options) {
         }
     }
     function setMode(value) {
-        flow.stop(); flowDraft = null; originals = value; options.ensurePBR?.();
+        picker.stop(); flow.stop(); flowDraft = null; originals = value; options.ensurePBR?.();
         for (const model of loadedModels) model.obj.traverse((object) => {
             if (!object.isMesh || !object.userData._editorOriginalMaterials) return;
             if (!object.userData._editorEditedMaterials) keepMaterials(object, '_editorEditedMaterials', Array.isArray(object.material) ? [...object.material] : object.material);
@@ -133,6 +167,7 @@ export function createMaterialEditor(options) {
     }
     function bind(entry, next) {
         const prev = entry.material;
+        if (!next.editorPackAssets && next.userData.viewerMaterialPack === prev.userData.viewerMaterialPack && prev.editorPackAssets) Object.defineProperty(next, 'editorPackAssets', { value: prev.editorPackAssets, configurable: true });
         const history = undo.get(prev); if (history) { undo.delete(prev); undo.set(next, { ...history, previous: prev }); }
         next.userData.viewerMaterialId = prev.userData.viewerMaterialId;
         for (const { object, index } of entry.uses) {
@@ -163,7 +198,8 @@ export function createMaterialEditor(options) {
             ...m.userData.glassOverrides, color: '#' + m.color.getHexString(), opacity: m.opacity, roughness: m.roughness,
             metalness: m.metalness, transmission: m.transmission, refraction: m.ior, envIntensity: m.envMapIntensity,
         };
-        changed.add(m); m.needsUpdate = true; requestRender(); renderList(); options.onMaterialsChanged?.(); tell('Есть несохранённые изменения.');
+        changed.add(m); m.needsUpdate = true; requestRender();
+        if (!batching) { renderList(); options.onMaterialsChanged?.(); tell('Есть несохранённые изменения.'); }
     }
     function physical(entry) {
         if (entry.material.isMeshPhysicalMaterial) return entry.material;
@@ -194,14 +230,19 @@ export function createMaterialEditor(options) {
     let textureSlot = '', textureEntry = null;
     async function click(event) {
         const button = event.target.closest('button'); if (!button) return;
+        if (button.closest('.me-packs')) return;
         try {
+            if (packBusy) { tell('Дождитесь завершения работы с набором или отмените её.'); return; }
             if (button.dataset.material) {
-                flow.stop(); selectedId = button.dataset.material;
-                for (const card of grid.children) card.setAttribute('aria-pressed', String(card.dataset.material === selectedId));
-                renderInspector(); return;
+                picker.stop(); const entry = entries.get(button.dataset.material); if (entry) selectEntry(entry); return;
             }
             if (button.dataset.mode) { setMode(button.dataset.mode === 'original'); return; }
             const entry = selected(), m = entry?.material, action = button.dataset.action;
+            if (action === 'pick') {
+                if (picker.active) picker.stop();
+                else if (entries.size) { if (options.canPickMaterial?.() === false) throw Error('Завершите рисование аннотации перед выбором материала.'); flow.stop(); options.beforeMaterialPick?.(); picker.start(); }
+                return;
+            }
             if (action === 'download') { const data = serialize(); download(data); tell('Настройки сохранены в файл.'); return; }
             if (action === 'load') { host.querySelector('[data-file=settings]').click(); return; }
             if (action === 'save') { if (!options.saveSettings) throw Error('Откройте комнату проекта, чтобы сохранить настройки.'); await options.saveSettings(serialize()); tell('Настройки материалов сохранены в комнате.'); return; }
@@ -226,7 +267,7 @@ export function createMaterialEditor(options) {
             if (button.dataset.clear) {
                 checkpoint(entry); const slot = button.dataset.clear; retainTextures(m); m[slot] = null; mark(entry); renderInspector(); return;
             }
-            if (action === 'flow-start') { flowDraft = structuredClone(m.userData.lpmview_water?.network || { nodes: [], edges: [] }); flow.start(entry, flowDraft); inspector.querySelector('[data-flow-tools]').hidden = false; inspector.querySelector('[data-flow-tools]').scrollIntoView({ block: 'nearest' }); updateFlowCount(); return; }
+            if (action === 'flow-start') { picker.stop(); flowDraft = structuredClone(m.userData.lpmview_water?.network || { nodes: [], edges: [] }); flow.start(entry, flowDraft); inspector.querySelector('[data-flow-tools]').hidden = false; inspector.querySelector('[data-flow-tools]').scrollIntoView({ block: 'nearest' }); updateFlowCount(); return; }
             if (action === 'flow-branch') { flow.newBranch(); tell('Щёлкните по точке, из которой должна начаться новая ветка.'); return; }
             if (action === 'flow-delete') { flow.removePoint(); return; }
             if (action === 'flow-reverse') { flow.reverse(); return; }
@@ -238,6 +279,8 @@ export function createMaterialEditor(options) {
     function retainTextures(m) { m.editorRetainedTextures = [...new Set([...(m.editorRetainedTextures || []), ...collectMaterialTextures(m)])]; }
     async function change(event) {
         const input = event.target;
+        if (input.closest('.me-packs')) return;
+        if (packBusy) { renderInspector(); return; }
         try {
             if (input.dataset.file === 'settings') { const file = input.files[0]; if (file) { if (file.size > 32 * 1024 * 1024) throw Error('Файл настроек слишком большой.'); await applySettings(JSON.parse(await file.text())); } input.value = ''; return; }
             if (input.dataset.file === 'texture') {
@@ -278,6 +321,8 @@ export function createMaterialEditor(options) {
     function serialize() {
         return { format: 'lpmview-materials', version: 1, materials: [...entries.values()].filter((e) => changed.has(e.material)).map((entry) => {
             const m = entry.material, first = entry.uses[0], original = asMaterialArray(first.object.userData._editorOriginalMaterials)[first.index];
+            if (m.userData.viewerMaterialPack) return { ...materialKey(entry), name: m.name, pack: m.userData.viewerMaterialPack,
+                portable: describeMaterial(m, (t) => m.editorPackAssets?.has(t) ? { asset: m.editorPackAssets.get(t) } : { data: textureURL(t, 8192) }) };
             return { ...materialKey(entry), name: m.name, preset: m.userData.viewerPreset || null,
                 values: Object.fromEntries(NUMBERS.filter(([key]) => !['normalStrength', 'depthPriority'].includes(key)).map(([key]) => [key, m[key] ?? 0])),
                 attenuationColor: m.attenuationColor?.toArray(), specularColor: m.specularColor?.toArray(), color: m.color?.toArray(), emissive: m.emissive?.toArray(), normalScale: m.normalScale?.toArray(), depthPriority: getDepthPriority(m), side: m.side, transparent: m.transparent,
@@ -288,9 +333,10 @@ export function createMaterialEditor(options) {
     }
     async function applySettings(data, { isCurrent = () => true } = {}) {
         if (data?.format !== 'lpmview-materials' || data.version !== 1 || !Array.isArray(data.materials) || data.materials.length > 4096) throw Error('Неподдерживаемый файл материалов.');
-        const token = ++generation; if (originals) setMode(false); let applied = 0;
-        refresh();
-        for (const saved of data.materials) {
+        if (originals) setMode(false); refresh(); const token = ++generation; let applied = 0;
+        const portable = data.materials.filter((row) => row.portable);
+        if (portable.length) applied += await restorePortable(portable, () => alive && token === generation && isCurrent());
+        for (const saved of data.materials.filter((row) => !row.portable)) {
             if (!alive || token !== generation || !isCurrent()) return;
             const entry = [...entries.values()].find((e) => { const key = materialKey(e); return key.model === saved.model && key.material === saved.material; });
             if (!entry) continue;
@@ -337,14 +383,67 @@ export function createMaterialEditor(options) {
         }
         refresh(); tell(`Восстановлено материалов: ${applied}.`); return applied;
     }
+    function linkPack(material, id, descriptor) {
+        material.userData.viewerMaterialPack = id;
+        Object.defineProperty(material, 'editorPackAssets', { configurable: true, value: new Map(PACK_MAPS.filter((key) => material[key] && descriptor.maps?.[key]?.asset).map((key) => [material[key], descriptor.maps[key].asset])) });
+    }
+    function commitPortable(jobs) {
+        batching = true;
+        try {
+            for (const { entry, descriptor, id, prepared } of jobs) {
+                const { material, runtime } = prepared;
+                material.name = entry.material.name;
+                linkPack(material, id, descriptor);
+                if (runtime) {
+                    attachRiverRuntime(runtime, [...new Set(entry.uses.map((u) => u.object))], entry.uses[0].root, material.userData.lpmview_water, { requestRender, world });
+                    material.riverFlow.playing = descriptor.water?.playing !== false;
+                }
+                checkpoint(entry); bind(entry, material); mark(entry);
+            }
+        } finally { batching = false; }
+        refresh(); options.onMaterialsChanged?.(); requestRender();
+    }
+    async function applyPack(plan, isCurrent = () => true) {
+        picker.stop(); flow.stop(); if (originals) setMode(false);
+        const token = ++generation, originalsByEntry = new Map(plan.matches.map(({ entry }) => [entry, entry.material]));
+        const current = () => alive && generation === token && isCurrent() && [...originalsByEntry].every(([entry, material]) => live(entry) && entry.material === material);
+        const descriptors = plan.matches.map(({ entry, index }) => ({ ...plan.source.pack.materials[index], name: entry.material.name }));
+        const prepared = await preparePackMaterials(descriptors, { loadAsset: plan.source.loadAsset, isCurrent: current, useWebGPU: options.useWebGPU });
+        if (!current()) { prepared.dispose(); throw packAbort(); }
+        commitPortable(plan.matches.map(({ entry }, i) => ({ entry, id: plan.source.id, descriptor: descriptors[i], prepared: prepared.results[i] })));
+        return descriptors.length;
+    }
+    async function restorePortable(rows, isCurrent) {
+        if (!options.projectPacks) throw Error('Для восстановления набора откройте его проект.');
+        const groups = new Map(), preparedGroups = [], jobs = [];
+        for (const row of rows) {
+            const entry = [...entries.values()].find((e) => { const key = materialKey(e); return key.model === row.model && key.material === row.material; });
+            if (!entry) continue;
+            if (!groups.has(row.pack)) groups.set(row.pack, []);
+            groups.get(row.pack).push({ row, entry, material: entry.material });
+        }
+        const current = () => isCurrent() && [...groups.values()].flat().every(({ entry, material }) => live(entry) && entry.material === material);
+        try {
+            for (const [id, records] of groups) {
+                const source = await options.projectPacks.open(id, { isCurrent: current });
+                const prepared = await preparePackMaterials(records.map(({ row }) => row.portable), { loadAsset: source.loadAsset, isCurrent: current, useWebGPU: options.useWebGPU });
+                preparedGroups.push(prepared);
+                records.forEach(({ row, entry }, i) => jobs.push({ entry, descriptor: row.portable, id, prepared: prepared.results[i] }));
+            }
+            if (!current()) throw packAbort();
+        } catch (error) { preparedGroups.forEach((g) => g.dispose()); throw error; }
+        commitPortable(jobs); return jobs.length;
+    }
     function download(data) {
         const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
         const a = document.createElement('a'); a.href = url; a.download = 'materials.lpmview.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     return {
-        refresh, serialize, applySettings, setMode,
+        refresh, serialize, applySettings, setMode, applyPack,
+        get picking() { return picker.active || flow.active; },
+        cancelInteraction() { generation++; picker.stop(); flow.stop(); packs.cancel(); },
         get originalMode() { return originals; },
-        dispose() { alive = false; generation++; flow.dispose(); thumbs.dispose(); for (const state of undo.values()) state.clone.dispose(); undo.clear(); entries.clear(); changed.clear(); host.removeEventListener('click', click); host.removeEventListener('change', change); host.querySelector('.me-search').removeEventListener('input', search); sceneTab.removeEventListener('click', sceneClick); materialTab.removeEventListener('click', materialClick); sceneTab.removeEventListener('keydown', tabKey); materialTab.removeEventListener('keydown', tabKey); },
+        dispose() { alive = false; generation++; picker.dispose(); packs.dispose(); flow.dispose(); thumbs.dispose(); resumeWater(); for (const state of undo.values()) state.clone.dispose(); undo.clear(); entries.clear(); changed.clear(); host.removeEventListener('click', click); host.removeEventListener('change', change); host.querySelector('.me-search').removeEventListener('input', search); sceneTab.removeEventListener('click', sceneClick); materialTab.removeEventListener('click', materialClick); sceneTab.removeEventListener('keydown', tabKey); materialTab.removeEventListener('keydown', tabKey); },
     };
 }
 

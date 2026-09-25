@@ -146,7 +146,7 @@ export function attachRiverRuntime(flow, objects, root, settings, { requestRende
         }
         const update = (renderedMaterial) => {
             if (world) offset.copy(world.position);
-            if (disposed || doc?.hidden || !state.playing || state.speed <= 0 || renderedMaterial !== material || !root.parent) { last = performance.now(); return; }
+            if (disposed || doc?.hidden || state.suspended || !state.playing || state.speed <= 0 || renderedMaterial !== material || !root.parent) { last = performance.now(); return; }
             const now = performance.now();
             time.value += Math.min(Math.max(0, (now - last) / 1000), 0.1) * Math.max(0, Math.min(30, state.speed));
             last = now; requestRender();
