@@ -54,7 +54,8 @@ cloud infrastructure code.
 ## Deployment and secrets
 
 - GitHub Pages is the latest test build from `gh-pages`.
-- A push also syncs static files to Yandex Object Storage.
+- Pushes publish only to GitHub Pages. Yandex Object Storage sync is manual,
+  disabled by default, and requires separate explicit owner approval.
 - `https://agr.vision/` is a separately promoted immutable Caddy release. Never
   promote or roll it back without explicit owner approval.
 - Never commit service-role keys, Yandex static keys, LiveKit secrets, database

@@ -6,11 +6,13 @@ Use `gh-pages` for the current tested viewer build:
 
 - develop/fix features in GitHub
 - merge/cherry-pick to `gh-pages`
-- GitHub Actions automatically syncs viewer files to Yandex Object Storage
+- pushes publish to GitHub Pages and run CI checks
+- Yandex Object Storage sync is manual, off by default, and requires separate
+  explicit owner approval (policy effective 2026-09-25)
 
 The public `agr.vision` domain is a separately promoted release on Caddy,
-not a direct alias of this bucket. A push updates GitHub Pages and Object
-Storage, but does not automatically replace the domain's pinned release.
+not a direct alias of this bucket. A push updates only GitHub Pages, not
+Object Storage or the domain's pinned release.
 See [Viewer releases](viewer-releases.md) for promotion and rollback.
 
 Workflow file:
@@ -42,24 +44,27 @@ Recommended:
 
 1. Work branch: `feature/*`
 2. Integration branch: `main` (optional)
-3. Production branch: `gh-pages`
+3. Test publication branch: `gh-pages`
 
-Production update path:
+Test update path:
 
 1. Commit to feature branch.
 2. Merge/cherry-pick to `gh-pages`.
 3. Push `gh-pages`.
-4. GitHub Action deploys to Yandex bucket.
+4. GitHub Pages publishes the build; CI runs without syncing the Yandex bucket.
 
 ## 3) Trigger Deploy
 
-Automatic:
+Automatic checks:
 
-- any push to `gh-pages`
+- any push to `gh-pages`; the Yandex sync job is skipped
 
-Manual:
+Manual Yandex sync (only after separate owner approval):
 
-- `Actions -> Deploy Viewer To Yandex Object Storage -> Run workflow`
+- `Actions -> Viewer CI And Optional Yandex Sync -> Run workflow`
+- select the approved branch/ref and enable `sync_yandex`
+- the checkbox defaults to off; a manual run without it only executes checks
+- syncing the bucket does not promote the Caddy release on `agr.vision`
 
 ## 4) What Gets Uploaded
 
@@ -106,7 +111,8 @@ git revert <bad_commit_sha>
 git push origin gh-pages
 ```
 
-Action will redeploy the previous build to GitHub Pages and Object Storage.
+The push will publish the reverted build to GitHub Pages only. Object Storage
+needs a separately approved manual sync.
 For `agr.vision`, use the separate Caddy release rollback described in
 [Viewer releases](viewer-releases.md).
 
@@ -120,6 +126,7 @@ Current routing, verified on 2026-09-02:
 - The domain's Caddy root selects a complete staged release. Other Caddy
   virtual hosts provide voice API and LiveKit; do not recreate the stack to
   publish viewer files.
-- `s3://agr.vision/` is a separate copy populated by this workflow.
+- `s3://agr.vision/` is a separate copy populated only by an explicitly enabled
+  manual sync in this workflow.
 - `config/runtime.js` supplies the current Supabase and voice API endpoints.
   Include it when packaging a domain release.

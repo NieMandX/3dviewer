@@ -27,8 +27,9 @@ Read `AGENTS.md` first. The detailed architecture is in
 - Source: current `gh-pages` branch.
 - Every push runs PostgreSQL permission tests, syntax/version checks,
   Playwright smoke tests and then deploys static assets.
-- The same workflow mirrors the selected frontend assets to
-  `s3://agr.vision/` in Yandex Object Storage.
+- Since 2026-09-25, automatic publication is GitHub Pages only. The optional
+  mirror to `s3://agr.vision/` in Yandex Object Storage requires explicit owner
+  approval and a manual workflow run with `sync_yandex` enabled (default: false).
 
 ### Production domain
 
@@ -289,7 +290,8 @@ For each completed change:
 3. Run `npm run ci:verify`.
 4. Test the affected browser flow locally in WebGPU and WebGL when relevant.
 5. Commit and push.
-6. Confirm the GitHub Pages and Yandex Object Storage workflows are green.
+6. Confirm GitHub Pages publication and CI checks are green. Leave Yandex
+   Storage sync skipped unless the owner separately approved it.
 7. Test on GitHub Pages with a cache-busting query parameter.
 8. Promote to `agr.vision` only after explicit owner approval and the complete
    release checklist in `docs/viewer-releases.md`.

@@ -1,10 +1,16 @@
-name: Deploy Viewer To Yandex Object Storage
+name: Viewer CI And Optional Yandex Sync
 
 on:
   push:
     branches:
       - gh-pages
   workflow_dispatch:
+    inputs:
+      sync_yandex:
+        description: Sync static files to Yandex Storage (requires explicit owner approval)
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: deploy-yc-storage
@@ -41,6 +47,7 @@ jobs:
 
   deploy:
     name: Sync Static Viewer
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_yandex == true }}
     runs-on: ubuntu-latest
     needs: [quality-gates, database-permissions]
     env:

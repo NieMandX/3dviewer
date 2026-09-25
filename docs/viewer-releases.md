@@ -16,9 +16,10 @@
   color edits without unnecessary shader rebuilding. Initial source: `v0.96`.
   The owner approved publishing this release to `agr.vision`.
 
-GitHub Pages and Yandex Object Storage follow `gh-pages`. The `agr.vision`
-domain is explicitly promoted and remains pinned until another release is
-approved; subsequent test pushes do not silently change production.
+GitHub Pages follows `gh-pages`. Since 2026-09-25, Yandex Object Storage sync
+is manual and requires separate explicit owner approval; normal pushes skip
+it. The `agr.vision` domain is explicitly promoted and remains pinned until
+another release is approved; subsequent test pushes do not change production.
 
 ## 0.9 Backup
 
