@@ -5,11 +5,16 @@
 - **0.9**: exact viewer previously served by `https://agr.vision/`, captured
   on 2026-09-02 before replacement. This is a deployed-file snapshot, not a
   guessed historical Git tag. Its original files are unchanged.
-- **0.95**: current application release, identified by `version.json`, the
+- **0.95**: previous application release, identified by `version.json`, the
   page title/footer, and `appVersion` in runtime diagnostics. The `v0.95` Git
   tag identifies its initial source. Hotfixes use a new immutable build ID
   `<version>-<Git SHA>` without moving that tag. This is the viewer version,
   not the Three.js version.
+
+- **0.96** (2026-09-25): material editor and eyedropper, local `.lpmat` packs
+  with textures and animated water, lightweight room parameter storage, and
+  color edits without unnecessary shader rebuilding. Initial source: `v0.96`.
+  The owner approved publishing this release to `agr.vision`.
 
 GitHub Pages and Yandex Object Storage follow `gh-pages`. The `agr.vision`
 domain is explicitly promoted and remains pinned until another release is
@@ -77,7 +82,7 @@ root and build header. Preserve every other virtual host:
 
 ```caddy
 agr.vision {
-    header X-Viewer-Version "0.95"
+    header X-Viewer-Version "<version>"
     encode gzip zstd
     handle_path /_viewer/* {
         root * /srv/.releases

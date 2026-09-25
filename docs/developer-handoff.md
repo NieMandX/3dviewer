@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.95`; tag `v0.95` identifies its initial release.
+- Current viewer version: `0.96`; tag `v0.96` identifies its initial release (2026-09-25).
 - Current Three.js version: exact CDN pin `0.184.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -38,7 +38,8 @@ Read `AGENTS.md` first. The detailed architecture is in
 - Frontend host path: `/opt/lpmview/viewer/current`.
 - Immutable releases:
   `/opt/lpmview/viewer/current/.releases/<version>-<git-sha>`.
-- Public build at handoff: `0.95-c8d2e11fc359`.
+- Public build at the original handoff: `0.95-c8d2e11fc359`. Version 0.96 is
+  approved for promotion on 2026-09-25; verify the live build via `/version.json`.
 - Production is intentionally not updated by each `gh-pages` push. Follow
   `docs/viewer-releases.md` for explicit promotion and rollback.
 
