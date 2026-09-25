@@ -1,3 +1,5 @@
+import { settingsOnlyDocument } from '../material/material-settings-document.js';
+
 // A room owns a separate JSON document, never a rewritten source model.
 export function createRoomMaterialSettings({ getContext, apply, onStatus = () => {} }) {
     let disposed = false, generation = 0, controller = null, roomId = '', revision = 0, cached = null, appliedRoots = new WeakSet(), busy = false;
@@ -39,15 +41,17 @@ export function createRoomMaterialSettings({ getContext, apply, onStatus = () =>
         if (context.roomId !== roomId || context.controller !== controller) await refresh([]);
         if (getContext()?.roomId !== context.roomId || getContext()?.controller !== context.controller) throw Error('Комната изменилась. Повторите сохранение.');
         if (busy) throw Error('Дождитесь загрузки настроек комнаты.');
-        if (JSON.stringify(document).length > 16 * 1024 * 1024) throw Error('Настройки больше 16 МБ. Уменьшите новые текстуры.');
-        const merged = new Map((cached?.materials || []).map((m) => [`${m.model}:${m.material}`, m]));
+        document = settingsOnlyDocument(document);
+        const previous = cached ? settingsOnlyDocument(cached) : { materials: [] };
+        const merged = new Map(previous.materials.map((m) => [`${m.model}:${m.material}`, m]));
         document.materials.forEach((m) => merged.set(`${m.model}:${m.material}`, m));
-        document = { ...document, materials: [...merged.values()] };
+        document = settingsOnlyDocument({ ...document, materials: [...merged.values()] });
+        if (JSON.stringify(document).length > 16 * 1024 * 1024) throw Error('Настройки превышают 16 МБ.');
         const token = generation;
         const { data, error } = await context.controller.supabase.rpc('save_room_material_settings', {
             p_room_id: context.roomId, p_document: document, p_expected_revision: revision,
         });
-        if (error) throw Error(error.code === '40001' ? 'Другой участник уже изменил материалы. Скачайте свои настройки перед повторным открытием комнаты.' : error.message);
+        if (error) throw Error(error.code === '40001' ? 'Другой участник уже изменил материалы. Сохраните свой набор на диск перед повторным открытием комнаты.' : error.message);
         if (!current(token, context)) throw Error('Комната изменилась. Настройки сохранены в прежней комнате.');
         revision = Number(data); cached = document;
     }

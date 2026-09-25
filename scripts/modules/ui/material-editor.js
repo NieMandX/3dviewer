@@ -8,7 +8,8 @@ import { createRiverMaterial, attachRiverRuntime, readRiverFlowSettings } from '
 import { createMaterialThumbnails } from './material-thumbnails.js';
 import { createMaterialPicker } from './material-picker.js';
 import { createMaterialPackPanel } from './material-pack-panel.js';
-import { describeMaterial, PACK_MAPS, preparePackMaterials, packAbort } from '../material/material-pack.js';
+import { settingsFromDescriptor } from '../material/material-settings-document.js';
+import { describeMaterial, applyMaterialProperties, preparePackMaterials, packAbort } from '../material/material-pack.js';
 
 const NUMBERS = [
     ['roughness', 'Шероховатость', 0, 1, .01], ['metalness', 'Металличность', 0, 1, .01],
@@ -38,7 +39,7 @@ export function createMaterialEditor(options) {
         <div class="me-modes" role="group" aria-label="Сравнение материалов"><button data-mode="edited" aria-pressed="true">Изменённые</button><button data-mode="original" aria-pressed="false">Исходные</button></div>
         <div class="me-toolbar"><button data-action="pick" aria-pressed="false">⌖ Пипетка — выбрать на модели</button><button data-action="save">Сохранить в комнате</button><button data-action="download">Скачать настройки</button><button data-action="load">Открыть настройки</button></div>
         <p class="me-pick-hint me-note" hidden>Щёлкните по поверхности модели. Esc или повторное нажатие — отмена.</p><div data-pack-host></div>
-        <p class="me-note">Материалы сохраняются отдельно от модели. Исходные доступны для сравнения в любой момент.</p>
+        <p class="me-note">В комнате сохраняются только параметры и точки течения, без текстур. Полный набор с картами сохраняйте на диск. Исходные доступны для сравнения.</p>
         <div class="me-presets" aria-label="Готовые материалы">${MATERIAL_PRESETS.map((p) => `<button data-preset="${p.id}" title="Применить к выбранному материалу"><i class="me-preset-ball" style="--sample:${p.color}"></i>${p.name}</button>`).join('')}</div>
         <input class="me-search" type="search" aria-label="Поиск материалов" placeholder="Найти материал…">
         <p class="me-note" id="materialCount"></p><div class="me-grid" aria-label="Материалы сцены"></div>
@@ -60,9 +61,8 @@ export function createMaterialEditor(options) {
         onMiss: () => tell('Здесь нет видимой поверхности модели. Выберите другую точку или нажмите Esc.'),
         onActive: (value) => { document.body.classList.toggle('material-picking', value); host.querySelector('[data-action=pick]').setAttribute('aria-pressed', String(value)); host.querySelector('.me-pick-hint').hidden = !value; },
     });
-    packs = createMaterialPackPanel({ host: host.querySelector('[data-pack-host]'), store: options.projectPacks, getModels: () => loadedModels,
+    packs = createMaterialPackPanel({ host: host.querySelector('[data-pack-host]'), getModels: () => loadedModels,
         getEntries: (model) => [...entries.values()].filter((e) => e.uses.some((u) => u.root === model.obj)).map((e) => ({ ...e, uses: e.uses.filter((u) => u.root === model.obj) })), apply: applyPack,
-        onSaved: (entries, result) => { entries.forEach((entry, index) => { linkPack(entry.material, result.id, result.pack.materials[index]); changed.add(entry.material); }); renderList(); },
         onBusy: (value) => {
             packBusy = value;
             if (value) {
@@ -167,7 +167,6 @@ export function createMaterialEditor(options) {
     }
     function bind(entry, next) {
         const prev = entry.material;
-        if (!next.editorPackAssets && next.userData.viewerMaterialPack === prev.userData.viewerMaterialPack && prev.editorPackAssets) Object.defineProperty(next, 'editorPackAssets', { value: prev.editorPackAssets, configurable: true });
         const history = undo.get(prev); if (history) { undo.delete(prev); undo.set(next, { ...history, previous: prev }); }
         next.userData.viewerMaterialId = prev.userData.viewerMaterialId;
         for (const { object, index } of entry.uses) {
@@ -210,7 +209,7 @@ export function createMaterialEditor(options) {
         else { next.name = source.name; next.color.copy(source.color || new THREE.Color('white')); next.map = source.map || null; }
         bind(entry, next); return next;
     }
-    async function applyWater(entry, network, settings = null) {
+    async function applyWater(entry, network, settings = null, isCurrent = () => true) {
         const token = generation, old = entry.material;
         const bounds = new THREE.Box3(); for (const use of entry.uses) bounds.expandByObject(use.object);
         bounds.translate(world.position.clone().negate());
@@ -222,9 +221,10 @@ export function createMaterialEditor(options) {
         let runtime;
         try { runtime = await createRiverMaterial(source, field, meta, options.useWebGPU); }
         catch (error) { field.dispose(); if (source !== old) { source.normalMap?.dispose(); source.dispose(); } throw error; }
-        if (!alive || token !== generation || !live(entry) || entry.material !== old) { field.dispose(); runtime.material.dispose(); if (source !== old) source.normalMap?.dispose(); return; }
+        if (!alive || token !== generation || !isCurrent() || !live(entry) || entry.material !== old) { field.dispose(); runtime.material.dispose(); if (source !== old) source.normalMap?.dispose(); return; }
         runtime.material.userData.lpmview_water = meta; runtime.material.userData.viewerPreset = 'water';
         attachRiverRuntime(runtime, [...new Set(entry.uses.map((u) => u.object))], entry.uses[0].root, meta, { requestRender, world });
+        runtime.material.riverFlow.playing = meta.playing !== false;
         checkpoint(entry); bind(entry, runtime.material); mark(entry); if (source !== old) source.dispose();
         refresh();
     }
@@ -275,7 +275,7 @@ export function createMaterialEditor(options) {
             if (action === 'flow-reverse') { flow.reverse(); return; }
             if (action === 'flow-cancel') { flow.stop(); renderInspector(); return; }
             if (action === 'flow-apply') { if (!flowDraft?.edges.length) throw Error('Соедините хотя бы две точки на воде.'); const network = flow.value; flow.stop(); await applyWater(entry, network); return; }
-            if (action === 'flow-pause' && m.riverFlow) { m.riverFlow.playing = !m.riverFlow.playing; requestRender(); renderInspector(); }
+            if (action === 'flow-pause' && m.riverFlow) { checkpoint(entry); m.riverFlow.playing = !m.riverFlow.playing; mark(entry, false); renderInspector(); }
         } catch (error) { tell(error.message); }
     }
     function retainTextures(m) { m.editorRetainedTextures = [...new Set([...(m.editorRetainedTextures || []), ...collectMaterialTextures(m)])]; }
@@ -324,27 +324,41 @@ export function createMaterialEditor(options) {
         return { model: String(record?.scope?.modelId || record?.obj?.userData?.sourceFileName || record?.name || ''), material: entry.material.userData.viewerMaterialId };
     }
     function serialize() {
-        return { format: 'lpmview-materials', version: 1, materials: [...entries.values()].filter((e) => changed.has(e.material)).map((entry) => {
-            const m = entry.material, first = entry.uses[0], original = asMaterialArray(first.object.userData._editorOriginalMaterials)[first.index];
-            if (m.userData.viewerMaterialPack) return { ...materialKey(entry), name: m.name, pack: m.userData.viewerMaterialPack,
-                portable: describeMaterial(m, (t) => m.editorPackAssets?.has(t) ? { asset: m.editorPackAssets.get(t) } : { data: textureURL(t, 8192) }) };
-            return { ...materialKey(entry), name: m.name, preset: m.userData.viewerPreset || null,
-                values: Object.fromEntries(NUMBERS.filter(([key]) => !['normalStrength', 'depthPriority'].includes(key)).map(([key]) => [key, m[key] ?? 0])),
-                attenuationColor: m.attenuationColor?.toArray(), specularColor: m.specularColor?.toArray(), color: m.color?.toArray(), emissive: m.emissive?.toArray(), normalScale: m.normalScale?.toArray(), depthPriority: getDepthPriority(m), side: m.side, transparent: m.transparent,
-                water: m.userData.lpmview_water || null,
-                maps: Object.fromEntries(MAPS.map(([key]) => [key, m[key] === original?.[key] ? { original: true } : m[key] ? { data: textureURL(m[key]), repeat: m[key].repeat.toArray(), offset: m[key].offset.toArray(), rotation: m[key].rotation, flipY: m[key].flipY, channel: m[key].channel } : null])),
-            };
-        }) };
+        return { format: 'lpmview-materials', version: 1, settingsOnly: true,
+            materials: [...entries.values()].filter((e) => changed.has(e.material)).map((entry) => ({
+                ...materialKey(entry), name: entry.material.name,
+                settings: settingsFromDescriptor(describeMaterial(entry.material, undefined, true)),
+            })) };
+    }
+    async function applyParameterSettings(entry, saved, isCurrent) {
+        const settings = settingsFromDescriptor(saved), old = entry.material;
+        checkpoint(entry);
+        // Retain the current maps and runtime. Loading room parameters never
+        // replaces a locally opened pack with textures from the original GLB.
+        const m = settings.type === 'basic' && old.isMeshBasicMaterial ? old : physical(entry);
+        applyMaterialProperties(m, settings.properties); setDepthPriority(m, settings.depthPriority);
+        if (settings.preset) m.userData.viewerPreset = settings.preset; else delete m.userData.viewerPreset;
+        const water = settings.water;
+        if (water?.version === 2 && validateFlowNetwork(water.network)) {
+            await applyWater(entry, water.network, water, isCurrent);
+        } else if (water && m.riverFlow) {
+            // UV-based v1 flow is supplied by the GLB/local pack, never cloud PNG.
+            m.riverFlow.speed = water.speed ?? m.riverFlow.speed;
+            m.riverFlow.playing = water.playing !== false;
+            m.userData.lpmview_water = { ...m.userData.lpmview_water, speed: m.riverFlow.speed, playing: m.riverFlow.playing };
+        }
+        if (isCurrent() && live(entry)) mark(entry);
     }
     async function applySettings(data, { isCurrent = () => true } = {}) {
         if (data?.format !== 'lpmview-materials' || data.version !== 1 || !Array.isArray(data.materials) || data.materials.length > 4096) throw Error('Неподдерживаемый файл материалов.');
         if (originals) setMode(false); refresh(); const token = ++generation; let applied = 0;
-        const portable = data.materials.filter((row) => row.portable);
-        if (portable.length) applied += await restorePortable(portable, () => alive && token === generation && isCurrent());
-        for (const saved of data.materials.filter((row) => !row.portable)) {
+        for (const saved of data.materials) {
             if (!alive || token !== generation || !isCurrent()) return;
             const entry = [...entries.values()].find((e) => { const key = materialKey(e); return key.model === saved.model && key.material === saved.material; });
             if (!entry) continue;
+            if (saved.settings || saved.portable) {
+                await applyParameterSettings(entry, saved.settings || saved.portable, () => alive && token === generation && isCurrent()); applied++; continue;
+            }
             const next = createPresetMaterial(MATERIAL_PRESETS.some((p) => p.id === saved.preset) ? saved.preset : 'stone', entry.material);
             for (const t of collectMaterialTextures(next)) t.dispose();
             MAPS.forEach(([key]) => { next[key] = null; });
@@ -388,17 +402,12 @@ export function createMaterialEditor(options) {
         }
         refresh(); tell(`Восстановлено материалов: ${applied}.`); return applied;
     }
-    function linkPack(material, id, descriptor) {
-        material.userData.viewerMaterialPack = id;
-        Object.defineProperty(material, 'editorPackAssets', { configurable: true, value: new Map(PACK_MAPS.filter((key) => material[key] && descriptor.maps?.[key]?.asset).map((key) => [material[key], descriptor.maps[key].asset])) });
-    }
     function commitPortable(jobs) {
         batching = true;
         try {
-            for (const { entry, descriptor, id, prepared } of jobs) {
+            for (const { entry, descriptor, prepared } of jobs) {
                 const { material, runtime } = prepared;
                 material.name = entry.material.name;
-                linkPack(material, id, descriptor);
                 if (runtime) {
                     attachRiverRuntime(runtime, [...new Set(entry.uses.map((u) => u.object))], entry.uses[0].root, material.userData.lpmview_water, { requestRender, world });
                     material.riverFlow.playing = descriptor.water?.playing !== false;
@@ -415,29 +424,8 @@ export function createMaterialEditor(options) {
         const descriptors = plan.matches.map(({ entry, index }) => ({ ...plan.source.pack.materials[index], name: entry.material.name }));
         const prepared = await preparePackMaterials(descriptors, { loadAsset: plan.source.loadAsset, isCurrent: current, useWebGPU: options.useWebGPU });
         if (!current()) { prepared.dispose(); throw packAbort(); }
-        commitPortable(plan.matches.map(({ entry }, i) => ({ entry, id: plan.source.id, descriptor: descriptors[i], prepared: prepared.results[i] })));
+        commitPortable(plan.matches.map(({ entry }, i) => ({ entry, descriptor: descriptors[i], prepared: prepared.results[i] })));
         return descriptors.length;
-    }
-    async function restorePortable(rows, isCurrent) {
-        if (!options.projectPacks) throw Error('Для восстановления набора откройте его проект.');
-        const groups = new Map(), preparedGroups = [], jobs = [];
-        for (const row of rows) {
-            const entry = [...entries.values()].find((e) => { const key = materialKey(e); return key.model === row.model && key.material === row.material; });
-            if (!entry) continue;
-            if (!groups.has(row.pack)) groups.set(row.pack, []);
-            groups.get(row.pack).push({ row, entry, material: entry.material });
-        }
-        const current = () => isCurrent() && [...groups.values()].flat().every(({ entry, material }) => live(entry) && entry.material === material);
-        try {
-            for (const [id, records] of groups) {
-                const source = await options.projectPacks.open(id, { isCurrent: current });
-                const prepared = await preparePackMaterials(records.map(({ row }) => row.portable), { loadAsset: source.loadAsset, isCurrent: current, useWebGPU: options.useWebGPU });
-                preparedGroups.push(prepared);
-                records.forEach(({ row, entry }, i) => jobs.push({ entry, descriptor: row.portable, id, prepared: prepared.results[i] }));
-            }
-            if (!current()) throw packAbort();
-        } catch (error) { preparedGroups.forEach((g) => g.dispose()); throw error; }
-        commitPortable(jobs); return jobs.length;
     }
     function download(data) {
         const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getDepthPriority, setDepthPriority } from './depth-priority.js';
 import { createRiverMaterial, readRiverFlowSettings } from './river-flow.js';
+import { waterParameters } from './material-settings-document.js';
 
 export const PACK_FORMAT = 'lpmview-material-pack';
 export const PACK_MAPS = ['map', 'normalMap', 'bumpMap', 'displacementMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap', 'lightMap', 'clearcoatMap', 'clearcoatRoughnessMap', 'clearcoatNormalMap', 'transmissionMap', 'thicknessMap', 'specularIntensityMap', 'specularColorMap', 'sheenColorMap', 'sheenRoughnessMap', 'iridescenceMap', 'iridescenceThicknessMap', 'anisotropyMap'];
@@ -21,7 +22,7 @@ export function textureDescriptor(t, image) {
         generateMipmaps: t.generateMipmaps, colorSpace: t.colorSpace, premultiplyAlpha: t.premultiplyAlpha };
 }
 
-export function describeMaterial(material, mapImage) {
+export function describeMaterial(material, mapImage = () => ({}), settingsOnly = false) {
     const properties = {};
     // Physical reflectivity is an alias whose setter clamps IOR. Preserve IOR
     // directly (including the approved IOR=3 glass) instead of writing both.
@@ -31,11 +32,11 @@ export function describeMaterial(material, mapImage) {
     for (const key of BOOLS) if (typeof material[key] === 'boolean') properties[key] = material[key];
     for (const key of Object.keys(enums)) if (material[key] != null) properties[key] = material[key];
     if (material.iridescenceThicknessRange) properties.iridescenceThicknessRange = [...material.iridescenceThicknessRange];
-    const water = material.userData?.lpmview_water ? structuredClone(material.userData.lpmview_water) : null;
+    const water = material.userData?.lpmview_water ? (settingsOnly ? waterParameters(material.userData.lpmview_water) : structuredClone(material.userData.lpmview_water)) : null;
     if (water) { water.speed = material.riverFlow?.speed ?? water.speed; water.playing = material.riverFlow?.playing !== false; water.specularColor = material.specularColor.toArray(); }
     return { name: material.name || '', type: material.isMeshBasicMaterial ? 'basic' : 'physical', properties,
         preset: material.userData?.viewerPreset || null, depthPriority: getDepthPriority(material), water,
-        maps: Object.fromEntries(PACK_MAPS.map((key) => [key, material[key] ? textureDescriptor(material[key], mapImage(material[key], key)) : null])) };
+        maps: settingsOnly ? undefined : Object.fromEntries(PACK_MAPS.map((key) => [key, material[key] ? textureDescriptor(material[key], mapImage(material[key], key)) : null])) };
 }
 
 async function pngBlob(texture) {
@@ -57,7 +58,7 @@ async function pngBlob(texture) {
     } finally { canvas.width = canvas.height = 1; }
 }
 
-// Images are streamed to Storage separately, without a huge base64 JSON copy.
+// Encode each distinct image separately, without a huge base64 JSON copy.
 export async function captureMaterialPack(entries, { writeAsset, isCurrent = () => true, onProgress = () => {} }) {
     const sources = new Map(), assets = new Set(), materials = []; let bytes = 0;
     async function store(blob) {
@@ -81,6 +82,7 @@ export async function captureMaterialPack(entries, { writeAsset, isCurrent = () 
             images.set(t, { asset: sources.get(source) });
         }
         const descriptor = describeMaterial(m, (t) => images.get(t));
+        descriptor.binding = entryBinding(entry);
         if (descriptor.water?.flowMap) {
             if (!readRiverFlowSettings(descriptor.water)) throw Error('Некорректные настройки течения.');
             descriptor.water.flowAsset = await store(await (await fetch(descriptor.water.flowMap)).blob());
@@ -102,6 +104,17 @@ export function validateMaterialPack(pack) {
 }
 
 const nameKey = (name) => String(name || '').normalize('NFKC').trim().toLocaleLowerCase();
+function entryBinding(entry) {
+    // A conservative fallback for duplicate names in the same scene hierarchy.
+    // Changed order/placement in a new model deliberately fails this match.
+    return JSON.stringify((entry.uses || []).map(({ object, root, index }) => {
+        const path = []; let node = object;
+        while (node && node !== root) {
+            path.push([node.name, node.parent?.children.indexOf(node), node.position.toArray(), node.quaternion.toArray(), node.scale.toArray()]); node = node.parent;
+        }
+        return [path, index, object.geometry?.attributes.position?.count, object.geometry?.index?.count];
+    }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+}
 export function matchMaterialPack(pack, entries) {
     const bySource = new Map(), byTarget = new Map();
     pack.materials.forEach((m, index) => { const key = nameKey(m.name); if (!bySource.has(key)) bySource.set(key, []); bySource.get(key).push(index); });
@@ -110,7 +123,13 @@ export function matchMaterialPack(pack, entries) {
     for (const [key, targets] of byTarget) {
         const sources = bySource.get(key) || [];
         if (!sources.length) missing.push(...targets.map((e) => e.material.name));
-        else if (!key || sources.length !== 1 || targets.length !== 1) ambiguous.push(...targets.map((e) => e.material.name || 'Без имени'));
+        else if (!key || sources.length !== 1 || targets.length !== 1) {
+            const resolved = targets.map((entry) => ({ entry, sources: sources.filter((i) => pack.materials[i].name === entry.material.name && pack.materials[i].binding && pack.materials[i].binding === entryBinding(entry)) }));
+            for (const result of resolved) {
+                if (key && result.entry.uses.length && result.sources.length === 1 && resolved.filter((r) => r.sources.includes(result.sources[0])).length === 1) matches.push({ entry: result.entry, index: result.sources[0] });
+                else ambiguous.push(result.entry.material.name || 'Без имени');
+            }
+        }
         else matches.push({ entry: targets[0], index: sources[0] });
     }
     return { matches, missing, ambiguous };
@@ -118,6 +137,16 @@ export function matchMaterialPack(pack, entries) {
 
 export function blobDataURL(blob) {
     return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob); });
+}
+
+export function applyMaterialProperties(m, props = {}) {
+    for (const key of NUMBERS) if (key in m && (key !== 'reflectivity' || m.isMeshBasicMaterial) && Number.isFinite(props[key]) && Math.abs(props[key]) <= 1e6) m[key] = props[key];
+    if (props.attenuationDistance === null && 'attenuationDistance' in m) m.attenuationDistance = Infinity;
+    for (const key of COLORS) if (m[key]?.isColor && finiteArray(props[key], 3)) m[key].fromArray(props[key]);
+    for (const key of VECTORS) if (m[key]?.isVector2 && finiteArray(props[key], 2)) m[key].fromArray(props[key]);
+    for (const key of BOOLS) if (typeof props[key] === 'boolean') m[key] = props[key];
+    for (const [key, values] of Object.entries(enums)) if (values.includes(props[key])) m[key] = props[key];
+    if (finiteArray(props.iridescenceThicknessRange, 2)) m.iridescenceThicknessRange = [...props.iridescenceThicknessRange];
 }
 
 // Prepare all GPU resources before committing any assignment. Failed/stale loads
@@ -152,14 +181,7 @@ export async function preparePackMaterials(descriptors, { loadAsset, isCurrent =
     try {
         for (const saved of descriptors) {
             check(); let m = saved.type === 'basic' ? new THREE.MeshBasicMaterial() : new THREE.MeshPhysicalMaterial(); materials.add(m); m.name = saved.name;
-            const props = saved.properties || {};
-            for (const key of NUMBERS) if (key in m && (key !== 'reflectivity' || m.isMeshBasicMaterial) && Number.isFinite(props[key]) && Math.abs(props[key]) <= 1e6) m[key] = props[key];
-            if (props.attenuationDistance === null && 'attenuationDistance' in m) m.attenuationDistance = Infinity;
-            for (const key of COLORS) if (m[key]?.isColor && finiteArray(props[key], 3)) m[key].fromArray(props[key]);
-            for (const key of VECTORS) if (m[key]?.isVector2 && finiteArray(props[key], 2)) m[key].fromArray(props[key]);
-            for (const key of BOOLS) if (typeof props[key] === 'boolean') m[key] = props[key];
-            for (const [key, values] of Object.entries(enums)) if (values.includes(props[key])) m[key] = props[key];
-            if (finiteArray(props.iridescenceThicknessRange, 2)) m.iridescenceThicknessRange = [...props.iridescenceThicknessRange];
+            applyMaterialProperties(m, saved.properties);
             setDepthPriority(m, Math.max(-8, Math.min(8, Number(saved.depthPriority) || 0)));
             if (saved.preset) m.userData.viewerPreset = String(saved.preset);
             for (const key of PACK_MAPS) if (saved.maps?.[key] && key in m) m[key] = await texture(saved.maps[key]);

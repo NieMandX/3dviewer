@@ -1,9 +1,10 @@
-// Small real-renderer fixture. Storage is mocked here; RLS is tested on PostgreSQL.
+// Real-renderer fixture: complete local file roundtrip without a cloud store.
 export async function checkMaterialPacks({ webgpu = false } = {}) {
     const T = await import('three');
     const { createRenderer } = await import('../modules/render/renderer-init.js');
     const { createMaterialEditor } = await import('../modules/ui/material-editor.js');
-    const { createProjectMaterialPacks } = await import('../modules/collab/project-material-packs.js');
+    const { saveMaterialPackFile, openMaterialPackFile } = await import('../modules/material/material-pack-file.js');
+    const { createRoomMaterialSettings } = await import('../modules/collab/material-settings.js');
     const { collectSceneMaterials, captureParsedMaterials } = await import('../modules/material/scene-materials.js');
     const { createPresetMaterial } = await import('../modules/material/material-presets.js');
     const { matchMaterialPack, preparePackMaterials } = await import('../modules/material/material-pack.js');
@@ -31,22 +32,18 @@ export async function checkMaterialPacks({ webgpu = false } = {}) {
     water.userData.lpmview_water = { version: 2, origin: [99995, 199995], extent: [10, 10], tileMeters: 6, cycleSeconds: 8, metersPerSecond: .2, speed: 12, flowMap: field.toDataURL(), specularColor: [2, 2, 2], network: { nodes: [{ id: 'a', position: [100000, 0, 200000] }, { id: 'b', position: [100000, 0, 200002] }], edges: [['a', 'b']] } };
     for (const m of [brick, metal, glass, water]) sourceRoot.add(new T.Mesh(geometry, m));
     captureParsedMaterials(sourceRoot);
-    const blobs = new Map(), records = new Map(); let failUpload = false, cleanupCalls = 0;
-    const projectId = '10000000-0000-0000-0000-000000000061', roomId = '20000000-0000-0000-0000-000000000061';
-    const bucket = { upload: async (key, blob) => { if (failUpload) return { error: Error('offline') }; blobs.set(key, blob); return {}; }, download: async (key) => ({ data: blobs.get(key) }), remove: async (keys) => { cleanupCalls++; keys.forEach((key) => blobs.delete(key)); return {}; } };
-    const client = {
-        storage: { from: () => bucket },
-        from: () => { const filters = {}; const query = { select: () => query, eq: (k, v) => { filters[k] = v; return query; }, order: async () => ({ data: [...records.values()].filter((r) => r.project_id === filters.project_id) }), maybeSingle: async () => ({ data: [...records.values()].find((r) => Object.entries(filters).every(([k, v]) => r[k] === v)) || null }) }; return query; },
-        rpc: async (_, p) => { records.set(p.p_id, { id: p.p_id, project_id: p.p_project_id, name: p.p_name, source_model: p.p_source_model, material_count: p.p_material_count, texture_count: p.p_texture_count, created_at: new Date().toISOString() }); return { data: p.p_id }; },
-    };
-    let context = { controller: { project: { id: projectId, name: 'Test' }, room: { id: roomId }, supabase: client }, canManage: true };
-    const store = createProjectMaterialPacks({ getContext: () => context });
+    const roomId = 'test-room';
     const sourceEntries = [...collectSceneMaterials([{ obj: sourceRoot }]).values()];
-    let editor;
+    let editor, downloaded; const originalClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { downloaded = fetch(this.href).then((r) => r.blob()); };
     try {
-        const saved = await store.save({ name: 'Основные материалы', sourceModel: 'revision-1.glb', entries: sourceEntries });
-        const source = await store.open(saved.id), list = await store.list();
-        const fullPack = source.pack.materials.length === 4 && list.length === 1 && source.pack.textureCount === 3;
+        const file = new File([await saveMaterialPackFile(sourceEntries)], 'test.lpmat');
+        const source = await openMaterialPackFile(file);
+        const fullPack = source.pack.materials.length === 4 && source.pack.textureCount === 3;
+        const duplicateDescriptors = source.pack.materials.slice(0, 2).map((m) => ({ ...m, name: 'Дубль' }));
+        const duplicateEntries = sourceEntries.slice(0, 2).map((e) => ({ ...e, material: { name: 'Дубль' } }));
+        const identicalDuplicates = matchMaterialPack({ materials: duplicateDescriptors }, duplicateEntries).matches.length === 2;
+        const changedDuplicates = matchMaterialPack({ materials: duplicateDescriptors }, duplicateEntries.map((e) => ({ ...e, uses: [] }))).ambiguous.length === 2;
         const png = await source.loadAsset(source.pack.materials[0].maps.map.asset);
         const image = await createImageBitmap(png); const nativeResolution = image.width === 64; image.close();
         const imageDeduplication = source.pack.materials[0].maps.map.asset === source.pack.materials[1].maps.map.asset && source.pack.materials[0].maps.map.asset === source.pack.materials[0].maps.clearcoatMap.asset;
@@ -57,17 +54,16 @@ export async function checkMaterialPacks({ webgpu = false } = {}) {
         }
         const models = [{ obj: root, name: 'revision-2.glb', scope: { roomId, modelId: 'new-model' } }];
         captureParsedMaterials(root);
-        editor = createMaterialEditor({ renderer, rendererReady: owner.rendererInitPromise, scene, world, camera, controls, useWebGPU: webgpu, loadedModels: models, projectPacks: store, requestRender() {}, getEnvironment: () => null });
+        editor = createMaterialEditor({ renderer, rendererReady: owner.rendererInitPromise, scene, world, camera, controls, useWebGPU: webgpu, loadedModels: models, requestRender() {}, getEnvironment: () => null });
         document.querySelector('#materialsTab').click();
         const entries = [...collectSceneMaterials(models).values()], match = matchMaterialPack(source.pack, entries);
         const nameMatching = match.matches.length === 4 && match.missing.length === 1;
         const duplicate = { material: brick, uses: [] };
         const ambiguousSafe = matchMaterialPack(source.pack, [...entries, duplicate]).ambiguous.includes('Кирпич');
         document.querySelector('.me-packs').open = true;
-        for (let i = 0; i < 100 && document.querySelector('[data-pack-list]').options.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
-        document.querySelector('[data-pack-list]').value = saved.id;
-        document.querySelector('[data-pack-list]').dispatchEvent(new Event('change', { bubbles: true }));
-        document.querySelector('[data-pack-action=preview]').click();
+        const transfer = new DataTransfer(); transfer.items.add(file);
+        document.querySelector('[data-pack-file]').files = transfer.files;
+        document.querySelector('[data-pack-file]').dispatchEvent(new Event('change', { bubbles: true }));
         for (let i = 0; i < 100 && document.querySelector('[data-pack-action=apply]').disabled; i++) await new Promise((r) => setTimeout(r, 10));
         const uiPreview = document.querySelector('[data-pack-summary]').textContent.includes('Совпало: 4');
         document.querySelector('[data-pack-action=apply]').click();
@@ -78,14 +74,16 @@ export async function checkMaterialPacks({ webgpu = false } = {}) {
         const textureSettings = target.Кирпич.material.map.wrapS === T.MirroredRepeatWrapping && target.Кирпич.material.map.flipY === false && target.Сталь.material.map.repeat.x === 4 && target.Кирпич.material.map.center.x === .3;
         const animatedWater = !!target.Вода.material.riverFlow && target.Вода.material.riverFlow.speed === 12 && target.Вода.material.userData.lpmview_water.network.edges.length === 1;
         const room = editor.serialize();
-        const roomReferencesPack = room.materials.length === 4 && room.materials.every((m) => m.pack === saved.id && m.portable) && JSON.stringify(room).length < 15000;
+        const roomParametersOnly = room.materials.length === 4 && room.materials.every((m) => m.settings && !m.pack && !m.portable && !m.settings.maps) && !/data:image|textures\/|flowMap|flowAsset/.test(JSON.stringify(room)) && JSON.stringify(room).length < 15000;
         editor.setMode(true); const originalComparison = target.Кирпич.material.roughness === .9 && !target.Вода.material.riverFlow; editor.setMode(false);
+        const currentMap = target.Кирпич.material.map;
         target.Кирпич.material.roughness = .8; await editor.applySettings(room); renderer.render(scene, camera);
-        const roomRoundtrip = target.Кирпич.material.roughness === .37 && !!target.Вода.material.riverFlow && editor.serialize().materials.every((m) => m.portable);
-        document.querySelector('[data-pack-name]').value = 'Вторая версия'; document.querySelector('[data-pack-action=save]').click();
+        const roomRoundtrip = target.Кирпич.material.roughness === .37 && !!target.Вода.material.riverFlow && target.Кирпич.material.map === currentMap;
+        document.querySelector('[data-pack-action=save]').click();
         const animationSuspended = target.Вода.material.riverFlow.suspended === true && target.Вода.material.riverFlow.playing === true;
         for (let i = 0; i < 200 && document.querySelector('#materialEditor').getAttribute('aria-busy') === 'true'; i++) await new Promise((r) => setTimeout(r, 10));
-        const uiSaved = records.size === 2 && document.querySelector('.me-status').textContent.includes('сохранена в проекте') && editor.serialize().materials.length === 5;
+        const reopened = await openMaterialPackFile(await downloaded);
+        const uiSaved = reopened.pack.materials.length === 5 && document.querySelector('.me-status').textContent.includes('Файл набора готов') && editor.serialize().materials.length === 4;
         const animationResumed = !target.Вода.material.riverFlow.suspended && target.Вода.material.riverFlow.playing;
         const legacyDescriptor = structuredClone(source.pack.materials.find((m) => m.name === 'Вода'));
         legacyDescriptor.water.version = 1; delete legacyDescriptor.water.network;
@@ -120,20 +118,30 @@ export async function checkMaterialPacks({ webgpu = false } = {}) {
         const staleRejected = await pending && target.Кирпич.material === before;
         let loadFailureSafe = false;
         try { await preparePackMaterials([source.pack.materials[0]], { loadAsset: async () => { throw Error('offline'); } }); } catch { loadFailureSafe = target.Кирпич.material === before; }
-        failUpload = true;
-        try { await store.save({ name: 'Не завершено', sourceModel: 'test', entries: sourceEntries }); } catch {}
-        const failedNotPublished = records.size === 2 && cleanupCalls > 0;
-        failUpload = false;
-        const prior = context; let finishDownload; const originalDownload = bucket.download;
-        bucket.download = () => new Promise((resolve) => { finishDownload = resolve; });
-        const opening = store.open(saved.id).then(() => false, (e) => e.name === 'AbortError');
-        for (let n = 0; !finishDownload && n < 20; n++) await Promise.resolve();
-        context = { ...context, controller: { ...context.controller, room: { id: 'another-room' } } };
-        finishDownload({ data: blobs.get(`${projectId}/${saved.id}/materials.json`) });
-        const roomChangeRejected = await opening; bucket.download = originalDownload; context = prior;
-        return { backend: webgpu ? 'webgpu' : 'webgl', errors, fullPack, nativeResolution, imageDeduplication, nameMatching, ambiguousSafe, uiPreview, uiApplied, uiSaved, animationSuspended, animationResumed, properties, textureSettings, animatedWater, legacyWater, roomReferencesPack, originalComparison, roomRoundtrip, surfacePick, diagnosticPick, originalPick, instancedPick, dragIgnored, cancelRestores, staleRejected, loadFailureSafe, failedNotPublished, roomChangeRejected };
+        // Malformed files and corrupt images are rejected before scene assignment.
+        let truncatedRejected = false, checksumRejected = false;
+        try { await openMaterialPackFile(file.slice(0, file.size - 1)); } catch { truncatedRejected = true; }
+        const data = new Uint8Array(await file.arrayBuffer()), headerSize = new DataView(data.buffer).getUint32(8, true);
+        data[12 + headerSize + 30] ^= 1;
+        const corrupt = await openMaterialPackFile(new Blob([data]));
+        try { await corrupt.loadAsset(source.pack.materials[0].maps.map.asset); } catch { checksumRejected = true; }
+        let staleFileRejected = false, staleSaveRejected = false;
+        try { await openMaterialPackFile(file, { isCurrent: () => false }); } catch (e) { staleFileRejected = e.name === 'AbortError'; }
+        try { await saveMaterialPackFile(sourceEntries, { isCurrent: () => false }); } catch (e) { staleSaveRejected = e.name === 'AbortError'; }
+        // Old cached room rows must not smuggle inline textures/pack refs into
+        // a new save, including rows belonging to a different model.
+        const legacyRoom = { format: 'lpmview-materials', version: 1, materials: [{ model: 'other', material: '0', name: 'Legacy', portable: source.pack.materials[0], pack: 'old-cloud-pack' }] };
+        let uploaded;
+        const persistence = createRoomMaterialSettings({ getContext: () => context, apply: async () => {} });
+        const context = { roomId, controller: { supabase: {
+            from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { document: legacyRoom, revision: 2 } }) }) }) }),
+            rpc: async (_, args) => { uploaded = args.p_document; return { data: 3 }; },
+        } } };
+        await persistence.save(room); persistence.dispose();
+        const cloudBoundary = uploaded.materials.length === 5 && uploaded.settingsOnly && !/data:image|textures\/|flowMap|flowAsset|old-cloud-pack/.test(JSON.stringify(uploaded));
+        return { backend: webgpu ? 'webgpu' : 'webgl', errors, fullPack, identicalDuplicates, changedDuplicates, nativeResolution, imageDeduplication, nameMatching, ambiguousSafe, uiPreview, uiApplied, uiSaved, animationSuspended, animationResumed, properties, textureSettings, animatedWater, legacyWater, roomParametersOnly, originalComparison, roomRoundtrip, surfacePick, diagnosticPick, originalPick, instancedPick, dragIgnored, cancelRestores, staleRejected, loadFailureSafe, truncatedRejected, checksumRejected, staleFileRejected, staleSaveRejected, cloudBoundary };
     } finally {
-        editor?.dispose(); store.dispose();
+        editor?.dispose(); HTMLAnchorElement.prototype.click = originalClick;
         const materials = new Set(), textures = new Set(), geometries = new Set();
         for (const r of [root, sourceRoot]) r.traverse((o) => {
             if (o.geometry) geometries.add(o.geometry);

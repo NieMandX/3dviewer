@@ -71,7 +71,12 @@ export async function runMaterialEditorSmoke(browser, baseUrl) {
             await editor.applySettings(waterFile);
             const waterRoundtrip = a.material.userData.lpmview_water?.version === 2 && !!a.material.riverFlow && a.material === b.material;
             const nodesFile = waterFile.materials[0];
-            nodesFile.water.version = 1; delete nodesFile.water.network;
+            // Exercise legacy inline water settings read support as well.
+            const meta = structuredClone(a.material.userData.lpmview_water); meta.version = 1; delete meta.network;
+            delete nodesFile.settings; nodesFile.water = meta; nodesFile.preset = 'water';
+            const image = a.material.normalMap.image;
+            const png = document.createElement('canvas'); png.width = image.width; png.height = image.height; if (image.data) png.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.data), image.width, image.height), 0, 0); else png.getContext('2d').drawImage(image, 0, 0);
+            nodesFile.maps = { normalMap: { data: png.toDataURL(), flipY: false } };
             await editor.applySettings(waterFile);
             const legacyWaterRoundtrip = a.material.userData.lpmview_water?.version === 1 && !!a.material.riverFlow && !!a.material.normalMap;
             const network = { nodes: [{ id: 'a', position: [100000, 3, 200004] }, { id: 'b', position: [99997, 3, 200000] }, { id: 'c', position: [100003, 3, 200000] }, { id: 'd', position: [100000, 3, 199996] }], edges: [['a', 'b'], ['a', 'c'], ['b', 'd'], ['c', 'd']] };

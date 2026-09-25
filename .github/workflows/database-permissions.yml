@@ -31,9 +31,7 @@ jobs:
           -f supabase/migrations/20260902000200_superuser_user_directory.sql
           -f supabase/migrations/20260903000100_secure_2gis_api_key.sql
           -f supabase/migrations/20260924000100_room_material_settings.sql
-          -f supabase/migrations/20260925000100_project_material_packs.sql
           -f supabase/tests/material-settings.sql
-          -f supabase/tests/material-packs.sql
           -f supabase/tests/project-administration.sql
           -f supabase/tests/user-directory.sql
           -f supabase/tests/integration-secrets.sql

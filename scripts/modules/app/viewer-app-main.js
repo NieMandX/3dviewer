@@ -1,5 +1,4 @@
 import { createRoomMaterialSettings } from '../collab/material-settings.js';
-import { createProjectMaterialPacks, listProjectMaterialPackObjects, removeProjectMaterialPackObjects } from '../collab/project-material-packs.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
@@ -3328,7 +3327,6 @@ export class ViewerApp {
             if (!confirmed || !isCurrent()) return false;
             try {
                 const storagePaths = await listProjectStorageObjectPaths(projectId);
-                const materialPackPaths = await listProjectMaterialPackObjects(supabase, projectId, isCurrent);
                 if (!isCurrent()) return false;
                 const { data, error } = await supabase.from('projects').delete().eq('id', projectId).select('id').maybeSingle();
                 if (!isCurrent()) return false;
@@ -3340,10 +3338,6 @@ export class ViewerApp {
                     } catch (storageError) {
                         if (isCurrent()) console.error('Project storage cleanup failed', storageError);
                     }
-                }
-                if (materialPackPaths.length) {
-                    try { await removeProjectMaterialPackObjects(supabase, materialPackPaths); }
-                    catch (storageError) { if (isCurrent()) console.error('Material pack storage cleanup failed', storageError); }
                 }
                 if (!isCurrent()) return false;
                 if (collabController?.project?.id === projectId) {
@@ -6334,7 +6328,6 @@ export class ViewerApp {
 			        // =====================================================================
 			        // UI · Materials Panel & Gallery
 			        // =====================================================================
-                    const projectMaterialPacks = createProjectMaterialPacks({ getContext: () => ({ controller: collabController, canManage: canManageProject(collabUser, collabIsSuperuser, collabController?.project) }) });
 			        const roomMaterialSettings = createRoomMaterialSettings({
                         getContext: () => ({ controller: collabController, roomId: String(collabController?.room?.id || '') }),
                         apply: (data, guards) => inspectorPanels?.materialEditor?.applySettings(data, guards),
@@ -6342,7 +6335,6 @@ export class ViewerApp {
                     });
                     async function saveRoomMaterialSettings(data) { return roomMaterialSettings.save(data); }
                     inspectorPanels = createInspectorPanels({
-                        projectPacks: projectMaterialPacks,
                         beforeMaterialPick: () => cameraPickController.setActive(false),
                         canPickMaterial: () => !annotations3d?.getDrawEnabled?.() && !annotations3d?.isPointerDown?.(),
                         persistence: { refresh: () => { void roomMaterialSettings.refresh(loadedModels).catch((error) => logBind(error.message, 'warn')); } },
@@ -8331,7 +8323,6 @@ export class ViewerApp {
 	            try { fileFlowUI?.dispose?.(); } catch (_) {}
 	            try { assetLoaders?.dispose?.(); } catch (_) {}
 	            try { roomMaterialSettings.dispose(); } catch (_) {}
-                try { projectMaterialPacks.dispose(); } catch (_) {}
 	            try { inspectorPanels?.dispose?.(); } catch (_) {}
 	            try { batchFinalizer?.dispose?.(); } catch (_) {}
 	            try { shadingController?.dispose?.(); } catch (_) {}
