@@ -81,6 +81,7 @@ export function collectViewerDom(document) {
 	        solidToggleBtn: get('solidToggleBtn'),
 	        vpmToggleBtn: get('vpmToggleBtn'),
 	        npmToggleBtn: get('npmToggleBtn'),
+                envToggleBtn: get('envToggleBtn'),
 	        gridToggleBtn: get('gridToggleBtn'),
 	        statsOverlayEl: get('statsOverlay'),
 

@@ -1,6 +1,6 @@
 # LPMVIEW Developer And Codex Handoff
 
-Last verified: 2026-09-11.
+Last verified (viewer runtime): 2026-10-02; infrastructure inventory: 2026-09-11.
 
 This document transfers engineering context, not credentials. Secret values
 must be transferred through personal account access or a password manager,
@@ -11,8 +11,8 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.96`; tag `v0.96` identifies its initial release (2026-09-25).
-- Current Three.js version: exact CDN pin `0.184.0` for core, WebGPU, TSL,
+- Current viewer version: `0.97` (2026-10-03). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
 

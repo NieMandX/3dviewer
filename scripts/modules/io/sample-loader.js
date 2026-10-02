@@ -1,3 +1,5 @@
+import { fetchModelBlob, formatDownloadProgress } from './download-progress.js';
+
 export function createSampleLoader(options = {}) {
     const statusEl = options.statusEl || null;
     const sampleSelect = options.sampleSelect || null;
@@ -57,9 +59,12 @@ export function createSampleLoader(options = {}) {
             const downloadedFiles = [];
             for (const url of sample.files) {
                 if (!isCurrent()) return false;
-                const response = await fetch(url, { cache: 'no-cache', signal: signal || undefined });
-                if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-                const blob = await response.blob();
+                const blob = await fetchModelBlob(url, {
+                    signal,
+                    onProgress: (progress) => {
+                        if (isCurrent()) setStatusMessage(`Загрузка примера — ${formatDownloadProgress(progress)} · ${sample.label}`);
+                    },
+                });
                 if (!isCurrent()) return false;
                 const base = url.split('?')[0];
                 const name = decodeURIComponent(base.split('/').pop() || 'sample.zip');
@@ -67,6 +72,7 @@ export function createSampleLoader(options = {}) {
             }
             for (const file of downloadedFiles) {
                 if (!isCurrent()) return false;
+                setStatusMessage(`Обработка модели: ${file.name}…`);
                 await handleZIPFile(file, signal ? { signal } : null);
             }
             if (!isCurrent()) return false;

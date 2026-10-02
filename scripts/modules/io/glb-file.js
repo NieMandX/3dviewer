@@ -195,6 +195,8 @@ export function createGLBFileHandler(options = {}) {
                 obj: root,
                 name: file.name,
                 group: null,
+                sourceContainer: 'file',
+                category: 'ENV',
                 zipKind: null,
                 geojson: null,
                 orientation: {
@@ -237,6 +239,8 @@ export function createGLBFileHandler(options = {}) {
 
             markCollisionMeshes(root);
             optimizeGlassMeshes(root);
+            root.userData.sourceContainer = 'file';
+            root.userData.modelCategory = 'ENV';
             root.userData.zipGroup = null;
             root.userData.zipKind = null;
             setImportedLightsEnabled(getImportedLightsEnabled(), root, { silent: true });

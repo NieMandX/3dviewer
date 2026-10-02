@@ -1,5 +1,3 @@
-import { installDepthBiasCacheFix } from './depth-bias-cache.js';
-
 export function createRenderer(options = {}) {
     const THREE = options.THREE || null;
     const rootEl = options.rootEl || null;
@@ -20,16 +18,17 @@ export function createRenderer(options = {}) {
     }
 
     let disposed = false;
-    let restoreDepthBiasCache = () => {};
+    let disposePromise = null;
     let rendererReady = !useWebGPU;
     let rendererInitError = null;
     let rendererInitPromise = Promise.resolve();
+    let rendererInitialized = !(useWebGPU && typeof renderer.init === 'function');
 
     if (useWebGPU && typeof renderer.init === 'function') {
         rendererInitPromise = renderer.init()
             .then(() => {
+                rendererInitialized = true;
                 if (disposed) return;
-                restoreDepthBiasCache = installDepthBiasCacheFix(renderer);
                 rendererReady = true;
                 rendererInitError = null;
                 requestRender();
@@ -50,7 +49,7 @@ export function createRenderer(options = {}) {
     if ('shadowMap' in renderer) {
         renderer.shadowMap.enabled = true;
         if (renderer.shadowMap && 'type' in renderer.shadowMap) {
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.shadowMap.type = THREE.PCFShadowMap;
         }
     }
 
@@ -66,22 +65,31 @@ export function createRenderer(options = {}) {
     }
 
     function dispose() {
-        if (disposed) return;
+        if (disposePromise) return disposePromise;
         disposed = true;
         rendererReady = false;
-        restoreDepthBiasCache();
-        try {
-            renderer.setAnimationLoop?.(null);
-        } catch (_) {}
-        try {
-            renderer.dispose?.();
-        } catch (_) {}
-        try {
-            renderer.forceContextLoss?.();
-        } catch (_) {}
-        try {
-            renderer.domElement?.parentNode?.removeChild?.(renderer.domElement);
-        } catch (_) {}
+        try { renderer.domElement?.remove?.(); } catch (_) {}
+        // r186 WebGPU disposal is asynchronous and only frees an initialized
+        // backend. A late init must finish before we release its resources.
+        disposePromise = (async () => {
+            if (useWebGPU) await rendererInitPromise.catch(() => {});
+            try {
+                if (rendererInitialized) {
+                    await renderer.setAnimationLoop?.(null);
+                    await renderer.dispose?.();
+                } else {
+                    // r186 Renderer.dispose() calls setAnimationLoop(), which
+                    // retries failed init and can reject without a handler.
+                    // Only the partial backend exists when init has failed.
+                    await renderer.backend?.dispose?.();
+                }
+            } catch (error) {
+                console.warn('Renderer cleanup failed', error);
+            } finally {
+                try { renderer.forceContextLoss?.(); } catch (_) {}
+            }
+        })();
+        return disposePromise;
     }
 
     return Object.freeze({

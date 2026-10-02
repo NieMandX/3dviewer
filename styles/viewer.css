@@ -1050,6 +1050,7 @@ body.bg-black button.status-overlay {
 }
 .status-overlay-text {
     display: block;
+    overflow-wrap: anywhere;
 }
 .status-progress-track {
     position: relative;
@@ -1386,6 +1387,7 @@ body.room-entry-landing #solidToggleBtn,
 body.room-entry-landing #collToggleBtn,
 body.room-entry-landing #vpmToggleBtn,
 body.room-entry-landing #npmToggleBtn,
+body.room-entry-landing #envToggleBtn,
 body.room-entry-landing #camsToggleBtn,
 body.room-entry-landing #collabPanelBtn,
 body.room-entry-landing #annoToggleBtn {
@@ -2118,6 +2120,7 @@ body.bg-black .collab-chat-panel {
     .appbar #collToggleBtn { order: 22; }
     .appbar #npmToggleBtn { order: 23; }
     .appbar #vpmToggleBtn { order: 24; }
+    .appbar #envToggleBtn { order: 25; }
 
     .appbar #toggleSideBtn,
     .appbar #resetViewBtn,
@@ -2135,7 +2138,8 @@ body.bg-black .collab-chat-panel {
     .appbar #solidToggleBtn,
     .appbar #collToggleBtn,
     .appbar #npmToggleBtn,
-    .appbar #vpmToggleBtn {
+    .appbar #vpmToggleBtn,
+    .appbar #envToggleBtn {
         width: 40px;
         min-width: 40px;
         max-width: 40px;
@@ -3057,7 +3061,8 @@ body.vr-ui-active .appbar #bgToggleBtn {
 body.vr-ui-active .appbar #solidToggleBtn,
 body.vr-ui-active .appbar #collToggleBtn,
 body.vr-ui-active .appbar #npmToggleBtn,
-body.vr-ui-active .appbar #vpmToggleBtn {
+body.vr-ui-active .appbar #vpmToggleBtn,
+body.vr-ui-active .appbar #envToggleBtn {
     width: 56px;
     min-width: 56px;
     max-width: 56px;

@@ -1,3 +1,5 @@
+import { runDownloadUISmoke } from './smoke-download-ui.mjs';
+import { runEnvModelsSmoke } from './smoke-env-models.mjs';
 import { createServer } from 'node:http';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
@@ -181,11 +183,11 @@ async function createStaticServer() {
                     <script type="importmap">
                     {
                         "imports": {
-                            "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
-                            "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.webgpu.js",
-                            "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.tsl.js",
-                            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
-                            "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/",
+                            "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+                            "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+                            "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.tsl.js",
+                            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+                            "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/",
                             "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.4/build/index.module.js"
                         }
                     }
@@ -499,7 +501,16 @@ async function runGLBImportSmoke(browser, baseUrl) {
             };
         }
 
+        const envButton = document.querySelector('#envToggleBtn');
+        const envEnabled = !envButton.disabled && envButton.getAttribute('aria-pressed') === 'true';
+        const npmDisabled = document.querySelector('#npmToggleBtn').disabled;
+        envButton.click();
+        const envHidden = record.obj.visible === false;
+        envButton.click();
+        const envRestored = record.obj.visible === true;
         const beforeDispose = {
+            envEnabled, npmDisabled, envHidden, envRestored,
+            category: record.category,
             accept: document.querySelector('#fileInput')?.accept || '',
             format: record?.format || '',
             sourceFormat: record?.obj?.userData?.sourceFormat || '',
@@ -521,6 +532,8 @@ async function runGLBImportSmoke(browser, baseUrl) {
         };
     });
 
+    for (const key of ['envEnabled', 'npmDisabled', 'envHidden', 'envRestored']) assert.equal(result.beforeDispose[key], true, `GLB Env: ${key}`);
+    assert.equal(result.beforeDispose.category, 'ENV');
     assert.match(result.beforeDispose.accept, /\.glb/i, 'GLB import smoke: file picker does not accept GLB');
     assert.equal(result.beforeDispose.format, 'glb', 'GLB import smoke: model record format is missing');
     assert.equal(result.beforeDispose.sourceFormat, 'glb', 'GLB import smoke: root source format is missing');
@@ -605,7 +618,7 @@ async function runBootRuntimeFailureSmoke(browser, baseUrl) {
     const rootBrowser = typeof browser.browser === 'function' ? browser.browser() : browser;
     const context = await rootBrowser.newContext();
     await installSmokeCdnRoute(context, {
-        blockedUrls: ['https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js'],
+        blockedUrls: ['https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js'],
     });
     const page = await context.newPage();
     try {
@@ -3271,7 +3284,7 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
 
         const THREE = {
             WebGLRenderer: FakeWebGLRenderer,
-            PCFSoftShadowMap: 'pcf-soft',
+            PCFShadowMap: 'pcf',
             SRGBColorSpace: 'srgb',
             NoToneMapping: 'none',
         };
@@ -3281,11 +3294,17 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
         const webgl = createRenderer({ THREE, rootEl: root });
         const webglRenderer = webgl.renderer;
         const appendedBeforeDispose = root.contains(webglRenderer.domElement);
-        webgl.dispose();
-        webgl.dispose();
+        const webglDisposal = webgl.dispose();
+        await webgl.dispose();
+        await webglDisposal;
 
         let resolveInit = null;
         class FakeWebGPURenderer extends FakeWebGLRenderer {
+            async dispose() {
+                this.calls.push('dispose');
+                await new Promise(resolve => setTimeout(resolve, 10));
+                this.calls.push('dispose:complete');
+            }
             init() {
                 this.calls.push('init');
                 return new Promise((resolve) => {
@@ -3307,11 +3326,19 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
         });
         const webgpuRenderer = webgpu.renderer;
         const readyBeforeDispose = webgpu.getRendererReady();
-        webgpu.dispose();
+        const gpuDisposal = webgpu.dispose();
+        const deferredUntilInit = !webgpuRenderer.calls.includes('dispose');
+        const sameDisposal = gpuDisposal === webgpu.dispose();
         resolveInit();
         await webgpu.rendererInitPromise;
+        await gpuDisposal;
 
         class RejectWebGPURenderer extends FakeWebGLRenderer {
+            constructor() {
+                super();
+                this.backend = { dispose: async () => { this.calls.push('backend:dispose'); } };
+            }
+            setAnimationLoop() { return Promise.reject(new Error('must not retry failed init')); }
             init() {
                 this.calls.push('init');
                 return Promise.reject(new Error('init failed'));
@@ -3336,7 +3363,7 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
         const failingErrorMessage = failingWebgpu.getRendererError()?.message || '';
         const failingReadyAfterError = failingWebgpu.getRendererReady();
         const failingStillMountedAfterError = failingRoot.contains(failingRenderer.domElement);
-        failingWebgpu.dispose();
+        await failingWebgpu.dispose();
 
         return {
             appendedBeforeDispose,
@@ -3344,12 +3371,14 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
             webglCalls: webglRenderer.calls,
             webglAutoResetDisabled: webglRenderer.info.autoReset === false,
             webglShadowType: webglRenderer.shadowMap.type,
+            deferredUntilInit, sameDisposal,
             webgpuReadyBeforeDispose: readyBeforeDispose,
             webgpuReadyAfterLateInit: webgpu.getRendererReady(),
             webgpuRemoved: !webgpuRoot.contains(webgpuRenderer.domElement),
             webgpuCalls: webgpuRenderer.calls,
             webgpuEvents,
             failingResult,
+            failingCalls: failingRenderer.calls,
             failingErrorMessage,
             failingReadyAfterError,
             failingStillMountedAfterError,
@@ -3360,7 +3389,7 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.appendedBeforeDispose, true, 'Renderer dispose smoke: canvas was not appended');
     assert.equal(result.webglRemoved, true, 'Renderer dispose smoke: canvas stayed in DOM after dispose');
     assert.equal(result.webglAutoResetDisabled, true, 'Renderer dispose smoke: renderer info autoReset was not disabled');
-    assert.equal(result.webglShadowType, 'pcf-soft', 'Renderer dispose smoke: WebGL shadow map type was not configured');
+    assert.equal(result.webglShadowType, 'pcf', 'Renderer dispose smoke: WebGL shadow map type was not configured');
     assert.deepEqual(
         result.webglCalls.filter((entry) => entry === 'loop:null'),
         ['loop:null'],
@@ -3376,10 +3405,13 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
         ['forceContextLoss'],
         'Renderer dispose smoke: WebGL context was not released exactly once',
     );
+    assert.equal(result.deferredUntilInit, true, 'Renderer cleanup must await pending init');
+    assert.equal(result.sameDisposal, true, 'Concurrent disposal must share completion');
     assert.equal(result.webgpuReadyBeforeDispose, false, 'Renderer dispose smoke: WebGPU renderer was ready before init');
     assert.equal(result.webgpuReadyAfterLateInit, false, 'Renderer dispose smoke: disposed WebGPU renderer became ready after late init');
     assert.equal(result.webgpuRemoved, true, 'Renderer dispose smoke: WebGPU canvas stayed in DOM after dispose');
     assert.deepEqual(result.webgpuEvents, [], 'Renderer dispose smoke: disposed late WebGPU init fired callbacks');
+    assert.deepEqual(result.failingCalls.filter(c => c === 'backend:dispose'), ['backend:dispose'], 'Failed init must release the partial backend');
     assert.equal(result.failingResult, 'init failed', 'Renderer dispose smoke: WebGPU init failure did not reject init promise');
     assert.equal(result.failingErrorMessage, 'init failed', 'Renderer dispose smoke: WebGPU init failure was not retained');
     assert.equal(result.failingReadyAfterError, false, 'Renderer dispose smoke: failed WebGPU renderer became ready');
@@ -3394,6 +3426,7 @@ async function runRendererDisposeLifecycleSmoke(browser, baseUrl) {
         ['dispose'],
         'Renderer dispose smoke: WebGPU renderer dispose was not idempotent',
     );
+    assert.equal(result.webgpuCalls.includes('dispose:complete'), true, 'Dispose must wait for asynchronous backend teardown');
     diagnostics.assertNoErrors('Renderer dispose lifecycle smoke');
     await page.close();
 }
@@ -3624,8 +3657,9 @@ async function runSceneCoreDisposeLifecycleSmoke(browser, baseUrl) {
         const canvasBeforeDispose = root.contains(core.renderer.domElement);
         const appBgBeforeDispose = app.bgMesh === bgMesh;
         const rendererCallsBeforeDispose = core.renderer.calls.slice();
-        core.dispose();
-        core.dispose();
+        const coreDisposal = core.dispose();
+        await core.dispose();
+        await coreDisposal;
 
         return {
             childrenBeforeDispose,
@@ -5716,12 +5750,7 @@ async function runFileFlowDisposeLifecycleSmoke(browser, baseUrl) {
             });
             globalThis.fetch = async (_url, options = {}) => {
                 guardedSampleEvents.push(`fetchSignal:${!!options.signal}`);
-                return {
-                    ok: true,
-                    status: 200,
-                    statusText: 'OK',
-                    blob: async () => new Blob([new Uint8Array([9])], { type: 'application/zip' }),
-                };
+                return new Response(new Uint8Array([9]), { headers: { 'content-type': 'application/zip' } });
             };
             const guardedStatusEl = document.createElement('div');
             const guardedSampleSelect = document.createElement('select');
@@ -14233,8 +14262,9 @@ async function runLightControlsDisposeSmoke(browser, baseUrl) {
 
 const smokeServer = await createStaticServer();
 const browser = await chromium.launch({
-    headless: true,
-    args: [
+    channel: process.env.LPMVIEW_SMOKE_HARDWARE === '1' ? 'chrome' : undefined,
+    headless: process.env.LPMVIEW_SMOKE_HARDWARE !== '1',
+    args: process.env.LPMVIEW_SMOKE_HARDWARE === '1' ? [] : [
         '--use-angle=swiftshader',
         '--use-gl=angle',
         '--enable-unsafe-swiftshader',
@@ -14256,11 +14286,19 @@ try {
     console.log('Connected reset viewer and late invite smoke passed.');
     await runBootSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot smoke passed.');
+    await runEnvModelsSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Env, NPM and VPM import categories and visibility smoke passed.');
+    await runDownloadUISmoke(browserContext, smokeServer.baseUrl, createRegisteredRoomSmokePage);
+    console.log('Private model download progress and room-switch abort smoke passed.');
     await runGLBImportSmoke(browserContext, smokeServer.baseUrl);
     console.log('GLB import and disposal smoke passed.');
     await runRiverFlowImportSmoke(browserContext, smokeServer.baseUrl);
     console.log('River flow GLB import, animation and disposal smoke passed.');
     await runDepthPrioritySmoke(browserContext, smokeServer.baseUrl);
+    if (process.env.LPMVIEW_SMOKE_HARDWARE === '1') {
+        await runDepthPrioritySmoke(browserContext, smokeServer.baseUrl, { useWebGPU: true });
+        console.log('Native WebGPU depth priority pixel test passed.');
+    }
     await runMaterialEditorSmoke(browserContext, smokeServer.baseUrl);
     await runMaterialThumbnailsSmoke(browserContext, smokeServer.baseUrl);
     await runMaterialPacksSmoke(browserContext, smokeServer.baseUrl);

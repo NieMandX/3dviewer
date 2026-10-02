@@ -8,8 +8,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#ffffff" />
-    <meta name="application-version" content="0.96" />
-    <title>АГР WEBViewer 0.96</title>
+    <meta name="application-version" content="0.97" />
+    <title>АГР WEBViewer 0.97</title>
     <link rel="icon" href="./favicon.ico" />
     <link rel="stylesheet" href="./styles/viewer.css">
     <script>window.__LPMVIEW_RUNTIME = window.__LPMVIEW_RUNTIME || {};</script>
@@ -112,6 +112,7 @@
 		        <button id="collToggleBtn" class="btn" type="button" title="Показать/скрыть коллизии (UCX)">UCX</button>
             <button id="vpmToggleBtn" class="btn" type="button" title="Показать/скрыть ВПМ модели">ВПМ</button>
             <button id="npmToggleBtn" class="btn" type="button" title="Показать/скрыть НПМ модели">НПМ</button>
+            <button id="envToggleBtn" class="btn" type="button" title="Окружение не загружено" aria-pressed="false" disabled>Env</button>
 		        <button id="camsToggleBtn" class="btn" type="button" title="Камеры (сохранённые виды)">CAMS</button>
                 <button id="collabPanelBtn" class="btn" type="button" title="Совместная работа" aria-label="Совместная работа" aria-pressed="false">
                     <svg class="icon icon-collab" viewBox="0 0 24 24" aria-hidden="true">
@@ -305,7 +306,6 @@
   <div class="row">
     <label>Тип теней
       <select id="shadowType">
-        <option value="PCFSoft">PCF Soft</option>
         <option value="PCF">PCF</option>
         <option value="VSM">VSM</option>
       </select>
@@ -934,7 +934,7 @@
             <button id="collabChatToggleBtn" class="btn footer-btn collab-chat-toggle" type="button" hidden>Чат</button>
             <div id="voiceAudioMount" hidden></div>
         </div>
-        <span id="viewerVersion" class="footer-right viewer-version" title="Версия вьюера">0.96</span>
+        <span id="viewerVersion" class="footer-right viewer-version" title="Версия вьюера">0.97</span>
     </footer>
 
     <script>
@@ -1059,11 +1059,11 @@
     <script type="importmap">
         {
                 "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
-                "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.webgpu.js",
-                "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.tsl.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
-                "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/",
+                "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+                "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+                "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.tsl.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+                "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/",
                 "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.4/build/index.module.js"
             }
         }

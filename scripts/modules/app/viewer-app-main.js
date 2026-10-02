@@ -1,3 +1,4 @@
+import { fetchModelBlob, formatDownloadProgress } from '../io/download-progress.js';
 import { createRoomMaterialSettings } from '../collab/material-settings.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -518,6 +519,7 @@ export class ViewerApp {
 	        const collToggleBtn = dom.collToggleBtn;
 	        const vpmToggleBtn = dom.vpmToggleBtn;
 	        const npmToggleBtn = dom.npmToggleBtn;
+            const envToggleBtn = dom.envToggleBtn;
 	        const bgToggleBtn = dom.bgToggleBtn;
 	        const camsToggleBtn = dom.camsToggleBtn;
 	        const gridToggleBtn = dom.gridToggleBtn;
@@ -6112,7 +6114,9 @@ export class ViewerApp {
 			            getVPMModelsState,
 			            toggleVPMModelsVisible,
 			            getNPMModelsState,
-				            toggleNPMModelsVisible,
+                            getEnvModelsState,
+                            toggleEnvModelsVisible,
+                            toggleNPMModelsVisible,
 				        } = createVisibilityAndCollisions({
 				            world,
 				            loadedModels,
@@ -6130,6 +6134,7 @@ export class ViewerApp {
 				            collToggleBtn,
 				            vpmToggleBtn,
 				            npmToggleBtn,
+                            envToggleBtn,
 				            schedulePanelRefresh,
 				            api: {
 				                handleEyeToggleRaw,
@@ -6141,6 +6146,8 @@ export class ViewerApp {
 				                getVPMModelsState,
 				                toggleVPMModelsVisible,
 				                getNPMModelsState,
+                                getEnvModelsState,
+                                toggleEnvModelsVisible,
 				                toggleNPMModelsVisible,
 				            },
 				        });
@@ -7202,23 +7209,35 @@ export class ViewerApp {
                 loadStatus.set(roomLoadPrefix
                     ? `Загрузка модели ${roomLoadPrefix}: ${name}…`
                     : `Загрузка модели из комнаты: ${name}…`);
-                let blob = null;
+                let downloadUrl = model.url;
                 if (storagePath && controller?.supabase) {
                     const { data, error } = await runAbortableOperation(() => (
                         controller.supabase.storage
                             .from('models')
-                            .download(storagePath)
+                            .createSignedUrl(storagePath, 3600)
                     ), {
                         signal: importSignal,
                         abortMessage: 'Room model load superseded',
                     });
                     if (error) throw error;
-                    blob = data || null;
-                } else if (model.url && !String(model.url).startsWith('storage://')) {
-                    const response = await fetch(model.url, { cache: 'no-cache', signal: importSignal || undefined });
-                    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-                    blob = await response.blob();
+                    downloadUrl = data?.signedUrl;
                 }
+                if (isStaleLoad() || importSignal?.aborted) return false;
+                if (!downloadUrl || String(downloadUrl).startsWith('storage://')) {
+                    throw new Error('Model download URL is unavailable.');
+                }
+                const blob = await fetchModelBlob(downloadUrl, {
+                    signal: importSignal,
+                    expectedBytes: getProjectModelMetaSize(model),
+                    onProgress: (progress) => {
+                        if (isStaleLoad() || importSignal?.aborted || !loadStatus.isCurrent()) return;
+                        const prefix = roomLoadPrefix ? `Загрузка модели ${roomLoadPrefix}` : 'Загрузка модели';
+                        loadStatus.set(`${prefix} — ${formatDownloadProgress(progress)} · ${name}`);
+                        setStatusProgress(progress.percent == null
+                            ? { visible: true, indeterminate: true }
+                            : { visible: true, value: progress.percent });
+                    },
+                });
                 if (isStaleLoad() || importSignal?.aborted) {
                     abortImport();
                     return false;
@@ -7226,6 +7245,8 @@ export class ViewerApp {
                 if (!blob) {
                     throw new Error('Model download returned empty payload.');
                 }
+                loadStatus.set(`Обработка модели: ${name}…`);
+                setStatusProgress({ visible: true, indeterminate: true });
                 const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
                 const roomImportScope = {
                     kind: 'room',
@@ -7277,6 +7298,10 @@ export class ViewerApp {
                     return false;
                 }
                 console.error('Room model load failed', err);
+                if (loadStatus.isCurrent()) {
+                    loadStatus.set(`Не удалось загрузить модель: ${name}. Повторите загрузку.`);
+                    loadStatus.keep();
+                }
                 setEmptyHintVisible(loadedModels.length === 0 && !isRoomEntryLandingActive());
                 return false;
             } finally {
@@ -8301,7 +8326,13 @@ export class ViewerApp {
                 globalThis.__LPMVIEW_DIAGNOSTICS = runtimeDiagnosticsApi;
             }
 
-	        async function disposeApp() {
+	        let appDisposePromise = null;
+            function disposeApp() {
+                if (appDisposePromise) return appDisposePromise;
+                appDisposePromise = disposeAppResources();
+                return appDisposePromise;
+            }
+            async function disposeAppResources() {
 	            if (appDisposed) return;
 	            appDisposed = true;
                 roomContentUsersAbort?.abort();
@@ -8369,7 +8400,7 @@ export class ViewerApp {
 		            allEmbedded.length = 0;
 		            undoStack.length = 0;
 
-		            try { sceneCore?.dispose?.(); } catch (_) {}
+		            try { await sceneCore?.dispose?.(); } catch (_) {}
 		        }
 	        app.dispose = disposeApp;
 

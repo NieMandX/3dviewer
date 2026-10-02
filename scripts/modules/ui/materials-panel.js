@@ -1,3 +1,4 @@
+import { isEnvironmentModel } from '../io/model-category.js';
 import { clamp01 } from '../utils/math.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 import { asMaterialArray, isGeneratedDisplayMaterial } from '../material/texture-utils.js';
@@ -232,6 +233,7 @@ export function createMaterialsPanelController(options = {}) {
 
         const modelId = `file-${model.obj.uuid}`;
         const kindBadge =
+            isEnvironmentModel(model) ? '<span class="pill">Env</span>' :
             model.zipKind === 'NPM' ? '<span class="pill">НПМ</span>' :
                 model.zipKind === 'SM' ? '<span class="pill">ВПМ</span>' : '';
 
@@ -239,7 +241,7 @@ export function createMaterialsPanelController(options = {}) {
         const collisions = sceneIndex.getModelCollisions(model);
 
         // заголовок файла FBX
-        const fileControls = `${hasGeo ? `<button type="button" class="doc" data-uuid="${model.obj.uuid}" title="Показать GeoJSON">📄</button>` : ''}<button type="button" class="eye" data-target="${modelId}" title="Показать/скрыть файл">👁</button>`;
+        const fileControls = `${hasGeo ? `<button type="button" class="doc" data-uuid="${model.obj.uuid}" title="Показать GeoJSON">📄</button>` : ''}<button type="button" class="eye" data-target="${modelId}" title="Показать/скрыть файл">${model.obj.visible === false ? '🚫' : '👁'}</button>`;
         const fileTitlePieces = [];
         if (kindBadge) fileTitlePieces.push(kindBadge);
         const displayName = formatPanelLabel(model.name);

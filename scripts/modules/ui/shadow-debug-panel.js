@@ -56,7 +56,7 @@ export function createShadowDebugPanelController(options = {}) {
         inSize.value = String(s.mapSize?.x ?? 4096);
 
         const t = renderer.shadowMap.type;
-        inType.value = (t === THREE?.VSMShadowMap) ? 'VSM' : (t === THREE?.PCFShadowMap ? 'PCF' : 'PCFSoft');
+        inType.value = (t === THREE?.VSMShadowMap) ? 'VSM' : 'PCF';
 
         inAuto.checked = !!getShadowAutoFrustum();
         inScale.value = String(getShadowFrustumScale());
@@ -66,8 +66,8 @@ export function createShadowDebugPanelController(options = {}) {
         if (!dirLight || !renderer) return;
         if (!inBias || !inNBias || !inRadius || !inNear || !inFar || !inSize || !inType || !inAuto || !inScale) return;
 
-        const typeMap = { PCF: THREE?.PCFShadowMap, PCFSoft: THREE?.PCFSoftShadowMap, VSM: THREE?.VSMShadowMap };
-        renderer.shadowMap.type = typeMap[inType.value] ?? THREE?.PCFSoftShadowMap;
+        const typeMap = { PCF: THREE?.PCFShadowMap, VSM: THREE?.VSMShadowMap };
+        renderer.shadowMap.type = typeMap[inType.value] ?? THREE?.PCFShadowMap;
         renderer.shadowMap.enabled = true;
         dirLight.castShadow = true;
 
@@ -123,7 +123,7 @@ export function createShadowDebugPanelController(options = {}) {
     addListener($('shadowApply'), 'click', applyShadowUIToLight);
     addListener($('shadowReset'), 'click', () => {
         if (!inType || !inSize || !inBias || !inNBias || !inRadius || !inNear || !inFar || !inAuto || !inScale) return;
-        inType.value = 'PCFSoft';
+        inType.value = 'PCF';
         inSize.value = '4096';
         inBias.value = '-0.00005';
         inNBias.value = '0.02';

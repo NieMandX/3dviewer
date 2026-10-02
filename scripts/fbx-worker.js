@@ -2,7 +2,7 @@ import { extractImagesFromFBXToBuffers } from './modules/fbx/embedded-images-cor
 import { readFBXOrientationFromTree } from './modules/fbx/orientation-tree.js';
 import { installConsoleDiagnosticsGate } from './modules/utils/console-diagnostics.js';
 
-const FBX_LOADER_MODULE = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/loaders/FBXLoader.js?module';
+const FBX_LOADER_MODULE = 'https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/FBXLoader.js?module';
 
 let FBXLoaderCtor = null;
 const activeJobs = new Set();

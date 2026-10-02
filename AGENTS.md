@@ -27,7 +27,7 @@ cloud infrastructure code.
 ## Runtime invariants
 
 - Three.js core, WebGPU, addons, workers and Draco decoder must stay on the
-  same exact release. The current pinned release is `0.184.0`.
+  same exact release. The current pinned release is `0.186.0`.
 - Rendering is demand-driven through `requestRender()`. Do not introduce a
   second animation loop or unconditional continuous rendering.
 - `world` owns imported scene content. Camera and renderer are application

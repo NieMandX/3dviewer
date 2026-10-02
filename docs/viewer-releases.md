@@ -16,6 +16,12 @@
   color edits without unnecessary shader rebuilding. Initial source: `v0.96`.
   The owner approved publishing this release to `agr.vision`.
 
+- **0.97** (2026-10-03): Three.js 0.186.0 with asynchronous renderer cleanup,
+  server download progress in bytes/percent, and an independent Env visibility
+  category for standalone FBX/GLB and unclassified context ZIPs. See
+  [migration and validation](viewer-r186-upgrade.md). GitHub Pages test release;
+  no promotion to `agr.vision` or Yandex Object Storage is included.
+
 GitHub Pages follows `gh-pages`. Since 2026-09-25, Yandex Object Storage sync
 is manual and requires separate explicit owner approval; normal pushes skip
 it. The `agr.vision` domain is explicitly promoted and remains pinned until

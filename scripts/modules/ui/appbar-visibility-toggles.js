@@ -3,6 +3,7 @@ export function createAppbarVisibilityTogglesController(options = {}) {
     const collToggleBtn = options.collToggleBtn || null;
     const vpmToggleBtn = options.vpmToggleBtn || null;
     const npmToggleBtn = options.npmToggleBtn || null;
+    const envToggleBtn = options.envToggleBtn || null;
 
     const schedulePanelRefresh =
         typeof options.schedulePanelRefresh === 'function' ? options.schedulePanelRefresh : () => {};
@@ -30,6 +31,8 @@ export function createAppbarVisibilityTogglesController(options = {}) {
         ? api.getNPMModelsState
         : () => ({ hasAny: false, anyVisible: false });
     const toggleNPMModelsVisible = typeof api.toggleNPMModelsVisible === 'function' ? api.toggleNPMModelsVisible : () => {};
+    const getEnvModelsState = api.getEnvModelsState || (() => ({ hasAny: false, anyVisible: false }));
+    const toggleEnvModelsVisible = api.toggleEnvModelsVisible || (() => {});
     const listeners = [];
     let disposed = false;
 
@@ -98,12 +101,24 @@ export function createAppbarVisibilityTogglesController(options = {}) {
             : 'НПМ модели не найдены';
     }
 
+    function updateEnvToggleBtnUI() {
+        if (disposed || !envToggleBtn) return;
+        const state = getEnvModelsState();
+        envToggleBtn.disabled = !state.hasAny || getNonGlassState().suppressed;
+        envToggleBtn.classList.toggle('active', state.anyVisible);
+        envToggleBtn.setAttribute('aria-pressed', String(state.anyVisible));
+        envToggleBtn.title = state.hasAny
+            ? (state.anyVisible ? 'Скрыть окружение (Env)' : 'Показать окружение (Env)')
+            : 'Окружение не загружено';
+    }
+
     function updateAll() {
         if (disposed) return;
         updateSolidToggleBtnUI();
         updateCollisionsToggleBtnUI();
         updateVPMToggleBtnUI();
         updateNPMToggleBtnUI();
+        updateEnvToggleBtnUI();
     }
 
     function handleEyeToggle(el) {
@@ -145,6 +160,12 @@ export function createAppbarVisibilityTogglesController(options = {}) {
     addListener(collToggleBtn, 'click', handleCollisionsClick);
     addListener(vpmToggleBtn, 'click', handleVpmClick);
     addListener(npmToggleBtn, 'click', handleNpmClick);
+    addListener(envToggleBtn, 'click', () => {
+        if (disposed) return;
+        toggleEnvModelsVisible();
+        enforceSuppressionIfNeeded();
+        updateAll();
+    });
 
     function dispose() {
         if (disposed) return;

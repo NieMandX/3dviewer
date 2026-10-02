@@ -1,3 +1,4 @@
+import { isEnvironmentModel } from '../io/model-category.js';
 import { createCollisionVisibilityHelpers } from '../fbx/collisions.js';
 import { findGeomSuffix, isGlassByName, isGlassGeomSuffix } from '../material/naming.js';
 import { asMaterialArray } from '../material/texture-utils.js';
@@ -277,12 +278,12 @@ export function createVisibilityAndCollisions(options = {}) {
     }
 
     function isVPMModel(model) {
-        return String(model?.zipKind || '').toUpperCase() === 'SM';
+        return !isEnvironmentModel(model) && String(model?.zipKind || '').toUpperCase() === 'SM';
     }
 
     function isNPMModel(model) {
         const kind = String(model?.zipKind || '').toUpperCase();
-        return kind !== 'SM';
+        return !isEnvironmentModel(model) && kind !== 'SM';
     }
 
     function getVPMModelsState() {
@@ -403,6 +404,27 @@ export function createVisibilityAndCollisions(options = {}) {
         return setNPMModelsVisible(!state.anyVisible);
     }
 
+    function getEnvModelsState() {
+        const models = loadedModels.filter(isEnvironmentModel).filter(model => model.obj);
+        return { hasAny: models.length > 0, anyVisible: models.some(model => model.obj.visible !== false) };
+    }
+
+    function toggleEnvModelsVisible() {
+        const state = getEnvModelsState();
+        const next = !state.anyVisible;
+        let changed = false;
+        loadedModels.filter(isEnvironmentModel).forEach(model => {
+            const root = model.obj;
+            if (!root) return;
+            if (root.visible !== next) { root.visible = next; changed = true; }
+            // Hide the whole imported subtree, preserving each object's and
+            // material's visibility (including intentionally hidden collisions).
+            visibility.updateEyeButtonsForTarget(`file-${root.uuid}`, next);
+        });
+        if (changed) { markSceneStatsDirty(); requestRender(); }
+        return { ...getEnvModelsState(), changed };
+    }
+
     return Object.freeze({
         visibility,
         handleEyeToggle: visibility.handleEyeToggle,
@@ -421,6 +443,8 @@ export function createVisibilityAndCollisions(options = {}) {
         getVPMModelsState,
         setVPMModelsVisible,
         toggleVPMModelsVisible,
+        getEnvModelsState,
+        toggleEnvModelsVisible,
         getNPMModelsState,
         setNPMModelsVisible,
         toggleNPMModelsVisible,

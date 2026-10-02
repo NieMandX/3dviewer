@@ -1,3 +1,4 @@
+import { classifyZIP } from './model-category.js';
 import { revokeGeoJsonMetaUrl } from '../geo/geojson-meta.js';
 
 export function createZIPFileHandler(options = {}) {
@@ -74,7 +75,7 @@ export function createZIPFileHandler(options = {}) {
         setStatusMessage(`Чтение ZIP: ${file.name}…`);
         hideSidePanel();
 
-        const zipKind = /^\d/.test(file.name) ? 'NPM' : /^SM/i.test(file.name) ? 'SM' : null;
+        let zipKind = classifyZIP(file.name);
         let zipGeoMeta = null;
         let lastNormalizeOrientationType = null;
         const importModelStart = loadedModels.length;
@@ -83,6 +84,7 @@ export function createZIPFileHandler(options = {}) {
         const workerRun = unpackZIPInWorker?.(file, {
             onMeta: (msg) => {
                 throwIfAborted();
+                zipKind = classifyZIP(file.name, (msg?.counts?.geojson || 0) > 0);
                 if (zipKind === 'SM') {
                     const hasGeo = (msg?.counts?.geojson || 0) > 0;
                     if (!hasGeo) {
@@ -195,6 +197,7 @@ export function createZIPFileHandler(options = {}) {
             const zip = await JSZip.loadAsync(file);
             throwIfAborted();
             const entries = Object.values(zip.files);
+            zipKind = classifyZIP(file.name, entries.some(e => !e.dir && /\.geojson$/i.test(e.name)));
 
             // ↓↓↓ ТОЛЬКО ДЛЯ ВПМ
             if (zipKind === 'SM') {

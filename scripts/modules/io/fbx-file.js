@@ -413,6 +413,9 @@ export function createFBXFileHandler(options = {}) {
                 obj,
                 name: file.name,
                 group: groupName || null,
+                sourceContainer: groupName ? 'zip' : 'file',
+                category: groupName ? (zipKind || 'ENV') : 'ENV',
+                format: 'fbx',
                 zipKind: zipKind || null,
                 geojson: zipMeta || null,
                 orientation: orientationInfo || null,
@@ -458,6 +461,8 @@ export function createFBXFileHandler(options = {}) {
                 splitAllMeshesByUDIM_SM(obj);
             }
             optimizeGlassMeshes(obj);
+            obj.userData.sourceContainer = modelRecord.sourceContainer;
+            obj.userData.modelCategory = modelRecord.category;
             obj.userData.zipGroup = groupName || null;
             obj.userData.zipKind = zipKind || null;
 

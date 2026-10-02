@@ -105,6 +105,7 @@ export function createSceneCore(options = {}) {
     scene.add(dirLight.target);
 
     let disposed = false;
+    let disposePromise = null;
 
     function disposeLightShadow(light) {
         const shadow = light?.shadow || null;
@@ -126,7 +127,7 @@ export function createSceneCore(options = {}) {
     }
 
     function dispose() {
-        if (disposed) return;
+        if (disposed) return disposePromise;
         disposed = true;
         if (controls && onControlsChange) {
             try {
@@ -147,8 +148,9 @@ export function createSceneCore(options = {}) {
             scene.remove(world, hemiLight, dirLight, dirLight.target);
         } catch (_) {}
         try {
-            rendererInit?.dispose?.();
+            disposePromise = rendererInit.dispose();
         } catch (_) {}
+        return disposePromise;
     }
 
     return Object.freeze({

@@ -1,3 +1,4 @@
+import { isEnvironmentModel } from '../io/model-category.js';
 import { createLoadedModelSceneIndex } from '../scene/loaded-model-scene-index.js';
 import { asMaterialArray, resolveEditableMaterialState } from '../material/texture-utils.js';
 
@@ -239,6 +240,14 @@ export function createVisibilityController(options = {}) {
         if (!target) return;
 
         if (target.userData?._panelKind === 'file-root') {
+            if (isEnvironmentModel(sceneIndex.findModelByRootUuid(target.uuid))) {
+                target.visible = !target.visible;
+                updateEyeButtonsForTarget(id, target.visible);
+                markSceneStatsDirty();
+                requestRender();
+                return;
+            }
+
             const renderables = sceneIndex.getModelRenderables(target, { excludeRoot: true });
             if (!renderables.length) {
                 setEyeIcon(el, true);

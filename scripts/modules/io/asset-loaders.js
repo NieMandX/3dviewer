@@ -5,7 +5,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { createFBXWorkerClient } from '../workers/fbx-worker-client.js';
 import { createZIPWorkerClient } from '../workers/zip-worker-client.js';
 
-const DEFAULT_DRACO_DECODER_PATH = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/draco/';
+const DEFAULT_DRACO_DECODER_PATH = 'https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/libs/draco/';
 
 export function createAssetLoaders(options = {}) {
     const THREE = options.THREE;
