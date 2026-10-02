@@ -34,7 +34,8 @@ export function createFilenameBinder(options = {}) {
     const getEnvMapIntensity = typeof options.getEnvMapIntensity === 'function' ? options.getEnvMapIntensity : () => 1.0;
 
     function parseTexName(filename) {
-        const rawBase = basename(filename).replace(/\.[a-z0-9]+$/i, '');
+        // Ignore edge whitespace for matching, without changing the source name or URL.
+        const rawBase = basename(filename).trim().replace(/\.[a-z0-9]+$/i, '').trim();
         const base = rawBase.toLowerCase();
         const parts = rawBase.split('_');
         const lowerParts = base.split('_');

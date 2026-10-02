@@ -6383,6 +6383,54 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
             };
         };
 
+        const whitespaceRoot = new THREE.Group();
+        const whitespaceGeometry = new THREE.BoxGeometry(1, 1, 1);
+        const whitespaceTarget = new THREE.Mesh(whitespaceGeometry, new THREE.MeshStandardMaterial({
+            name: 'M_Test_006_Main_1',
+        }));
+        const whitespaceNeighbor = new THREE.Mesh(whitespaceGeometry, new THREE.MeshStandardMaterial({
+            name: 'M_Test_005_Main_1',
+        }));
+        whitespaceRoot.add(whitespaceNeighbor, whitespaceTarget);
+        const whitespaceLoads = createDeferredTextureLoader();
+        const whitespaceBinder = createFilenameBinder({
+            THREE,
+            geomSuffixes: ['main'],
+            findGeomSuffix: () => 'main',
+            textureLoader: whitespaceLoads.loader,
+        });
+        const whitespaceNames = [
+            'T_Test_006_Main_m_1 .png',
+            'T_Test_006_Main_m_1\t.PNG ',
+            ' T_Test_006_Main_m_1 .png ',
+            'C:\\textures\\T_Test_006_Main_m_1 .png',
+            '/textures/T_Test_006_Main_m .png',
+            'T_Test_006_Main_m_1.png',
+        ];
+        const filenameWhitespaceBindings = whitespaceNames.map((name, i) => {
+            const url = `blob:whitespace-${i}`;
+            whitespaceBinder.autoBindByNamesForModel(whitespaceRoot, 'model.fbx', [{
+                short: name, full: name, url,
+            }]);
+            const load = whitespaceLoads.loads[i];
+            const expectedName = name.split(/[\\/]/).pop();
+            return load?.url === url
+                && whitespaceTarget.material.metalnessMap === load.texture
+                && whitespaceTarget.material.metalness === 1
+                && load.texture.name === expectedName
+                && load.texture.userData.origName === expectedName
+                && load.texture.colorSpace === THREE.LinearSRGBColorSpace
+                && whitespaceNeighbor.material.metalnessMap == null;
+        });
+        whitespaceBinder.autoBindByNamesForModel(whitespaceRoot, 'model.fbx', [{
+            short: 'T_Test_006_Main_m_1 2.png', url: 'blob:invalid-slot',
+        }]);
+        const filenameWhitespaceInvalidRejected = whitespaceLoads.loads.length === whitespaceNames.length;
+        whitespaceTarget.material.metalnessMap?.dispose();
+        whitespaceTarget.material.dispose();
+        whitespaceNeighbor.material.dispose();
+        whitespaceGeometry.dispose();
+
         const filenameShared = new THREE.Texture();
         filenameShared.name = 'filename-shared';
         const filenameSharedDisposed = trackDispose(filenameShared);
@@ -6892,6 +6940,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        }
 
 	        return {
+	            filenameWhitespaceBindings,
+	            filenameWhitespaceInvalidRejected,
 	            filenameAfterFirstBind,
 	            filenameAfterSecondBind,
 	            filenameConvertedMaterialAfterBind,
@@ -6944,6 +6994,8 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        };
 	    });
 
+	    assert.deepEqual(result.filenameWhitespaceBindings, Array(6).fill(true), 'Texture replacement smoke: filename edge whitespace prevented correct metalness binding or changed source identity');
+	    assert.equal(result.filenameWhitespaceInvalidRejected, true, 'Texture replacement smoke: filename normalization accepted whitespace inside a slot number');
 	    assert.equal(result.filenameAfterFirstBind, 0, 'Texture replacement smoke: filename binder disposed texture still used by another mesh');
 	    assert.equal(result.filenameAfterSecondBind, 1, 'Texture replacement smoke: filename binder did not dispose texture after last reference was replaced');
 	    assert.equal(result.filenameConvertedMaterialAfterBind, 1, 'Texture replacement smoke: filename binder leaked converted source material');
