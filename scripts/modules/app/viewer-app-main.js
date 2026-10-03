@@ -25,6 +25,7 @@ import { createSliderValuesUIController } from '../ui/slider-values-ui.js';
 import { createSunInputsController } from '../ui/sun-inputs.js';
 import { createEnvironmentControlsController } from '../ui/environment-controls.js';
 import { createGeoJsonModalController } from '../ui/geojson-modal.js';
+import { createModelCheckPanel, eligibleModelCheckPackages } from '../ui/model-check-panel.js';
 import { createSelectedMaterialLinkResolver, createTextureInfoFormatter, guessKindFromName } from '../ui/texture-helpers.js';
 import { createHemiLightControlsController } from '../ui/hemi-light-controls.js';
 import { createStatusUIController } from '../ui/status-ui.js';
@@ -747,6 +748,7 @@ export class ViewerApp {
         app.cameraPresets = cameraPresets;
 
         let collabController = null;
+        let modelCheckPanel = null;
         let cameraSync = null;
         let annotations3d = null;
         let roomUpdateHandler = null;
@@ -1999,6 +2001,7 @@ export class ViewerApp {
         }
 
         async function teardownCollabSession(options = {}) {
+            modelCheckPanel?.close();
             const preserveAutoResume = !!options?.preserveAutoResume;
             const resetScene = options?.resetScene === true;
             const previousRoomId = String(collabController?.room?.id || collabRoom?.id || '');
@@ -5392,6 +5395,20 @@ export class ViewerApp {
          * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson?, scope? }
          */
         const loadedModels = app.loadedModels = [];
+        modelCheckPanel = createModelCheckPanel({
+            button: document.getElementById('modelCheckBtn'),
+            apiBaseUrl: window.__LPMVIEW_RUNTIME?.modelCheckApiUrl || '',
+            onOpen: () => flightControls.resetKeys(),
+            getContext: () => ({
+                key: `${collabController?.room?.id || ''}:${collabController?.user?.id || ''}`,
+                models: eligibleModelCheckPackages(loadedModels, collabController?.room?.id || ''),
+                canManage: !!collabController && canManageRoomModels(collabController.room, collabController.project),
+            }),
+            getAccessToken: async () => {
+                const session = await collabController?.supabase?.auth?.getSession();
+                return session?.data?.session?.access_token || '';
+            },
+        });
         const mapReference = createMapReferenceController({ THREE, world, isZUp, getModels: () => loadedModels });
         app.mapReference = mapReference;
         let mapBuildingsUI = null;
@@ -5531,6 +5548,7 @@ export class ViewerApp {
         }
 
         function resetImportedSceneForRoomChange() {
+            modelCheckPanel?.close();
             abortActiveRoomImports();
             roomModelLoadQueue?.clear?.();
             roomModelsReconcileState = null;
@@ -8375,6 +8393,7 @@ export class ViewerApp {
 	            try { mapReference?.dispose?.(); } catch (_) {}
 	            try { northGrid?.dispose?.(); } catch (_) {}
 	            try { geoJsonModal?.dispose?.(); } catch (_) {}
+	            try { modelCheckPanel?.dispose?.(); } catch (_) {}
 	            try { promptModal?.dispose?.(); } catch (_) {}
 	            try { confirmModal?.dispose?.(); } catch (_) {}
 	            try { resetModal?.dispose?.(); } catch (_) {}

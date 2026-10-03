@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const scriptsDir = join(projectRoot, 'scripts');
-const servicesDir = join(projectRoot, 'services', 'voice-api');
+const servicesDir = join(projectRoot, 'services');
 const extraFiles = [join(projectRoot, 'config', 'runtime.js')];
 
 async function walkJsFiles(dir) {

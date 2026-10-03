@@ -1,3 +1,4 @@
+import { runModelCheckPanelSmoke, runModelCheckIntegrationSmoke } from './smoke-model-check-panel.mjs';
 import { runDownloadUISmoke } from './smoke-download-ui.mjs';
 import { runEnvModelsSmoke } from './smoke-env-models.mjs';
 import { createServer } from 'node:http';
@@ -2010,7 +2011,7 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
     await page.close();
 }
 
-async function createRegisteredRoomSmokePage(browser, baseUrl) {
+async function createRegisteredRoomSmokePage(browser, baseUrl, options = {}) {
     const page = await browser.newPage();
     const diagnostics = attachPageDiagnostics(page);
     await page.addInitScript(() => {
@@ -2311,6 +2312,7 @@ async function createRegisteredRoomSmokePage(browser, baseUrl) {
             },
         };
     });
+    await options.beforeLoad?.(page);
     await page.goto(`${baseUrl}/?renderer=webgl&debug=1`, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForFunction(() => (
         !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
@@ -14288,6 +14290,9 @@ try {
     await runBootSmoke(browserContext, smokeServer.baseUrl);
     console.log('Boot smoke passed.');
     await runEnvModelsSmoke(browserContext, smokeServer.baseUrl);
+    await runModelCheckPanelSmoke(browserContext, smokeServer.baseUrl);
+    await runModelCheckIntegrationSmoke(browserContext, smokeServer.baseUrl, createRegisteredRoomSmokePage, process.env.LPMVIEW_SMOKE_ARTIFACTS);
+    console.log('Model check report panel and room integration smoke passed.');
     console.log('Env, NPM and VPM import categories and visibility smoke passed.');
     await runDownloadUISmoke(browserContext, smokeServer.baseUrl, createRegisteredRoomSmokePage);
     console.log('Private model download progress and room-switch abort smoke passed.');

@@ -1388,6 +1388,7 @@ body.room-entry-landing #collToggleBtn,
 body.room-entry-landing #vpmToggleBtn,
 body.room-entry-landing #npmToggleBtn,
 body.room-entry-landing #envToggleBtn,
+body.room-entry-landing #modelCheckBtn,
 body.room-entry-landing #camsToggleBtn,
 body.room-entry-landing #collabPanelBtn,
 body.room-entry-landing #annoToggleBtn {
@@ -2121,6 +2122,7 @@ body.bg-black .collab-chat-panel {
     .appbar #npmToggleBtn { order: 23; }
     .appbar #vpmToggleBtn { order: 24; }
     .appbar #envToggleBtn { order: 25; }
+    .appbar #modelCheckBtn { order: 26; height: 26px; padding: 0 8px; font-size: 12px; }
 
     .appbar #toggleSideBtn,
     .appbar #resetViewBtn,
@@ -3275,4 +3277,25 @@ body.bg-black .side:has(#materialsTab[aria-selected="true"]) { background: #171c
 @media (max-width: 980px) {
     .side:has(#materialsTab[aria-selected="true"]) { left: auto; width: min(460px, 85vw); }
     body.material-flow-edit .side:has(#materialsTab[aria-selected="true"]) { left: 0; width: 100vw; }
+}
+
+/* Original ZIP validation report. Native dialog owns focus and Escape. */
+.model-check-dialog { padding: 0; color: var(--ink); max-height: calc(100dvh - 32px); }
+.model-check-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.model-check-body { padding: 16px; overflow-y: auto; max-height: calc(100dvh - 100px); box-sizing: border-box; }
+.model-check-body > label { display: block; margin-bottom: 6px; }
+.model-check-body > select { width: 100%; min-width: 0; }
+.model-check-actions, .model-check-counts { display: flex; gap: 8px; flex-wrap: wrap; }
+.model-check-counts > span { border: 1px solid var(--border); padding: 6px 10px; border-radius: 6px; }
+.model-check-report details { padding: 8px 0; border-top: 1px solid var(--border); }
+.model-check-report summary { cursor: pointer; overflow-wrap: anywhere; }
+.model-check-report .model-check-item { margin: 8px 0 0 14px; }
+.model-check-report pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.5; }
+.model-check-error, .model-check-stale { color: #bc3c27; }
+.model-check-error:empty { display: none; }
+.model-check-report > .btn { display: inline-block; margin-top: 12px; }
+@media (max-width: 480px) {
+    .model-check-dialog { width: calc(100vw - 16px); }
+    .model-check-body { padding: 12px; }
+    .model-check-actions > .btn { flex: 1 1 auto; }
 }

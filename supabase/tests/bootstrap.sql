@@ -20,7 +20,7 @@ create function auth.uid() returns uuid language sql stable as $$
     select nullif(auth.jwt()->>'sub', '')::uuid;
 $$;
 create table storage.buckets (id text primary key, name text, public boolean);
-create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner_id text);
+create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner_id text, version text default gen_random_uuid()::text, updated_at timestamptz default now(), metadata jsonb);
 alter table storage.objects enable row level security;
 grant usage on schema auth, public, storage to anon, authenticated, service_role;
 grant all on storage.objects to authenticated, service_role;
