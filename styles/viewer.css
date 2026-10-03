@@ -3293,7 +3293,14 @@ body.bg-black .side:has(#materialsTab[aria-selected="true"]) { background: #171c
 .model-check-report pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.5; }
 .model-check-error, .model-check-stale { color: #bc3c27; }
 .model-check-error:empty { display: none; }
-.model-check-report > .btn { display: inline-block; margin-top: 12px; }
+.model-check-exports { margin: 12px 0; }
+.model-check-exports a { text-decoration: none; }
+.model-check-copy-status:empty { display: none; }
+.model-check-copy-status { font-size: 13px; }
+.model-check-identifiers { margin: 12px 0; }
+.model-check-identifier { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.model-check-identifier code { flex: 1 1 240px; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.model-check-identifier .btn { flex: 0 0 auto; }
 @media (max-width: 480px) {
     .model-check-dialog { width: calc(100vw - 16px); }
     .model-check-body { padding: 12px; }

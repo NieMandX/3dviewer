@@ -2,6 +2,11 @@
 
 ## Versions
 
+- **0.97.4** (2026-10-03): refresh eligible ZIPs when imports finish while the
+  checker panel is open, without resetting an existing selection/report. Add
+  Russian display titles, exact source-name copying and a readable TXT export;
+  retain the original JSON and checker verdicts. GitHub Pages test release.
+
 - **0.97.3** (2026-10-03): enable original ZIP validation through AGR Checker
   1.6.1 on the existing proxy VM with a separate rootless worker and resource
   limits. GitHub Pages only; agr.vision frontend remains 0.96.

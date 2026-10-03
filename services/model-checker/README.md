@@ -35,8 +35,10 @@ GitHub Pages; Caddy-выпуск `agr.vision` остаётся 0.96.
 - `worker.mjs` — один последовательный worker на Node.js 22+, Python 3 и Docker.
 - `supabase/migrations/20261003000100_model_check_jobs.sql` — отдельная
   транзакционная миграция: задания, реестр обработчиков, lease и RPC с RLS.
-- `scripts/modules/ui/model-check-panel.js` — окно отчёта, опрос только открытого
-  окна, отмена, JSON-экспорт, прекращение запросов при смене комнаты/dispose.
+- `scripts/modules/ui/model-check-panel.js` — окно отчёта, обновление списка ZIP
+  после импорта, опрос только открытого окна, отмена, JSON/TXT-экспорт и копирование,
+  прекращение запросов при смене комнаты/dispose. `model-check-report.js` отвечает
+  только за представление; исходные сообщения, имена и статусы не изменяются.
 - Приватный комплект Blender находится вне публичного репозитория:
   `LPMVIEW/knowledge/moscow-models/experiments/agr-checker-1.6.1/`.
   Сборка — `linux/prepare-build.py` и `linux/Dockerfile`, запуск контейнера —

@@ -1,3 +1,4 @@
+import { CHECK_STATES, checkTitle, checkDetailsText, checkIdentifiers, reportText } from './model-check-report.js';
 // Server reports concern original stored ZIP packages, never the rendered scene.
 export function eligibleModelCheckPackages(records, roomId) {
     const packages = new Map();
@@ -12,7 +13,6 @@ export function eligibleModelCheckPackages(records, roomId) {
 }
 const STATES = { queued: 'В очереди', running: 'Проверка выполняется', completed: 'Проверка завершена', incomplete: 'Проверка не завершена', cancelled: 'Проверка отменена', not_applicable: 'Этот архив не относится к НПМ/ВПМ' };
 const STAGES = { downloading: 'Получение исходного ZIP', archive_preflight: 'Проверка архива', blender_checks: 'Проверка в Blender', geojson_supplement: 'Проверка GeoJSON', saving_report: 'Сохранение отчёта' };
-const CHECK_STATES = { failed: 'С ошибками', warning: 'С рекомендациями', not_checked: 'Не проверено', passed: 'Пройдено' };
 const ERRORS = { source_changed: 'Исходный ZIP изменился во время проверки. Запустите её повторно.', worker_lease_expired: 'Связь с обработчиком потеряна. Проверку можно запустить повторно.', worker_cancelled_or_lease_lost: 'Выполнение остановлено или потеряна связь с обработчиком.', checker_incomplete: 'Обработчик не смог завершить проверку архива.' };
 
 export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAccessToken, onOpen = () => {}, fetchImpl = fetch, document: doc = document, pollMs = 1500 }) {
@@ -23,16 +23,17 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
     } catch { base = null; }
     if (button) button.hidden = !base;
     let disposed = false; let dialog; let refs; let scope; let controller; let generation = 0;
-    let timer; let contextTimer; let currentJob; let busy = false; let downloadUrl; let previousFocus;
+    let timer; let contextTimer; let currentJob; let busy = false; let previousFocus; let modelSignature;
+    const downloadUrls = [];
     const listeners = [];
     function listen(el, name, fn) { el.addEventListener(name, fn); listeners.push(() => el.removeEventListener(name, fn)); }
     function element(tag, text, className) {
         const el = doc.createElement(tag); if (text !== undefined) el.textContent = String(text); if (className) el.className = className; return el;
     }
-    function revokeDownload() { if (downloadUrl) URL.revokeObjectURL(downloadUrl); downloadUrl = null; }
+    function revokeDownload() { for (const url of downloadUrls.splice(0)) URL.revokeObjectURL(url); }
     function invalidate() { generation++; controller?.abort(); controller = new AbortController(); clearTimeout(timer); timer = null; }
     function close() {
-        invalidate(); clearInterval(contextTimer); contextTimer = null; scope = null; currentJob = null; busy = false;
+        invalidate(); clearInterval(contextTimer); contextTimer = null; scope = null; currentJob = null; busy = false; modelSignature = null;
         revokeDownload(); dialog?.close(); if (refs) refs.report.replaceChildren();
         if (!disposed && previousFocus?.isConnected) previousFocus.focus();
     }
@@ -70,6 +71,26 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         if (!response.ok) throw new Error(result?.error?.message || 'Сервис проверки временно недоступен.');
         return result;
     }
+    function copyButton(label, text, status) {
+        const copy = element('button', label, 'btn'); copy.type = 'button';
+        // The handler belongs to this report node; replacing the report releases it.
+        copy.onclick = async () => {
+            copy.disabled = true;
+            try {
+                const clipboard = doc.defaultView?.navigator?.clipboard;
+                if (!clipboard?.writeText) throw new Error('clipboard unavailable');
+                await clipboard.writeText(text);
+                if (status.isConnected) status.textContent = 'Скопировано';
+            } catch {
+                if (status.isConnected) status.textContent = 'Не удалось скопировать. Выделите текст и скопируйте его вручную.';
+            } finally { copy.disabled = false; }
+        };
+        return copy;
+    }
+    function downloadLink(label, content, type, filename) {
+        const url = URL.createObjectURL(new Blob([content], { type })); downloadUrls.push(url);
+        const link = element('a', label, 'btn'); link.href = url; link.download = filename; return link;
+    }
     function renderReport(job) {
         refs.report.replaceChildren(); revokeDownload();
         const report = job.report;
@@ -82,6 +103,13 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         for (const [state, label] of Object.entries(CHECK_STATES)) counts.append(element('span', `${label}: ${Number(report.summary?.[state]) || 0}`, `model-check-${state}`));
         refs.report.append(counts);
         refs.report.append(element('p', 'Проверяются автоматизируемые пункты. Непроверенные требования требуют отдельной проверки; отчёт не подтверждает приёмку проекта.', 'muted'));
+        const copyStatus = element('p', '', 'muted model-check-copy-status'); copyStatus.setAttribute('role', 'status');
+        const exports = element('div', undefined, 'model-check-actions model-check-exports');
+        const text = reportText(job);
+        exports.append(copyButton('Скопировать отчёт', text, copyStatus),
+            downloadLink('Скачать отчёт TXT', text, 'text/plain;charset=utf-8', 'model-check-report.txt'),
+            downloadLink('Скачать отчёт JSON', JSON.stringify(job, null, 2), 'application/json', 'model-check-report.json'));
+        refs.report.append(exports, copyStatus);
         for (const [state, label] of Object.entries(CHECK_STATES)) {
             const items = (report.checks || []).filter(c => c.status === state);
             if (!items.length) continue;
@@ -89,10 +117,27 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
             group.append(element('summary', `${label} · ${items.length}`));
             for (const item of items) {
                 const row = element('details', undefined, 'model-check-item');
-                row.append(element('summary', `${item.profile || ''} · ${item.requirement_ref || '—'} · ${item.name || 'Пункт требований'}`));
+                row.append(element('summary', checkTitle(item)));
                 if (item.errors_text) row.append(element('pre', item.errors_text));
                 if (item.recommendations_text) row.append(element('pre', item.recommendations_text));
                 if (!item.errors_text && !item.recommendations_text) row.append(element('p', CHECK_STATES[item.status]));
+                if (item.errors_text || item.recommendations_text) {
+                    const status = element('p', '', 'muted model-check-copy-status'); status.setAttribute('role', 'status');
+                    const actions = element('div', undefined, 'model-check-actions');
+                    actions.append(copyButton('Скопировать замечание', `${checkTitle(item)}\n${checkDetailsText(item)}`, status));
+                    const names = checkIdentifiers(item);
+                    if (names.length) {
+                        const identifiers = element('div', undefined, 'model-check-identifiers');
+                        identifiers.append(element('p', 'Имена из сообщения чекера', 'muted'));
+                        for (const name of names) {
+                            const entry = element('div', undefined, 'model-check-identifier');
+                            const copy = copyButton('Скопировать имя', name, status); copy.setAttribute('aria-label', `Скопировать имя ${name}`);
+                            entry.append(element('code', name), copy); identifiers.append(entry);
+                        }
+                        row.append(identifiers);
+                    }
+                    row.append(actions, status);
+                }
                 group.append(row);
             }
             refs.report.append(group);
@@ -111,8 +156,6 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         const identity = element('details'); identity.append(element('summary', 'Исходный файл и версия проверки'));
         identity.append(element('pre', `${job.source_name}\nSHA-256: ${job.source_sha256 || report.source_sha256}\nОбработчик: ${job.engine_revision}\nBlender: ${report.blender_version || '—'}`));
         refs.report.append(identity);
-        downloadUrl = URL.createObjectURL(new Blob([JSON.stringify(job, null, 2)], { type: 'application/json' }));
-        const link = element('a', 'Скачать отчёт JSON', 'btn'); link.href = downloadUrl; link.download = 'model-check-report.json'; refs.report.append(link);
     }
     function renderJob(job) {
         currentJob = job;
@@ -156,6 +199,18 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         refs.status.textContent = refs.model.value ? 'Получение состояния…' : 'Для проверки откройте комнату с загруженным и синхронизированным ZIP НПМ/ВПМ.';
         controls(); if (refs.model.value) void load();
     }
+    function updateModels(models = []) {
+        const signature = JSON.stringify(models.map(m => [m.id, m.name]));
+        if (signature === modelSignature) return;
+        const selected = refs.model.value;
+        const previousName = refs.model.selectedOptions[0]?.textContent;
+        refs.model.replaceChildren(...models.map(m => { const option = element('option', m.name); option.value = m.id; return option; }));
+        if (models.some(m => m.id === selected)) refs.model.value = selected;
+        modelSignature = signature;
+        // A newly loaded ZIP becomes selectable without closing the panel. Adding
+        // a different model must not reset a running job or an expanded report.
+        if (selected !== refs.model.value || previousName !== refs.model.selectedOptions[0]?.textContent) selectModel();
+    }
     function ensureDialog() {
         if (dialog) return;
         dialog = element('dialog', undefined, 'sheet model-check-dialog'); dialog.id = 'modelCheckDialog'; dialog.setAttribute('aria-labelledby', 'modelCheckTitle');
@@ -181,13 +236,15 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         if (disposed || !base) return;
         if (dialog?.open) close();
         ensureDialog(); scope = getContext(); previousFocus = doc.activeElement;
-        refs.model.replaceChildren(...(scope?.models || []).map(m => { const option = element('option', m.name); option.value = m.id; return option; }));
+        modelSignature = null;
+        refs.model.replaceChildren();
         refs.hint.textContent = scope?.canManage ? 'Проверяется исходный ZIP, сохранённый в проекте. Изменения материалов во Viewer на отчёт не влияют.' : 'Вы можете читать готовые отчёты. Запуск и отмена доступны владельцу проекта.';
-        onOpen(); dialog.showModal(); selectModel();
+        onOpen(); dialog.showModal(); updateModels(scope?.models);
+        if (!refs.model.value) selectModel();
         contextTimer = setInterval(() => {
             const next = getContext();
             if (next?.key !== scope?.key || (refs.model.value && !next?.models?.some(m => m.id === refs.model.value))) close();
-            else controls();
+            else { updateModels(next?.models); controls(); }
         }, 500);
     }
     if (button) listen(button, 'click', open);

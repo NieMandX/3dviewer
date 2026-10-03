@@ -100,6 +100,29 @@ The NPM control archive completed on the target VM in 5.864 s; 39 passed,
 confirmed network none, readonly input/root, exact image ID, 2 CPU/4 GiB, no
 OOM and unchanged source SHA-256. The 61,428,549-byte APEX ZIP is present in real
 Storage with a version and updated_at, and resolves via model_check_source.
+On 2026-10-03 the owner signed in through the regular Viewer UI and submitted
+that APEX NPM ZIP: the production API/queue/Storage/Blender/report path completed
+in 14.744 s (including queue/download), with 36 passed, 4 failed, 4 warning and
+28 not_checked. The saved report was read again through the UI; the worker
+removed the container and both temporary work directories were empty. This is
+proof of that source/version, not proof that the model meets all requirements.
+
+Viewer 0.97.4 adds a regression test for opening the panel before a room ZIP
+finishes loading, preserves the selected source/report when another ZIP arrives,
+and tests exact-name copying, clipboard denial, TXT/JSON content, mobile overflow,
+offline recovery, late responses and Blob URL cleanup. Display titles are not
+new validation rules; the raw report stays unchanged.
+
+An isolated localhost PostgreSQL/PostgREST + real Blender test also exercised
+16 duplicate submissions (one job), three concurrent claimers (two distinct jobs
+and one empty claim), SIGKILL of the Node worker, actual 30-second lease expiry,
+continuation with the next queued ZIP, cancellation and a new VPM+GeoJSON run.
+The orphan container exited after 9.665 s; cancellation took 3.064 s in this
+sample. The VPM control result was 59 passed / 4 failed / 3 warning / 54 not_checked.
+These are local Docker Desktop observations using an HTTP fixture stream and
+the private test wrapper (4 CPU/6 GiB), not production-host outage measurements.
+The SIGKILL orphan workspace was removed explicitly in the test; this does not
+prove production systemd startup cleanup after an entire host failure.
 
 Long-duration load, large simultaneous workloads, physical iPad and a real
 multi-participant voice call during validation are not covered by this probe.

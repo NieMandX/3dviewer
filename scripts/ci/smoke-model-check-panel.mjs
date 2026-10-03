@@ -20,11 +20,17 @@ export async function runModelCheckPanelSmoke(browser, baseUrl, screenshotDir) {
         await page.addStyleTag({ url: `${baseUrl}/styles/viewer.css` });
         await page.evaluate(() => {
             const button = document.createElement('button'); button.id = 'check-entry'; button.textContent = 'Проверить'; document.body.append(button);
-            window.checkContext = { key: 'room-a:user-a', canManage: true, models: [{ id: 'model-a', name: '0123_Нагатинская_1.zip' }, { id: 'model-b', name: 'SM_Вторая_модель.zip' }] };
+            window.checkContext = { key: 'room-a:user-a', canManage: true, models: [] };
+            window.checkCopied = []; window.checkClipboardDenied = false;
+            Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { async writeText(text) {
+                if (window.checkClipboardDenied) throw new Error('Permission denied');
+                window.checkCopied.push(text);
+            } } });
             window.checkCalls = []; window.checkNetworkDown = false; window.checkDelay = null;
             window.checkJob = null;
             window.checkReport = { checker_version: '1.6.1', blender_version: '5.1.0', source_sha256: 'a'.repeat(64), summary: { failed: 2, warning: 1, passed: 39, not_checked: 28 }, checks: [
-                { status: 'failed', profile: 'НПМ', requirement_ref: '2.1', name: 'Имена объектов', errors_text: '<img src=x onerror=alert(1)>\nИмя объекта не соответствует требованиям.' },
+                { status: 'failed', profile: 'NPM', requirement_ref: '2.10.3.4', name: 'Наименования текстур', errors_text: '<img src=x onerror=alert(1)>\n    -->T_Example_Main_m_1 .png, должно быть\n       T_Example_Main_m_N.png' },
+                { status: 'failed', profile: 'NPM', requirement_ref: '2.4.3', name: 'Glass opacity 50%', errors_text: '    M_Glass_01: alpha материала остекления должна быть равна 0.5' },
                 { status: 'warning', profile: 'НПМ', requirement_ref: '3.2', name: 'Текстуры', recommendations_text: 'Проверьте разрешение текстуры.' },
                 { status: 'not_checked', profile: 'НПМ', requirement_ref: '4.1', name: 'Визуальное соответствие проекту' },
             ] };
@@ -42,7 +48,14 @@ export async function runModelCheckPanelSmoke(browser, baseUrl, screenshotDir) {
                 } });
         });
         await page.click('#check-entry');
+        await page.waitForFunction(() => document.querySelector('[role=status]')?.textContent.includes('синхронизированным ZIP'));
+        assert.equal(await page.getByRole('button', { name: 'Проверить модель', exact: true }).isDisabled(), true);
+        const emptyCalls = await page.evaluate(() => window.checkCalls.length);
+        assert.equal(emptyCalls, 0, 'Opening an empty room requested a non-existent source');
+        // Regression: open the panel while a room ZIP is still importing.
+        await page.evaluate(() => { window.checkContext.models = [{ id: 'model-a', name: '0123_Нагатинская_1.zip' }, { id: 'model-b', name: 'SM_Вторая_модель.zip' }]; });
         await page.waitForFunction(() => document.querySelector('[role=status]')?.textContent.includes('пока нет'));
+        assert.equal(await page.locator('#modelCheckSource').inputValue(), 'model-a');
         await page.getByRole('button', { name: 'Проверить модель', exact: true }).click();
         await page.waitForFunction(() => document.querySelector('[role=status]')?.textContent.includes('В очереди'));
         await page.evaluate(() => { window.checkJob = { ...window.checkJob, status: 'running', stage: 'blender_checks' }; });
@@ -58,8 +71,28 @@ export async function runModelCheckPanelSmoke(browser, baseUrl, screenshotDir) {
         await page.getByRole('button', { name: 'Обновить', exact: true }).click();
         await page.waitForFunction(() => document.querySelector('.model-check-report')?.textContent.includes('отключённым обработчиком'));
         assert.equal(await page.locator('.model-check-report img').count(), 0, 'Report text became executable HTML');
+        assert.match(await page.locator('.model-check-report').textContent(), /НПМ · 2.4.3 · Непрозрачность стекла — 50%/);
+        const txt = await page.getByRole('link', { name: 'Скачать отчёт TXT', exact: true }).evaluate(async el => (await fetch(el.href)).text());
+        assert.match(txt, /Не проверено: 28/); assert.match(txt, /исходный архив изменён/); assert.match(txt, /обработчик изменён/);
+        assert.ok(txt.includes('T_Example_Main_m_1 .png'), 'TXT changed the erroneous source filename');
+        assert.ok(txt.includes('SHA-256: ' + 'a'.repeat(64)));
+        const json = await page.getByRole('link', { name: 'Скачать отчёт JSON', exact: true }).evaluate(async el => (await fetch(el.href)).json());
+        assert.deepEqual(json.report, await page.evaluate(() => window.checkReport), 'Presentation changed the raw checker result');
+        await page.getByRole('button', { name: 'Скопировать отчёт', exact: true }).click();
+        await page.waitForFunction(() => window.checkCopied.length === 1);
+        assert.equal(await page.evaluate(() => window.checkCopied[0]), txt);
         await page.setViewportSize({ width: 390, height: 844 });
         await page.locator('.model-check-item summary').first().click();
+        await page.getByRole('button', { name: 'Скопировать имя T_Example_Main_m_1 .png', exact: true }).click();
+        await page.waitForFunction(() => window.checkCopied.length === 2);
+        assert.equal(await page.evaluate(() => window.checkCopied[1]), 'T_Example_Main_m_1 .png');
+        await page.evaluate(() => { window.checkClipboardDenied = true; });
+        await page.getByRole('button', { name: 'Скопировать имя T_Example_Main_m_1 .png', exact: true }).click();
+        await page.waitForFunction(() => document.querySelector('.model-check-item')?.textContent.includes('Выделите текст'));
+        await page.evaluate(() => { window.checkClipboardDenied = false; window.checkContext.models.push({ id: 'model-c', name: 'SM_Третья.zip' }); });
+        await page.waitForFunction(() => document.querySelector('#modelCheckSource').options.length === 3);
+        assert.equal(await page.locator('#modelCheckSource').inputValue(), 'model-a');
+        assert.equal(await page.locator('.model-check-item').first().evaluate(el => el.open), true, 'An arriving ZIP reset the existing report');
         assert.equal(await page.evaluate(() => document.querySelector('.model-check-body').scrollWidth <= document.querySelector('.model-check-body').clientWidth + 1), true, 'Report overflows mobile viewport');
         if (screenshotDir) await page.screenshot({ path: `${screenshotDir}/checker-mobile.png` });
         await page.setViewportSize({ width: 1280, height: 900 });
@@ -74,6 +107,13 @@ export async function runModelCheckPanelSmoke(browser, baseUrl, screenshotDir) {
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('dialog').evaluate(el => el.open), false);
         assert.equal(await page.evaluate(() => document.activeElement.id), 'check-entry');
+        // Reopening reads the persisted report without another POST.
+        const startsBefore = await page.evaluate(() => window.checkCalls.filter(c => c.method === 'POST').length);
+        await page.click('#check-entry'); await page.waitForSelector('.model-check-report a[download]');
+        assert.equal(await page.evaluate(() => window.checkCalls.filter(c => c.method === 'POST').length), startsBefore);
+        const urls = await page.locator('.model-check-report a[download]').evaluateAll(links => links.map(el => el.href));
+        await page.keyboard.press('Escape');
+        assert.equal(await page.evaluate(async urls => (await Promise.all(urls.map(url => fetch(url).then(() => false, () => true)))).every(Boolean), urls), true, 'Report Blob URLs survived close');
         // Guest sees reports but cannot start/cancel jobs.
         await page.evaluate(() => { window.checkContext.canManage = false; });
         await page.click('#check-entry'); await page.waitForSelector('.model-check-report a[download]');
@@ -83,6 +123,17 @@ export async function runModelCheckPanelSmoke(browser, baseUrl, screenshotDir) {
         await page.getByRole('button', { name: 'Обновить', exact: true }).click();
         await page.waitForFunction(() => !!window.finishCheckDelay);
         await page.evaluate(() => { window.checkContext = { key: 'room-b:user-a', models: [], canManage: true }; });
+        await page.waitForFunction(() => !document.querySelector('dialog').open);
+        await page.evaluate(() => { window.checkDelay = null; window.finishCheckDelay(); });
+        await page.waitForTimeout(80);
+        assert.equal(await page.locator('.model-check-report').textContent(), '');
+        // Removing the selected source closes the panel and rejects its late response.
+        await page.evaluate(() => { window.checkContext = { key: 'room-a:user-a', models: [{ id: 'model-a', name: '0123.zip' }], canManage: true }; window.checkPanel.open(); });
+        await page.waitForSelector('.model-check-report a[download]');
+        await page.evaluate(() => { window.finishCheckDelay = null; window.checkDelay = true; });
+        await page.getByRole('button', { name: 'Обновить', exact: true }).click();
+        await page.waitForFunction(() => !!window.finishCheckDelay);
+        await page.evaluate(() => { window.checkContext.models = []; });
         await page.waitForFunction(() => !document.querySelector('dialog').open);
         await page.evaluate(() => { window.checkDelay = null; window.finishCheckDelay(); });
         await page.waitForTimeout(80);
