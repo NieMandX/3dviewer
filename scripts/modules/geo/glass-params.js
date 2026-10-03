@@ -57,6 +57,7 @@ function ensureGeoGlassIndex(meta) {
                 index.set(key, {
                     color: colorData,
                     transparency: transparencyClamped,
+                    // Moscow's Glasses schema defines 0 as transparent and 1 as opaque.
                     opacity: transparencyClamped,
                     refraction,
                     roughness: roughness != null ? clamp01(roughness) : null,
@@ -83,4 +84,3 @@ export function findGeoGlassParams(meta, nameCandidates) {
     }
     return null;
 }
-

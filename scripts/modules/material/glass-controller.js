@@ -186,10 +186,7 @@ export function createGlassController(options = {}) {
 
                 if (!std.userData.glassOriginal) {
                     const baseColorFromGeo = glassParams?.color ? geoColorToHex(glassParams.color) : (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
-                    const geoTransparency = glassParams?.transparency;
-                    const originalOpacity = (geoTransparency != null)
-                        ? clamp01(1 - geoTransparency)
-                        : (glassParams?.opacity ?? std.opacity ?? sliderOpacity);
+                    const originalOpacity = glassParams?.opacity ?? std.opacity ?? sliderOpacity;
                     const originalRoughness = glassParams?.roughness ?? std.roughness ?? sliderRough;
                     const originalMetalness = glassParams?.metalness ?? std.metalness ?? sliderMetal;
                     const originalRefraction = glassParams?.refraction ?? (('ior' in std) ? std.ior : null);
@@ -218,7 +215,7 @@ export function createGlassController(options = {}) {
                     }
                     if (isSM && !isNPM && glassParams) {
                         if (glassParams.color) std.color?.set?.(originalData.color || glassParams.color);
-                        if (glassParams.transparency != null) originalData.opacity = clamp01(1 - glassParams.transparency);
+                        if (glassParams.opacity != null) originalData.opacity = clamp01(glassParams.opacity);
                         if (glassParams.roughness != null) originalData.roughness = clamp01(glassParams.roughness);
                         if (glassParams.metalness != null) originalData.metalness = clamp01(glassParams.metalness);
                         if (glassParams.refraction != null) originalData.refraction = glassParams.refraction;

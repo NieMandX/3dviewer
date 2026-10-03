@@ -16,6 +16,7 @@ import { runBuildingHeightMatchingSmoke } from './smoke-building-heights.mjs';
 import { runMapBuildingsSmoke, runMapBuildingsUISmoke } from './smoke-map-buildings.mjs';
 import { runMaterialEditorSmoke } from './smoke-material-editor.mjs';
 import { runDepthPrioritySmoke } from './smoke-depth-priority.mjs';
+import { runGeoGlassSmoke } from './smoke-geo-glass.mjs';
 import { runMaterialThumbnailsSmoke } from './smoke-material-thumbnails.mjs';
 import { runMaterialPacksSmoke } from './smoke-material-packs.mjs';
 
@@ -14295,8 +14296,10 @@ try {
     await runRiverFlowImportSmoke(browserContext, smokeServer.baseUrl);
     console.log('River flow GLB import, animation and disposal smoke passed.');
     await runDepthPrioritySmoke(browserContext, smokeServer.baseUrl);
+    await runGeoGlassSmoke(browserContext, smokeServer.baseUrl);
     if (process.env.LPMVIEW_SMOKE_HARDWARE === '1') {
         await runDepthPrioritySmoke(browserContext, smokeServer.baseUrl, { useWebGPU: true });
+        await runGeoGlassSmoke(browserContext, smokeServer.baseUrl, { useWebGPU: true });
         console.log('Native WebGPU depth priority pixel test passed.');
     }
     await runMaterialEditorSmoke(browserContext, smokeServer.baseUrl);

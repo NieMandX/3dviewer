@@ -16,6 +16,8 @@
   color edits without unnecessary shader rebuilding. Initial source: `v0.96`.
   The owner approved publishing this release to `agr.vision`.
 
+- **0.97.1** (2026-10-03): preserve the Moscow GeoJSON glass opacity convention
+  (0 transparent, 1 opaque), including original reset and manual overrides.
 - **0.97** (2026-10-03): Three.js 0.186.0 with asynchronous renderer cleanup,
   server download progress in bytes/percent, and an independent Env visibility
   category for standalone FBX/GLB and unclassified context ZIPs. See
