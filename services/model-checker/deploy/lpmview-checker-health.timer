@@ -1,0 +1,7 @@
+[Unit]
+Description=Periodic LPMVIEW checker health check
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target

@@ -69,7 +69,7 @@ export async function runContainer({ wrapper, python, source, output, job, engin
                 '--expected-sha256', sha256, '--owner-lease', leaseFile, '--timeout', String(timeout), '--geojson-supplement', '--html-report'];
             // HOME lets the host Docker CLI locate its local socket/context. No
             // database credentials are inherited by Python, Docker or Blender.
-            const env = Object.fromEntries(['HOME', 'PATH', 'LANG', 'LC_ALL', 'TMPDIR'].filter(k => process.env[k]).map(k => [k, process.env[k]]));
+            const env = Object.fromEntries(['HOME', 'PATH', 'LANG', 'LC_ALL', 'TMPDIR', 'DOCKER_HOST'].filter(k => process.env[k]).map(k => [k, process.env[k]]));
             const child = spawn(python, args, { env, stdio: ['ignore', log.fd, log.fd], detached: true });
             let timer; let stopping = false;
             const abort = () => {

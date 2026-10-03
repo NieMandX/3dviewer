@@ -1,0 +1,35 @@
+[Unit]
+Description=LPMVIEW model validation API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/lpmview-checker/api.env
+WorkingDirectory=/opt/lpmview/checker/service
+ExecStart=/opt/lpmview/checker/runtime/node22/bin/node /opt/lpmview/checker/service/api.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryMax=256M
+CPUQuota=50%
+TasksMax=64
+LimitNOFILE=1024
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=60
+LogRateLimitBurst=30
+
+[Install]
+WantedBy=multi-user.target

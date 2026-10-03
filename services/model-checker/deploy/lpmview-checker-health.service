@@ -1,0 +1,8 @@
+[Unit]
+Description=Check LPMVIEW checker service and workspace health
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/lpmview/checker/service/deploy/healthcheck.py
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes

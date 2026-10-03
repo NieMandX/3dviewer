@@ -2,6 +2,10 @@
 
 ## Versions
 
+- **0.97.3** (2026-10-03): enable original ZIP validation through AGR Checker
+  1.6.1 on the existing proxy VM with a separate rootless worker and resource
+  limits. GitHub Pages only; agr.vision frontend remains 0.96.
+
 - **0.9**: exact viewer previously served by `https://agr.vision/`, captured
   on 2026-09-02 before replacement. This is a deployed-file snapshot, not a
   guessed historical Git tag. Its original files are unchanged.

@@ -1,0 +1,44 @@
+[Unit]
+Description=LPMVIEW AGR Checker 1.6.1 queue worker
+Wants=network-online.target
+After=network-online.target user@1001.service
+Requires=user@1001.service
+RequiresMountsFor=/var/lib/lpmview-checker/work
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=lpm-checker
+Group=lpm-checker
+Slice=user-1001.slice
+EnvironmentFile=/etc/lpmview-checker/worker.env
+WorkingDirectory=/opt/lpmview/checker/service
+Environment=TMPDIR=/var/lib/lpmview-checker/work/tmp
+Environment=PATH=/opt/lpmview/checker/runtime/node22/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DOCKER_HOST=unix:///run/lpmview-checker/docker.sock
+RuntimeDirectory=lpmview-checker
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/bin/python3 /opt/lpmview/checker/service/deploy/cleanup.py
+ExecStart=/opt/lpmview/checker/runtime/node22/bin/node /opt/lpmview/checker/service/worker.mjs
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=55
+KillMode=mixed
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+BindReadOnlyPaths=/run/user/1001/docker.sock:/run/lpmview-checker/docker.sock
+ReadWritePaths=/var/lib/lpmview-checker/work
+RestrictSUIDSGID=yes
+LimitNOFILE=4096
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=60
+LogRateLimitBurst=30
+
+[Install]
+WantedBy=multi-user.target

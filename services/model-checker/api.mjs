@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { isIP } from 'node:net';
 import { pathToFileURL } from 'node:url';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -54,8 +55,22 @@ async function readBody(req) {
         return data;
     } catch { throw new CheckApiError(400, 'invalid_json', 'Ожидается JSON-объект.'); }
 }
-export function createApiServer({ service, allowedOrigins = [] }) {
+export function createRateLimiter({ limit = 300, windowMs = 60000, maxKeys = 4096, now = Date.now } = {}) {
+    const clients = new Map();
+    return key => {
+        const time = now();
+        for (const [ip, state] of clients) if (state.until <= time) clients.delete(ip);
+        let state = clients.get(key);
+        if (!state) {
+            if (clients.size >= maxKeys) return false;
+            state = { until: time + windowMs, count: 0 }; clients.set(key, state);
+        }
+        return ++state.count <= limit;
+    };
+}
+export function createApiServer({ service, allowedOrigins = [], trustProxy = false, rateLimiter = createRateLimiter(), maxInFlight = 32 }) {
     const origins = new Set(allowedOrigins);
+    let inFlight = 0;
     const server = http.createServer(async (req, res) => {
         const origin = req.headers.origin;
         const send = (status, data) => {
@@ -67,8 +82,19 @@ export function createApiServer({ service, allowedOrigins = [] }) {
         const controller = new AbortController();
         req.once('aborted', () => controller.abort());
         res.once('close', () => { if (!res.writableEnded) controller.abort(); });
+        let counted = false;
         try {
+            // Only enable trustProxy on a private listener behind a proxy which
+            // overwrites this header. Never trust client-supplied forwarded IPs.
+            const forwarded = req.headers['x-lpmview-client-ip'];
+            const client = trustProxy && typeof forwarded === 'string' && isIP(forwarded) ? forwarded : req.socket.remoteAddress;
+            if (!rateLimiter(client) || inFlight >= maxInFlight) {
+                res.setHeader('Retry-After', '60');
+                throw new CheckApiError(429, 'rate_limited', 'Слишком много запросов. Повторите через минуту.');
+            }
+            inFlight++; counted = true;
             if (origin && !origins.has(origin)) throw new CheckApiError(403, 'origin_not_allowed', 'Источник запроса не разрешён.');
+            if (req.method === 'GET' && req.url === '/health') { send(200, { ok: true }); return; }
             if (req.method === 'OPTIONS') {
                 res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
                 res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type');
@@ -103,16 +129,17 @@ export function createApiServer({ service, allowedOrigins = [] }) {
             send(error instanceof CheckApiError ? error.status : 502, {
                 error: { code: error instanceof CheckApiError ? error.code : 'backend_unavailable', message: error instanceof CheckApiError ? error.message : 'Сервис проверки временно недоступен.' },
             });
-        }
+        } finally { if (counted) inFlight--; }
     });
     server.requestTimeout = 20000; server.headersTimeout = 10000; server.keepAliveTimeout = 5000;
+    server.maxConnections = 128;
     return server;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const { SUPABASE_URL, SUPABASE_ANON_KEY } = process.env;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY are required');
     const service = createModelCheckService({ supabaseUrl: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
-    const server = createApiServer({ service, allowedOrigins: (process.env.MODEL_CHECK_ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean) });
+    const server = createApiServer({ service, trustProxy: process.env.MODEL_CHECK_TRUST_PROXY === '1', allowedOrigins: (process.env.MODEL_CHECK_ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean) });
     const port = Number(process.env.PORT || 8081);
     server.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`Model check API listening on port ${port}`));
     const close = () => { server.close(); server.closeIdleConnections(); };
