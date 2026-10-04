@@ -55,6 +55,7 @@ export function createAutobindPipeline(options = {}) {
         copyTextureSettings,
         cacheOriginalMaterialFor,
         requestRender,
+        prepareTextures: options.prepareTextures,
         materialsPanel,
         schedulePanelRefresh,
         logBind,

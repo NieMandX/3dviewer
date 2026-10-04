@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { collectMaterialTextures } from '../material/texture-utils.js';
+import { parseFBXTransfer } from './fbx-transfer-loader.js';
 
 export function createFBXWorkerClient(options = {}) {
     const workerUrl = (() => {
@@ -16,6 +17,11 @@ export function createFBXWorkerClient(options = {}) {
     let reqId = 0;
     let disposed = false;
     const pending = new Map();
+    const hydrations = new Set();
+    let completed = 0;
+    let lastParse = null;
+    let idleTimer = null;
+    const idleTimeoutMs = options.idleTimeoutMs ?? 5000;
 
     function makeAbortError(message = 'FBX worker job aborted') {
         try {
@@ -55,10 +61,23 @@ export function createFBXWorkerClient(options = {}) {
     }
 
     function terminateWorker() {
+        clearTimeout(idleTimer);
+        idleTimer = null;
         try {
             workerInstance?.terminate?.();
         } catch (_) {}
         workerInstance = null;
+    }
+
+    function retireIdleWorker(worker) {
+        clearTimeout(idleTimer);
+        if (idleTimeoutMs === 0) { terminateWorker(); return; }
+        // Reuse the realm for a batch. Creating/terminating one worker per FBX
+        // can outpace WebKit's native memory reclamation on a large ZIP set.
+        idleTimer = setTimeout(() => {
+            idleTimer = null;
+            if (workerInstance === worker && pending.size === 0) terminateWorker();
+        }, idleTimeoutMs);
     }
 
     function disposeParsedObject(root) {
@@ -96,24 +115,31 @@ export function createFBXWorkerClient(options = {}) {
         supported = false;
         const err = reason instanceof Error ? reason : reason ? new Error(String(reason)) : new Error('FBX worker disabled');
         rejectPending(err);
+        for (const controller of hydrations) controller.abort();
         terminateWorker();
     }
 
     function ensureFBXWorker() {
         if (disposed) return null;
         if (!supported) return null;
-        if (workerInstance) return workerInstance;
+        if (workerInstance) {
+            clearTimeout(idleTimer); idleTimer = null;
+            return workerInstance;
+        }
         try {
             workerInstance = new Worker(workerUrl, { type: 'module' });
             const worker = workerInstance;
             workerInstance.onmessage = (event) => {
                 if (disposed || workerInstance !== worker) return;
-                const { id, ok, json, error, duration, embedded, orientation } = event.data || {};
+                const { id, ok, json, error, duration, embedded, orientation, transport, stats } = event.data || {};
                 const job = pending.get(id);
                 if (!job) return;
                 pending.delete(id);
                 cleanupJob(job);
-                if (ok) job.resolve({ json, duration, embedded, orientation });
+                // FBXLoader retains its parsed tree in module globals. Retiring
+                // an idle worker releases that tree and its uncompressed arrays.
+                if (pending.size === 0) retireIdleWorker(worker);
+                if (ok) job.resolve({ json, duration, embedded, orientation, transport, stats });
                 else job.reject(new Error(error || 'FBX worker error'));
             };
             workerInstance.onerror = (event) => {
@@ -131,10 +157,10 @@ export function createFBXWorkerClient(options = {}) {
 
     async function parseFBXInWorker(buffer, features = null, options = {}) {
         if (disposed) throw makeAbortError('FBX worker client disposed');
-        const worker = ensureFBXWorker();
-        if (!worker) throw new Error('worker not available');
         const signal = options?.signal || null;
         if (signal?.aborted) throw makeAbortError();
+        const worker = ensureFBXWorker();
+        if (!worker) throw new Error('worker not available');
         const id = ++reqId;
         const promise = new Promise((resolve, reject) => {
             const job = { resolve, reject, signal, abortHandler: null };
@@ -162,26 +188,36 @@ export function createFBXWorkerClient(options = {}) {
             cleanupJob(job);
             throw err;
         }
-        const { json, duration, embedded, orientation } = await promise;
+        const { json, duration, embedded, orientation, transport, stats } = await promise;
         if (disposed || signal?.aborted) throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
         const loader = new THREE.ObjectLoader();
+        const hydration = new AbortController();
+        const abortHydration = () => hydration.abort();
+        signal?.addEventListener('abort', abortHydration, { once: true });
+        hydrations.add(hydration);
+        const rebuildStart = performance.now();
         let parsed = null;
         try {
-            parsed = loader.parse(json);
+            parsed = transport === 1 ? await parseFBXTransfer(json, { signal: hydration.signal }) : loader.parse(json);
             if (disposed || signal?.aborted) {
                 throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
             }
-            if (json.animations?.length) {
+            if (transport !== 1 && json.animations?.length) {
                 const clips = json.animations.map(THREE.AnimationClip.parse).filter(Boolean);
                 if (clips.length) parsed.animations = clips;
             }
             if (disposed || signal?.aborted) {
                 throw makeAbortError(disposed ? 'FBX worker client disposed' : undefined);
             }
+            completed++;
+            lastParse = { transport: transport || 0, parseMs: duration || 0, rebuildMs: performance.now() - rebuildStart, ...stats };
             return { obj: parsed, duration: duration || 0, embedded: embedded || [], orientationInfo: orientation || null };
         } catch (err) {
             disposeParsedObject(parsed);
             throw err;
+        } finally {
+            hydrations.delete(hydration);
+            signal?.removeEventListener('abort', abortHydration);
         }
     }
 
@@ -195,6 +231,9 @@ export function createFBXWorkerClient(options = {}) {
             disposed,
             workerActive: !!workerInstance,
             pending: pending.size,
+            hydrating: hydrations.size,
+            completed,
+            lastParse,
         };
     }
 
@@ -203,6 +242,7 @@ export function createFBXWorkerClient(options = {}) {
         disposed = true;
         supported = false;
         rejectPending(makeAbortError('FBX worker client disposed'));
+        for (const controller of hydrations) controller.abort();
         terminateWorker();
     }
 

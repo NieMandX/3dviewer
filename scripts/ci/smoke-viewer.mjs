@@ -1,4 +1,6 @@
 import { runMaterialAccessSmoke } from './smoke-material-access.mjs';
+import { runFBXWorkerSmoke } from './smoke-fbx-worker.mjs';
+import { runTexturePreloadSmoke } from './smoke-texture-preload.mjs';
 import { runImportMemorySmoke } from './smoke-import-memory.mjs';
 import { runVPMMemorySmoke } from './smoke-vpm-memory.mjs';
 import { runModelCheckPanelSmoke, runModelCheckIntegrationSmoke } from './smoke-model-check-panel.mjs';
@@ -14417,6 +14419,10 @@ try {
     await runAbortableTusUploadSmoke(browserContext, smokeServer.baseUrl);
     console.log('Abortable TUS upload smoke passed.');
     await runWorkerLifecycleSmoke(browserContext, smokeServer.baseUrl);
+    await runFBXWorkerSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Real FBX worker, transferable buffers, embedded-image pixels and abort recovery smoke passed.');
+    await runTexturePreloadSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Texture preload yielding, stale generation, disposal and pixel parity smoke passed.');
     console.log('Worker lifecycle smoke passed.');
     await runWorkerClientDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Worker client dispose smoke passed.');

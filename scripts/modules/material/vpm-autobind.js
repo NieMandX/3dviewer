@@ -27,6 +27,7 @@ export function createVPMBinder(options = {}) {
         typeof options.cacheOriginalMaterialFor === 'function' ? options.cacheOriginalMaterialFor : () => {};
 
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
+    const prepareTextures = typeof options.prepareTextures === 'function' ? options.prepareTextures : async () => {};
     const schedulePanelRefresh = typeof options.schedulePanelRefresh === 'function' ? options.schedulePanelRefresh : () => {};
     const materialsPanel = options.materialsPanel || null;
     const logBind = typeof options.logBind === 'function' ? options.logBind : () => {};
@@ -446,6 +447,7 @@ export function createVPMBinder(options = {}) {
                         mat.metalness = 1.0; // карта задаёт финальное значение
                         mat.needsUpdate = true;
 
+                        await prepareTextures(collectMaterialTextures(mat, { skipTextureKeys: ['envMap'] }), isBindCurrent);
                         if (!isBindCurrent()) {
                             discardPendingMaterial();
                             return;

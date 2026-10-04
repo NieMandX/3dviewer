@@ -90,6 +90,7 @@ import { createGlassController } from '../material/glass-controller.js';
 import { createGlassMeshOptimizer } from '../material/glass-mesh-optimizer.js';
 import { createMaterialRenamer } from '../material/rename-materials.js';
 import { createAutobindPipeline } from '../material/autobind-pipeline.js';
+import { createTexturePreloader } from '../render/texture-preload.js';
 import { applyBaseColorPolicyToObjectTree } from '../material/base-color-policy.js';
 import { collectMaterialTextures, copyTextureSettings } from '../material/texture-utils.js';
 import { pruneMaterialUndoStackForRoots } from '../material/undo-stack.js';
@@ -6499,6 +6500,7 @@ export class ViewerApp {
 			        // Auto-bind based on filenames
 		        // =====================
 
+	        const texturePreloader = createTexturePreloader({ renderer, ready: rendererInitPromise, isDisposed: () => appDisposed });
 	        const {
 	            buildVPMIndex,
 	            autoBindVPMForModel,
@@ -6508,6 +6510,7 @@ export class ViewerApp {
 	            basename,
 	            toStandard,
 	            textureLoader,
+	            prepareTextures: texturePreloader.prepare,
 	            copyTextureSettings,
 	            cacheOriginalMaterialFor,
 	            requestRender,
@@ -8382,6 +8385,7 @@ export class ViewerApp {
             async function disposeAppResources() {
 	            if (appDisposed) return;
 	            appDisposed = true;
+                texturePreloader.dispose();
                 roomContentUsersAbort?.abort();
                 gisAdminAbort?.abort();
                 if (typeof globalThis !== 'undefined' && globalThis.__LPMVIEW_DIAGNOSTICS === runtimeDiagnosticsApi) {

@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.9` (2026-10-05). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.10` (2026-10-05). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -216,11 +216,53 @@ set in WebGL, with visibility toggle and Reset, zero gallery previews and no
 reload/page errors. The latest live room and physical mobile devices are not
 covered by those local fixture runs.
 
-The profiling run also exposed an existing FBX-worker import failure:
-`Failed to resolve module specifier "three"` in the CDN loader. The fallback
-parses on the main thread. Fixing it together with a binary worker payload is
-follow-up work; enabling the current JSON transport without memory testing is
-not part of this release.
+Version 0.97.10 fixes that FBX worker import failure with the exact r186
+jsDelivr ESM entrypoint (module workers do not inherit document import maps).
+The worker sends geometry and animation typed buffers as transferables, while
+Three's object/material/skeleton schema is retained. Embedded images travel as
+compressed Blobs; DOM decoding is sequential on the main thread and abortable.
+The worker is reused across a batch and terminated after five idle seconds to
+release FBXLoader's module-global parsed tree. Abort/disposal still terminates
+it immediately when no other parse is pending.
+`workers.fbx` diagnostics report completed jobs, hydration and last parse timings.
+Source IDs, final Z-up rotation, skinning, morphs and animation metadata survive
+transport; matrices must be updated before Object3D serialization because r186
+sets its final axis correction after its earlier matrix update. Parse failures
+still use the existing main-thread fallback.
+
+CPU profiling identified GPU image uploads as the remaining long blocking task.
+VPM materials now preload ready images with public `renderer.initTexture()` in
+the existing serial ERM queue, yielding between textures before the material is
+published. Room/model generation checks and disposal stop stale uploads. No new
+render loop, resolution reduction or change to texture sampling was introduced.
+
+On the same local eight-ZIP fixture in hardware Chrome, the final batch-reuse
+build reduced the longest main-thread task from 11.66 s to 0.398 s in WebGPU
+and from 16.55 s to 0.507 s in WebGL. Total import time was 38.8 s versus 38.6 s
+(WebGPU), and 47.1 s versus 46.3 s (WebGL). Earlier preload runs showed similar
+pauses (0.393/0.397 s and 0.492 s). This is a responsiveness improvement with a
+small wall-time cost, not a faster total load. All 1,962 geometry buffer hashes and
+orientation logs matched the prior release; all 15 FBX files used the worker.
+These are local fixture measurements, not peak process-memory measurements or
+physical-mobile results. Individual large GPU uploads can still block briefly.
+
+Native Safari on this Mac completed the eight-ZIP set twice with the final
+worker-reuse implementation, including Reset and reimport, with 15 records,
+99 ERM materials and no page errors/reloads. Reset left zero pending jobs,
+embedded images and tracked Blob URLs. An earlier experiment that terminated
+the worker after every FBX did reload Safari during texturing; preload alone
+passed, and batch reuse removed that failure in these two subsequent runs.
+The exact WebKit failure mechanism and peak memory remain unmeasured, so this
+does not establish stability for every server room or long session.
+
+Regression coverage includes a real FBX worker with embedded PNG pixel parity,
+Z-up world transforms, shared buffers/materials, skinning, morphs, animation,
+abort/recreation/concurrent cancellation, batch reuse/idle release,
+image-hydration cleanup, and texture
+preload pixel parity, yielding, stale generations and GPU disposal. Existing
+room-switch, offline/reload and large-import lifecycle coverage also passed in
+`npm run ci:verify`. Hardware runs exercised offline visibility changes, Reset,
+K1 reimport and disposal in both rendering modes; local galleries stayed empty.
 
 ## 6. Yandex Cloud Topology
 
