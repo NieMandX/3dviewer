@@ -79,7 +79,7 @@ It is part of `npm run ci:verify`. Private real-ZIP producer/output checks and
 screenshots are kept in the local knowledge base. Desktop emulation does not
 establish physical mobile or hardware WebGPU behavior.
 
-## 3D witness navigation (Viewer 0.97.6 / local Checker 0.1.11)
+## 3D witness navigation (Viewer 0.97.7 / local Checker 0.1.11)
 
 The texture dialog adds **Показать в 3D** when a compatible `scene_anchor` is
 present. Import the source ZIP first, open its saved JSON, then choose the
@@ -127,3 +127,7 @@ NPM outputs were also matched in actual Chrome WebGPU and WebGL. Physical
 mobile testing, arbitrary FBX exporters and nonidentity geometric transforms
 remain outside the verified scope. The deployed checker and production
 frontend are still separate releases; older server reports have no anchors.
+
+The 3D transition waits for import finalization: while an import is queued or
+loaded models have not been finalized, the dialog asks the user to retry after
+loading. This prevents final import framing from overwriting the witness view.

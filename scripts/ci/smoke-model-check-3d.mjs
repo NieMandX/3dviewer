@@ -52,7 +52,8 @@ export async function runModelCheck3DSmoke(browser, baseUrl) {
             checks.splitMatch=(await locateUVWitnesses(uv2,[record],THREE)).sites.every(s=>s.length===1);
             const camera = new THREE.PerspectiveCamera(50,1,.1,1000); camera.position.set(1,5,20);
             const controls = { target:new THREE.Vector3(),update(){camera.lookAt(this.target);} };
-            const highlight=createModelCheckHighlight({THREE,scene,camera,controls,getModels:()=>window.model3DRecords,requestRender:()=>{}});
+            window.model3DReady = false;
+            const highlight=createModelCheckHighlight({THREE,scene,camera,controls,getModels:()=>window.model3DRecords,requestRender:()=>{},isSceneReady:()=>window.model3DReady});
             window.model3DRecords=[record]; window.model3DContext={key:'room-a',models:[]};
             const button=document.createElement('button');button.id='check3d';button.textContent='Проверка модели';document.body.append(button);
             window.model3DPanel=createModelCheckPanel({button,apiBaseUrl:'https://checker.invalid',getContext:()=>window.model3DContext,getAccessToken:async()=>'',sceneHighlight:highlight});
@@ -63,6 +64,12 @@ export async function runModelCheck3DSmoke(browser, baseUrl) {
         const report = Buffer.from(JSON.stringify(await page.evaluate(() => uvTestReport)));
         await page.click('#check3d'); await page.locator('#modelCheckDialog input[type=file]').setInputFiles({name:'report.json',mimeType:'application/json',buffer:report});
         await page.locator('.model-check-item summary').click(); await page.locator('.model-check-uv-open').click();
+        const beforeImportReady=await page.evaluate(()=>model3DState.camera.position.toArray());
+        await page.getByRole('button',{name:'Показать в 3D',exact:true}).click();
+        await page.waitForFunction(()=>document.querySelector('.model-check-uv-status')?.textContent.includes('Дождитесь завершения загрузки'));
+        assert.equal(await page.locator('#modelCheckSceneToolbar').count(),0);
+        assert.deepEqual(await page.evaluate(()=>model3DState.camera.position.toArray()),beforeImportReady);
+        await page.evaluate(()=>{model3DReady=true;});
         await page.getByRole('button',{name:'Показать в 3D',exact:true}).click(); await page.waitForSelector('#modelCheckSceneToolbar');
         assert.equal(await page.locator('dialog[open]').count(),0);
         const aPosition=await page.evaluate(()=>model3DState.camera.position.toArray());

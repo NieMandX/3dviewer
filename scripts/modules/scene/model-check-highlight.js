@@ -1,6 +1,6 @@
 import { locateUVWitnesses } from './model-check-locator.js';
 
-export function createModelCheckHighlight({ THREE, scene, camera, controls, getModels, requestRender, document: doc = document }) {
+export function createModelCheckHighlight({ THREE, scene, camera, controls, getModels, requestRender, isSceneReady = () => true, document: doc = document }) {
     let generation = 0, disposed = false, active = null, toolbar = null;
     const overlays = [], colors = [0x28e0d1, 0xffbf55];
     function clear() {
@@ -10,7 +10,7 @@ export function createModelCheckHighlight({ THREE, scene, camera, controls, getM
     }
     function alive() {
         if (!active) return true;
-        if (!getModels().includes(active.record) || !active.record.obj.parent) return false;
+        if (!isSceneReady() || !getModels().includes(active.record) || !active.record.obj.parent) return false;
         return active.sites.flat().every(s => {
             const [g, uv, pos, idx, u, p, n] = s.snapshot;
             if (s.mesh.geometry !== g || g.getAttribute('uv') !== uv || g.getAttribute('position') !== pos || g.index !== idx || uv.version !== u || pos.version !== p || idx?.version !== n) return false;
@@ -58,8 +58,11 @@ export function createModelCheckHighlight({ THREE, scene, camera, controls, getM
     }
     return { clear, alive, focus, async show(view, callbacks) {
         clear(); const mark = generation;
+        const requireReady = () => { if (!isSceneReady()) throw new Error('Дождитесь завершения загрузки модели и повторите переход в 3D.'); };
+        requireReady();
         const result = await locateUVWitnesses(view, getModels(), THREE, { isCurrent: () => !disposed && mark === generation });
         if (disposed || mark !== generation) throw new DOMException('Stale model', 'AbortError');
+        requireReady();
         active = result;
         try {
             result.sites.forEach((sites, i) => {

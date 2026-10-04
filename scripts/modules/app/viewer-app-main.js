@@ -5396,7 +5396,10 @@ export class ViewerApp {
          * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson?, scope? }
          */
         const loadedModels = app.loadedModels = [];
-        const modelCheckHighlight = createModelCheckHighlight({ THREE, scene, camera, controls, getModels: () => loadedModels, requestRender });
+        const modelCheckHighlight = createModelCheckHighlight({
+            THREE, scene, camera, controls, getModels: () => loadedModels, requestRender,
+            isSceneReady: () => importPipelineQueue.getPendingCount() === 0 && loadedModels.length <= lastFinalizedModelIndex,
+        });
         modelCheckPanel = createModelCheckPanel({
             sceneHighlight: modelCheckHighlight,
             button: document.getElementById('modelCheckBtn'),
@@ -8262,6 +8265,8 @@ export class ViewerApp {
                     },
                     models: {
                         loaded: loadedModels.length,
+                        pendingImports: importPipelineQueue.getPendingCount(),
+                        unfinalizedImports: Math.max(0, loadedModels.length - lastFinalizedModelIndex),
                         roomScoped: roomScopedModels,
                         loadedRoomModelIds: loadedRoomModelIds.size,
                         roomModelCount,
