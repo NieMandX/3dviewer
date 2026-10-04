@@ -1,4 +1,5 @@
 import { runModelCheckPanelSmoke, runModelCheckIntegrationSmoke } from './smoke-model-check-panel.mjs';
+import { runModelCheckUVSmoke } from './smoke-model-check-uv.mjs';
 import { runDownloadUISmoke } from './smoke-download-ui.mjs';
 import { runEnvModelsSmoke } from './smoke-env-models.mjs';
 import { createServer } from 'node:http';
@@ -14291,6 +14292,7 @@ try {
     console.log('Boot smoke passed.');
     await runEnvModelsSmoke(browserContext, smokeServer.baseUrl);
     await runModelCheckPanelSmoke(browserContext, smokeServer.baseUrl);
+    await runModelCheckUVSmoke(browserContext, smokeServer.baseUrl, process.env.LPMVIEW_SMOKE_ARTIFACTS);
     await runModelCheckIntegrationSmoke(browserContext, smokeServer.baseUrl, createRegisteredRoomSmokePage, process.env.LPMVIEW_SMOKE_ARTIFACTS);
     console.log('Model check report panel and room integration smoke passed.');
     console.log('Env, NPM and VPM import categories and visibility smoke passed.');

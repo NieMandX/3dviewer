@@ -1,4 +1,5 @@
-import { CHECK_STATES, checkTitle, checkDetailsText, checkIdentifiers, reportText } from './model-check-report.js';
+import { CHECK_STATES, checkerName, checkTitle, checkDetailsText, checkIdentifiers, reportText } from './model-check-report.js';
+import { createUVTextureDialog, uvEvidence } from './model-check-uv.js';
 // Server reports concern original stored ZIP packages, never the rendered scene.
 export function eligibleModelCheckPackages(records, roomId) {
     const packages = new Map();
@@ -26,12 +27,13 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
     let timer; let contextTimer; let currentJob; let busy = false; let previousFocus; let modelSignature;
     const downloadUrls = [];
     const listeners = [];
+    const uvDialog = createUVTextureDialog({ document: doc });
     function listen(el, name, fn) { el.addEventListener(name, fn); listeners.push(() => el.removeEventListener(name, fn)); }
     function element(tag, text, className) {
         const el = doc.createElement(tag); if (text !== undefined) el.textContent = String(text); if (className) el.className = className; return el;
     }
     function revokeDownload() { for (const url of downloadUrls.splice(0)) URL.revokeObjectURL(url); }
-    function invalidate() { generation++; controller?.abort(); controller = new AbortController(); clearTimeout(timer); timer = null; }
+    function invalidate() { generation++; uvDialog.close(); controller?.abort(); controller = new AbortController(); clearTimeout(timer); timer = null; }
     function close() {
         invalidate(); clearInterval(contextTimer); contextTimer = null; scope = null; currentJob = null; busy = false; modelSignature = null;
         revokeDownload(); dialog?.close(); if (refs) refs.report.replaceChildren();
@@ -92,12 +94,15 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         const link = element('a', label, 'btn'); link.href = url; link.download = filename; return link;
     }
     function renderReport(job) {
+        uvDialog.close();
         refs.report.replaceChildren(); revokeDownload();
         const report = job.report;
         if (!report) return;
+        const uvViews = uvEvidence(report);
+        if (job.local_report) refs.report.append(element('p', 'Открыт сохранённый отчёт. Его актуальность для модели в комнате не проверялась; снимки относятся к исходнику из отчёта.', 'muted'));
         if (job.source_current === false) refs.report.append(element('p', 'Архив изменён. Ниже сохранённый отчёт предыдущей версии — запустите новую проверку.', 'model-check-stale'));
         if (job.engine_current === false) refs.report.append(element('p', 'Этот отчёт получен предыдущим или отключённым обработчиком. Для актуального результата нужна новая проверка.', 'model-check-stale'));
-        refs.report.append(element('p', 'AGR Checker 1.6.1 · требования от 18.08.2026', 'muted'));
+        refs.report.append(element('p', `${checkerName(report)} · требования от 18.08.2026`, 'muted'));
         if (job.finished_at && Number.isFinite(Date.parse(job.finished_at))) refs.report.append(element('p', `Дата проверки: ${new Date(job.finished_at).toLocaleString('ru-RU')}`, 'muted'));
         const counts = element('div', undefined, 'model-check-counts');
         for (const [state, label] of Object.entries(CHECK_STATES)) counts.append(element('span', `${label}: ${Number(report.summary?.[state]) || 0}`, `model-check-${state}`));
@@ -118,6 +123,13 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
             for (const item of items) {
                 const row = element('details', undefined, 'model-check-item');
                 row.append(element('summary', checkTitle(item)));
+                const views = uvViews.filter(v => v.requirementRef === item.requirement_ref && v.profile === item.profile);
+                if (views.length) {
+                    const show = element('button', `Показать на текстуре · ${views.length}`, 'btn model-check-uv-open'); show.type = 'button';
+                    show.onclick = () => { if (dialog?.open && currentJob === job) uvDialog.open(views, show); };
+                    row.append(show);
+                    row.append(element('p', 'Сохранённые участки исходной текстуры. Показаны примеры найденных мест; их число не равно числу ошибок.', 'muted'));
+                }
                 if (item.errors_text) row.append(element('pre', item.errors_text));
                 if (item.recommendations_text) row.append(element('pre', item.recommendations_text));
                 if (!item.errors_text && !item.recommendations_text) row.append(element('p', CHECK_STATES[item.status]));
@@ -162,7 +174,7 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         refs.status.textContent = job ? `${STATES[job.status] || 'Состояние неизвестно'}${job.status === 'running' ? ' · ' + (STAGES[job.stage] || 'Обработка') : ''}${job.cancel_requested && job.status === 'running' ? ' · отмена запрошена' : ''}` : 'Проверок этого архива пока нет.';
         refs.error.textContent = job?.error_code ? (ERRORS[job.error_code] || 'Проверка не завершена. Можно повторить запуск.') : '';
         if (job?.report) renderReport(job);
-        else { refs.report.replaceChildren(); revokeDownload(); }
+        else { uvDialog.close(); refs.report.replaceChildren(); revokeDownload(); }
         controls();
     }
     function schedule(mark, retry = false) {
@@ -199,6 +211,32 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         refs.status.textContent = refs.model.value ? 'Получение состояния…' : 'Для проверки откройте комнату с загруженным и синхронизированным ZIP НПМ/ВПМ.';
         controls(); if (refs.model.value) void load();
     }
+    async function openSavedReport(file) {
+        if (!file || disposed || !dialog?.open) return;
+        invalidate(); busy = false; currentJob = null; const mark = generation;
+        refs.error.textContent = ''; refs.status.textContent = 'Чтение сохранённого отчёта…';
+        refs.report.replaceChildren(); revokeDownload(); controls();
+        try {
+            if (file.size > 4 * 1024 * 1024) throw new Error('Размер отчёта превышает 4 МБ.');
+            const saved = JSON.parse(await file.text());
+            if (disposed || !dialog?.open || mark !== generation || scope?.key !== getContext()?.key) return;
+            const report = saved?.report || saved;
+            if (report?.checker_version !== '1.6.1' || !Array.isArray(report.checks) || report.checks.length > 500
+                || !report.checks.every(c => c && typeof c === 'object' && ['NPM', 'VPM', 'SM'].includes(c.profile) && Object.hasOwn(CHECK_STATES, c.status))) {
+                throw new Error('Это не поддерживаемый JSON-отчёт проверки НПМ/ВПМ. Выберите report.json или экспорт из Viewer.');
+            }
+            renderJob({ id: null, status: 'completed', local_report: true, report,
+                source_name: typeof saved.source_name === 'string' ? saved.source_name : file.name,
+                source_sha256: report.source_sha256 || report.input_sha256,
+                engine_revision: saved.engine_revision || report.adapter || 'сохранённый отчёт' });
+            refs.status.textContent = `Сохранённый отчёт · ${file.name}`;
+        } catch (error) {
+            if (!disposed && dialog?.open && mark === generation) {
+                refs.status.textContent = 'Отчёт не открыт.';
+                refs.error.textContent = error instanceof SyntaxError ? 'Файл не содержит корректный JSON.' : error.message;
+            }
+        }
+    }
     function updateModels(models = []) {
         const signature = JSON.stringify(models.map(m => [m.id, m.name]));
         if (signature === modelSignature) return;
@@ -221,7 +259,9 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         const hint = element('p', 'Проверяется исходный архив, сохранённый в проекте. Сначала дождитесь синхронизации загрузки.', 'muted');
         const row = element('div', undefined, 'model-check-actions');
         const start = element('button', 'Проверить модель', 'btn'); const cancel = element('button', 'Отменить проверку', 'btn'); const refresh = element('button', 'Обновить', 'btn');
-        for (const el of [start, cancel, refresh]) el.type = 'button'; row.append(start, cancel, refresh);
+        const saved = element('button', 'Открыть отчёт JSON', 'btn');
+        const savedFile = element('input'); savedFile.type = 'file'; savedFile.accept = '.json,application/json'; savedFile.hidden = true;
+        for (const el of [start, cancel, refresh, saved]) el.type = 'button'; row.append(start, cancel, refresh, saved, savedFile);
         const status = element('p'); status.setAttribute('role', 'status');
         const error = element('p', undefined, 'model-check-error'); error.setAttribute('role', 'alert');
         const report = element('div', undefined, 'model-check-report'); body.append(label, model, hint, row, status, error, report);
@@ -231,11 +271,13 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         // prevent native defaults (Tab, Escape, text selection, copy).
         listen(dialog, 'keydown', e => e.stopPropagation());
         listen(model, 'change', selectModel); listen(start, 'click', () => void action()); listen(cancel, 'click', () => void action(true)); listen(refresh, 'click', () => void load());
+        listen(saved, 'click', () => savedFile.click());
+        listen(savedFile, 'change', () => { const file = savedFile.files?.[0]; savedFile.value = ''; void openSavedReport(file); });
     }
     function open() {
         if (disposed || !base) return;
         if (dialog?.open) close();
-        ensureDialog(); scope = getContext(); previousFocus = doc.activeElement;
+        ensureDialog(); scope = { ...getContext() }; previousFocus = doc.activeElement;
         modelSignature = null;
         refs.model.replaceChildren();
         refs.hint.textContent = scope?.canManage ? 'Проверяется исходный ZIP, сохранённый в проекте. Изменения материалов во Viewer на отчёт не влияют.' : 'Вы можете читать готовые отчёты. Запуск и отмена доступны владельцу проекта.';
@@ -248,5 +290,5 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         }, 500);
     }
     if (button) listen(button, 'click', open);
-    return { open, close, dispose() { if (disposed) return; disposed = true; close(); for (const remove of listeners) remove(); dialog?.remove(); if (button) button.hidden = true; } };
+    return { open, close, dispose() { if (disposed) return; disposed = true; close(); uvDialog.dispose(); for (const remove of listeners) remove(); dialog?.remove(); if (button) button.hidden = true; } };
 }

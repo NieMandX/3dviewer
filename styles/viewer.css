@@ -3301,8 +3301,29 @@ body.bg-black .side:has(#materialsTab[aria-selected="true"]) { background: #171c
 .model-check-identifier { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
 .model-check-identifier code { flex: 1 1 240px; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .model-check-identifier .btn { flex: 0 0 auto; }
+.model-check-uv-open { margin-top: 12px; }
+.model-check-uv-dialog { width: min(960px, calc(100vw - 32px)); max-width: none; padding: 0; color: var(--ink); max-height: calc(100dvh - 24px); }
+.model-check-uv-dialog::backdrop { background: rgba(10, 20, 24, .68); }
+.model-check-uv-dialog .head { gap: 12px; flex-wrap: wrap; }
+.model-check-uv-body { padding: 16px 20px; max-height: calc(100dvh - 100px); overflow: auto; box-sizing: border-box; }
+.model-check-uv-body > select { display: block; width: 100%; min-width: 0; margin: 6px 0 12px; }
+.model-check-uv-body p { overflow-wrap: anywhere; margin: 8px 0; }
+.model-check-uv-texture { font-weight: 600; }
+.model-check-uv-facts { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0 8px; }
+.model-check-uv-facts strong { font-size: 26px; font-variant-numeric: tabular-nums; }
+.model-check-uv-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; margin: 8px 0; }
+.model-check-uv-legend span::before { content: ''; display: inline-block; width: 12px; height: 3px; margin: 0 6px 3px 0; background: #62727a; }
+.model-check-uv-legend span:nth-child(1)::before { background: #0b9f95; }
+.model-check-uv-legend span:nth-child(2)::before { background: #d49020; }
+.model-check-uv-body canvas { display: block; width: 100%; height: clamp(250px, 43dvh, 460px); border-radius: 8px; background: #182428; touch-action: none; cursor: grab; }
+.model-check-uv-body canvas:active { cursor: grabbing; }
+.model-check-uv-body .model-check-actions { margin-top: 12px; }
+.model-check-uv-status:empty { display: none; }
 @media (max-width: 480px) {
     .model-check-dialog { width: calc(100vw - 16px); }
     .model-check-body { padding: 12px; }
     .model-check-actions > .btn { flex: 1 1 auto; }
+    .model-check-uv-dialog { width: calc(100vw - 12px); }
+    .model-check-uv-body { padding: 12px; }
+    .model-check-uv-dialog .head { padding: 12px; }
 }

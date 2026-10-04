@@ -1,5 +1,10 @@
 // Presentation only: keep the vendor result, source names and rule references intact.
 export const CHECK_STATES = { failed: 'С ошибками', warning: 'С рекомендациями', not_checked: 'Не проверено', passed: 'Пройдено' };
+export function checkerName(report) {
+    return report?.checker_product?.id === 'agr_vision_model_check'
+        ? `AGR Vision Model Check ${String(report.checker_product.version || '').slice(0, 32)}`
+        : `AGR Checker ${report?.checker_version || '1.6.1'}`;
+}
 const TITLES = {
     'Glass opacity 50%': 'Непрозрачность стекла — 50%',
     'Glass без текстур': 'Стекло без текстур',
@@ -45,10 +50,11 @@ export function checkIdentifiers(item) {
 export function reportText(job) {
     const report = job.report || {};
     const lines = ['Проверка исходного ZIP', String(job.source_name || ''),
-        `AGR Checker ${report.checker_version || '1.6.1'} · требования от 18.08.2026`,
+        `${checkerName(report)} · требования от 18.08.2026`,
         `Дата проверки: ${job.finished_at || '—'}`,
         'Завершение проверки не подтверждает приёмку проекта. Непроверенные пункты требуют отдельной проверки.'];
     if (job.source_current === false) lines.push('ВНИМАНИЕ: исходный архив изменён. Это отчёт предыдущей версии.');
+    if (job.local_report) lines.push('Открыт сохранённый отчёт. Его актуальность для модели в комнате не проверялась.');
     if (job.engine_current === false) lines.push('ВНИМАНИЕ: обработчик изменён или отключён. Для актуального результата нужна новая проверка.');
     lines.push('', ...Object.entries(CHECK_STATES).map(([state, label]) => `${label}: ${Number(report.summary?.[state]) || 0}`));
     for (const [state, label] of Object.entries(CHECK_STATES)) {
