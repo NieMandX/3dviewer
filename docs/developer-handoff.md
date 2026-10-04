@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.7` (2026-10-04). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.8` (2026-10-04). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -172,6 +172,16 @@ preserved Model IDs, exact edge endpoints and UDIM-aware lookup. The local
 producer is AGR Vision Model Check 0.1.11; server/production promotion is separate.
 The overlay owns its resources and does not alter imported materials or models.
 The private Checker 1.6.1 image and knowledge base stay outside this repository.
+
+Version 0.97.8 shares the packed G/B ERM texture between roughness and metalness,
+serializes ERM conversion across imports and closes decode bitmaps before pixel processing.
+The emissive R copy, resolution and source ZIPs are preserved. This reduces ERM
+image allocation; it is not a guarantee that every large room fits Safari memory.
+Validation: full `ci:verify`, pixel parity against the old ERM path on hardware
+WebGPU/WebGL in Chrome, and corrected K1 import/disposal in both modes. Native
+Safari on this Mac completed a local eight-ZIP HPM import (99 ERM materials,
+WebGL fallback), visibility toggling and reset without reloading. The current
+server room and mobile Safari have not been revalidated with this change.
 
 ## 6. Yandex Cloud Topology
 

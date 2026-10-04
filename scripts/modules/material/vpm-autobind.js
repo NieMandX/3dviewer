@@ -9,6 +9,8 @@ import { applyMaterialBaseColorPolicy } from './base-color-policy.js';
 
 export function createVPMBinder(options = {}) {
     const THREE = options.THREE || null;
+    // Shared across overlapping imports/rebinds: only one ERM decode at a time.
+    let ermQueue = Promise.resolve();
 
     const basename = typeof options.basename === 'function'
         ? options.basename
@@ -132,44 +134,57 @@ export function createVPMBinder(options = {}) {
     }
 
     /**
-     * Разделяет ERM-карту (RGB: emissive/roughness/metalness) на отдельные CanvasTexture в линейном цветовом пространстве.
+     * Standard materials sample roughness from G and metalness from B, so these
+     * slots share one packed image. Only emissive needs a separate R-to-RGB copy.
+     * Keep the existing linear emissive values and flipY contract unchanged.
      */
-    async function splitERMtoThreeMaps(url) {
+    async function prepareERMMaps(url) {
         let img = null;
+        const canvases = [];
+        const textures = [];
+        function makeCanvas(w, h) {
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            canvases.push(canvas);
+            return canvas;
+        }
+        function makeTexture(canvas, colorSpace) {
+            const texture = new THREE.CanvasTexture(canvas);
+            textures.push(texture);
+            texture.colorSpace = colorSpace;
+            texture.flipY = false;
+            return texture;
+        }
         try {
-            img = await createImageBitmap(await (await fetch(url)).blob());
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            img = await createImageBitmap(await response.blob());
             const w = img.width, h = img.height;
+            const packedCanvas = makeCanvas(w, h);
+            const packedContext = packedCanvas.getContext('2d', { willReadFrequently: true });
+            packedContext.drawImage(img, 0, 0);
+            img.close?.();
+            img = null;
 
-            const base = document.createElement('canvas');
-            base.width = w;
-            base.height = h;
-            const bctx = base.getContext('2d', { willReadFrequently: true });
-            bctx.drawImage(img, 0, 0);
-            const src = bctx.getImageData(0, 0, w, h);
-
-            function chanToTex(ci) {
-                const c = document.createElement('canvas');
-                c.width = w;
-                c.height = h;
-                const ctx = c.getContext('2d');
-                const dst = ctx.createImageData(w, h);
-                for (let i = 0; i < src.data.length; i += 4) {
-                    const v = src.data[i + ci];
-                    dst.data[i] = dst.data[i + 1] = dst.data[i + 2] = v;
-                    dst.data[i + 3] = 255;
-                }
-                ctx.putImageData(dst, 0, 0);
-                const t = new THREE.CanvasTexture(c);
-                t.colorSpace = THREE.LinearSRGBColorSpace; // линейные для rough/metal/emissiveMap
-                t.flipY = false;
-                return t;
+            // Reuse this one pixel buffer for both outputs. Make alpha opaque as
+            // in the old channel copies, preserving sampling of translucent PNGs.
+            const pixels = packedContext.getImageData(0, 0, w, h);
+            for (let i = 3; i < pixels.data.length; i += 4) pixels.data[i] = 255;
+            packedContext.putImageData(pixels, 0, 0);
+            const packed = makeTexture(packedCanvas, THREE.NoColorSpace);
+            for (let i = 0; i < pixels.data.length; i += 4) {
+                pixels.data[i + 1] = pixels.data[i + 2] = pixels.data[i];
             }
-
-            return {
-                emissiveMap: chanToTex(0), // R
-                roughnessMap: chanToTex(1), // G
-                metalnessMap: chanToTex(2), // B
-            };
+            const emissiveCanvas = makeCanvas(w, h);
+            emissiveCanvas.getContext('2d').putImageData(pixels, 0, 0);
+            const emissive = makeTexture(emissiveCanvas, THREE.LinearSRGBColorSpace);
+            return { emissiveMap: emissive, roughnessMap: packed, metalnessMap: packed };
+        } catch (err) {
+            // These images were never published to a material or a shared Source.
+            textures.forEach((texture) => texture.dispose?.());
+            canvases.forEach((canvas) => { canvas.width = canvas.height = 0; });
+            throw err;
         } finally {
             img?.close?.();
         }
@@ -392,11 +407,24 @@ export function createVPMBinder(options = {}) {
                 mat.normalScale = new THREE.Vector2(1, 1);
             }
 
-            // ERM (асинхронно распакуем каналы)
+            function discardPendingMaterial() {
+                bindActive = false;
+                disposeMaterialTree(mat, {
+                    sharedTextures: Array.from(collectMaterialTextures(previousMaterial)),
+                });
+                disposePendingShadowMaterials(pendingDepthMaterial, pendingDistanceMaterial);
+            }
+
+            // Queue the expensive decode/canvas work across all models. A stale
+            // queued bind must not fetch or allocate images after a room change.
             if (set.ERM) {
-                const p = (async () => {
+                const p = ermQueue.then(async () => {
                     try {
-                        const maps = await splitERMtoThreeMaps(set.ERM);
+                        if (!isBindCurrent()) {
+                            discardPendingMaterial();
+                            return;
+                        }
+                        const maps = await prepareERMMaps(set.ERM);
                         const baseNm = labelFromURL(set.ERM);
 
                         if (maps.emissiveMap) {
@@ -405,14 +433,9 @@ export function createVPMBinder(options = {}) {
                             maps.emissiveMap.userData.origName = maps.emissiveMap.name;
                         }
                         if (maps.roughnessMap) {
-                            maps.roughnessMap.name = `${baseNm} [G]`;
+                            maps.roughnessMap.name = `${baseNm} [G/B]`;
                             maps.roughnessMap.userData ||= {};
                             maps.roughnessMap.userData.origName = maps.roughnessMap.name;
-                        }
-                        if (maps.metalnessMap) {
-                            maps.metalnessMap.name = `${baseNm} [B]`;
-                            maps.metalnessMap.userData ||= {};
-                            maps.metalnessMap.userData.origName = maps.metalnessMap.name;
                         }
 
                         mat.emissive = new THREE.Color(1, 1, 1);
@@ -424,11 +447,7 @@ export function createVPMBinder(options = {}) {
                         mat.needsUpdate = true;
 
                         if (!isBindCurrent()) {
-                            bindActive = false;
-                            disposeMaterialTree(mat, {
-                                sharedTextures: Array.from(collectMaterialTextures(previousMaterial)),
-                            });
-                            disposePendingShadowMaterials(pendingDepthMaterial, pendingDistanceMaterial);
+                            discardPendingMaterial();
                             return;
                         }
 
@@ -444,16 +463,14 @@ export function createVPMBinder(options = {}) {
                         logBind(`VPM: Slot ${slot}, UDIM ${udim} → ${mat.name}`, 'ok');
                     } catch (err) {
                         const wasBindCurrent = isBindCurrent();
-                        bindActive = false;
-                        disposeMaterialTree(mat, {
-                            sharedTextures: Array.from(collectMaterialTextures(previousMaterial)),
-                        });
-                        disposePendingShadowMaterials(pendingDepthMaterial, pendingDistanceMaterial);
+                        discardPendingMaterial();
                         if (wasBindCurrent) {
                             logBind(`VPM: ERM ${labelFromURL(set.ERM)} не обработан → ${err?.message || err}`, 'warn');
                         }
                     }
-                })();
+                });
+                // A failed task must not poison subsequent imports.
+                ermQueue = p.catch(() => {});
                 bindOps.push(p);
             } else {
                 if (env) {
