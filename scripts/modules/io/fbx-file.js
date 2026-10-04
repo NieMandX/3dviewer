@@ -1,3 +1,4 @@
+import { sourceFBXHash } from '../fbx/source-identity.js';
 import { captureParsedMaterials } from '../material/scene-materials.js';
 import { collectMaterialTextures } from '../material/texture-utils.js';
 
@@ -194,6 +195,7 @@ export function createFBXFileHandler(options = {}) {
 
         const bufferOverride = callOptions?.buffer || null;
         let ab = bufferOverride || await file.arrayBuffer();
+        const sourceHash = groupName ? await sourceFBXHash(ab) : null;
         let embedded = [];
         throwIfAborted();
 
@@ -416,6 +418,7 @@ export function createFBXFileHandler(options = {}) {
                 sourceContainer: groupName ? 'zip' : 'file',
                 category: groupName ? (zipKind || 'ENV') : 'ENV',
                 format: 'fbx',
+                sourceFBXSha256: sourceHash,
                 zipKind: zipKind || null,
                 geojson: zipMeta || null,
                 orientation: orientationInfo || null,

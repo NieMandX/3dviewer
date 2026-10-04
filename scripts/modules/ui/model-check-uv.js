@@ -1,6 +1,7 @@
 // Checker evidence describes the original ZIP, never the normalized scene.
 // Tile-local UV origin is bottom-left; PNG raster origin is top-left.
 const COLORS = ['#28e0d1', '#ffbf55'];
+import { validSceneAnchor } from '../scene/model-check-locator.js';
 const finite = (n, min, max) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 const point = p => Array.isArray(p) && p.length === 2 && p.every(n => finite(n, 0, 1));
 const size = s => Array.isArray(s) && s.length === 2 && s.every(n => Number.isInteger(n) && n > 0 && n <= 4096);
@@ -60,7 +61,7 @@ export function uvEvidence(report) {
     return views;
 }
 
-export function createUVTextureDialog({ document: doc = document } = {}) {
+export function createUVTextureDialog({ document: doc = document, onShow3D = null, onCancelScene = () => {} } = {}) {
     let dialog; let refs; let observer; let disposed = false; let previousFocus; let generation = 0;
     let views = []; let chosen; let atlas; let detail; let view; let drag;
     const removers = [];
@@ -72,6 +73,7 @@ export function createUVTextureDialog({ document: doc = document } = {}) {
         atlas = detail = null;
     }
     function close() {
+        onCancelScene();
         generation++; releaseImages(); views = []; chosen = null; view = null; drag = null;
         dialog?.close();
         if (refs) { refs.canvas.width = refs.canvas.height = 1; refs.select.replaceChildren(); }
@@ -129,9 +131,13 @@ export function createUVTextureDialog({ document: doc = document } = {}) {
         view = [cx + (view[0] - cx) * factor, cy + (view[1] - cy) * factor, cx + (view[2] - cx) * factor, cy + (view[3] - cy) * factor]; draw();
     }
     function select() {
+        onCancelScene();
         generation++; releaseImages(); drag = null; chosen = views[Number(refs.select.value)];
         if (!chosen) return;
         const mark = generation; const { texture: t, sample: c } = chosen;
+        refs.sceneButton.hidden = !onShow3D;
+        refs.sceneButton.disabled = !validSceneAnchor(chosen);
+        refs.sceneHint.textContent = onShow3D && !validSceneAnchor(chosen) ? 'Для перехода в 3D нужен отчёт с привязкой к исходному FBX.' : '';
         refs.texture.textContent = `${t.name} · UDIM ${t.tile} · ${t.size.join(' × ')} px`;
         refs.source.textContent = chosen.sourceFbx;
         refs.distance.textContent = `${format(c.gap_px)} px`;
@@ -163,9 +169,18 @@ export function createUVTextureDialog({ document: doc = document } = {}) {
             const button = el('button', label, 'btn'); button.type = 'button'; listen(button, 'click', fn); controls.append(button);
         }
         const hint = el('p', 'Перетаскивайте текстуру для перемещения. Масштаб меняется кнопками или колесом мыши.', 'muted');
+        const sceneButton = el('button', 'Показать в 3D', 'btn'); sceneButton.type = 'button'; controls.append(sceneButton);
+        const sceneHint = el('p', '', 'muted');
+        listen(sceneButton, 'click', async () => {
+            if (!chosen || !onShow3D || sceneButton.disabled) return;
+            const mark = generation; sceneButton.disabled = true; refs.status.textContent = 'Поиск поверхности в загруженной модели…';
+            try { await onShow3D(chosen); if (mark === generation) refs.status.textContent = ''; }
+            catch (error) { if (mark === generation && error.name !== 'AbortError') refs.status.textContent = error.message; }
+            finally { if (mark === generation) sceneButton.disabled = false; }
+        });
         const status = el('p', '', 'model-check-uv-status'); status.setAttribute('role', 'status');
-        const note = el('p', '', 'muted'); body.append(selectLabel, selectEl, texture, source, facts, legend, canvas, controls, hint, status, note);
-        dialog.append(head, body); doc.body.append(dialog); refs = { select: selectEl, texture, source, distance, threshold, canvas, status, note };
+        const note = el('p', '', 'muted'); body.append(selectLabel, selectEl, texture, source, facts, legend, canvas, controls, sceneHint, hint, status, note);
+        dialog.append(head, body); doc.body.append(dialog); refs = { select: selectEl, texture, source, distance, threshold, canvas, status, note, sceneButton, sceneHint };
         listen(exit, 'click', close); listen(dialog, 'cancel', e => { e.preventDefault(); close(); }); listen(dialog, 'keydown', e => e.stopPropagation());
         listen(selectEl, 'change', select);
         listen(canvas, 'wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15); }, { passive: false });
@@ -179,7 +194,7 @@ export function createUVTextureDialog({ document: doc = document } = {}) {
         for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) listen(canvas, event, () => { drag = null; });
         observer = new doc.defaultView.ResizeObserver(draw); observer.observe(canvas);
     }
-    return { close, open(items, trigger) {
+    return { close, suspend() { dialog?.close(); }, resume() { if (chosen && !disposed) { dialog.showModal(); draw(); } }, open(items, trigger) {
         if (disposed || !items?.length) return;
         close(); ensure(); previousFocus = trigger || doc.activeElement; views = items;
         refs.select.replaceChildren(...items.map((v, i) => { const option = el('option', `Место ${i + 1} · ${format(v.sample.gap_px)} px · ${v.texture.name}`); option.value = String(i); return option; }));

@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { createFBXWorkerClient } from '../workers/fbx-worker-client.js';
 import { createZIPWorkerClient } from '../workers/zip-worker-client.js';
+import { tagFBXModelIds } from '../fbx/source-identity.js';
 
 const DEFAULT_DRACO_DECODER_PATH = 'https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/libs/draco/';
 
@@ -27,6 +28,7 @@ export function createAssetLoaders(options = {}) {
     function parseFBXOnMainThread(buffer) {
         const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         const parsed = fbxLoader.parse(buffer, '');
+        tagFBXModelIds(parsed);
         const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         if (fbxLoader?.fbxTree) {
             (parsed.userData ||= {}).fbxTree = fbxLoader.fbxTree;

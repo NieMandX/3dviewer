@@ -26,6 +26,7 @@ import { createSunInputsController } from '../ui/sun-inputs.js';
 import { createEnvironmentControlsController } from '../ui/environment-controls.js';
 import { createGeoJsonModalController } from '../ui/geojson-modal.js';
 import { createModelCheckPanel, eligibleModelCheckPackages } from '../ui/model-check-panel.js';
+import { createModelCheckHighlight } from '../scene/model-check-highlight.js';
 import { createSelectedMaterialLinkResolver, createTextureInfoFormatter, guessKindFromName } from '../ui/texture-helpers.js';
 import { createHemiLightControlsController } from '../ui/hemi-light-controls.js';
 import { createStatusUIController } from '../ui/status-ui.js';
@@ -5395,7 +5396,9 @@ export class ViewerApp {
          * Формат: { obj: THREE.Object3D, name: string, group?, zipKind?, geojson?, scope? }
          */
         const loadedModels = app.loadedModels = [];
+        const modelCheckHighlight = createModelCheckHighlight({ THREE, scene, camera, controls, getModels: () => loadedModels, requestRender });
         modelCheckPanel = createModelCheckPanel({
+            sceneHighlight: modelCheckHighlight,
             button: document.getElementById('modelCheckBtn'),
             apiBaseUrl: window.__LPMVIEW_RUNTIME?.modelCheckApiUrl || '',
             onOpen: () => flightControls.resetKeys(),
@@ -8393,7 +8396,8 @@ export class ViewerApp {
 	            try { mapReference?.dispose?.(); } catch (_) {}
 	            try { northGrid?.dispose?.(); } catch (_) {}
 	            try { geoJsonModal?.dispose?.(); } catch (_) {}
-	            try { modelCheckPanel?.dispose?.(); } catch (_) {}
+            try { modelCheckPanel?.dispose?.(); } catch (_) {}
+            try { modelCheckHighlight.dispose(); } catch (_) {}
 	            try { promptModal?.dispose?.(); } catch (_) {}
 	            try { confirmModal?.dispose?.(); } catch (_) {}
 	            try { resetModal?.dispose?.(); } catch (_) {}

@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict';
+import { installUVReportFixture } from './smoke-model-check-uv.mjs';
+
+export async function runModelCheck3DSmoke(browser, baseUrl) {
+    const page = await browser.newPage();
+    const errors = []; page.on('pageerror', e => errors.push(e.message));
+    try {
+        await page.goto(`${baseUrl}/__smoke_blank`); await page.addStyleTag({ url: `${baseUrl}/styles/viewer.css` });
+        await installUVReportFixture(page);
+        const result = await page.evaluate(async () => {
+            const THREE = await import('three');
+            const { locateUVWitnesses, validSceneAnchor } = await import('/scripts/modules/scene/model-check-locator.js');
+            const { tagFBXModelIds, sourceFBXHash } = await import('/scripts/modules/fbx/source-identity.js');
+            const { splitMeshByUDIM } = await import('/scripts/modules/fbx/udim-split.js');
+            const { createModelCheckHighlight } = await import('/scripts/modules/scene/model-check-highlight.js');
+            const { createModelCheckPanel } = await import('/scripts/modules/ui/model-check-panel.js');
+            const { uvEvidence } = await import('/scripts/modules/ui/model-check-uv.js');
+            const scene = new THREE.Scene(), world = new THREE.Group(), root = new THREE.Group(); scene.add(world); world.add(root);
+            world.position.set(-100000, 0, 50000); root.position.set(100010, 2, -50005); root.scale.set(-2, 3, 1);
+            const create = (id, xyz, uv) => {
+                const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(xyz, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+                const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial()); m.ID = id; root.add(m); return m;
+            };
+            const a = create(11, [0,0,0, 2,0,0, 2,2,0, 30,0,0, 32,0,0, 32,2,0], [.1,.15, .4,.15, .4,.7, .1,.15, .4,.15, .4,.7]);
+            const b = create(22, [5,0,0, 7,0,0, 5,2,0], [.405,.15, .7,.15, .405,.7]); tagFBXModelIds(root);
+            const sample = uvTestReport.additional_checks[0].groups[0].objects[0].measurements.visuals.cases[0];
+            const edge = (mesh, ids) => ({ model_id: String(mesh.ID), edge_uv: ids.map(i => [mesh.geometry.attributes.uv.getX(i), mesh.geometry.attributes.uv.getY(i)]), edge_xyz: ids.map(i => new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.position, i).toArray()) });
+            sample.scene_anchor = { schema: 'agr-uv-edge-v1', coordinate_space: 'fbx_geometry_identity', fbx_sha256: 'a'.repeat(64), edges: [edge(a, [1,2]), edge(b, [0,2])] };
+            const view = uvEvidence(uvTestReport)[0], record = { obj: root, sourceContainer: 'zip', zipKind: 'SM', name: 'SM_Example.fbx', sourceFBXSha256: 'a'.repeat(64) };
+            const checks = {};
+            checks.valid = validSceneAnchor(view);
+            checks.hash = await sourceFBXHash(new TextEncoder().encode('abc').buffer) === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+            checks.workerRoundtrip = new THREE.ObjectLoader().parse(root.toJSON()).children[0].userData.sourceFBXModelId === '11';
+            const located = await locateUVWitnesses(view, [record], THREE);
+            checks.repeatedUV = located.sites.every(s => s.length === 1);
+            checks.rebasedMirror = located.sites[0][0].worldPoint.distanceTo(new THREE.Vector3(2, (0.32-0.15)/0.55*2, 0).applyMatrix4(a.matrixWorld)) < 1e-5;
+            const rejects = async (v, records, options) => { try { await locateUVWitnesses(v, records, THREE, options); return false; } catch { return true; } };
+            checks.wrongHash = await rejects(view, [{...record, sourceFBXSha256:'b'.repeat(64)}]);
+            checks.rawFBX = await rejects(view, [{...record, sourceContainer:'file'}]);
+            checks.duplicateArchive = await rejects(view, [record, {...record}]);
+            const bad = structuredClone(view); bad.sample.scene_anchor.edges[0].model_id = '33'; checks.wrongObject = await rejects(bad,[record]);
+            const wrong = structuredClone(view); wrong.sample.scene_anchor.edges[0].edge_xyz[0][0] += .1; checks.wrongXYZ = await rejects(wrong,[record]);
+            a.visible = false; checks.hidden = await rejects(view,[record]); a.visible = true;
+            checks.budget = await rejects(view,[record],{maxTriangles:1}); checks.stale = await rejects(view,[record],{isCurrent:()=>false});
+            const u = create(33, [0,0,0, 1,0,0, 0,1,0, 5,0,0, 6,0,0, 5,1,0], [.1,.1,.2,.1,.1,.2, 1.1,.1,1.2,.1,1.1,.2]); tagFBXModelIds(root);
+            checks.split = splitMeshByUDIM(u); const children=[]; root.traverse(o=>{if(o.isMesh&&o.userData.udim)children.push(o);});
+            checks.splitIds = children.length===2 && children.every(c=>c.userData.sourceFBXModelId==='33');
+            const uv2 = structuredClone(view); uv2.texture.tile=1002;
+            const child=children.find(c=>c.userData.udim===1002); child.ID=33;
+            uv2.sample.scene_anchor.edges = [edge(child,[0,1]),edge(child,[0,2])]; uv2.sample.points_uv = uv2.sample.scene_anchor.edges.map(e=>e.edge_uv[0]);
+            uv2.sample.island_segments_uv = uv2.sample.scene_anchor.edges.map(e=>[e.edge_uv]);
+            checks.splitMatch=(await locateUVWitnesses(uv2,[record],THREE)).sites.every(s=>s.length===1);
+            const camera = new THREE.PerspectiveCamera(50,1,.1,1000); camera.position.set(1,5,20);
+            const controls = { target:new THREE.Vector3(),update(){camera.lookAt(this.target);} };
+            const highlight=createModelCheckHighlight({THREE,scene,camera,controls,getModels:()=>window.model3DRecords,requestRender:()=>{}});
+            window.model3DRecords=[record]; window.model3DContext={key:'room-a',models:[]};
+            const button=document.createElement('button');button.id='check3d';button.textContent='Проверка модели';document.body.append(button);
+            window.model3DPanel=createModelCheckPanel({button,apiBaseUrl:'https://checker.invalid',getContext:()=>window.model3DContext,getAccessToken:async()=>'',sceneHighlight:highlight});
+            window.model3DState={scene,camera,root,highlight};
+            return checks;
+        });
+        assert.ok(Object.values(result).every(Boolean), JSON.stringify(result));
+        const report = Buffer.from(JSON.stringify(await page.evaluate(() => uvTestReport)));
+        await page.click('#check3d'); await page.locator('#modelCheckDialog input[type=file]').setInputFiles({name:'report.json',mimeType:'application/json',buffer:report});
+        await page.locator('.model-check-item summary').click(); await page.locator('.model-check-uv-open').click();
+        await page.getByRole('button',{name:'Показать в 3D',exact:true}).click(); await page.waitForSelector('#modelCheckSceneToolbar');
+        assert.equal(await page.locator('dialog[open]').count(),0);
+        const aPosition=await page.evaluate(()=>model3DState.camera.position.toArray());
+        await page.getByRole('button',{name:'Участок B',exact:true}).click(); assert.notDeepEqual(await page.evaluate(()=>model3DState.camera.position.toArray()),aPosition);
+        await page.getByRole('button',{name:'К текстуре',exact:true}).click(); assert.equal(await page.locator('dialog[open]').count(),2);
+        assert.equal(await page.evaluate(()=>model3DState.scene.children.filter(o=>o.name==='Model check witness').length),0);
+        await page.getByRole('button',{name:'Показать в 3D',exact:true}).click(); await page.waitForSelector('#modelCheckSceneToolbar');
+        await page.evaluate(()=>{model3DContext.key='room-b';}); await page.waitForSelector('#modelCheckSceneToolbar',{state:'detached'});
+        assert.equal(await page.locator('dialog[open]').count(),0);
+        await page.evaluate(()=>{model3DPanel.dispose();model3DState.highlight.dispose();model3DState.root.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});});
+        assert.deepEqual(errors,[]);
+    } finally { await page.close(); }
+}

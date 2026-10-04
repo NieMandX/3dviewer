@@ -151,6 +151,7 @@ export function splitMeshByUDIM(mesh) {
             child.castShadow = mesh.castShadow;
             child.receiveShadow = mesh.receiveShadow;
             child.userData.udim = ud;
+            child.userData.sourceFBXModelId = mesh.userData?.sourceFBXModelId;
 
             tileGroup.add(child);
             holder.add(tileGroup);

@@ -3327,3 +3327,7 @@ body.bg-black .side:has(#materialsTab[aria-selected="true"]) { background: #171c
     .model-check-uv-body { padding: 12px; }
     .model-check-uv-dialog .head { padding: 12px; }
 }
+.model-check-scene-toolbar { box-sizing: border-box; position: fixed; z-index: 200; bottom: 42px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 24px); padding: 12px; border: 1px solid var(--border, #8885); border-radius: 12px; background: var(--surfaceStrong); color: var(--ink); box-shadow: 0 4px 24px #0003; }
+.model-check-scene-toolbar p { margin: 0 0 8px; }
+
+.model-check-scene-toolbar .btn[aria-pressed="true"] { background: var(--accent); color: #fff; }

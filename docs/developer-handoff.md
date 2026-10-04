@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.5` (2026-10-04). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.6` (2026-10-04). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -167,6 +167,10 @@ from AGR Vision Model Check 0.1.10. Texture snapshots, contours and distance wit
 belong to the source ZIP in that report; there is no source-polygon-to-rendered-mesh mapping yet.
 This frontend release does not update the deployed checker image or production Caddy release.
 See `docs/model-check-uv-evidence.md` for the protocol and validation boundaries.
+Version 0.97.6 adds source-verified 3D UV-witness navigation: original FBX hash,
+preserved Model IDs, exact edge endpoints and UDIM-aware lookup. The local
+producer is AGR Vision Model Check 0.1.11; server/production promotion is separate.
+The overlay owns its resources and does not alter imported materials or models.
 The private Checker 1.6.1 image and knowledge base stay outside this repository.
 
 ## 6. Yandex Cloud Topology

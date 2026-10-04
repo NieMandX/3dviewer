@@ -1,5 +1,6 @@
 import { extractImagesFromFBXToBuffers } from './modules/fbx/embedded-images-core.js';
 import { readFBXOrientationFromTree } from './modules/fbx/orientation-tree.js';
+import { tagFBXModelIds } from './modules/fbx/source-identity.js';
 import { installConsoleDiagnosticsGate } from './modules/utils/console-diagnostics.js';
 
 const FBX_LOADER_MODULE = 'https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/FBXLoader.js?module';
@@ -46,6 +47,7 @@ self.onmessage = async (event) => {
         let obj = loader.parse(buffer, '');
         const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         if (isCanceled(id)) return;
+        tagFBXModelIds(obj);
         const json = obj.toJSON();
         obj = null;
         const duration = end - start;

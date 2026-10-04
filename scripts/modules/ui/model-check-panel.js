@@ -16,7 +16,7 @@ const STATES = { queued: 'В очереди', running: 'Проверка вып�
 const STAGES = { downloading: 'Получение исходного ZIP', archive_preflight: 'Проверка архива', blender_checks: 'Проверка в Blender', geojson_supplement: 'Проверка GeoJSON', saving_report: 'Сохранение отчёта' };
 const ERRORS = { source_changed: 'Исходный ZIP изменился во время проверки. Запустите её повторно.', worker_lease_expired: 'Связь с обработчиком потеряна. Проверку можно запустить повторно.', worker_cancelled_or_lease_lost: 'Выполнение остановлено или потеряна связь с обработчиком.', checker_incomplete: 'Обработчик не смог завершить проверку архива.' };
 
-export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAccessToken, onOpen = () => {}, fetchImpl = fetch, document: doc = document, pollMs = 1500 }) {
+export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAccessToken, sceneHighlight = null, onOpen = () => {}, fetchImpl = fetch, document: doc = document, pollMs = 1500 }) {
     let base;
     try {
         base = new URL(apiBaseUrl);
@@ -27,13 +27,24 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
     let timer; let contextTimer; let currentJob; let busy = false; let previousFocus; let modelSignature;
     const downloadUrls = [];
     const listeners = [];
-    const uvDialog = createUVTextureDialog({ document: doc });
+    let scenePreview = false;
+    const uvDialog = createUVTextureDialog({ document: doc, onCancelScene: () => sceneHighlight?.clear(), onShow3D: sceneHighlight ? async view => {
+        const mark = generation;
+        await sceneHighlight.show(view, {
+            returnToTexture: () => {
+                if (disposed || generation !== mark) return;
+                sceneHighlight.clear(); scenePreview = false; onOpen(); dialog.showModal(); uvDialog.resume();
+            }, close,
+        });
+        if (disposed || mark !== generation || scope?.key !== getContext()?.key) { sceneHighlight.clear(); return; }
+        scenePreview = true; uvDialog.suspend(); dialog.close();
+    } : null });
     function listen(el, name, fn) { el.addEventListener(name, fn); listeners.push(() => el.removeEventListener(name, fn)); }
     function element(tag, text, className) {
         const el = doc.createElement(tag); if (text !== undefined) el.textContent = String(text); if (className) el.className = className; return el;
     }
     function revokeDownload() { for (const url of downloadUrls.splice(0)) URL.revokeObjectURL(url); }
-    function invalidate() { generation++; uvDialog.close(); controller?.abort(); controller = new AbortController(); clearTimeout(timer); timer = null; }
+    function invalidate() { generation++; scenePreview = false; sceneHighlight?.clear(); uvDialog.close(); controller?.abort(); controller = new AbortController(); clearTimeout(timer); timer = null; }
     function close() {
         invalidate(); clearInterval(contextTimer); contextTimer = null; scope = null; currentJob = null; busy = false; modelSignature = null;
         revokeDownload(); dialog?.close(); if (refs) refs.report.replaceChildren();
@@ -94,6 +105,7 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         const link = element('a', label, 'btn'); link.href = url; link.download = filename; return link;
     }
     function renderReport(job) {
+        sceneHighlight?.clear(); scenePreview = false;
         uvDialog.close();
         refs.report.replaceChildren(); revokeDownload();
         const report = job.report;
@@ -276,7 +288,7 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
     }
     function open() {
         if (disposed || !base) return;
-        if (dialog?.open) close();
+        if (dialog?.open || scenePreview) close();
         ensureDialog(); scope = { ...getContext() }; previousFocus = doc.activeElement;
         modelSignature = null;
         refs.model.replaceChildren();
@@ -285,6 +297,7 @@ export function createModelCheckPanel({ button, apiBaseUrl, getContext, getAcces
         if (!refs.model.value) selectModel();
         contextTimer = setInterval(() => {
             const next = getContext();
+            if (scenePreview && !sceneHighlight.alive()) { close(); return; }
             if (next?.key !== scope?.key || (refs.model.value && !next?.models?.some(m => m.id === refs.model.value))) close();
             else { updateModels(next?.models); controls(); }
         }, 500);
