@@ -3,6 +3,7 @@ import { createMaterialsUI } from './materials-ui.js';
 import { createTexturesUI } from './textures-ui.js';
 
 export function createInspectorPanels(options = {}) {
+    let accessKey = '';
     const materialsUi = createMaterialsUI({
         world: options.world,
         loadedModels: options.loadedModels,
@@ -14,13 +15,18 @@ export function createInspectorPanels(options = {}) {
         updateEyeButtonsForTarget: options.updateEyeButtonsForTarget,
         openGeoModal: options.openGeoModal,
         texInfo: options.texInfo,
+        canUseMaterialModel: options.canUseMaterialModel,
         applyGlassControlsToScene: options.applyGlassControlsToScene,
     });
     const materialsPanel = materialsUi?.materialsPanel || null;
 
     const materialEditor = createMaterialEditor({ ...options, onMaterialsChanged: () => materialsPanel?.scheduleRefresh?.() });
     function schedulePanelRefresh(afterRender) {
-        materialsPanel?.scheduleRefresh?.(() => { materialEditor?.refresh(); afterRender?.(); });
+        materialsPanel?.scheduleRefresh?.(() => {
+            materialEditor?.refresh();
+            if (options.getTextureEntries) texturesUi.renderGallery(options.getTextureEntries());
+            afterRender?.();
+        });
     }
 
     function syncCollisionButtons() {
@@ -50,6 +56,8 @@ export function createInspectorPanels(options = {}) {
         requestRender: options.requestRender,
         logBind: options.logBind,
         markGalleryRendered: options.markGalleryRendered,
+        canUseTexture: options.canUseTexture,
+        canUseMaterialObject: options.canUseMaterialObject,
     });
 
     return Object.freeze({
@@ -58,6 +66,17 @@ export function createInspectorPanels(options = {}) {
         renderGallery: texturesUi?.renderGallery,
         schedulePanelRefresh,
         syncCollisionButtons,
+        refreshAccess: () => {
+            const nextKey = (options.loadedModels || []).map((model) => (
+                `${model.obj.uuid}:${options.canUseMaterialModel?.(model) !== false}`
+            )).join('|');
+            if (nextKey === accessKey) return;
+            accessKey = nextKey;
+            materialsPanel?.markNeedsFullRefresh?.();
+            materialEditor?.refresh();
+            texturesUi.renderGallery(options.getTextureEntries?.() || []);
+            materialsPanel?.scheduleRefresh?.();
+        },
         dispose: () => {
             materialEditor?.dispose();
             materialsPanel?.dispose?.();

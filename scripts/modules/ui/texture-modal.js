@@ -6,6 +6,8 @@ import {
 import { applyMaterialBaseColorPolicy } from '../material/base-color-policy.js';
 
 export function createTextureModalController(options = {}) {
+    const canOpen = options.canOpen || (() => true);
+    const canBind = options.canBind || (() => true);
     const texModalEl = options.texModalEl || null;
     const closeBtnEl = options.closeBtnEl || null;
     const imgEl = options.imgEl || null;
@@ -104,7 +106,7 @@ export function createTextureModalController(options = {}) {
 
     function open(entry) {
         if (disposed) return;
-        if (!entry) return;
+        if (!entry || !canOpen(entry)) return;
         modalTex = entry;
 
         if (imgEl) imgEl.src = entry.url || '';
@@ -143,13 +145,14 @@ export function createTextureModalController(options = {}) {
 
     function bindSelected() {
         if (disposed) return;
-        if (!modalTex) return;
+        if (!modalTex || !canOpen(modalTex)) return;
         if (!modalTex.url) {
             notify?.('Текстура больше недоступна');
             return;
         }
 
         const link = getSelectedMaterialLink();
+        if (!canBind(link)) return;
         if (!link || !link.mat) {
             notify?.('Выберите материал в списке');
             return;

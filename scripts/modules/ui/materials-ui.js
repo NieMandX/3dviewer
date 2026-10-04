@@ -38,6 +38,7 @@ export function createMaterialsUI(options = {}) {
         handleGlassColorInput,
         texInfo: options.texInfo,
         formatColorForDisplay,
+        canUseMaterialModel: options.canUseMaterialModel,
     });
 
     return { materialsPanel };

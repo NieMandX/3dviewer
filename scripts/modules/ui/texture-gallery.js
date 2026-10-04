@@ -10,6 +10,116 @@ export function createTextureGalleryController(options = {}) {
     let renderGeneration = 0;
     let spacerEl = null;
     let disposed = false;
+    let observer = null;
+    let queue = [];
+    let decoding = false;
+    let activeAbort = null;
+    const jobs = new Map();
+    const previewSize = 256;
+
+    const isCurrent = (job) => !disposed && job.generation === renderGeneration;
+
+    function loadImage(blob, signal) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            const url = URL.createObjectURL(blob);
+            const cleanup = () => {
+                img.onload = img.onerror = null;
+                signal.removeEventListener('abort', cancel);
+                img.removeAttribute('src');
+                URL.revokeObjectURL(url);
+            };
+            const cancel = () => { cleanup(); reject(new DOMException('Cancelled', 'AbortError')); };
+            img.onload = () => resolve({ image: img, close: cleanup });
+            img.onerror = () => { cleanup(); reject(new Error('Image decode failed')); };
+            signal.addEventListener('abort', cancel, { once: true });
+            if (signal.aborted) { cancel(); return; }
+            img.src = url;
+        });
+    }
+
+    async function decodePreview(job, signal) {
+        let decoded = null;
+        try {
+            const response = await fetch(job.entry.url, { signal });
+            if (!response.ok) throw new Error('Image fetch failed');
+            const blob = await response.blob();
+            if (!isCurrent(job)) return;
+            if (typeof createImageBitmap === 'function') {
+                try {
+                    const bitmap = await createImageBitmap(blob);
+                    decoded = { image: bitmap, close: () => bitmap.close() };
+                } catch (_) {
+                    // SVG and some older browser decoders need an HTML image.
+                }
+            }
+            if (!isCurrent(job)) return;
+            if (!decoded) decoded = await loadImage(blob, signal);
+            if (!isCurrent(job)) return;
+            const { image } = decoded;
+            const width = image.naturalWidth || image.width;
+            const height = image.naturalHeight || image.height;
+            const scale = Math.min(1, previewSize / Math.max(width, height));
+            job.canvas.width = Math.max(1, Math.round(width * scale));
+            job.canvas.height = Math.max(1, Math.round(height * scale));
+            const ctx = job.canvas.getContext('2d');
+            if (!ctx) throw new Error('Preview canvas unavailable');
+            ctx.drawImage(image, 0, 0, job.canvas.width, job.canvas.height);
+        } catch (_) {
+            if (isCurrent(job)) {
+                job.div.classList.add('broken');
+                job.canvas.replaceWith(makePlaceholder(job.entry));
+                job.canvas.width = job.canvas.height = 0;
+            }
+        } finally {
+            decoded?.close();
+        }
+    }
+
+    async function drainQueue() {
+        if (decoding) return;
+        decoding = true;
+        try {
+            while (queue.length) {
+                const job = queue.shift();
+                if (!isCurrent(job)) continue;
+                activeAbort = new AbortController();
+                // Only one full-size decode is alive; only its small canvas stays.
+                await decodePreview(job, activeAbort.signal);
+                activeAbort = null;
+            }
+        } finally {
+            decoding = false;
+        }
+    }
+
+    function schedule(job) {
+        if (job.queued || !isCurrent(job)) return;
+        job.queued = true;
+        queue.push(job);
+        void drainQueue();
+    }
+
+    function observe(job) {
+        jobs.set(job.canvas, job);
+        if (typeof IntersectionObserver !== 'function') { schedule(job); return; }
+        if (!observer) observer = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                const candidate = jobs.get(entry.target);
+                observer?.unobserve(entry.target);
+                if (candidate) schedule(candidate);
+            }
+        }, { root: galleryEl });
+        observer.observe(job.canvas);
+    }
+
+    function makePlaceholder(entry) {
+        const ph = document.createElement('div');
+        ph.className = 'ph';
+        ph.textContent = entry?.mime ? entry.mime : 'preview error';
+        return ph;
+    }
 
     function entryKey(entry) {
         return [
@@ -34,6 +144,12 @@ export function createTextureGalleryController(options = {}) {
         renderedCount = 0;
         renderedKeys = [];
         renderGeneration += 1;
+        observer?.disconnect();
+        observer = null;
+        queue = [];
+        activeAbort?.abort();
+        for (const { canvas } of jobs.values()) canvas.width = canvas.height = 0;
+        jobs.clear();
         spacerEl = null;
         if (galleryEl) galleryEl.innerHTML = '';
         if (keepSpacer) {
@@ -84,17 +200,12 @@ export function createTextureGalleryController(options = {}) {
 
             const imgWrap = document.createElement('div');
             if (entry?.url) {
-                const img = document.createElement('img');
-                img.loading = 'lazy';
-                img.decoding = 'async';
-                img.alt = entry.short || '';
-                img.src = entry.url;
-                img.onerror = () => {
-                    if (disposed || itemGeneration !== renderGeneration) return;
-                    div.classList.add('broken');
-                    img.replaceWith(makePlaceholder(entry));
-                };
-                imgWrap.appendChild(img);
+                const canvas = document.createElement('canvas');
+                canvas.width = canvas.height = 1;
+                canvas.setAttribute('role', 'img');
+                canvas.setAttribute('aria-label', entry.short || 'Texture preview');
+                imgWrap.appendChild(canvas);
+                observe({ canvas, div, entry, generation: itemGeneration, queued: false });
             } else {
                 div.classList.add('broken');
                 imgWrap.appendChild(makePlaceholder(entry));
@@ -139,12 +250,6 @@ export function createTextureGalleryController(options = {}) {
         renderedKeys = nextKeys;
         if (texCountEl) texCountEl.textContent = String(total);
 
-        function makePlaceholder(entry) {
-            const ph = document.createElement('div');
-            ph.className = 'ph';
-            ph.textContent = entry?.mime ? entry.mime : 'preview error';
-            return ph;
-        }
     }
 
     function dispose() {

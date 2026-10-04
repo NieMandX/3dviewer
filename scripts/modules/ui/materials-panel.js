@@ -23,6 +23,7 @@ export function createMaterialsPanelController(options = {}) {
 
     const outEl = options.outEl || null;
     const matSelect = options.matSelect || null;
+    const canUseModel = options.canUseMaterialModel || (() => true);
 
     const requestRender = typeof options.requestRender === 'function' ? options.requestRender : () => {};
 
@@ -162,6 +163,7 @@ export function createMaterialsPanelController(options = {}) {
      */
     function renderOneModel(model, chunksArr) {
         function glassInfoRow(obj, material, matIndex) {
+            if (!canUseModel(model)) return '';
             const info = material?.userData?.glassInfo;
             if (!info) return '';
             const overrides = material?.userData?.glassOverrides || {};
@@ -341,13 +343,13 @@ export function createMaterialsPanelController(options = {}) {
                                 <tr><td class="k">AO</td><td>${m.aoMap ? texInfo(m.aoMap) : '<span class="muted">—</span>'}</td></tr>
                                 <tr><td class="k">Roughness</td><td>${m.roughnessMap ? texInfo(m.roughnessMap) : '<span class="muted">—</span>'}</td></tr>
                                 <tr><td class="k">Metalness</td><td>${m.metalnessMap ? texInfo(m.metalnessMap) : '<span class="muted">—</span>'}</td></tr>
-                                <tr><td class="k">Z-приоритет</td><td>
+                                ${canUseModel(model) ? `<tr><td class="k">Z-приоритет</td><td>
                                     <input type="number" min="-8" max="8" step="1" value="${getDepthPriority(m)}"
                                         class="depth-priority-input" data-uuid="${obj.uuid}" data-mat-index="${idx}"
                                         aria-label="Z-приоритет: ${escapeHtml(matName)}" style="width:64px"
                                         title="Выше — впереди при наложении; 0 — исходное значение. Для всех объектов с этим материалом, в режиме PBR.">
                                     <div class="muted">0 — исходный; + — впереди; − — позади.<br>Для всех объектов с этим материалом. Только текущая загрузка, режим PBR.</div>
-                                </td></tr>
+                                </td></tr>` : ''}
                                 ${glassInfoRow(obj, m, idx)}
                             </table>
                             </details>
@@ -530,6 +532,7 @@ export function createMaterialsPanelController(options = {}) {
         const index = Number(input.dataset.matIndex);
         if (!uuid || !Number.isInteger(index) || index < 0) return null;
         for (const model of loadedModels) {
+            if (!canUseModel(model)) continue;
             const mesh = sceneIndex.getModelRenderables(model).find(obj => obj.uuid === uuid);
             if (mesh) return getPanelMaterials(mesh)[index] || null;
         }
@@ -618,6 +621,11 @@ export function createMaterialsPanelController(options = {}) {
         if (!uuid) return null;
         const mesh = world?.getObjectByProperty?.('uuid', uuid);
         if (!mesh) return null;
+        if (options.canUseMaterialModel && !loadedModels.some((model) => {
+            if (!canUseModel(model)) return false;
+            for (let node = mesh; node; node = node.parent) if (node === model.obj) return true;
+            return false;
+        })) return null;
         const currentMats = asMaterialArray(mesh.material);
         const originalMats = asMaterialArray(mesh.userData?._origMaterial);
         const currentIsGeneratedDisplay = currentMats.some(m => isGeneratedDisplayMaterial(mesh, m));
@@ -665,6 +673,7 @@ export function createMaterialsPanelController(options = {}) {
     function collectMaterialsFromWorld() {
         const out = [];
         loadedModels.forEach((model) => {
+            if (!canUseModel(model)) return;
             sceneIndex.getModelRenderables(model).forEach((obj) => {
                 if (!obj.isMesh) return;
                 const mats = getPanelMaterials(obj);

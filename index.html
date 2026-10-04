@@ -8,8 +8,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#ffffff" />
-    <meta name="application-version" content="0.97.8" />
-    <title>АГР WEBViewer 0.97.8</title>
+    <meta name="application-version" content="0.97.9" />
+    <title>АГР WEBViewer 0.97.9</title>
     <link rel="icon" href="./favicon.ico" />
     <link rel="stylesheet" href="./styles/viewer.css">
     <script>window.__LPMVIEW_RUNTIME = window.__LPMVIEW_RUNTIME || {};</script>
@@ -352,7 +352,7 @@
     <div class="side">
         <div class="side-tabs" role="tablist" aria-label="Панель сцены">
             <button id="sceneTab" type="button" role="tab" aria-selected="true" aria-controls="scenePanel">Сцена</button>
-            <button id="materialsTab" type="button" role="tab" aria-selected="false" aria-controls="materialEditor" tabindex="-1">Материалы</button>
+            <button id="materialsTab" type="button" role="tab" aria-selected="false" aria-controls="materialEditor" tabindex="-1" hidden disabled>Материалы</button>
         </div>
         <div class="list" id="scenePanel" role="tabpanel" aria-labelledby="sceneTab">
             <div id="out"></div>
@@ -362,7 +362,7 @@
                 <div id="camsSideList" class="cams-side-list"></div>
             </details>
 
-            <details id="imagesDetails" open>
+            <details id="imagesDetails" hidden>
                 <summary>Текстуры · <span id="texCount" class="chip">0</span></summary>
                 <div class="row" style="margin:6px 0">
                     <select id="matSelect" title="Материал для привязки">
@@ -935,7 +935,7 @@
             <button id="collabChatToggleBtn" class="btn footer-btn collab-chat-toggle" type="button" hidden>Чат</button>
             <div id="voiceAudioMount" hidden></div>
         </div>
-        <span id="viewerVersion" class="footer-right viewer-version" title="Версия вьюера">0.97.8</span>
+        <span id="viewerVersion" class="footer-right viewer-version" title="Версия вьюера">0.97.9</span>
     </footer>
 
     <script>

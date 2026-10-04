@@ -61,6 +61,7 @@ import { createRealtimeChannelStatusHandler } from '../collab/realtime-channel-s
 import { createRoomLoadAbortRegistry } from '../collab/room-load-abort-registry.js';
 import { createRoomModelLoadQueue } from '../collab/room-model-load-queue.js';
 import { createRoomModelLinkTracker, promoteLocalImportScopeToRoom, pruneLoadedRoomModelIds } from '../collab/room-model-state.js';
+import { createMaterialAccess } from '../ui/material-access.js';
 import { createAuxRealtimeChannelRegistry } from '../collab/aux-realtime-channels.js';
 import { createSupabaseClient } from '../collab/supabase-client.js';
 import { createVoiceController } from '../voice/voice-controller.js';
@@ -749,6 +750,7 @@ export class ViewerApp {
         app.cameraPresets = cameraPresets;
 
         let collabController = null;
+        let materialAccessSuspended = false;
         let modelCheckPanel = null;
         let cameraSync = null;
         let annotations3d = null;
@@ -1048,6 +1050,7 @@ export class ViewerApp {
         }
 
         function updateCollabFooter() {
+            inspectorPanels?.refreshAccess?.();
             if (!collabFooterEl) return;
             const hasSession = !!collabAuthed;
             collabFooterEl.hidden = !hasSession;
@@ -2003,6 +2006,8 @@ export class ViewerApp {
 
         async function teardownCollabSession(options = {}) {
             modelCheckPanel?.close();
+            materialAccessSuspended = true;
+            inspectorPanels?.refreshAccess?.();
             const preserveAutoResume = !!options?.preserveAutoResume;
             const resetScene = options?.resetScene === true;
             const previousRoomId = String(collabController?.room?.id || collabRoom?.id || '');
@@ -4448,6 +4453,7 @@ export class ViewerApp {
                     return;
                 }
                 collabController = nextController;
+                materialAccessSuspended = false;
                 updateCollabFooter();
 
                 cameraSync = createCameraSyncController({
@@ -6365,7 +6371,21 @@ export class ViewerApp {
                         onStatus: (message) => logBind(message, 'warn'),
                     });
                     async function saveRoomMaterialSettings(data) { return roomMaterialSettings.save(data); }
+                    const materialAccess = createMaterialAccess({
+                        loadedModels,
+                        getContext: () => ({
+                            authenticated: collabAuthed,
+                            registered: collabIsRegistered,
+                            roomId: String(collabController?.room?.id || ''),
+                            suspended: materialAccessSuspended,
+                        }),
+                    });
                     inspectorPanels = createInspectorPanels({
+                        getMaterialModels: materialAccess.getModels,
+                        canUseMaterialModel: materialAccess.canUseModel,
+                        canUseMaterialObject: materialAccess.canUseObject,
+                        canUseTexture: materialAccess.canUseTexture,
+                        getTextureEntries: () => allEmbedded,
                         beforeMaterialPick: () => cameraPickController.setActive(false),
                         canPickMaterial: () => !annotations3d?.getDrawEnabled?.() && !annotations3d?.isPointerDown?.(),
                         persistence: { refresh: () => { void roomMaterialSettings.refresh(loadedModels).catch((error) => logBind(error.message, 'warn')); } },
@@ -7035,6 +7055,7 @@ export class ViewerApp {
                     roomId,
                     modelId: modelRow.id,
                 });
+                inspectorPanels?.refreshAccess?.();
                 confirmRoomModelId(modelRow.id);
                 activeRoomModelRequestId = modelRow.id;
                 syncStatus.keep();

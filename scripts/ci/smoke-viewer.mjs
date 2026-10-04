@@ -1,3 +1,5 @@
+import { runMaterialAccessSmoke } from './smoke-material-access.mjs';
+import { runImportMemorySmoke } from './smoke-import-memory.mjs';
 import { runVPMMemorySmoke } from './smoke-vpm-memory.mjs';
 import { runModelCheckPanelSmoke, runModelCheckIntegrationSmoke } from './smoke-model-check-panel.mjs';
 import { runModelCheckUVSmoke } from './smoke-model-check-uv.mjs';
@@ -12201,10 +12203,10 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     });
 
     assert.equal(result.singleResult, false, 'FBX cleanup smoke: single-UDIM mesh should not be split');
-    assert.equal(result.singleDisposed, 1, 'FBX cleanup smoke: no-op UDIM temp geometry was not disposed');
+    assert.equal(result.singleDisposed, 0, 'FBX cleanup smoke: no-op UDIM should not allocate a temporary geometry');
     assert.equal(result.singleStillInParent, true, 'FBX cleanup smoke: no-op UDIM changed scene tree');
     assert.equal(result.splitResult, true, 'FBX cleanup smoke: multi-UDIM mesh was not split');
-    assert.equal(result.splitDisposed, 2, 'FBX cleanup smoke: split source/temp geometries were not disposed');
+    assert.equal(result.splitDisposed, 1, 'FBX cleanup smoke: split source geometry was not disposed exactly once');
     assert.equal(result.holderIsUDIM, true, 'FBX cleanup smoke: split holder missing');
     assert.equal(result.holderMaterialTracked, true, 'FBX cleanup smoke: removed source material is not tracked for later dispose');
     assert.equal(result.holderDepthTracked, true, 'FBX cleanup smoke: removed custom depth material is not tracked for later dispose');
@@ -12217,7 +12219,7 @@ async function runFBXCleanupLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.failingSplitSourceGeometryDisposed, false, 'FBX cleanup smoke: failed UDIM split disposed live source geometry');
     assert.equal(result.failingSplitSourceMaterialDisposed, false, 'FBX cleanup smoke: failed UDIM split disposed live source material');
     assert.equal(result.failingSplitCloneDisposed, true, 'FBX cleanup smoke: failed UDIM split leaked cloned material');
-    assert.equal(result.failingSplitDisposedGeometries, 3, 'FBX cleanup smoke: failed UDIM split leaked temp/generated geometry');
+    assert.equal(result.failingSplitDisposedGeometries, 2, 'FBX cleanup smoke: failed UDIM split leaked generated geometry');
     assert.equal(result.failingSplitDisposedMaterials, 1, 'FBX cleanup smoke: failed UDIM split disposed wrong number of materials');
     assert.equal(result.abortResult, 'AbortError', 'FBX cleanup smoke: aborted post-parse FBX did not reject with AbortError');
     assert.equal(result.abortWorldChildren, 0, 'FBX cleanup smoke: aborted post-parse FBX was added to world');
@@ -14375,7 +14377,9 @@ try {
     await runBatchFinalizerDisposeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Batch finalizer dispose smoke passed.');
     await runTextureGalleryLifecycleSmoke(browserContext, smokeServer.baseUrl);
-    console.log('Texture gallery lifecycle smoke passed.');
+    await runImportMemorySmoke(browserContext, smokeServer.baseUrl);
+    await runMaterialAccessSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Texture gallery lifecycle, bounded preview and UDIM buffer parity smoke passed.');
     await runTextureModalStaleEntrySmoke(browserContext, smokeServer.baseUrl);
     console.log('Texture modal stale entry smoke passed.');
     await runTextureReplacementLifecycleSmoke(browserContext, smokeServer.baseUrl);

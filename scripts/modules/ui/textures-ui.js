@@ -10,6 +10,8 @@ export function createTexturesUI(options = {}) {
     const loadedModels = Array.isArray(options.loadedModels) ? options.loadedModels : null;
 
     const matSelectEl = options.matSelectEl || null;
+    const canUseTexture = options.canUseTexture || (() => true);
+    const canUseObject = options.canUseMaterialObject || (() => true);
 
     const basename = typeof options.basename === 'function'
         ? options.basename
@@ -70,6 +72,8 @@ export function createTexturesUI(options = {}) {
         basename,
         guessKindFromName,
         getSelectedMaterialLink,
+        canOpen: canUseTexture,
+        canBind: (link) => canUseObject(link?.obj),
         world,
         loadedModels,
         textureLoader,
@@ -101,8 +105,13 @@ export function createTexturesUI(options = {}) {
 
     function renderGallery(listAll) {
         if (disposed) return;
-        textureGallery.render(listAll);
-        textureModal.reconcileEntries?.(listAll);
+        const permitted = (Array.isArray(listAll) ? listAll : []).filter(canUseTexture);
+        if (dom.imagesDetails) {
+            dom.imagesDetails.hidden = permitted.length === 0;
+            if (!permitted.length) dom.imagesDetails.open = false;
+        }
+        textureGallery.render(permitted);
+        textureModal.reconcileEntries?.(permitted);
         markGalleryRendered();
     }
 

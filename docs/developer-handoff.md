@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.8` (2026-10-04). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.9` (2026-10-05). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -182,6 +182,45 @@ WebGPU/WebGL in Chrome, and corrected K1 import/disposal in both modes. Native
 Safari on this Mac completed a local eight-ZIP HPM import (99 ERM materials,
 WebGL fallback), visibility toggling and reset without reloading. The current
 server room and mobile Safari have not been revalidated with this change.
+
+
+Version 0.97.9 counts UDIM triangles before allocating exact output buffers;
+one-tile meshes retain their original buffers. On the local eight-ZIP
+Volokolamskoe fixture, two hardware-WebGPU runs measured 467–523 ms before
+and 261–264 ms after for UDIM; 1,962 geometry-buffer SHA-256 values matched.
+Whole-import timing stayed around 39 seconds on the repeated runs, so these
+changes are not a claim of a large end-to-end speedup.
+
+Texture-gallery previews are lazy, sequential, at most 256 pixels on their
+longest edge, with bitmap/fetch/canvas cleanup on replacement and disposal.
+The full source image remains available to the texture modal and binder.
+Materials and texture galleries are available only to a registered signed-in
+account for models linked to the active server room (including a local import
+successfully synchronized to that room). Local-only imports and anonymous
+room-link viewers get no gallery cards or thumbnail renderer. Access changes
+cancel interactions and release previews. Mixed scenes expose only room models.
+The objects/visibility tree and model rendering remain available.
+
+Room settings playback is independent of editor access: guests still receive
+saved material parameters. The existing persistence format stores parameters,
+not replacement texture files or local .lpmat assets; those still require a
+separate persistence feature. The access policy is UI entitlement, not a change
+to server RLS or a way to conceal assets already sent for rendering.
+
+Validation: `ci:verify` includes bounded thumbnail decode/cancellation, indexed
+and non-indexed UDIM buffer parity, registered/guest/local/mixed-room UI access,
+and guest playback of saved color/roughness without any thumbnail work. Hardware
+Chrome imported all eight local ZIPs in WebGPU and WebGL, including offline
+visibility toggles, Reset and reimport; native Safari completed the same
+set in WebGL, with visibility toggle and Reset, zero gallery previews and no
+reload/page errors. The latest live room and physical mobile devices are not
+covered by those local fixture runs.
+
+The profiling run also exposed an existing FBX-worker import failure:
+`Failed to resolve module specifier "three"` in the CDN loader. The fallback
+parses on the main thread. Fixing it together with a binary worker payload is
+follow-up work; enabling the current JSON transport without memory testing is
+not part of this release.
 
 ## 6. Yandex Cloud Topology
 

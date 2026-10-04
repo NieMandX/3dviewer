@@ -20,7 +20,31 @@ export function splitMeshByUDIM(mesh) {
     const nm = (mesh.name || '').toLowerCase();
     if (/^ucx/.test(nm)) return false;
 
-    const g = g0.index ? g0.toNonIndexed() : g0.clone();
+    const posAttr = g0.getAttribute('position');
+    const uvAttr = g0.getAttribute('uv');
+    if (!posAttr || !uvAttr) return false;
+    const parent = mesh.parent;
+    const meshIndex = parent?.children.indexOf(mesh) ?? -1;
+    if (meshIndex < 0) return false;
+
+    const index = g0.index;
+    const vertexCount = index ? index.count : posAttr.count;
+    const triangleCount = Math.floor(vertexCount / 3);
+    const vertexAt = (offset) => index ? index.getX(offset) : offset;
+    const tileAt = (offset) => {
+        const a = vertexAt(offset), b = vertexAt(offset + 1), c = vertexAt(offset + 2);
+        return triUDIM(uvAttr.getX(a), uvAttr.getY(a), uvAttr.getX(b), uvAttr.getY(b), uvAttr.getX(c), uvAttr.getY(c));
+    };
+    // Count first: a one-tile mesh keeps its original buffers and material.
+    // Multi-tile meshes allocate only their final arrays, never a full expanded
+    // geometry plus growing JavaScript arrays for every output tile.
+    const counts = new Map();
+    for (let t = 0; t < triangleCount; t++) {
+        const tile = tileAt(t * 3);
+        counts.set(tile, (counts.get(tile) || 0) + 1);
+    }
+    if (counts.size <= 1) return false;
+    const nrmAttr = g0.getAttribute('normal');
     let holder = null;
     let committed = false;
     const rollbackGeometries = new Set();
@@ -52,61 +76,31 @@ export function splitMeshByUDIM(mesh) {
     };
 
     try {
-        const posAttr = g.getAttribute('position');
-        const uvAttr = g.getAttribute('uv');
-        if (!posAttr || !uvAttr) return false;
-
-        const pos = posAttr.array;
-        const uv = uvAttr.array;
-        const nrmAttr = g.getAttribute('normal');
-
-        const buckets = new Map(); // udim -> {pos:[], uv:[], nrm:[], tu, tv}
-        const ensure = (ud) => {
-            let bucket = buckets.get(ud);
-            if (!bucket) {
-                const { tu, tv } = udimTile(ud);
-                bucket = { pos: [], uv: [], nrm: [], tu, tv };
-                buckets.set(ud, bucket);
-            }
-            return bucket;
-        };
-
-        const triCount = pos.length / 9;
-        for (let t = 0; t < triCount; t++) {
-            const pBase = t * 9;
-            const uBase = t * 6;
-            const ud = triUDIM(
-                uv[uBase],
-                uv[uBase + 1],
-                uv[uBase + 2],
-                uv[uBase + 3],
-                uv[uBase + 4],
-                uv[uBase + 5],
-            );
-            const b = ensure(ud);
-
-            for (let k = 0; k < 9; k++) b.pos.push(pos[pBase + k]);
-
-            b.uv.push(
-                uv[uBase] - b.tu,
-                uv[uBase + 1] - b.tv,
-                uv[uBase + 2] - b.tu,
-                uv[uBase + 3] - b.tv,
-                uv[uBase + 4] - b.tu,
-                uv[uBase + 5] - b.tv,
-            );
-
-            if (nrmAttr) {
-                const nrm = nrmAttr.array;
-                for (let k = 0; k < 9; k++) b.nrm.push(nrm[pBase + k]);
+        const buckets = new Map();
+        for (const [tile, count] of counts) {
+            const { tu, tv } = udimTile(tile);
+            buckets.set(tile, {
+                pos: new Float32Array(count * 9), uv: new Float32Array(count * 6),
+                nrm: nrmAttr ? new Float32Array(count * 9) : null, tu, tv, vertices: 0,
+            });
+        }
+        for (let t = 0; t < triangleCount; t++) {
+            const offset = t * 3;
+            const bucket = buckets.get(tileAt(offset));
+            for (let k = 0; k < 3; k++) {
+                const source = vertexAt(offset + k), dest = bucket.vertices++;
+                bucket.pos[dest * 3] = posAttr.getX(source);
+                bucket.pos[dest * 3 + 1] = posAttr.getY(source);
+                bucket.pos[dest * 3 + 2] = posAttr.getZ(source);
+                bucket.uv[dest * 2] = uvAttr.getX(source) - bucket.tu;
+                bucket.uv[dest * 2 + 1] = uvAttr.getY(source) - bucket.tv;
+                if (nrmAttr) {
+                    bucket.nrm[dest * 3] = nrmAttr.getX(source);
+                    bucket.nrm[dest * 3 + 1] = nrmAttr.getY(source);
+                    bucket.nrm[dest * 3 + 2] = nrmAttr.getZ(source);
+                }
             }
         }
-
-        if (buckets.size <= 1) return false;
-        const parent = mesh.parent;
-        if (!parent) return false;
-        const meshIndex = parent.children.indexOf(mesh);
-        if (meshIndex < 0) return false;
 
         holder = new THREE.Group();
         holder.name = 'UDIM';
@@ -122,9 +116,9 @@ export function splitMeshByUDIM(mesh) {
         for (const [ud, b] of buckets) {
             const gg = new THREE.BufferGeometry();
             rollbackGeometries.add(gg);
-            gg.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
-            gg.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
-            if (b.nrm.length) gg.setAttribute('normal', new THREE.Float32BufferAttribute(b.nrm, 3));
+            gg.setAttribute('position', new THREE.BufferAttribute(b.pos, 3));
+            gg.setAttribute('uv', new THREE.BufferAttribute(b.uv, 2));
+            if (b.nrm) gg.setAttribute('normal', new THREE.BufferAttribute(b.nrm, 3));
             else gg.computeVertexNormals();
 
             const tileGroup = new THREE.Group();
@@ -175,7 +169,6 @@ export function splitMeshByUDIM(mesh) {
         return true;
     } finally {
         if (!committed) disposeUncommittedHolder();
-        if (g && g !== g0) g.dispose?.();
     }
 }
 

@@ -30,10 +30,25 @@ export function createMaterialEditor(options) {
     if (!host || !options.renderer) return null;
     const { loadedModels, world, requestRender } = options;
     let entries = new Map(), selectedId = '', originals = false, alive = true, generation = 0, query = '', active = false, flowDraft = null, batching = false, packBusy = false;
-    let rootKey = '', packs;
+    let rootKey = '', accessKey = '', packs;
+    const getModels = options.getMaterialModels || (() => loadedModels);
+    const canUseModel = options.canUseMaterialModel || (() => true);
+    const editableModels = () => getModels().filter(canUseModel);
+    const canEditEntry = (entry) => !!entry?.uses.length && entry.uses.every((use) => editableModels().some((m) => m.obj === use.root));
+    const editableEntries = () => new Map([...entries].filter(([, entry]) => canEditEntry(entry)));
+    const available = () => editableModels().length > 0;
     const suspendedFlows = new Map();
     const changed = new Set(), undo = new Map(), comparisons = new WeakMap(), texturePreviews = new WeakMap();
-    const thumbs = createMaterialThumbnails({ renderer: options.renderer, ready: options.rendererReady, getEnvironment: options.getEnvironment, requestRender });
+    let thumbnailRenderer = null;
+    const thumbs = {
+        enqueue(image, material) {
+            thumbnailRenderer ||= createMaterialThumbnails({ renderer: options.renderer, ready: options.rendererReady, getEnvironment: options.getEnvironment, requestRender });
+            thumbnailRenderer.enqueue(image, material);
+        },
+        invalidate: (material) => thumbnailRenderer?.invalidate(material),
+        clear: () => thumbnailRenderer?.clear(),
+        dispose() { thumbnailRenderer?.dispose(); thumbnailRenderer = null; },
+    };
     const flow = createFlowNetworkEditor({ ...options, onActive: (value) => document.body.classList.toggle('material-flow-edit', value), canvas: options.renderer.domElement, onChange: (network) => { flowDraft = structuredClone(network); updateFlowCount(); } });
     host.innerHTML = `
         <div class="me-modes" role="group" aria-label="Сравнение материалов"><button data-mode="edited" aria-pressed="true">Изменённые</button><button data-mode="original" aria-pressed="false">Исходные</button></div>
@@ -47,21 +62,22 @@ export function createMaterialEditor(options) {
         <input type="file" data-file="settings" accept=".json,application/json" hidden><input type="file" data-file="texture" accept="image/png,image/jpeg,image/webp" hidden>`;
     const grid = host.querySelector('.me-grid'), inspector = host.querySelector('.me-inspector'), status = host.querySelector('.me-status');
     const sceneTab = document.getElementById('sceneTab'), materialTab = document.getElementById('materialsTab'), scenePanel = document.getElementById('scenePanel');
-    const selected = () => entries.get(selectedId);
+    const selected = () => { const entry = entries.get(selectedId); return canEditEntry(entry) ? entry : null; };
     const tell = (text) => { if (alive) status.textContent = text; };
     const live = (entry) => entry && entry.uses.some((u) => loadedModels.some((m) => m.obj === u.root) && asMaterialArray(u.object.userData._editorEditedMaterials || u.object.material).includes(entry.material));
     function selectEntry(entry) {
+        if (!canEditEntry(entry)) return;
         flow.stop(); selectedId = entry.material.uuid;
         if (query && !entry.material.name.toLowerCase().includes(query.toLowerCase())) { query = ''; host.querySelector('.me-search').value = ''; renderList(); }
         for (const card of grid.children) card.setAttribute('aria-pressed', String(card.dataset.material === selectedId));
         renderInspector(); grid.querySelector(`[data-material="${selectedId}"]`)?.scrollIntoView({ block: 'nearest' });
     }
-    const picker = createMaterialPicker({ canvas: options.renderer.domElement, camera: options.camera, controls: options.controls, getEntries: () => entries,
+    const picker = createMaterialPicker({ canvas: options.renderer.domElement, camera: options.camera, controls: options.controls, getEntries: editableEntries,
         onPick: (entry) => { selectEntry(entry); tell(`Выбран материал «${entry.material.name || 'Без имени'}».`); },
         onMiss: () => tell('Здесь нет видимой поверхности модели. Выберите другую точку или нажмите Esc.'),
         onActive: (value) => { document.body.classList.toggle('material-picking', value); host.querySelector('[data-action=pick]').setAttribute('aria-pressed', String(value)); host.querySelector('.me-pick-hint').hidden = !value; },
     });
-    packs = createMaterialPackPanel({ host: host.querySelector('[data-pack-host]'), getModels: () => loadedModels,
+    packs = createMaterialPackPanel({ host: host.querySelector('[data-pack-host]'), getModels: editableModels,
         getEntries: (model) => [...entries.values()].filter((e) => e.uses.some((u) => u.root === model.obj)).map((e) => ({ ...e, uses: e.uses.filter((u) => u.root === model.obj) })), apply: applyPack,
         onBusy: (value) => {
             packBusy = value;
@@ -75,6 +91,7 @@ export function createMaterialEditor(options) {
         }, tell });
     function resumeWater() { for (const [state, previous] of suspendedFlows) state.suspended = previous; suspendedFlows.clear(); requestRender(); }
     function tab(show) {
+        show = show && available();
         active = show; host.hidden = !show; scenePanel.hidden = show;
         sceneTab.setAttribute('aria-selected', String(!show)); materialTab.setAttribute('aria-selected', String(show));
         sceneTab.tabIndex = show ? -1 : 0; materialTab.tabIndex = show ? 0 : -1;
@@ -87,11 +104,21 @@ export function createMaterialEditor(options) {
 
     function refresh() {
         if (!alive) return;
-        const nextRoots = loadedModels.map((m) => m.obj.uuid).join('|');
+        const models = getModels();
+        const nextAccess = editableModels().map((m) => m.obj.uuid).join('|');
+        if (nextAccess !== accessKey) {
+            accessKey = nextAccess; generation++; picker.stop(); flow.stop(); packs?.cancel(); thumbs.dispose();
+        }
+        materialTab.hidden = !nextAccess; materialTab.disabled = !nextAccess;
+        if (!nextAccess) {
+            if (originals) setMode(false);
+            tab(false); grid.replaceChildren(); inspector.replaceChildren();
+        }
+        const nextRoots = models.map((m) => m.obj.uuid).join('|');
         if (nextRoots !== rootKey) { generation++; picker.stop(); rootKey = nextRoots; }
-        loadedModels.forEach((m) => captureParsedMaterials(m.obj));
-        entries = collectSceneMaterials(loadedModels);
-        if (!entries.has(selectedId)) { selectedId = entries.keys().next().value || ''; if (flow.active) flow.stop(); }
+        models.forEach((m) => captureParsedMaterials(m.obj));
+        entries = collectSceneMaterials(models);
+        if (!canEditEntry(entries.get(selectedId))) { selectedId = editableEntries().keys().next().value || ''; if (flow.active) flow.stop(); }
         for (const material of changed) if (![...entries.values()].some((e) => e.material === material)) changed.delete(material);
         for (const material of undo.keys()) if (![...entries.values()].some((e) => e.material === material)) { undo.get(material).clone.dispose(); undo.delete(material); }
         if (active) { renderList(); renderInspector(); }
@@ -100,8 +127,9 @@ export function createMaterialEditor(options) {
     }
     function renderList() {
         thumbs.clear(); grid.replaceChildren();
-        const visible = [...entries.values()].filter(({ material }) => String(material.name || '').toLowerCase().includes(query.toLowerCase()));
-        host.querySelector('#materialCount').textContent = `${entries.size} материалов · показано ${visible.length}`;
+        const permitted = editableEntries();
+        const visible = [...permitted.values()].filter(({ material }) => String(material.name || '').toLowerCase().includes(query.toLowerCase()));
+        host.querySelector('#materialCount').textContent = `${permitted.size} материалов · показано ${visible.length}`;
         for (const { material, uses } of visible) {
             const button = document.createElement('button'); button.className = 'me-card'; button.dataset.material = material.uuid; button.title = material.name;
             button.setAttribute('aria-pressed', String(selectedId === material.uuid));
@@ -144,6 +172,7 @@ export function createMaterialEditor(options) {
         }
     }
     function setMode(value) {
+        if (value && !available()) return;
         picker.stop(); flow.stop(); flowDraft = null; originals = value; options.ensurePBR?.();
         for (const model of loadedModels) model.obj.traverse((object) => {
             if (!object.isMesh || !object.userData._editorOriginalMaterials) return;
@@ -231,6 +260,7 @@ export function createMaterialEditor(options) {
     function updateFlowCount() { const el = inspector.querySelector('[data-flow-count]'); if (el) el.textContent = `${flowDraft?.nodes.length || 0} точек · ${flowDraft?.edges.length || 0} соединений`; }
     let textureSlot = '', textureEntry = null;
     async function click(event) {
+        if (!available()) return;
         const button = event.target.closest('button'); if (!button) return;
         if (button.closest('.me-packs')) return;
         try {
@@ -256,7 +286,7 @@ export function createMaterialEditor(options) {
                 const id = button.dataset.preset;
                 if (id === 'water') {
                     if (m.riverFlow) { tell('Течение уже настроено. Параметры воды доступны ниже.'); return; }
-                    const next = createPresetMaterial(id, m); bind(entry, next); await applyWater(entry, { nodes: [], edges: [] });
+                    const next = createPresetMaterial(id, m); bind(entry, next); await applyWater(entry, { nodes: [], edges: [] }, null, () => canEditEntry(entry));
                 } else { const next = createPresetMaterial(id, m); bind(entry, next); mark(entry); }
                 refresh(); return;
             }
@@ -274,24 +304,25 @@ export function createMaterialEditor(options) {
             if (action === 'flow-delete') { flow.removePoint(); return; }
             if (action === 'flow-reverse') { flow.reverse(); return; }
             if (action === 'flow-cancel') { flow.stop(); renderInspector(); return; }
-            if (action === 'flow-apply') { if (!flowDraft?.edges.length) throw Error('Соедините хотя бы две точки на воде.'); const network = flow.value; flow.stop(); await applyWater(entry, network); return; }
+            if (action === 'flow-apply') { if (!flowDraft?.edges.length) throw Error('Соедините хотя бы две точки на воде.'); const network = flow.value; flow.stop(); await applyWater(entry, network, null, () => canEditEntry(entry)); return; }
             if (action === 'flow-pause' && m.riverFlow) { checkpoint(entry); m.riverFlow.playing = !m.riverFlow.playing; mark(entry, false); renderInspector(); }
         } catch (error) { tell(error.message); }
     }
     function retainTextures(m) { m.editorRetainedTextures = [...new Set([...(m.editorRetainedTextures || []), ...collectMaterialTextures(m)])]; }
     async function change(event) {
+        if (!available()) return;
         const input = event.target;
         if (input.closest('.me-packs')) return;
         if (packBusy) { renderInspector(); return; }
         try {
-            if (input.dataset.file === 'settings') { const file = input.files[0]; if (file) { if (file.size > 32 * 1024 * 1024) throw Error('Файл настроек слишком большой.'); await applySettings(JSON.parse(await file.text())); } input.value = ''; return; }
+            if (input.dataset.file === 'settings') { const file = input.files[0]; if (file) { if (file.size > 32 * 1024 * 1024) throw Error('Файл настроек слишком большой.'); const token = generation, data = JSON.parse(await file.text()); if (alive && token === generation && available()) await applySettings(data, { isCurrent: () => available() && token + 1 === generation }); } input.value = ''; return; }
             if (input.dataset.file === 'texture') {
                 const file = input.files[0], entry = textureEntry, slot = textureSlot, token = generation; input.value = '';
-                if (!file || !live(entry) || originals) return;
+                if (!file || !live(entry) || !canEditEntry(entry) || originals) return;
                 if (file.size > 16 * 1024 * 1024) throw Error('Выберите текстуру до 16 МБ.');
                 const url = URL.createObjectURL(file); let texture;
                 try { texture = await new THREE.TextureLoader().loadAsync(url); } finally { URL.revokeObjectURL(url); }
-                if (!alive || token !== generation || !live(entry) || originals) { texture.dispose(); return; }
+                if (!alive || token !== generation || !live(entry) || !canEditEntry(entry) || originals) { texture.dispose(); return; }
                 checkpoint(entry); const m = physical(entry); retainTextures(m); copyTextureSettings(m[slot] || m.map, texture);
                 texture.colorSpace = ['map', 'emissiveMap'].includes(slot) ? THREE.SRGBColorSpace : THREE.NoColorSpace;
                 m[slot] = texture; if (slot === 'normalMap') m.updateRiverNormal?.(texture); mark(entry); renderInspector(); return;
@@ -316,7 +347,7 @@ export function createMaterialEditor(options) {
             mark(entry, !input.dataset.color); const undoButton = inspector.querySelector('[data-action=undo]'); if (undoButton) undoButton.disabled = false;
         } catch (error) { tell(error.message); }
     }
-    const search = (event) => { query = event.target.value; renderList(); };
+    const search = (event) => { if (!available()) return; query = event.target.value; renderList(); };
     host.addEventListener('click', click); host.addEventListener('change', change); host.querySelector('.me-search').addEventListener('input', search);
 
     function materialKey(entry) {
@@ -325,7 +356,7 @@ export function createMaterialEditor(options) {
     }
     function serialize() {
         return { format: 'lpmview-materials', version: 1, settingsOnly: true,
-            materials: [...entries.values()].filter((e) => changed.has(e.material)).map((entry) => ({
+            materials: [...editableEntries().values()].filter((e) => changed.has(e.material)).map((entry) => ({
                 ...materialKey(entry), name: entry.material.name,
                 settings: settingsFromDescriptor(describeMaterial(entry.material, undefined, true)),
             })) };
@@ -420,7 +451,7 @@ export function createMaterialEditor(options) {
     async function applyPack(plan, isCurrent = () => true) {
         picker.stop(); flow.stop(); if (originals) setMode(false);
         const token = ++generation, originalsByEntry = new Map(plan.matches.map(({ entry }) => [entry, entry.material]));
-        const current = () => alive && generation === token && isCurrent() && [...originalsByEntry].every(([entry, material]) => live(entry) && entry.material === material);
+        const current = () => alive && generation === token && isCurrent() && [...originalsByEntry].every(([entry, material]) => live(entry) && canEditEntry(entry) && entry.material === material);
         const descriptors = plan.matches.map(({ entry, index }) => ({ ...plan.source.pack.materials[index], name: entry.material.name }));
         const prepared = await preparePackMaterials(descriptors, { loadAsset: plan.source.loadAsset, isCurrent: current, useWebGPU: options.useWebGPU });
         if (!current()) { prepared.dispose(); throw packAbort(); }
@@ -431,6 +462,7 @@ export function createMaterialEditor(options) {
         const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
         const a = document.createElement('a'); a.href = url; a.download = 'materials.lpmview.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
+    refresh();
     return {
         refresh, serialize, applySettings, setMode, applyPack,
         get picking() { return picker.active || flow.active; },
