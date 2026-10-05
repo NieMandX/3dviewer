@@ -171,14 +171,29 @@ export function createVPMBinder(options = {}) {
             // Reuse this one pixel buffer for both outputs. Make alpha opaque as
             // in the old channel copies, preserving sampling of translucent PNGs.
             const pixels = packedContext.getImageData(0, 0, w, h);
-            for (let i = 3; i < pixels.data.length; i += 4) pixels.data[i] = 255;
+            const red = pixels.data[0];
+            let constantEmissive = true;
+            for (let i = 0; i < pixels.data.length; i += 4) {
+                if (pixels.data[i] !== red) constantEmissive = false;
+                pixels.data[i + 3] = 255;
+            }
             packedContext.putImageData(pixels, 0, 0);
             const packed = makeTexture(packedCanvas, THREE.NoColorSpace);
-            for (let i = 0; i < pixels.data.length; i += 4) {
-                pixels.data[i + 1] = pixels.data[i + 2] = pixels.data[i];
+            // A spatially constant R channel samples identically at every UV
+            // and mip level. Keep it as one opaque pixel, including nonzero R;
+            // retain full resolution as soon as even one decoded value differs.
+            const emissiveCanvas = makeCanvas(constantEmissive ? 1 : w, constantEmissive ? 1 : h);
+            const emissiveContext = emissiveCanvas.getContext('2d');
+            if (constantEmissive) {
+                const pixel = emissiveContext.createImageData(1, 1);
+                pixel.data.set([red, red, red, 255]);
+                emissiveContext.putImageData(pixel, 0, 0);
+            } else {
+                for (let i = 0; i < pixels.data.length; i += 4) {
+                    pixels.data[i + 1] = pixels.data[i + 2] = pixels.data[i];
+                }
+                emissiveContext.putImageData(pixels, 0, 0);
             }
-            const emissiveCanvas = makeCanvas(w, h);
-            emissiveCanvas.getContext('2d').putImageData(pixels, 0, 0);
             const emissive = makeTexture(emissiveCanvas, THREE.LinearSRGBColorSpace);
             return { emissiveMap: emissive, roughnessMap: packed, metalnessMap: packed };
         } catch (err) {

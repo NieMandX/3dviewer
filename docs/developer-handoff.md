@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.10` (2026-10-05). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.11` (2026-10-05). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -263,6 +263,50 @@ preload pixel parity, yielding, stale generations and GPU disposal. Existing
 room-switch, offline/reload and large-import lifecycle coverage also passed in
 `npm run ci:verify`. Hardware runs exercised offline visibility changes, Reset,
 K1 reimport and disposal in both rendering modes; local galleries stayed empty.
+
+Live-room follow-up (2026-10-05, published 0.97.10): native Safari completed
+APEX / `volokolamskoe-sh-23-hpm` as the supplied registered account, then again
+as an anonymous invite guest after Reset. Both runs loaded eight ZIPs / 15 FBX
+through the worker without a page reload. The owner's gallery opened with 113
+materials; the guest had neither material/texture galleries nor thumbnails.
+A separate isolated Chrome guest run confirmed those restrictions and returned
+HTTP 200 with no `room_material_settings` document. Actual saved edits therefore
+remain covered by controlled regression tests, not by that live room's empty
+settings; no material settings or source model files were changed for this QA.
+
+After Reset, model/import/Blob/image/subscription counts were zero and both
+workers were inactive. Sampled RSS is not proof of complete memory reclamation:
+the test WebContent process peaked at about 11.2 GiB on the owner run and
+12.8 GiB on the repeat, retained about 9.3 GiB after the second Reset, and about
+6.9 GiB after a diagnostic forced GC. Closing the test tab terminated that
+process. Safari's shared GPU process peaked around 9.9 GiB and fell below
+0.5 GiB after Reset. These process values include allocator/cache effects and
+shared pages; do not sum them as unique RAM or call the long-session case fixed.
+
+Safari also issued a nonfatal 404 for `/npm/three@0.186.0/+esm` on the viewer's
+origin, with resource initiator `link`. The CDN's FBX ESM response contains that
+root-relative `Link: ...; rel="modulepreload"` header. Actual worker imports from
+the CDN completed (15/15); the stray preload was not a worker fallback or reload.
+
+Version 0.97.11 stores a spatially constant decoded ERM R channel in a 1x1
+emissive canvas, preserving its exact value, linear color space and flipY.
+A single differing value keeps the original dimensions. Packed G/B maps,
+Diffuse/Normal images and original ZIP images retain their dimensions/content.
+The 94 source ERM files in the local fixture all have constant R (0 or 255).
+Tests include nonzero constants, a one-pixel variation, existing translucent
+input/queue/disposal cases, and exact rendered pixel parity on hardware WebGPU
+and WebGL against full-size emissive maps at values 0, 93 and 255.
+
+The same eight-ZIP hardware fixture produced 99 compact emissive maps (some
+source images are used more than once). Derived canvas storage calculated as
+width × height × 4 fell from 1707 MiB to 853.5004 MiB. WebGPU's texture allocation
+counter fell from 11,177,230,359 to 9,984,249,678 bytes, including mip levels;
+this is not a measured reduction in Safari process RSS. All 1962 geometry-buffer
+hashes matched 0.97.10 in both renderers. One-run import times were 38.489 s
+WebGPU and 46.627 s WebGL versus 38.833 s and 47.109 s respectively; the small
+time difference is not enough to claim a speedup. Offline visibility toggling,
+Reset, K1 reimport and disposal completed without browser errors or warnings;
+local material/texture galleries still created no thumbnails.
 
 ## 6. Yandex Cloud Topology
 

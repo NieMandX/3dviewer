@@ -38,6 +38,7 @@ export async function runVPMMemorySmoke(browser, baseUrl) {
             };
             const models = [];
             const roots = [];
+            const constantUrls = [];
             const warnings = [];
             const binder = createVPMBinder({
                 THREE, loadedModels: models,
@@ -99,6 +100,31 @@ export async function runVPMMemorySmoke(browser, baseUrl) {
                 first.children[0].material = editedAgain;
                 disposeUnusedMaterialTree(edited, { root: first });
                 details.disposedWithoutUsers = packedDisposed;
+                // Include nonzero constants and a one-pixel difference: this is
+                // exact channel compaction, never threshold-based downsampling.
+                details.constants = [];
+                for (const [red, changedPixel] of [[0, false], [93, false], [255, false], [93, true]]) {
+                    canvas.width = 8; canvas.height = 4;
+                    const source = ctx.createImageData(8, 4);
+                    for (let i = 0; i < source.data.length; i += 4) {
+                        source.data.set([red, i % 256, 255 - i % 256, 255], i);
+                    }
+                    if (changedPixel) source.data[source.data.length - 4]++;
+                    ctx.putImageData(source, 0, 0);
+                    const fixtureUrl = URL.createObjectURL(await new Promise(resolve => canvas.toBlob(resolve)));
+                    constantUrls.push(fixtureUrl);
+                    const root = createRoot();
+                    await binder.autoBindVPMForModel(root, index(fixtureUrl));
+                    const mat = root.children[0].material;
+                    const image = mat.emissiveMap.image;
+                    const output = Array.from(image.getContext('2d').getImageData(0, 0, image.width, image.height).data);
+                    const expected = changedPixel
+                        ? Array.from(source.data, (value, i) => i % 4 === 3 ? 255 : source.data[i - i % 4])
+                        : [red, red, red, 255];
+                    details.constants.push({ red, changedPixel, size: [image.width, image.height], output, expected,
+                        packedSize: [mat.roughnessMap.image.width, mat.roughnessMap.image.height],
+                        shared: mat.roughnessMap === mat.metalnessMap });
+                }
                 return details;
             } finally {
                 releaseFirst?.();
@@ -108,6 +134,7 @@ export async function runVPMMemorySmoke(browser, baseUrl) {
                     disposeUnusedMaterialTree(root.children[0].material);
                 }
                 URL.revokeObjectURL(url); URL.revokeObjectURL(badUrl);
+                constantUrls.forEach(url => URL.revokeObjectURL(url));
             }
         });
         assert.equal(result.peak, 1, 'ERM decodes overlapped across concurrent model binds');
@@ -124,5 +151,11 @@ export async function runVPMMemorySmoke(browser, baseUrl) {
         const emissive = result.reference.map((value, i, src) => i % 4 === 3 ? 255 : src[i - i % 4]);
         assert.deepEqual(result.packed, packed, 'ERM packed channels/orientation changed');
         assert.deepEqual(result.emissive, emissive, 'ERM emissive intensity/orientation changed');
+        for (const fixture of result.constants) {
+            assert.deepEqual(fixture.size, fixture.changedPixel ? [8, 4] : [1, 1], 'Constant-channel detection changed spatial detail');
+            assert.deepEqual(fixture.output, fixture.expected, 'Constant-channel value changed');
+            assert.deepEqual(fixture.packedSize, [8, 4], 'Packed roughness/metalness resolution changed');
+            assert.equal(fixture.shared, true);
+        }
     } finally { await page.close(); }
 }
