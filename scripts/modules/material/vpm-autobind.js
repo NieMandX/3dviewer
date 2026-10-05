@@ -141,20 +141,26 @@ export function createVPMBinder(options = {}) {
      */
     async function prepareERMMaps(url) {
         let img = null;
+        let readbackCanvas = null;
         const canvases = [];
         const textures = [];
-        function makeCanvas(w, h) {
-            const canvas = document.createElement('canvas');
+        function makeCanvas(w, h, offscreen = false) {
+            const canvas = offscreen && typeof OffscreenCanvas !== 'undefined'
+                ? new OffscreenCanvas(w, h)
+                : document.createElement('canvas');
             canvas.width = w;
             canvas.height = h;
             canvases.push(canvas);
             return canvas;
         }
-        function makeTexture(canvas, colorSpace) {
-            const texture = new THREE.CanvasTexture(canvas);
+        function makeTexture(image, colorSpace) {
+            const texture = image instanceof HTMLCanvasElement
+                ? new THREE.CanvasTexture(image)
+                : new THREE.Texture(image);
             textures.push(texture);
             texture.colorSpace = colorSpace;
             texture.flipY = false;
+            if (!texture.isCanvasTexture) texture.needsUpdate = true;
             return texture;
         }
         try {
@@ -162,23 +168,48 @@ export function createVPMBinder(options = {}) {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             img = await createImageBitmap(await response.blob());
             const w = img.width, h = img.height;
-            const packedCanvas = makeCanvas(w, h);
-            const packedContext = packedCanvas.getContext('2d', { willReadFrequently: true });
-            packedContext.drawImage(img, 0, 0);
+            // Retain compressed image data, not a full-resolution canvas backing
+            // store. The browser can evict decoded pixels after GPU upload and
+            // decode them again for export, texture edits or context recovery.
+            readbackCanvas = makeCanvas(w, h, true);
+            const readbackContext = readbackCanvas.getContext('2d', { willReadFrequently: true });
+            readbackContext.drawImage(img, 0, 0);
             img.close?.();
             img = null;
 
             // Reuse this one pixel buffer for both outputs. Make alpha opaque as
             // in the old channel copies, preserving sampling of translucent PNGs.
-            const pixels = packedContext.getImageData(0, 0, w, h);
+            const pixels = readbackContext.getImageData(0, 0, w, h);
             const red = pixels.data[0];
             let constantEmissive = true;
             for (let i = 0; i < pixels.data.length; i += 4) {
                 if (pixels.data[i] !== red) constantEmissive = false;
                 pixels.data[i + 3] = 255;
             }
-            packedContext.putImageData(pixels, 0, 0);
-            const packed = makeTexture(packedCanvas, THREE.NoColorSpace);
+            readbackContext.putImageData(pixels, 0, 0);
+            // Offscreen encoding does not wait for main-thread idle periods
+            // (which animated surroundings may keep postponing).
+            const packedBlob = readbackCanvas.convertToBlob
+                ? await readbackCanvas.convertToBlob({ type: 'image/png' })
+                : await new Promise((resolve, reject) => {
+                    readbackCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('ERM PNG encoding failed')), 'image/png');
+                });
+            readbackCanvas.width = readbackCanvas.height = 0;
+            const packedImage = new Image();
+            const packedUrl = URL.createObjectURL(packedBlob);
+            try {
+                await new Promise((resolve, reject) => {
+                    packedImage.onload = resolve;
+                    packedImage.onerror = () => reject(new Error('ERM PNG loading failed'));
+                    packedImage.src = packedUrl;
+                });
+            } finally {
+                packedImage.onload = packedImage.onerror = null;
+                // The loaded image owns its resource; the Blob URL registry must
+                // not keep a second lifetime beyond conversion, including errors.
+                URL.revokeObjectURL(packedUrl);
+            }
+            const packed = makeTexture(packedImage, THREE.NoColorSpace);
             // A spatially constant R channel samples identically at every UV
             // and mip level. Keep it as one opaque pixel, including nonzero R;
             // retain full resolution as soon as even one decoded value differs.
@@ -203,6 +234,7 @@ export function createVPMBinder(options = {}) {
             throw err;
         } finally {
             img?.close?.();
+            if (readbackCanvas) readbackCanvas.width = readbackCanvas.height = 0;
         }
     }
 

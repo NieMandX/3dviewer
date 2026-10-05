@@ -2,6 +2,13 @@
 
 ## Versions
 
+- **0.97.12** (2026-10-05): retain packed ERM G/B as a lossless PNG-backed image
+  instead of a permanent CPU canvas. Release the conversion canvas and Blob URL
+  before publishing textures; preserve channel values, resolution, shared
+  roughness/metalness ownership and constant emissive compaction. This reduces
+  the measured Chrome renderer-process footprint; GPU texture allocation is
+  unchanged. GitHub Pages test release only.
+
 - **0.97.4** (2026-10-03): refresh eligible ZIPs when imports finish while the
   checker panel is open, without resetting an existing selection/report. Add
   Russian display titles, exact source-name copying and a readable TXT export;

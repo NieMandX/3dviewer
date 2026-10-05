@@ -12512,6 +12512,11 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
 	        }
 
         const THREE = {
+            Texture: class FakeImageTexture extends FakeTexture {
+                constructor() {
+                    super('image');
+                }
+            },
             CanvasTexture: class FakeCanvasTexture extends FakeTexture {
                 constructor() {
                     super('canvas');
@@ -12667,7 +12672,8 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
     assert.equal(result.bitmapClosed, 1, 'VPM smoke: ERM ImageBitmap was not closed');
     assert.ok(result.disposed.includes('texture:T_foo_bar_Diffuse_1.1001.png'), 'VPM smoke: stale diffuse texture was not disposed');
     assert.ok(result.disposed.includes('texture:T_foo_bar_Normal_1.1001.png'), 'VPM smoke: stale normal texture was not disposed');
-    assert.equal(result.disposed.filter((entry) => entry === 'texture:canvas').length, 2, 'VPM smoke: stale ERM channel textures were not disposed');
+    assert.equal(result.disposed.filter((entry) => entry === 'texture:canvas').length, 1, 'VPM smoke: stale emissive texture was not disposed');
+    assert.equal(result.disposed.filter((entry) => entry === 'texture:image').length, 1, 'VPM smoke: stale packed texture was not disposed');
 	    assert.equal(result.disposed.filter((entry) => entry === 'shadow').length, 2, 'VPM smoke: stale custom shadow materials were not disposed');
 	    assert.equal(result.disposed.includes('requestRender'), false, 'VPM smoke: stale async bind requested render after model removal');
 	    assert.equal(result.raceMaterialPreserved, true, 'VPM smoke: stale async bind overwrote a newer material');

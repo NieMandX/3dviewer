@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.11` (2026-10-05). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.12` (2026-10-05). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -307,6 +307,38 @@ WebGPU and 46.627 s WebGL versus 38.833 s and 47.109 s respectively; the small
 time difference is not enough to claim a speedup. Offline visibility toggling,
 Reset, K1 reimport and disposal completed without browser errors or warnings;
 local material/texture galleries still created no thumbnails.
+
+Version 0.97.12 releases the full-resolution ERM conversion canvas after
+lossless PNG encoding and retains a loaded image for the shared roughness /
+metalness texture. Encoding uses OffscreenCanvas where available, with an
+HTML canvas fallback. The temporary Blob URL is revoked after image load;
+all temporary canvases are cleared on success and failure. Decoded RGB,
+opaque alpha, flipY, color spaces and map resolution are unchanged. The loaded
+image remains usable for export and subsequent GPU uploads. Constant emissive
+compaction, serialized conversion and generation/ownership checks are retained.
+
+Hardware Chrome comparison against 0.97.11 used the same five local ZIPs
+(Ground, K1, K5, K6, K7; nine FBX records, 2,138,171 triangles), fresh isolated
+browser profiles, DPR 2 and a 3456x1772 framebuffer. Settled macOS physical
+footprint of the scene renderer process fell from 1676 to 1201 MiB in WebGPU
+and from 1490 to 1079 MiB in WebGL. Full-resolution CPU canvas storage fell
+from 464.75 MiB to zero. WebGPU's logical texture allocation stayed at
+7,760,387,185 bytes; GPU-process footprint was 9125 versus 8896 MiB (WebGPU)
+and 9098 versus 9102 MiB (WebGL). These single-run process measurements include
+cache/shared-page effects, are not total unique machine RAM, and do not predict
+the exact number shown for an existing user's tab.
+
+Import time was 33.044 versus 34.375 s in WebGPU and 37.809 versus 40.518 s in
+WebGL; PNG encoding trades some import time for lower retained memory. Full
+scene pixels matched exactly in both modes, excluding only the version footer.
+A separate varying-channel material fixture also produced identical rendered
+pixels in both hardware renderers. Offline visibility changes, Reset, K1
+reimport and disposal passed without page errors or warnings. `npm run ci:verify`
+passed, including room-switch/lifecycle coverage and injected pixel-read / PNG
+load failures that verify cleanup, material preservation and queue recovery.
+Raw benchmark JSON, scripts and screenshots are saved locally under
+`/private/tmp/lpm-erm-storage-20261005/`. Native Safari and physical mobile devices
+have not been revalidated for this patch. Publication is to GitHub Pages only.
 
 ## 6. Yandex Cloud Topology
 
