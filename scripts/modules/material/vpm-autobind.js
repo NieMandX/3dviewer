@@ -6,11 +6,13 @@ import {
     resolveEditableMaterialState,
 } from './texture-utils.js';
 import { applyMaterialBaseColorPolicy } from './base-color-policy.js';
+import { createVPMImagePool } from './vpm-image-pool.js';
 
 export function createVPMBinder(options = {}) {
     const THREE = options.THREE || null;
     // Shared across overlapping imports/rebinds: only one ERM decode at a time.
     let ermQueue = Promise.resolve();
+    const imagePool = THREE ? createVPMImagePool(THREE) : null;
 
     const basename = typeof options.basename === 'function'
         ? options.basename
@@ -357,6 +359,22 @@ export function createVPMBinder(options = {}) {
             (mat.userData ||= {}).vpm = { key, slot, udim };
             let pendingDepthMaterial = null;
             let pendingDistanceMaterial = null;
+            const pendingImages = [];
+
+            function loadMap(url, slot, label) {
+                // These images join the existing serial material queue before
+                // upload. Keep the non-ERM binding path's loading contract.
+                if (set.ERM) {
+                    const texture = new THREE.Texture();
+                    pendingImages.push({ texture, url, slot, label });
+                    return texture;
+                }
+                let texture = null;
+                texture = textureLoader.load(url,
+                    () => handleLoadedTexture(texture, slot), undefined,
+                    err => handleTextureLoadError(texture, slot, label, err));
+                return texture;
+            }
 
             function isTextureStillOwned(texture, materialSlot) {
                 if (!texture?.isTexture) return false;
@@ -401,13 +419,7 @@ export function createVPMBinder(options = {}) {
             if (set.Diffuse && textureLoader) {
                 const prevMap = mat.map || null;
                 const nm = labelFromURL(set.Diffuse);
-                let map = null;
-                map = textureLoader.load(
-                    set.Diffuse,
-                    () => handleLoadedTexture(map, 'map'),
-                    undefined,
-                    (err) => handleTextureLoadError(map, 'map', nm, err),
-                );
+                const map = loadMap(set.Diffuse, 'map', nm);
                 map.name = nm;
                 map.userData ||= {};
                 map.userData.origName = nm;
@@ -438,13 +450,7 @@ export function createVPMBinder(options = {}) {
             if (set.Normal && textureLoader) {
                 const prevNormal = mat.normalMap || null;
                 const nm = labelFromURL(set.Normal);
-                let n = null;
-                n = textureLoader.load(
-                    set.Normal,
-                    () => handleLoadedTexture(n, 'normalMap'),
-                    undefined,
-                    (err) => handleTextureLoadError(n, 'normalMap', nm, err),
-                );
+                const n = loadMap(set.Normal, 'normalMap', nm);
                 n.name = nm;
                 n.userData ||= {};
                 n.userData.origName = nm;
@@ -468,6 +474,15 @@ export function createVPMBinder(options = {}) {
             if (set.ERM) {
                 const p = ermQueue.then(async () => {
                     try {
+                        if (!isBindCurrent()) {
+                            discardPendingMaterial();
+                            return;
+                        }
+                        for (const { texture, url, slot, label } of pendingImages) {
+                            if (!isBindCurrent()) break;
+                            try { await imagePool.load(texture, url, isBindCurrent); }
+                            catch (err) { handleTextureLoadError(texture, slot, label, err); }
+                        }
                         if (!isBindCurrent()) {
                             discardPendingMaterial();
                             return;

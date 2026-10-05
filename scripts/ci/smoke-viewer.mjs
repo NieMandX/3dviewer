@@ -3,6 +3,7 @@ import { runFBXWorkerSmoke } from './smoke-fbx-worker.mjs';
 import { runTexturePreloadSmoke } from './smoke-texture-preload.mjs';
 import { runImportMemorySmoke } from './smoke-import-memory.mjs';
 import { runVPMMemorySmoke } from './smoke-vpm-memory.mjs';
+import { runVPMImagesSmoke } from './smoke-vpm-images.mjs';
 import { runModelCheckPanelSmoke, runModelCheckIntegrationSmoke } from './smoke-model-check-panel.mjs';
 import { runModelCheckUVSmoke } from './smoke-model-check-uv.mjs';
 import { runModelCheck3DSmoke } from './smoke-model-check-3d.mjs';
@@ -6915,6 +6916,7 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	        vpmStaleDeferred.loads[0].onLoad?.(vpmStaleDeferred.loads[0].texture);
 
 	        const nativeMaterialDispose = THREE.Material.prototype.dispose;
+	        const nativeTextureDispose = THREE.Texture.prototype.dispose;
 	        const nativeFetch = globalThis.fetch;
 	        const vpmFailureDisposedMaterials = [];
 	        THREE.Material.prototype.dispose = function patchedFailureMaterialDispose(...args) {
@@ -6922,6 +6924,10 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            return nativeMaterialDispose.apply(this, args);
 	        };
 	        const vpmFailureDisposedTextures = [];
+	        THREE.Texture.prototype.dispose = function (...args) {
+	            if (this.name?.startsWith('T_fail_case_')) vpmFailureDisposedTextures.push(this.name);
+	            return nativeTextureDispose.apply(this, args);
+	        };
 	        let vpmFailureResult = '';
 	        let vpmFailureMaterialStillOriginal = false;
 	        try {
@@ -6950,16 +6956,7 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	                loadedModels: vpmFailureLoadedModels,
 	                labelFromURL: (url) => failureLabels.get(url) || '',
 	                toStandard,
-	                textureLoader: {
-	                    load: (url) => {
-	                        const texture = new THREE.Texture();
-	                        texture.name = failureLabels.get(url) || url;
-	                        texture.addEventListener('dispose', () => {
-	                            vpmFailureDisposedTextures.push(texture.name);
-	                        });
-	                        return texture;
-	                    },
-	                },
+	                textureLoader: new THREE.TextureLoader(),
 	                detectSlotFromMatOrObj: () => 1,
 	                copyTextureSettings: () => {},
 	            });
@@ -6975,6 +6972,7 @@ async function runTextureReplacementLifecycleSmoke(browser, baseUrl) {
 	            vpmFailureMaterialStillOriginal = vpmFailureMesh.material === vpmFailureOldMaterial;
 	        } finally {
 	            THREE.Material.prototype.dispose = nativeMaterialDispose;
+	            THREE.Texture.prototype.dispose = nativeTextureDispose;
 	            globalThis.fetch = nativeFetch;
 	        }
 
@@ -12447,6 +12445,7 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
 
     const result = await page.evaluate(async () => {
         const { createVPMBinder } = await import('/scripts/modules/material/vpm-autobind.js');
+        const { EventDispatcher, TextureSource } = await import('three');
 
         const disposed = [];
         const labels = new Map();
@@ -12468,8 +12467,9 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
             return nativeCreateImageBitmap(...args);
         };
 
-        class FakeTexture {
+        class FakeTexture extends EventDispatcher {
             constructor(label = '') {
+                super();
                 this.label = label;
                 this.name = label;
                 this.isTexture = true;
@@ -12477,6 +12477,7 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
             }
             dispose() {
                 disposed.push(`texture:${this.label || this.name || 'unnamed'}`);
+                this.dispatchEvent({ type: 'dispose' });
             }
         }
 
@@ -12512,9 +12513,10 @@ async function runVPMAutobindLifecycleSmoke(browser, baseUrl) {
 	        }
 
         const THREE = {
+            TextureSource,
             Texture: class FakeImageTexture extends FakeTexture {
-                constructor() {
-                    super('image');
+                constructor(image) {
+                    super(image ? 'image' : '');
                 }
             },
             CanvasTexture: class FakeCanvasTexture extends FakeTexture {
@@ -14443,6 +14445,8 @@ try {
     await runVPMAutobindLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('VPM autobind lifecycle smoke passed.');
     await runVPMMemorySmoke(browserContext, smokeServer.baseUrl);
+    await runVPMImagesSmoke(browserContext, smokeServer.baseUrl);
+    if (process.env.LPMVIEW_SMOKE_HARDWARE === '1') await runVPMImagesSmoke(browserContext, smokeServer.baseUrl, { webgpu: true });
     console.log('VPM memory and queue smoke passed.');
     await runEnvironmentLifecycleSmoke(browserContext, smokeServer.baseUrl);
     console.log('Environment lifecycle smoke passed.');

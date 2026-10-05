@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.12` (2026-10-05). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.13` (2026-10-06). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -339,6 +339,58 @@ load failures that verify cleanup, material preservation and queue recovery.
 Raw benchmark JSON, scripts and screenshots are saved locally under
 `/private/tmp/lpm-erm-storage-20261005/`. Native Safari and physical mobile devices
 have not been revalidated for this patch. Publication is to GitHub Pages only.
+
+Version 0.97.13 queues VPM Diffuse/Normal decoding with ERM preparation and
+shares decoded images / `TextureSource` for byte-identical encoded files
+(SHA-256, byte length and MIME type). Texture objects, names, UV transforms,
+sampling settings and material editing remain independent. The pool is owned
+by live textures; disposal evicts the last owner, aborted/stale work cannot
+publish an image, and temporary decode Blob URLs are revoked. No global
+Three.Cache is enabled. Non-ERM binding, FBX normalization, GLB and the original
+ZIPs are unchanged. There is no resolution reduction or pixel re-encoding.
+
+An inventory of all eight local Volokolamskoe ZIPs found 282 source images,
+including 159 repeated pixel-identical images. This broader pixel count includes
+files with different PNG encodings, which the conservative runtime byte match
+intentionally does not merge. The loaded scene has 15 FBX records / 2,521,370
+triangles. Its distinct material images fell from 396 to 334; theoretical unique
+RGBA storage fell by 1481 MiB (not a process-memory measurement).
+
+Hardware Chrome, fresh profiles, 3456x1772 framebuffer / DPR 2:
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| WebGPU scene process, loaded physical footprint (two runs) | 1654-1662 MiB | 1319-1326 MiB |
+| WebGL scene process, loaded physical footprint (one run) | 1476 MiB | 1152 MiB |
+| WebGL GPU process, loaded physical footprint (one run) | 11581 MiB | 9604 MiB |
+| WebGL allocated textures | 403 | 341 |
+| WebGPU logical texture bytes | 10147397970 | 10147397970 |
+
+WebGPU import times were 46.2/48.9 s before and 46.7/48.5 s after; WebGL was
+53.7 versus 55.6 s. This is a memory improvement, not an end-to-end speedup.
+Sampled scene-process peaks fell from 3208 to 2939 MiB (WebGPU first pair),
+and from 3117 to 2691 MiB (WebGL). Physical footprints include allocator/cache
+and shared-page effects; do not sum them into unique RAM or equate them with
+the browser's tab-memory indicator. WebGPU still allocates per Texture on GPU.
+
+Full-scene pixels matched exactly in both hardware modes; a close facade view
+with glass and visible brick detail also matched exactly in WebGPU. Regression
+fixtures cover different sampler/color-space/UV settings, one-pixel differences,
+independent names, failed decoding, cancellation, stale generations, no-crypto
+fallback, Blob URL cleanup, disposal of one shared-image owner and reupload.
+Full `ci:verify` includes the existing room switching, offline/reload and large
+import lifecycle checks. Hardware runs also exercised offline visibility,
+Reset, K1 reimport and app disposal with no final page errors/warnings.
+
+Native Safari on this Mac completed the same eight ZIPs in its WebGL fallback,
+with 397 to 335 images including the environment, visibility toggles and Reset.
+Reset left zero models/Blob URLs/pending jobs and inactive workers. Its observed
+WebContent footprint was approximately 10.7 versus 8.5 GiB, but that is a single
+descriptive comparison: part of the baseline overlapped a separate Chrome QA
+run and Safari reused a WebContent process. It is not a controlled repeatability
+or physical-mobile result. The live server room was not retested for this patch.
+Raw inventories, measurement scripts, JSON and screenshots are local at
+`/private/tmp/lpm-texture-audit-20261006/`. Publication remains GitHub Pages only.
 
 ## 6. Yandex Cloud Topology
 
