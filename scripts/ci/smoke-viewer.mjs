@@ -1,3 +1,4 @@
+import { runReconnectSelectionSmoke } from './smoke-reconnect-selection.mjs';
 import { runMaterialAccessSmoke } from './smoke-material-access.mjs';
 import { runFBXWorkerSmoke } from './smoke-fbx-worker.mjs';
 import { runTexturePreloadSmoke } from './smoke-texture-preload.mjs';
@@ -2321,7 +2322,7 @@ async function createRegisteredRoomSmokePage(browser, baseUrl, options = {}) {
         };
     });
     await options.beforeLoad?.(page);
-    await page.goto(`${baseUrl}/?renderer=webgl&debug=1`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto(`${baseUrl}/?renderer=${options.renderer || 'webgl'}&debug=1`, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForFunction(() => (
         !!globalThis.viewerApp && !document.body.classList.contains('app-loading')
     ), null, { timeout: 45000 });
@@ -14351,6 +14352,7 @@ try {
     await runProjectAdminTreeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Project admin permissions and responsive UI smoke passed.');
     await runCollabRegisteredRoomSwitchSmoke(browserContext, smokeServer.baseUrl);
+    await runReconnectSelectionSmoke(browserContext, smokeServer.baseUrl, createRegisteredRoomSmokePage);
     console.log('Registered room switch smoke passed.');
     await runUserDirectorySmoke(await createRegisteredRoomSmokePage(browserContext, smokeServer.baseUrl));
     console.log('Superuser directory search, pagination and lifecycle smoke passed.');

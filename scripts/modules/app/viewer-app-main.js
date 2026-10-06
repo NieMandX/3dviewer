@@ -1957,6 +1957,13 @@ export class ViewerApp {
             return !!(collabAuthed && collabIsRegistered && !collabRoomSelectionLocked);
         }
 
+        function hasCollabSessionToTeardown() {
+            // Reconnect preserves the scene while the old controller is gone
+            // and its replacement is still subscribing. Selection changes must
+            // invalidate that work and release the retained room assets too.
+            return !!(collabController || collabInitAbortController || collabAutoResumeEnabled);
+        }
+
         function canManageCollabItems() {
             return !!(collabAuthed && collabIsRegistered && !collabController);
         }
@@ -4974,7 +4981,7 @@ export class ViewerApp {
                     collabProjectSelectEl.value = collabProject?.id || '';
                     return;
                 }
-                if (collabController && collabProject?.id && collabProject.id !== id) {
+                if (hasCollabSessionToTeardown() && collabProject?.id && collabProject.id !== id) {
                     await teardownCollabSession({ resetScene: true });
                     if (!isCurrent()) return;
                 }
@@ -5015,7 +5022,7 @@ export class ViewerApp {
                     collabRoomSelectEl.value = collabRoom?.id || '';
                     return;
                 }
-                if (collabController && collabRoom?.id && collabRoom.id !== id) {
+                if (hasCollabSessionToTeardown() && collabRoom?.id && collabRoom.id !== id) {
                     await teardownCollabSession({ resetScene: true });
                     if (!isCurrent()) return;
                 }

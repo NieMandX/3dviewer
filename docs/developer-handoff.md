@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.13` (2026-10-06). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.14` (2026-10-06). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -391,6 +391,57 @@ run and Safari reused a WebContent process. It is not a controlled repeatability
 or physical-mobile result. The live server room was not retested for this patch.
 Raw inventories, measurement scripts, JSON and screenshots are local at
 `/private/tmp/lpm-texture-audit-20261006/`. Publication remains GitHub Pages only.
+
+Version 0.97.14 fixes selection changes during automatic room reconnection.
+Reconnect intentionally retains the scene while replacing its controller. The
+room/project selection handlers previously skipped teardown when that controller
+was temporarily null, leaving the previous room's models in the next scene.
+Selection teardown now also recognizes pending initialization and reconnect
+state, cancels stale work and releases the retained scene. Normal reconnection
+to the same room still preserves its models.
+
+A deterministic regression holds the replacement subscription, then selects
+another room, another project, or no room. The room case failed on 0.97.13 with
+the old model still loaded. All three cases pass in hardware Chrome WebGPU and
+WebGL after the fix, including exactly-once geometry/material/texture disposal
+and a late subscription response. The WebGL cases are included in `ci:verify`.
+
+The 2026-10-06 direct server QA of 0.97.13 was limited by slow ZIP transfer in
+both native Safari and isolated Chrome. Chrome received about 3 MB of the first
+390.4 MB ZIP in 150 seconds. A separate bounded Range request received 674249
+bytes in 20 seconds (about 34 KB/s); another attempt hit an SSL timeout. This
+does not identify whether the cause is the client network, route or server.
+Login, progress and cancellation were checked; this run cannot validate memory
+of the fully loaded server scene or Safari's end-of-import stability. Test
+artifacts are local at `/private/tmp/lpm-live-09713-20261006/`.
+
+An additional hardware Chrome WebGPU run used live room/auth/settings APIs but
+streamed local ZIP fixtures instead of the slow storage responses. After the
+fix, the owner flow (HPM, brief offline period, LPM, HPM, clear room) produced
+15 -> 3 -> 15 -> 0 model records; Blob URLs were 297 -> 34 -> 297 -> 0.
+Both HPM loads had 335 material images including the environment and 397
+Texture objects. The owner gallery displayed 113 materials. Clearing the room
+and disposing left zero imported resources and realtime subscriptions.
+These are fixture-backed integration results, not completed server downloads
+or proof that local/server ZIP bytes match. Process physical footprint was
+1637 MiB on the first HPM and 1877 MiB on the second (gallery used between),
+1744 MiB after clearing and 606 MiB after disposal. No forced GC was used;
+this is not a claim of baseline memory recovery or leak freedom.
+
+The guest material replay test also exposed a separate color issue: restoring
+room parameters on a textured FBX worked initially, but a later ZIP batch
+re-applied the neutral import multiplier (127/255) to the edited material.
+Version 0.97.14 marks explicit editor/room material state so repeated import
+normalization preserves it, including material conversions. Untouched imported
+materials retain the existing base-color policy. The access regression now
+uses a textured material and checks owner edits, guest replay, later
+normalization, conversion and absence of guest previews.
+It passes in both hardware WebGL and WebGPU. Full HPM guest WebGL integration
+also passed reload, preserved Diffuse/Normal maps, restored the selected
+material's color/roughness/metalness and kept zero material cards/texture
+thumbnails. The real room returned no saved material document; this parameter
+test injected a synthetic response only in the isolated browser and made no
+server material writes. Final app disposal left zero models/Blob URLs/channels.
 
 ## 6. Yandex Cloud Topology
 

@@ -220,6 +220,7 @@ export function createMaterialEditor(options) {
     }
     function mark(entry, recompile = true) {
         const m = entry.material;
+        m.userData.viewerBaseColorEdited = true;
         m.userData.viewerBaseColorNeutralized = false;
         if (m.color) m.userData.viewerSourceBaseColor = m.color.toArray();
         if (m.userData.glassOriginal || /glass|glas|стекл/i.test(m.name)) m.userData.glassOverrides = {

@@ -2,6 +2,7 @@ import { resolveEditableMaterialState } from './texture-utils.js';
 
 const SOURCE_COLOR_KEY = 'viewerSourceBaseColor';
 const NEUTRALIZED_KEY = 'viewerBaseColorNeutralized';
+const EDITED_COLOR_KEY = 'viewerBaseColorEdited';
 export const TEXTURED_BASE_COLOR_MULTIPLIER = 127 / 255;
 
 const TEXTURED_BASE_COLOR = [
@@ -48,6 +49,9 @@ export function copyMaterialBaseColorPolicyState(source, target) {
     if (source.userData?.[NEUTRALIZED_KEY] === true) {
         (target.userData ||= {})[NEUTRALIZED_KEY] = true;
     }
+    if (source.userData?.[EDITED_COLOR_KEY] === true) {
+        (target.userData ||= {})[EDITED_COLOR_KEY] = true;
+    }
     return target;
 }
 
@@ -56,6 +60,9 @@ export function applyMaterialBaseColorPolicy(material, options = {}) {
     const preserveTint = options.preserveTint === true;
     const hasBaseColorMap = !!material.map?.isTexture;
     const userData = material.userData ||= {};
+    // Explicit editor/room parameters take precedence over import normalization.
+    // Later ZIP batches may revisit materials that have already been edited.
+    if (userData[EDITED_COLOR_KEY] === true) return false;
     const wasNeutralized = userData[NEUTRALIZED_KEY] === true;
     let changed = false;
 

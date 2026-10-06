@@ -1,25 +1,31 @@
 import assert from 'node:assert/strict';
 
-export async function runMaterialAccessSmoke(browser, baseUrl) {
+export async function runMaterialAccessSmoke(browser, baseUrl, { webgpu = false } = {}) {
     const page = await browser.newPage();
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
     try {
         await page.goto(`${baseUrl}/__smoke_blank`);
-        const result = await page.evaluate(async () => {
+        const result = await page.evaluate(async (webgpu) => {
             const T = await import('three');
             const { createMaterialAccess } = await import('/scripts/modules/ui/material-access.js');
             const { createMaterialEditor } = await import('/scripts/modules/ui/material-editor.js');
             const { createTexturesUI } = await import('/scripts/modules/ui/textures-ui.js');
             const { createRoomMaterialSettings } = await import('/scripts/modules/collab/material-settings.js');
+            const { applyMaterialBaseColorPolicy, copyMaterialBaseColorPolicyState } = await import('/scripts/modules/material/base-color-policy.js');
             document.body.innerHTML = '<button id="sceneTab">Сцена</button><button id="materialsTab">Материалы</button><div id="scenePanel"></div><section id="materialEditor" hidden></section><details id="imagesDetails"><div id="gallery"></div></details><span id="count"></span><select id="matSelect"></select><div id="texModal"><img id="mImg"></div>';
-            const renderer = new T.WebGLRenderer(); renderer.setSize(128, 128); document.body.append(renderer.domElement);
+            const renderer = webgpu ? new (await import('three/webgpu')).WebGPURenderer() : new T.WebGLRenderer();
+            if (webgpu) await renderer.init();
+            const expectedBackend = webgpu ? !!renderer.backend?.isWebGPUBackend : !!renderer.isWebGLRenderer;
+            renderer.setSize(128, 128); document.body.append(renderer.domElement);
             const render = renderer.render.bind(renderer); let previewRenders = 0, previewDecodes = 0;
             renderer.render = (...args) => { previewRenders++; return render(...args); };
             const bitmap = globalThis.createImageBitmap;
             globalThis.createImageBitmap = (...args) => { previewDecodes++; return bitmap(...args); };
             const world = new T.Group(), scene = new T.Scene(), camera = new T.PerspectiveCamera(); scene.add(world);
             const root = new T.Group(), localRoot = new T.Group(); world.add(root, localRoot);
-            const roomMesh = new T.Mesh(new T.BoxGeometry(), new T.MeshStandardMaterial({ color: '#aa4422', roughness: .8 })); roomMesh.material.name = 'Room'; root.add(roomMesh);
+            const roomMap = new T.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); roomMap.needsUpdate = true;
+            const roomMesh = new T.Mesh(new T.BoxGeometry(), new T.MeshStandardMaterial({ color: '#aa4422', roughness: .8, map: roomMap })); roomMesh.material.name = 'Room'; root.add(roomMesh);
+            applyMaterialBaseColorPolicy(roomMesh.material);
             const localMesh = new T.Mesh(new T.BoxGeometry(), new T.MeshStandardMaterial({ color: '#2244aa' })); localMesh.material.name = 'Local'; localRoot.add(localMesh);
             const context = { authenticated: false, registered: false, roomId: '', suspended: false };
             const localRecord = { obj: localRoot, name: 'local.glb', scope: { kind: 'local', fileKey: 'local' } };
@@ -46,6 +52,8 @@ export async function runMaterialAccessSmoke(browser, baseUrl) {
                 tab.click(); const names = [...host.querySelectorAll('.me-card span')].map(e=>e.textContent);
                 const roughness = host.querySelector('#me-roughness'); roughness.value = '.22'; roughness.dispatchEvent(new Event('change', { bubbles: true }));
                 const color = host.querySelector('#meColor'); color.value = '#33aa66'; color.dispatchEvent(new Event('change', { bubbles: true }));
+                applyMaterialBaseColorPolicy(roomMesh.material);
+                const ownerTintPreserved = roomMesh.material.color.getHexString() === '33aa66';
                 const saved = editor.serialize();
                 const staleThumb = dom.galleryEl.querySelector('.thumb'); staleThumb.click();
                 const opened = dom.texModal.classList.contains('show');
@@ -58,7 +66,14 @@ export async function runMaterialAccessSmoke(browser, baseUrl) {
                 const persistence = createRoomMaterialSettings({ getContext: () => ({ roomId: 'room', controller }), apply: (data, guards) => editor.applySettings(data, guards) });
                 const controller = { supabase: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { document: saved, revision: 1 } }) }) }) }) } };
                 await persistence.refresh(models); await new Promise(r=>setTimeout(r,80));
+                // Later ZIP finalization re-applies the import policy to already
+                // bound materials. Explicit editor/room colors must survive it.
+                applyMaterialBaseColorPolicy(roomMesh.material);
                 const guestPlayback = roomMesh.material.roughness === .22 && roomMesh.material.color.getHexString() === '33aa66';
+                const converted = new T.MeshPhysicalMaterial({ map: roomMap }); converted.color.copy(roomMesh.material.color);
+                copyMaterialBaseColorPolicyState(roomMesh.material, converted);
+                applyMaterialBaseColorPolicy(converted);
+                const convertedTintPreserved = converted.color.getHexString() === '33aa66'; converted.dispose();
                 const noGuestPreviews = rendersBefore === previewRenders && decodesBefore === previewDecodes && blocked();
                 const localUntouched = localMesh.material.color.getHexString() === '2244aa';
                 persistence.dispose();
@@ -69,12 +84,13 @@ export async function runMaterialAccessSmoke(browser, baseUrl) {
                 const teardown = blocked() && !editor.picking;
                 context.suspended = false; context.roomId = 'other'; refresh(); const otherRoom = blocked();
                 context.roomId = 'room'; refresh(); models.splice(models.indexOf(roomRecord),1); refresh(); const removed = blocked();
-                return { anonymousLocal, registeredLocal, localNotPrepared, entitled, names, opened, guestClosed, guestPlayback, noGuestPreviews, localUntouched, picking, teardown, otherRoom, removed };
+                return { expectedBackend, anonymousLocal, registeredLocal, localNotPrepared, entitled, names, opened, guestClosed, ownerTintPreserved, guestPlayback, convertedTintPreserved, noGuestPreviews, localUntouched, picking, teardown, otherRoom, removed };
             } finally {
                 textures.dispose(); editor.dispose(); renderer.dispose(); globalThis.createImageBitmap = bitmap;
+                roomMap.dispose();
                 for (const obj of [roomMesh,localMesh]) { obj.geometry.dispose(); obj.material.dispose(); }
             }
-        });
+        }, webgpu);
         assert.deepEqual(result.names, ['Room']);
         for (const [key,value] of Object.entries(result)) if (key !== 'names') assert.equal(value, true, key);
         assert.deepEqual(errors, []);
