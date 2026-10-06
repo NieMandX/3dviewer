@@ -5804,6 +5804,12 @@ export class ViewerApp {
                             }
                         });
                         value.dispose?.();
+                        // Terminal import teardown: WebGPU material nodes can retain a
+                        // disposed Texture. Detach its pixels after dispose listeners
+                        // run; assigning image=null would mutate a Source shared by
+                        // another still-live Texture and erase that model's image.
+                        value.source = new THREE.TextureSource(null);
+                        value.mipmaps = [];
                     });
                 }
                 material.dispose?.();

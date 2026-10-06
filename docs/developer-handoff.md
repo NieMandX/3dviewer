@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.14` (2026-10-06). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.15` (2026-10-06). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -442,6 +442,41 @@ material's color/roughness/metalness and kept zero material cards/texture
 thumbnails. The real room returned no saved material document; this parameter
 test injected a synthetic response only in the isolated browser and made no
 server material writes. Final app disposal left zero models/Blob URLs/channels.
+
+Version 0.97.15 detaches the CPU image source of a permanently removed imported
+texture after its dispose listeners have run. It assigns a new empty
+`THREE.TextureSource` and releases its mipmap array. It must not set `image=null`
+on the existing source: different Texture objects can share that source, and a
+surviving model still needs its pixels. Existing live-resource and environment
+ownership guards remain in force; ordinary material changes are unaffected.
+
+The investigation used hardware Chrome with real room import/clear code,
+mocked room metadata and the eight original local HPM ZIP streams. In two
+WebGL load/clear cycles, diagnostic GC collected all tracked imported objects,
+materials, geometries and images. In WebGPU it collected the scene objects and
+geometry, but six HTML images and two canvases survived. A heap snapshot traced
+material retention to Three.js r186's module-level MaterialNode property cache
+and MaterialReferenceNode.reference. This is separate from delayed browser
+memory reclamation; resetting the renderer alone did not remove those links.
+
+After the source-detachment patch, both full WebGPU cycles collected all tracked
+imported images and original sources except the shared environment. Small
+material/Texture shells remain reachable through renderer nodes; the patch does
+not change Three.js internals or promise immediate process-memory recovery.
+Full-scene screenshots before/after had identical pixels in the scene crop.
+No diagnostic forced GC is added to the application. The measured prototype
+initially used the deprecated `Source` alias; final code uses `TextureSource`,
+its r186 replacement, and the final sharing/disposal regression passes in
+hardware WebGPU and WebGL. The regression checks partial model removal,
+surviving shared sources and Texture objects, listener ordering and exactly-once
+disposal, and is included in `ci:verify`.
+
+A repeated native Safari server check on 0.97.14 authenticated successfully but
+received only 1.6 MB of the first 390.4 MB ZIP in 83 seconds. Cancelling left zero
+models, Blob URLs, pending imports and channels. Full live-server import and
+physical-mobile behavior remain unverified for this patch. Local evidence,
+scripts, heap snapshots and measurements are under
+`/private/tmp/lpm-retention-09714-20261006/`. Production is not promoted.
 
 ## 6. Yandex Cloud Topology
 

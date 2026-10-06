@@ -1,4 +1,5 @@
 import { runReconnectSelectionSmoke } from './smoke-reconnect-selection.mjs';
+import { runTextureSourceReleaseSmoke } from './smoke-texture-source-release.mjs';
 import { runMaterialAccessSmoke } from './smoke-material-access.mjs';
 import { runFBXWorkerSmoke } from './smoke-fbx-worker.mjs';
 import { runTexturePreloadSmoke } from './smoke-texture-preload.mjs';
@@ -14353,6 +14354,7 @@ try {
     console.log('Project admin permissions and responsive UI smoke passed.');
     await runCollabRegisteredRoomSwitchSmoke(browserContext, smokeServer.baseUrl);
     await runReconnectSelectionSmoke(browserContext, smokeServer.baseUrl, createRegisteredRoomSmokePage);
+    await runTextureSourceReleaseSmoke(browserContext, smokeServer.baseUrl, createRegisteredRoomSmokePage);
     console.log('Registered room switch smoke passed.');
     await runUserDirectorySmoke(await createRegisteredRoomSmokePage(browserContext, smokeServer.baseUrl));
     console.log('Superuser directory search, pagination and lifecycle smoke passed.');
