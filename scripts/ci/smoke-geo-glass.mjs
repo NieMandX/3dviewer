@@ -33,13 +33,23 @@ export async function runGeoGlassSmoke(browser, baseUrl, { useWebGPU = false } =
                 // Basic isolates alpha blending from lighting/transmission; Physical
                 // also checks the production glass state and cached original contract.
                 for (const physical of [false, true]) {
-                    for (const input of [0, 0.379, 1]) {
+                    for (const { input, kind, expected } of [
+                        ...[0, 0.1, 0.379, 0.9, 1].map(input => ({ input, kind: 'SM', expected: 1 - input })),
+                        { input: '0,1', kind: 'SM', expected: 0.9 },
+                        { input: undefined, kind: 'SM', expected: 0.8 },
+                        { input: 0.1, kind: 'NPM', expected: 0.3 },
+                        { input: 0.9, kind: 'NPM', expected: 0.3 },
+                        { input: undefined, kind: 'ENV', expected: 0.8 },
+                    ]) {
+                        // The NPM preset explicitly enables transmission, which
+                        // requires PhysicalMaterial; Basic is only an alpha probe.
+                        if (!physical && kind === 'NPM') continue;
                         const Material = physical ? T.MeshPhysicalMaterial : T.MeshBasicMaterial;
                         const material = new Material({ color: 0xffffff, transparent: true, opacity: 0.8 });
                         material.name = 'M_Test_MainGlass_1';
                         const mesh = new T.Mesh(geometry, material), root = new T.Group();
-                        root.userData.zipKind = 'SM';
-                        root.userData._geojsonMeta = { parsed: { type: 'FeatureCollection', features: [{
+                        root.userData.zipKind = kind;
+                        if (kind !== 'ENV') root.userData._geojsonMeta = { parsed: { type: 'FeatureCollection', features: [{
                             type: 'ObjectFeature', Glasses: [{ M_Test_MainGlass_1: { transparency: input } }],
                         }] } };
                         root.add(mesh);
@@ -71,7 +81,7 @@ export async function runGeoGlassSmoke(browser, baseUrl, { useWebGPU = false } =
                             controller.applyToScene();
                             const individual = material.opacity;
                             controller.resetToOriginal();
-                            values.push({ input, physical, initial, original, info, pixel, global, individual,
+                            values.push({ input, kind, expected, physical, initial, original, info, pixel, global, individual,
                                 reset: material.opacity, cachedOriginal: material.userData.glassOriginal.opacity,
                                 overridesCleared: !material.userData.glassOverrides && !slider.dataset.userSet,
                             });
@@ -87,21 +97,21 @@ export async function runGeoGlassSmoke(browser, baseUrl, { useWebGPU = false } =
             }
         }, useWebGPU);
         for (const row of result) {
-            const label = `${useWebGPU ? 'WebGPU' : 'WebGL'} ${row.physical ? 'Physical' : 'Basic'} ${row.input}`;
+            const label = `${useWebGPU ? 'WebGPU' : 'WebGL'} ${row.physical ? 'Physical' : 'Basic'} ${row.kind} ${row.input}`;
             for (const key of ['initial', 'original', 'info', 'reset', 'cachedOriginal']) {
-                assert.equal(row[key], row.input, `${label}: ${key} must use the GeoJSON opacity convention`);
+                assert.equal(row[key], row.expected, `${label}: ${key} must preserve the 0.96 glass appearance`);
             }
             assert.equal(row.global, 0.72, `${label}: global opacity`);
             assert.equal(row.individual, 0.24, `${label}: material override`);
             assert.equal(row.overridesCleared, true, `${label}: reset clears overrides`);
             if (row.pixel) {
                 for (const channel of row.pixel.slice(0, 3)) {
-                    assert.ok(Math.abs(channel - Math.round(row.input * 255)) <= 2, `${label}: alpha blending pixel`);
+                    assert.ok(Math.abs(channel - Math.round(row.expected * 255)) <= 2, `${label}: alpha blending pixel`);
                 }
             }
         }
         assert.deepEqual(errors, []);
-        console.log(`[smoke] GeoJSON glass opacity, pixels, overrides and reset passed (${useWebGPU ? 'WebGPU' : 'WebGL'})`);
+        console.log(`[smoke] Legacy VPM glass appearance, NPM/Env, pixels, overrides and reset passed (${useWebGPU ? 'WebGPU' : 'WebGL'})`);
     } finally {
         await page.close();
     }

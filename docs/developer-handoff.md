@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.15` (2026-10-06). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.16` (2026-10-06). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -477,6 +477,25 @@ models, Blob URLs, pending imports and channels. Full live-server import and
 physical-mobile behavior remain unverified for this patch. Local evidence,
 scripts, heap snapshots and measurements are under
 `/private/tmp/lpm-retention-09714-20261006/`. Production is not promoted.
+
+Version 0.97.16 restores the owner-approved 0.96 appearance of imported VPM
+glass. The display controller again uses `opacity = 1 - transparency` when
+initializing glass from GeoJSON, including its cached reset value. The direct
+mapping introduced in 0.97.1 made K1/K4 glass with `transparency=0.1` much less
+reflective. This is an explicit rendering compatibility policy; the normative
+GeoJSON parser and checker rules are unchanged. Saved room/per-material opacity
+and manual controls already contain opacity and are not inverted. NPM keeps
+its 0.30 preset; missing GeoJSON and Env keep their existing defaults.
+
+Hardware Chrome tests cover real K1 and K4 ZIPs without Ground in WebGPU and
+WebGL, plus regression pixels, repeated apply/reset, decimal-comma input,
+overrides, NPM and Env. Both model runs had no page errors or console warnings.
+Against the saved 0.96 build in the same WebGL view, mean absolute RGB error
+on the scene crop fell from 15.10 to 0.32 for K1 and from 5.03 to 0.05 for K4
+(0–255 channel scale); this is near parity, not identical pixels. The live
+agr.vision endpoint timed out during comparison. Evidence is under
+`/private/tmp/lpm-glass-fix-20261006/`. Native Safari/mobile are not rechecked
+for this change; GitHub Pages publication does not promote production.
 
 ## 6. Yandex Cloud Topology
 

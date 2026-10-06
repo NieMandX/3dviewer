@@ -2,6 +2,12 @@
 
 ## Versions
 
+- **0.97.16** (2026-10-06): restore 0.96 VPM glass appearance with
+  `opacity = 1 - transparency` at GeoJSON initialization/reset. Supersedes the
+  rendering policy from 0.97.1; normative parsing/checks and saved/manual opacity
+  remain unchanged. Verified on K1/K4 without Ground in WebGPU and WebGL.
+  GitHub Pages test release only.
+
 - **0.97.12** (2026-10-05): retain packed ERM G/B as a lossless PNG-backed image
   instead of a permanent CPU canvas. Release the conversion canvas and Blob URL
   before publishing textures; preserve channel values, resolution, shared

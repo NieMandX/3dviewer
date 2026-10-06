@@ -186,7 +186,13 @@ export function createGlassController(options = {}) {
 
                 if (!std.userData.glassOriginal) {
                     const baseColorFromGeo = glassParams?.color ? geoColorToHex(glassParams.color) : (std.color?.isColor ? `#${std.color.getHexString().toUpperCase()}` : null);
-                    const originalOpacity = glassParams?.opacity ?? std.opacity ?? sliderOpacity;
+                    // Preserve 0.96 rendering of existing ZIPs: interpret transparency
+                    // as the transparent fraction. Regulatory parsing remains
+                    // separate; explicit UI/room opacity overrides are already opacity.
+                    const geoDisplayOpacity = glassParams?.transparency != null
+                        ? clamp01(1 - glassParams.transparency)
+                        : glassParams?.opacity;
+                    const originalOpacity = geoDisplayOpacity ?? std.opacity ?? sliderOpacity;
                     const originalRoughness = glassParams?.roughness ?? std.roughness ?? sliderRough;
                     const originalMetalness = glassParams?.metalness ?? std.metalness ?? sliderMetal;
                     const originalRefraction = glassParams?.refraction ?? (('ior' in std) ? std.ior : null);
@@ -215,7 +221,7 @@ export function createGlassController(options = {}) {
                     }
                     if (isSM && !isNPM && glassParams) {
                         if (glassParams.color) std.color?.set?.(originalData.color || glassParams.color);
-                        if (glassParams.opacity != null) originalData.opacity = clamp01(glassParams.opacity);
+                        if (geoDisplayOpacity != null) originalData.opacity = clamp01(geoDisplayOpacity);
                         if (glassParams.roughness != null) originalData.roughness = clamp01(glassParams.roughness);
                         if (glassParams.metalness != null) originalData.metalness = clamp01(glassParams.metalness);
                         if (glassParams.refraction != null) originalData.refraction = glassParams.refraction;
