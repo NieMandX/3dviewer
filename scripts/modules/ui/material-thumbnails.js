@@ -54,14 +54,16 @@ export function createMaterialThumbnails({ renderer, ready, getEnvironment, requ
             sphere.material = preview; scene.environment = getEnvironment?.() || null;
             const oldTarget = renderer.getRenderTarget(), oldAuto = renderer.autoClear;
             const oldOutput = renderer.isWebGPURenderer ? renderer.getOutputRenderTarget() : null;
-            const viewport = renderer.getViewport(new THREE.Vector4()), scissor = renderer.getScissor(new THREE.Vector4()), scissorTest = renderer.getScissorTest();
+            const oldFace = renderer.getActiveCubeFace(), oldMip = renderer.getActiveMipmapLevel();
             try {
-                renderer.setRenderTarget(target); renderer.autoClear = true; renderer.setViewport(0, 0, 128, 128); renderer.setScissorTest(false);
+                // The target owns a 128px viewport/scissor. setViewport() uses
+                // canvas logical pixels in WebGL and would scale it again on Retina.
+                renderer.setRenderTarget(target); renderer.autoClear = true;
                 if (renderer.isWebGPURenderer) renderer.setOutputRenderTarget(target);
                 renderer.render(scene, camera);
             } finally {
                 if (renderer.isWebGPURenderer) renderer.setOutputRenderTarget(oldOutput);
-                renderer.setRenderTarget(oldTarget); renderer.autoClear = oldAuto; renderer.setViewport(viewport); renderer.setScissor(scissor); renderer.setScissorTest(scissorTest); requestRender();
+                renderer.setRenderTarget(oldTarget, oldFace, oldMip); renderer.autoClear = oldAuto; requestRender();
             }
             const pixels = renderer.isWebGPURenderer ? await renderer.readRenderTargetPixelsAsync(target, 0, 0, 128, 128)
                 : await renderer.readRenderTargetPixelsAsync(target, 0, 0, 128, 128, new Uint8Array(128 * 128 * 4));

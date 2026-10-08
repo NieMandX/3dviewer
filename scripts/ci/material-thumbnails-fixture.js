@@ -1,5 +1,5 @@
 // Small real-renderer regression fixture, also runnable in a hardware browser.
-export async function checkMaterialThumbnails({ device, webgpu = true } = {}) {
+export async function checkMaterialThumbnails({ device, webgpu = true, pixelRatio = 1 } = {}) {
     const T = await import('three');
     const { createRenderer } = await import('../modules/render/renderer-init.js');
     const { createMaterialThumbnails } = await import('../modules/ui/material-thumbnails.js');
@@ -13,7 +13,7 @@ export async function checkMaterialThumbnails({ device, webgpu = true } = {}) {
     });
     const r = owner.renderer;
     await owner.rendererInitPromise;
-    r.setPixelRatio(1); r.setSize(256, 256);
+    r.setPixelRatio(pixelRatio); r.setSize(256, 256);
     Object.assign(r.domElement.style, { position: 'fixed', top: '8px', right: '144px', zIndex: '9999' });
     document.body.append(r.domElement);
     const gpu = r.backend?.device;
@@ -39,7 +39,12 @@ export async function checkMaterialThumbnails({ device, webgpu = true } = {}) {
     Object.assign(image.style, { position: 'fixed', top: '8px', right: '8px', zIndex: '9999' });
     document.body.append(image);
     const thumbnails = createMaterialThumbnails({ renderer: r, ready: owner.rendererInitPromise, getEnvironment: () => null, requestRender() {} });
-    let thumbnailCount = 0;
+    let thumbnailCount = 0, firstPreview = null, firstPreviewHash = null, viewportRestored = true;
+    const viewportState = () => JSON.stringify({
+        viewport: r.getViewport(new T.Vector4()).toArray(),
+        scissor: r.getScissor(new T.Vector4()).toArray(),
+        scissorTest: r.getScissorTest(), autoClear: r.autoClear, pixelRatio: r.getPixelRatio(),
+    });
     let scopeOpen = !!gpu;
     gpu?.pushErrorScope('validation');
     try {
@@ -48,10 +53,22 @@ export async function checkMaterialThumbnails({ device, webgpu = true } = {}) {
             r.render(scene, camera);
 
             const material = [solid, glass, water.material][i % 3];
+            r.setViewport(7, 11, 240, 220); r.setScissor(5, 9, 236, 216); r.setScissorTest(true);
+            const beforePreview = viewportState();
             material.needsUpdate = true;
             image.removeAttribute('src'); thumbnails.enqueue(image, material);
             for (let n = 0; n < 250 && !image.src.startsWith('data:image/png'); n++) await new Promise((resolve) => setTimeout(resolve, 20));
             if (!image.src.startsWith('data:image/png')) throw new Error('Thumbnail did not finish');
+            viewportRestored &&= viewportState() === beforePreview;
+            if (i === 0) {
+                firstPreview = image.src;
+                await image.decode();
+                const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
+                const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
+                const hash = await crypto.subtle.digest('SHA-256', ctx.getImageData(0, 0, 128, 128).data);
+                firstPreviewHash = Array.from(new Uint8Array(hash), n => n.toString(16).padStart(2, '0')).join('');
+                canvas.width = canvas.height = 0;
+            }
             thumbnailCount++;
             r.setSize(256 + i * 8, 256 + i * 8); r.render(scene, camera);
             thumbnails.clear();
@@ -71,7 +88,8 @@ export async function checkMaterialThumbnails({ device, webgpu = true } = {}) {
         const error = await gpu?.popErrorScope();
         scopeOpen = false;
         if (error) errors.push(error.message);
-        return { errors, thumbnailCount, uniformColorEdits: solid.version === colorVersion && colorImages.size === 3,
+        return { errors, thumbnailCount, pixelRatio, firstPreview, firstPreviewHash, viewportRestored,
+            uniformColorEdits: solid.version === colorVersion && colorImages.size === 3,
             backend: gpu ? 'webgpu' : 'webgl', sceneDrawn: r.info.render.calls > 0,
             physicalMaterialsPreserved: glass.transmission === 1 && glass.opacity === 1 && water.material.transmission === .32 && water.material.opacity === 1,
             targetsRestored: r.getRenderTarget() === null && (!webgpu || r.getOutputRenderTarget() === null) };

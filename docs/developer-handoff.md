@@ -11,7 +11,7 @@ never through Git, chat or an AI prompt.
 - Repository: `git@github.com:NieMandX/3dviewer.git`.
 - Active integration/deployment branch: `gh-pages`.
 - Local checkout used by the project owner: `/Users/mac/development/IMA/LPMVIEW/app`.
-- Current viewer version: `0.97.16` (2026-10-06). See `docs/viewer-r186-upgrade.md` for migration checks.
+- Current viewer version: `0.97.17` (2026-10-08). See `docs/viewer-r186-upgrade.md` for migration checks.
 - Current Three.js version: exact CDN pin `0.186.0` for core, WebGPU, TSL,
   addons, workers and Draco.
 - Latest GLB implementation commit at handoff: `aa6e917`.
@@ -496,6 +496,25 @@ on the scene crop fell from 15.10 to 0.32 for K1 and from 5.03 to 0.05 for K4
 agr.vision endpoint timed out during comparison. Evidence is under
 `/private/tmp/lpm-glass-fix-20261006/`. Native Safari/mobile are not rechecked
 for this change; GitHub Pages publication does not promote production.
+
+Version 0.97.17 fixes cropped gallery previews. Material thumbnails use the
+128px render target's own viewport/scissor; calling WebGL `setViewport()` after
+target binding multiplied its dimensions by the canvas pixel ratio and cropped
+the sphere on Retina displays. The shared renderer's canvas viewport/scissor
+are no longer mutated; the previous target, cube face, mip and auto-clear state
+are restored. Texture cards use `object-fit: contain` to show the complete
+image for wide and tall textures. Lazy decoding, bounded preview sizes,
+original-image selection and gallery access rules are unchanged.
+
+The regression reproduces different 1x/2x preview pixels before the fix and
+requires identical pixels after it, independently in WebGL and WebGPU. It also
+checks renderer state restoration, glass/water preservation, color edits and
+resize. Hardware Chrome passes both backends. Native Safari on this Mac
+visually reproduces and resolves both the cropped sphere and rectangular
+texture clipping, with no page errors; selecting a card retains the original
+texture dimensions. Evidence is under `/private/tmp/lpm-thumbnails-20261008/`.
+These are focused component tests; this patch does not repeat the full HPM
+server import or physical-mobile tests. GitHub Pages test release only.
 
 ## 6. Yandex Cloud Topology
 

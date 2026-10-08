@@ -2,6 +2,12 @@
 
 ## Versions
 
+- **0.97.17** (2026-10-08): fix Retina cropping of material spheres by retaining
+  the offscreen target's physical-pixel viewport. Show complete wide/tall
+  textures within gallery cards. Verified before/after in native Safari on
+  Mac and at pixel ratios 1/2 in hardware Chrome WebGL/WebGPU. GitHub Pages
+  test release only.
+
 - **0.97.16** (2026-10-06): restore 0.96 VPM glass appearance with
   `opacity = 1 - transparency` at GeoJSON initialization/reset. Supersedes the
   rendering policy from 0.97.1; normative parsing/checks and saved/manual opacity

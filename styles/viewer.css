@@ -2295,7 +2295,7 @@ body.bg-black .collab-chat-panel {
     -webkit-overflow-scrolling:touch;
 }
 .thumb { border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: var(--surfaceWeak); display:flex; flex-direction:column; gap:4px; cursor:pointer; overflow:hidden; }
-.thumb img, .thumb canvas, .thumb .ph { width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:6px; display:block }
+.thumb img, .thumb canvas, .thumb .ph { width:100%; aspect-ratio:1/1; object-fit:contain; border-radius:6px; display:block }
 .thumb .ph { display:grid; place-items:center; font-size:11px; color:#666; background:#f4f4f5 }
 .thumb.broken { border-color:#f5c2c7; background:#fff5f6 }
 .thumb .nm { display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
