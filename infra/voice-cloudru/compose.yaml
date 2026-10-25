@@ -1,0 +1,68 @@
+name: lpmview-voice-staging
+x-runtime: &runtime
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  logging:
+    driver: local
+    options: {max-size: 10m, max-file: "3"}
+
+services:
+  livekit:
+    <<: *runtime
+    image: ${LIVEKIT_IMAGE:?Pinned image required}
+    command: [--config, /etc/livekit/config.json]
+    volumes:
+      - /etc/lpmview-voice/livekit.json:/etc/livekit/config.json:ro
+    ports: ["127.0.0.1:7880:7880"]
+    mem_limit: 2g
+    cpus: 2
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:7880/]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  voice-api:
+    <<: *runtime
+    image: lpmview-voice-api:${SOURCE_REVISION:?Source revision required}
+    build:
+      context: ../..
+      dockerfile: infra/voice-cloudru/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:?Pinned image required}
+    env_file: /etc/lpmview-voice/voice-api.env
+    ports: ["127.0.0.1:8080:8080"]
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  proxy:
+    <<: *runtime
+    image: lpmview-caddy-staging:${SOURCE_REVISION:?Source revision required}
+    build:
+      context: .
+      dockerfile: Caddy.Dockerfile
+      args:
+        CADDY_IMAGE: ${CADDY_IMAGE:?Pinned image required}
+    volumes:
+      - ./Caddyfile.staging:/etc/caddy/Caddyfile:ro
+    ports: ["127.0.0.1:8090:8090"]
+    tmpfs: ["/data:mode=0700,size=16m", "/config:mode=0700,size=16m"]
+    mem_limit: 128m
+    cpus: 0.5
+    depends_on:
+      voice-api: {condition: service_healthy}
+      livekit: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8090/healthz]
+      interval: 15s
+      timeout: 5s
+      retries: 3

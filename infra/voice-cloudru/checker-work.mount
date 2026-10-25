@@ -1,0 +1,12 @@
+[Unit]
+Description=Bounded workspace for the isolated LPMVIEW checker
+Before=lpmview-checker-worker.service
+
+[Mount]
+What=/var/lib/lpmview-checker-data/workspace.ext4
+Where=/var/lib/lpmview-checker/work
+Type=ext4
+Options=loop,nosuid,nodev,noexec
+
+[Install]
+WantedBy=multi-user.target

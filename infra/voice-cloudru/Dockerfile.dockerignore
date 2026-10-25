@@ -1,0 +1,7 @@
+**
+!services
+!services/voice-api
+!services/voice-api/package.json
+!services/voice-api/package-lock.json
+!services/voice-api/server.mjs
+!services/voice-api/gis-service.mjs

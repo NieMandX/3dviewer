@@ -79,6 +79,19 @@ Do not treat successful bucket creation or one upload as a passed Storage test.
 Test large upload/download integrity from both a VM and a client before deciding
 whether to retain Standard or request approval for a different storage class.
 
+## Voice Preparation While Backend SSH Is Unavailable
+
+On 2026-10-26 the new voice VM received a loopback-only LiveKit/API/Caddy
+staging stack and an isolated rootless Checker runtime. See
+[the reproducible staging procedure](../infra/voice-cloudru/README.md) for
+installation, passed checks, retained artifacts and explicit activation gates.
+No DNS, production release, public ingress or source database was changed.
+The source database is not used by the staging queue worker, which stays off.
+
+The current voice token endpoint lacks a room-membership check. The staging
+proxy deliberately blocks it; fixing authorization is a publication gate, not
+a reason to open the legacy endpoint while migration proceeds.
+
 ## Acceptance Before Cutover
 
 - All containers healthy after reboot; no public database or admin-console ports.

@@ -6,3 +6,4 @@ exr/*
 !exr/forest-01-1024.exr
 tmp/
 .env.supabase.local
+infra/voice-cloudru/.env
