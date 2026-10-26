@@ -4,6 +4,8 @@
     skip_install_trust
     servers {
         protocols h1 h2
+        trusted_proxies static {$LPM_VOICE_PRIVATE_IP}/32
+        trusted_proxies_strict
     }
 }
 
@@ -17,6 +19,7 @@ https://{$LPM_BACKEND_PRIVATE_IP}:8443 {
     }
     handle @voice_api {
         reverse_proxy 127.0.0.1:8000 {
+            header_up X-Forwarded-For {client_ip}
             flush_interval -1
         }
     }

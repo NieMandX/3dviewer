@@ -2372,6 +2372,50 @@ async function createRegisteredRoomSmokePage(browser, baseUrl, options = {}) {
     return { page, diagnostics };
 }
 
+async function runVoiceDeploymentGateSmoke(browser, baseUrl) {
+    for (const enabled of [undefined, false]) {
+        const { page, diagnostics } = await createRegisteredRoomSmokePage(browser, baseUrl, {
+            beforeLoad: async (target) => target.addInitScript((voiceEnabled) => {
+                window.__VOICE_API_URL = 'https://voice.smoke.invalid';
+                window.__LPMVIEW_RUNTIME = { voiceEnabled };
+                window.__voiceGateRequests = 0;
+                const fetch = window.fetch.bind(window);
+                window.fetch = (input, init) => {
+                    if (String(input?.url || input).startsWith('https://voice.smoke.invalid/v1/token')) {
+                        window.__voiceGateRequests += 1;
+                        return Promise.reject(new Error('Unexpected voice request'));
+                    }
+                    return fetch(input, init);
+                };
+            }, enabled),
+        });
+        try {
+            await page.evaluate(() => {
+                document.querySelector('#collabEmail').value = 'switch@example.com';
+                document.querySelector('#collabPassword').value = 'secret123';
+                document.querySelector('#collabJoinBtn').click();
+            });
+            await page.waitForFunction(() => Array.from(document.querySelector('#collabProjectSelect').options).some(option => option.value === 'project-switch'));
+            await page.selectOption('#collabProjectSelect', 'project-switch', { force: true });
+            await page.waitForFunction(() => Array.from(document.querySelector('#collabRoomSelect').options).some(option => option.value === 'room-a'));
+            await page.selectOption('#collabRoomSelect', 'room-a', { force: true });
+            await page.waitForFunction(() => window.viewerApp?.getDiagnostics().collab.connected);
+            await page.waitForFunction(() => !document.querySelector('#collabChatToggleBtn').hidden);
+            const state = await page.evaluate((disabled) => {
+                const button = document.querySelector('#voiceJoinBtn');
+                if (disabled) button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                return { hidden: button.hidden, disabled: button.disabled };
+            }, enabled === false);
+            assert.deepEqual(state, { hidden: enabled === false, disabled: enabled === false });
+            assert.equal(await page.evaluate(() => window.__voiceGateRequests), 0);
+            diagnostics.assertNoErrors('Voice deployment gate');
+        } finally {
+            await page.evaluate(() => { void window.viewerApp?.dispose?.(); }).catch(() => {});
+            await page.close();
+        }
+    }
+}
+
 async function runConnectedResetViewerSmoke(browser, baseUrl) {
     const { page, diagnostics } = await createRegisteredRoomSmokePage(browser, baseUrl);
     try {
@@ -14443,6 +14487,8 @@ try {
     console.log('Collab CRUD stale smoke passed.');
     await runCollabAutoResumeKeepsModelsSmoke(browserContext, smokeServer.baseUrl);
     console.log('Collab auto-resume keeps models smoke passed.');
+    await runVoiceDeploymentGateSmoke(browserContext, smokeServer.baseUrl);
+    console.log('Voice deployment gate smoke passed.');
     await runProjectAdminTreeSmoke(browserContext, smokeServer.baseUrl);
     console.log('Project admin permissions and responsive UI smoke passed.');
     await runCollabRegisteredRoomSwitchSmoke(browserContext, smokeServer.baseUrl);

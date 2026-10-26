@@ -1093,7 +1093,9 @@ export class ViewerApp {
             voiceApiUrl;
 
         const collabReady = !!(supabaseUrl && supabaseAnonKey);
-        const voiceReady = !!voiceApiUrl;
+        const voiceReady = !!voiceApiUrl && (
+            typeof window === 'undefined' || window.__LPMVIEW_RUNTIME?.voiceEnabled !== false
+        );
         let collabSupabase = null;
         let collabSupabaseMode = 'default';
         let collabUser = null;
