@@ -106,6 +106,37 @@ does not enable the API, worker or timer. Database credentials remain absent.
 Review the API listener/proxy address before activation; the old Yandex bridge
 address is not automatically transferable to a new Docker network.
 
+### Private Queue Acceptance
+
+After restoring the target database and installing the pinned internal CA,
+`configure-checker-staging.py` creates root-only API and worker environments.
+It is a first-time operation: it refuses existing credential files, verifies
+the runner SHA-256, requires the target private HTTPS URL, and reads only the
+target anon key as JSON on stdin (`anonKey`). Transfer that value through a
+protected pipe, never a shell argument or log. The worker key is read from the
+existing protected voice environment on the same VM; it never enters the API.
+The script does not start services or change the proxy or network.
+
+Run `probe-checker.mjs` as root with `LPM_STAGING_PROBE=1` and
+`NODE_EXTRA_CA_CERTS=/etc/lpmview-ca/backend-root.crt`, under
+`/run/lock/lpm-cloudru-migration.lock`. Start the loopback API first but keep the
+worker inactive. This first acceptance requires an empty engine registry and
+queue, refuses an existing report, and registers the immutable Cloud.ru engine.
+Do not rerun it over existing acceptance state or erase evidence to bypass its
+guards. It creates temporary users/project/model references, uploads a copy of
+the original 5.5 MB fixture through Storage, and controls the single worker.
+It tests real JWT/RLS access, concurrent deduplication, queued cancellation,
+source/engine provenance, guest report access, and execution after worker restart.
+It deletes only its own fixture IDs and object; failures disable the new engine.
+The result is saved under `/var/backups/lpmview-migration/`. Check cleanup and
+baseline data counts separately before enabling the accepted services on boot.
+
+The private API listens only on `127.0.0.1:8081`. The staging proxy still returns
+503 for `/model-check`; no browser runtime URL or ingress changes are implied.
+Keep the existing health timer disabled until its old Yandex bridge target has
+been adapted. Save the new mode-600 credentials and unit overrides in protected
+server/local backups outside Git.
+
 ## Storage And Backups
 
 `probe-s3-download.py` reads a short-lived, read-only object URL from stdin.
@@ -133,6 +164,14 @@ stored database archive is not a successful database restore.
   A 5,509,617-byte source ZIP completed in 3.35 seconds under the existing
   2 CPU / 4 GiB / network-none runner, without OOM or input modification.
   This confirms execution, not regulatory compliance of that model.
+- The target queue subsequently passed the real Storage/ZIP/API/worker/report
+  flow, including a second execution after worker restart. Owner/guest/outsider
+  rights, room-scoped reads, concurrent deduplication, queued cancellation and
+  report SHA-256/engine identity were checked. The source ZIP was unchanged;
+  test fixtures, jobs, leases and containers were removed. API and worker are
+  enabled only in private staging; the existing health timer remains disabled.
+  Large ZIPs, cancellation during an active Blender job and browser acceptance
+  are not covered by this small-fixture test.
 - A 220,777,893-byte Storage object downloaded directly to the VM in 11.328
   seconds (155.91 Mbit/s); its SHA-256 matched the local source. The earlier
   laptop download failure and Supabase Storage integration remain unresolved.
@@ -140,8 +179,12 @@ stored database archive is not a successful database restore.
   the backend and verified. See the migration runbook and private checkpoint.
   The viewer candidate remains private; production promotion has not occurred.
 
-Still required: public backend SSH recovery, GIS acceptance, Checker engine
-registration/queue test, active voice-session revocation, TLS/public media
+The owner stopped support polling on 2026-10-26 and prohibited further messages
+to support. Continue using the verified private SSH path through the voice VM;
+do not recreate the polling automation or contact support without new approval.
+
+Still required: GIS acceptance, broader Checker failure/large-file tests and
+health monitoring, active voice-session revocation, TLS/public media
 connectivity, two-device calls, full viewer staging tests, offsite backup/restore
 validation, and separately approved DNS cutover.
 

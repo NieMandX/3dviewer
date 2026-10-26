@@ -105,7 +105,7 @@ staging stack and an isolated rootless Checker runtime. See
 [the reproducible staging procedure](../infra/voice-cloudru/README.md) for
 installation, passed checks, retained artifacts and explicit activation gates.
 No DNS, production release, public ingress or source database was changed.
-The source database is not used by the staging queue worker, which stays off.
+The source database is never used by the staging queue worker.
 
 The voice token endpoint now verifies Supabase Auth and room access under the
 requesting user's RLS identity; it does not trust client identity or metadata.
@@ -137,7 +137,13 @@ The certificate is public information and can be mode 0644. Append
 `compose.backend-tls.yaml` to the voice staging Compose files and set the
 target-only Supabase URL/key in its protected environment file. Checker can
 use the same public certificate through `NODE_EXTRA_CA_CERTS`, but its worker
-must remain disabled until the engine identity and queue tests pass.
+must remain disabled until the engine identity and queue tests pass. On
+2026-10-26 these checks passed against the restored target using the original
+5.5 MB ZIP fixture. The API and worker now run in private staging, with the API
+bound to loopback and `/model-check` still blocked by the staging proxy. Test
+records were removed and the original data counts rechecked. This is not a
+large-file, browser, running-cancellation or full regulatory acceptance test.
+The old health timer remains off pending adaptation to the new private listener.
 
 Validate the actual Caddy config before activation. Verify TLS with the pinned
 CA, verify failure without it, test allowed API paths from voice and denied
