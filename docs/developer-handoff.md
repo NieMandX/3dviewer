@@ -1,6 +1,16 @@
 # LPMVIEW Developer And Codex Handoff
 
-Last verified (viewer runtime): 2026-10-02; infrastructure inventory: 2026-09-11.
+Last verified (public Cloud.ru web cutover): 2026-10-26.
+
+Public update (2026-10-26): the owner explicitly approved restoring the public
+site on Cloud.ru and TCP 80/443 on its voice VM. `agr.vision` now serves immutable
+build `0.97.17-9c92bc72a066`; `www`, `supabase` and `voice-api` also point to
+`213.171.29.27`. Public certificates, owner/guest login, stored ZIP loading in
+WebGPU/WebGL, two-client text chat and real Checker completion passed. GitHub
+Pages uses the same new backend anon key. Voice remains disabled in runtime
+until two-device media acceptance; the migrated 2GIS setting remains empty.
+This is a web cutover, not full infrastructure/disaster-recovery acceptance.
+See `infra/voice-cloudru/PUBLIC-WEB.md` and the migration runbook's public section.
 
 Migration update (2026-10-26): the owner reports the Yandex-hosted `agr.vision`
 is unavailable and intends to retire Yandex in favor of Cloud.ru for the entire
@@ -51,16 +61,16 @@ Read `AGENTS.md` first. The detailed architecture is in
   mirror to `s3://agr.vision/` in Yandex Object Storage requires explicit owner
   approval and a manual workflow run with `sync_yandex` enabled (default: false).
 
-### Production domain
+### Production domain (Cloud.ru)
 
 - URL: `https://agr.vision/`.
-- Host: Yandex VM `viewer-voice-01`, public IP `93.77.182.247`.
-- Server: Caddy container `deploy-caddy-1`.
-- Frontend host path: `/opt/lpmview/viewer/current`.
-- Immutable releases:
-  `/opt/lpmview/viewer/current/.releases/<version>-<git-sha>`.
-- Public build at the original handoff: `0.95-c8d2e11fc359`. Version 0.96 is
-  approved for promotion on 2026-09-25; verify the live build via `/version.json`.
+- Host: Cloud.ru VM `viewer-voice-01`, public IP `213.171.29.27`.
+- Server: `lpmview-public-web.service`, pinned Caddy 2.11.7.
+- Immutable releases: `/srv/lpmview-viewer/.releases/<version>-<git-sha>`.
+- Public build: `0.97.17-9c92bc72a066`, explicitly promoted on 2026-10-26.
+- `/etc/lpmview-public-web/release.env` selects the build; Caddy config is
+  `/etc/lpmview-public-web/Caddyfile`. Its state/certificates are private under
+  `/var/lib/lpmview-public-web`. The old Yandex inventory below is historical.
 - Production is intentionally not updated by each `gh-pages` push. Follow
   `docs/viewer-releases.md` for explicit promotion and rollback.
 
@@ -72,7 +82,9 @@ Read `AGENTS.md` first. The detailed architecture is in
   `LPMVIEW/backups/` directory.
 - Supabase backups on `viewer-backend-01`:
   `/var/backups/lpmview-supabase`, retained for seven days by systemd timer.
-- An offsite database backup remains a required infrastructure task.
+- Cloud.ru database/off-VM backup and restore checks are recorded in
+  `infra/supabase-cloudru/BACKUPS.md`. Ongoing model-file/voice/Checker backups
+  and independent failure-domain recovery are not covered by that database job.
 
 ## 3. Runtime Architecture
 
@@ -151,7 +163,8 @@ Backend endpoints at handoff:
 
 - Supabase: `https://supabase.agr.vision`.
 - Voice API and GIS proxy: `https://voice-api.agr.vision`.
-- LiveKit WebSocket: `wss://rtc.agr.vision`.
+- Historical LiveKit WebSocket: `wss://rtc.agr.vision`; not published on Cloud.ru
+  yet. `voiceEnabled: false` hides voice; rooms and text chat remain enabled.
 
 Authorization rules:
 
@@ -178,7 +191,8 @@ is disabled until `config/runtime.js → modelCheckApiUrl` is configured.
 The migration is deployed to the existing Supabase, and API/worker run on
 `viewer-voice-01` using a separate rootless Docker user, 2 CPU/4 GiB per check,
 and a bounded workspace. API: `https://voice-api.agr.vision/model-check`.
-GitHub Pages 0.97.3 enables the panel; the agr.vision frontend remains 0.96.
+GitHub Pages 0.97.3 originally enabled the panel; the Cloud.ru public 0.97.17
+release now uses the migrated queue and the accepted rootless Checker engine.
 Version 0.97.4 updates the open source list after imports and adds copying and
 TXT export. Display translations never change the stored Checker result.
 See `services/model-checker/deploy/README.md` for operation and validation boundaries.

@@ -1,6 +1,7 @@
-# Cloud.ru Migration Staging
+# Cloud.ru Migration
 
-Started: 2026-10-25. This is a parallel migration, not a production release.
+Started: 2026-10-25 as a private migration. Public web cutover: 2026-10-26,
+separately approved by the owner; voice/media and full recovery remain pending.
 The owner approved a monthly ceiling of RUB 17,000, including capacity for
 1 TB of model objects. Recheck traffic and retained backup charges before cutover.
 
@@ -17,8 +18,9 @@ actions, neither authorized by a routine continuation of private testing.
   (`xlajjnmxvlkygixamyam`), not the newer Yandex database.
 - Preserve the hosted source unchanged. The repository is application code,
   not a backup of users, annotations or model files.
-- Do not change DNS, runtime configuration or the agr.vision release until the
-  target passes the complete acceptance checks below.
+- The owner separately approved the limited public web cutover recorded below.
+  Further DNS/network changes, voice/media publication and old-provider deletion
+  need their own approval. Partial web acceptance is not full migration acceptance.
 - Local credentials and backup manifests live outside this Git repository in
   the parent `.secrets/cloudru/` and `backups/` directories. Credentials are
   owner-readable only. Never paste their values into logs, documentation or chat.
@@ -303,3 +305,51 @@ evidence; this browser run does not repeat or extend those claims.
   retain the old provider's resources/release and recovery copies, without
   assuming the owner-reported unavailable Yandex installation is a working
   rollback target. Prepare a tested recovery path before decommissioning it.
+
+## Public Web Cutover (2026-10-26)
+
+The owner requested public `agr.vision` access before the remaining voice and
+disaster-recovery work, then explicitly approved TCP 80/443 on the voice VM.
+The separate `agr-public-web` group is assigned only to that VM; its existing
+SSH group is preserved. No database, admin, LiveKit media or UDP ports were opened.
+The backend remains reachable privately through `10.0.0.5:8443`, only from voice.
+
+DNS A records `agr.vision`, `www.agr.vision`, `supabase.agr.vision` and
+`voice-api.agr.vision` now point to voice `213.171.29.27`. DNS-only mode and
+existing TTLs were preserved. Other records (`api`, `assets`, `rtc`, `turn`)
+were left unchanged. Original DNS and root-only server configurations are saved
+in the private cutover evidence. No Yandex resource or source dataset was changed.
+
+The public systemd Caddy gateway is independent of the accepted private staging
+proxy/LiveKit. It serves immutable viewer build `0.97.17-9c92bc72a066`, forwards
+only Auth/REST/Storage/Realtime over verified private TLS, and publishes the
+authenticated Checker/2GIS routes. Auth admin, Studio and LiveKit control/signaling
+paths are not exposed. `voiceEnabled: false` and public `/v1/token` HTTP 503 remain
+intentional. See `infra/voice-cloudru/PUBLIC-WEB.md` for configuration and limits.
+The runtime and fallback anon key in GitHub Pages now match the migrated backend;
+no service-role credential is published. Existing browser sessions may need a
+fresh login after changing the backend signing keys.
+
+Acceptance used real public DNS/HTTPS, with no certificate bypass:
+
+- Root page returns 200 with the selected build; HTTP and `www` redirect to HTTPS.
+  Versioned assets use immutable caching; entry HTML is revalidated.
+- Owner password login and invited anonymous guest entry loaded the real stored
+  5,509,617-byte ZIP in desktop Chrome WebGPU and WebGL respectively.
+- Text chat arrived between those two clients through public Realtime.
+- Checker UI submitted a real job, completed the pinned worker, and read the
+  report with the expected source SHA256. Guest job submission was denied (403).
+- Before DNS, a 67,254,351-byte existing model streamed through the exact new
+  gateway with matching SHA256, deliberately throttled beyond 30 seconds to
+  check the old truncation failure. This is not a network-speed benchmark.
+- Public TLS worked on all four hosts; unsigned API requests and private
+  service paths were rejected. No page exceptions occurred. Existing unsupported
+  FBX-map/Three.js Source warnings and the deliberate guest 403 were recorded.
+- Temporary records were removed; counts returned to 191 users, 13 projects,
+  22 rooms, 27 models, 154 annotations, 30 stored objects, zero test projects,
+  zero Checker jobs/leases. Full local `npm run ci:verify` passed before pushes.
+
+Still pending: a current 2GIS Places key and real provider test, approved voice
+media networking plus two-device audio, external alerts, ongoing model/voice
+backups, and full-server recovery. Do not delete Yandex or claim full production
+readiness from the limited web acceptance. Support polling/contact remains stopped.

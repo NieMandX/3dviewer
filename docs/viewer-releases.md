@@ -1,5 +1,22 @@
 # Viewer releases
 
+## Cloud.ru Public Release (2026-10-26)
+
+The owner explicitly approved restoring `agr.vision` on Cloud.ru. The active
+immutable build is **0.97.17-9c92bc72a066**, selected by
+`/etc/lpmview-public-web/release.env` on Cloud.ru `viewer-voice-01`.
+Assets are in `/srv/lpmview-viewer/.releases/`; the initial cutover build
+`0.97.17-431597fa451f` is retained for already-open clients and rollback.
+`lpmview-public-web.service` runs Caddy 2.11.7. Use the Cloud.ru configuration in
+`infra/voice-cloudru/PUBLIC-WEB.md`, not the historical Yandex paths below.
+
+Public Auth, owner/guest model loading, Realtime text chat and Checker completed
+browser acceptance. Voice is intentionally disabled until media acceptance;
+2GIS needs a current key. DNS/backend/config rollback copies and evidence are
+outside Git in the private migration checkpoint. Returning DNS to the original
+Yandex addresses is not a verified recovery plan: the owner reported that site
+unavailable. Future `gh-pages` pushes still do not auto-promote this domain.
+
 ## Versions
 
 - **0.97.17** (2026-10-08): fix Retina cropping of material spheres by retaining
