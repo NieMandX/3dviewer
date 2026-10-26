@@ -2375,7 +2375,12 @@ async function createRegisteredRoomSmokePage(browser, baseUrl, options = {}) {
 async function runVoiceDeploymentGateSmoke(browser, baseUrl) {
     for (const enabled of [undefined, false]) {
         const { page, diagnostics } = await createRegisteredRoomSmokePage(browser, baseUrl, {
-            beforeLoad: async (target) => target.addInitScript((voiceEnabled) => {
+            beforeLoad: async (target) => {
+                await target.route('**/config/runtime.js', route => route.fulfill({
+                    contentType: 'text/javascript',
+                    body: 'window.__LPMVIEW_RUNTIME = ' + JSON.stringify({ voiceEnabled: enabled }) + ';',
+                }));
+                await target.addInitScript((voiceEnabled) => {
                 window.__VOICE_API_URL = 'https://voice.smoke.invalid';
                 window.__LPMVIEW_RUNTIME = { voiceEnabled };
                 window.__voiceGateRequests = 0;
@@ -2387,7 +2392,8 @@ async function runVoiceDeploymentGateSmoke(browser, baseUrl) {
                     }
                     return fetch(input, init);
                 };
-            }, enabled),
+                }, enabled);
+            },
         });
         try {
             await page.evaluate(() => {
