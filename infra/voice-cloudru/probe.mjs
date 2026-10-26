@@ -33,7 +33,7 @@ try {
     assert.equal(claims.sub, 'migration-probe');
     await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Signaling timed out')), 10000);
-        socket = new WebSocket('ws://proxy:8090/rtc?protocol=15&auto_subscribe=1&access_token=' + encodeURIComponent(token));
+        socket = new WebSocket('ws://livekit:7880/rtc?protocol=15&auto_subscribe=1&access_token=' + encodeURIComponent(token));
         socket.onmessage = event => {
             clearTimeout(timeout);
             if (event.data?.size || event.data?.byteLength || event.data?.length) resolve();
@@ -42,7 +42,7 @@ try {
         socket.onerror = () => { clearTimeout(timeout); reject(new Error('Signaling connection failed')); };
     });
     console.log(JSON.stringify({ health: true, roomApi: true, signedToken: true,
-        signalingViaProxy: true, publicTokenBlocked: true, mediaCallTested: false,
+        internalSignaling: true, signalingViaProxy: false, publicTokenBlocked: true, mediaCallTested: false,
         applicationAuthorizationTested: false }));
 } finally {
     socket?.close();

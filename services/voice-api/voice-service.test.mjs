@@ -144,3 +144,12 @@ test('membership is rechecked on every request, not cached after revocation', as
     await assert.rejects(service.createJoinToken(authorization, body), statusIs(403));
     assert.equal(signed.length, 1);
 });
+
+test('enabled admission guard must approve before signing a new token', async () => {
+    const checked = [];
+    const { service, signed } = fixture({ authorizeJoin: async (...args) => {
+        checked.push(args); throw new VoiceServiceError(503, 'Guard unavailable');
+    } });
+    await assert.rejects(service.createJoinToken(authorization, body), statusIs(503));
+    assert.deepEqual(checked, [[roomId, userId]]); assert.equal(signed.length, 0);
+});

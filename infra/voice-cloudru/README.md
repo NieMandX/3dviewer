@@ -33,7 +33,7 @@ voice API source files; it excludes local environment files and credentials.
    Health checks alone do not establish correct voice signaling or media.
 
 The protocol probe creates and deletes its own temporary room. It verifies
-the Room API, signed tokens, and a signaling response through Caddy. It does
+the Room API, signed tokens, and a direct internal LiveKit signaling response. It does
 not test application authorization, publish audio or establish a two-device
 WebRTC media call.
 
@@ -49,10 +49,10 @@ join and cancels stale requests after disconnect/dispose.
 
 The default join-token TTL is ten minutes; staging also sets ten minutes.
 This restricts initial token use, not the duration of an established call.
-Revoking DB membership blocks new token issuance; it does **not** forcibly
-disconnect an already joined LiveKit participant or invalidate a previously
-issued token. Active-session eviction/reconnect policy remains a publication
-gate. See [LiveKit token lifecycle](https://docs.livekit.io/frontends/reference/tokens-grants/).
+Token issuance alone does not disconnect existing participants or invalidate
+previously issued self-hosted LiveKit tokens. The private access guard below
+checks current rights instead. See
+[LiveKit token lifecycle](https://docs.livekit.io/frontends/reference/tokens-grants/).
 
 Keep the existing Caddy `/v1/token` block. Under the migration lock, run the
 authorization probe only against the private migrated demo backend:
@@ -74,6 +74,61 @@ for Caddy, existing LiveKit keys, private CA and Compose TLS override. Back up
 the old source/config first and use `up --no-deps --wait voice-api`; keep the
 old image for rollback. Do not rerun `init-staging.py` on this configured stack.
 
+### Active Access And Reconnect Guard
+
+Apply `supabase/migrations/20261026000100_voice_room_access.sql` to the target
+only, after a protected database backup. Its service-role-only RPC reuses the
+existing room access helpers under the participant's identity, restores request
+claims, and rejects deleted/banned accounts. It does not grant clients any new
+permissions. The SQL permission suite tests ownership, invites, superusers,
+revocation, account restrictions and RPC privilege isolation.
+
+Set `VOICE_ACCESS_GUARD=1` and `LIVEKIT_HTTP_URL=http://livekit:7880` in the
+protected staging API environment and recreate only that API container. The
+default flag is off for compatibility with deployments that have not applied
+the migration; the new staging Caddy gate fails closed without the guard.
+
+- Caddy reauthorizes every supported `/rtc` entrypoint, including validation
+  and reconnect requests. It overwrites forwarded URI/method headers and
+  blocks external `/internal/*` and `/twirp/*` access. Runtime logging filters
+  remove access tokens and forwarded authorization/URI values.
+- The API verifies the LiveKit signature, expiry, identity, room and grants,
+  then checks current database rights. Both original and LiveKit-refreshed
+  tokens are denied after revocation. Direct public access to LiveKit must
+  never bypass this gate; keep its control and signaling port private.
+- The guard enumerates current LiveKit participants after each restart and
+  removes those without room rights. Sweeps are single-flight, with at most
+  four participant checks in parallel and a ten-second delay between sweeps.
+  This is bounded polling, not instant revocation or a cryptographic token
+  denylist. Restoring room rights allows otherwise valid tokens again.
+- Database verification failures deny admission and attempt to evict affected
+  participants. LiveKit control failures mark the guard unhealthy; removals
+  cannot be guaranteed while the control service itself is unreachable.
+  This checks room/account eligibility, not per-session Auth logout state.
+
+Run the real control/signaling acceptance from the host as root:
+
+```sh
+LPM_STAGING_PROBE=1 python3 probe-voice-revocation.py
+```
+
+The runner acquires the migration lock, requires the private backend and no
+existing LiveKit rooms, and starts a separate read-only test container. It
+temporarily enables structured LiveKit info logs, restarts the private API,
+and restores the exact prior LiveKit configuration in `finally`. Protected
+results and a configuration backup are saved in `/var/backups/lpmview-migration`.
+It tests guest revocation after API restart, denial of original/refreshed
+tokens, superuser-role removal, room deletion and restored invite access.
+Temporary users/project/room are removed by the probe; verify its cleanup
+report and baseline counts before continuing. On an abnormal timeout, inspect
+the retained test container and recorded fixture IDs before another run.
+
+The raw signaling fixture may close without receiving a Leave frame. A pass
+requires socket closure, participant absence **and** LiveKit's matching
+`SERVICE_REQUEST_REMOVE_PARTICIPANT` log, never a generic timeout or an API
+counter alone. This is not browser reconnection, ICE/media or two-device audio
+acceptance; those remain publication gates.
+
 ## Deliberately Disabled Features
 
 - Caddy still blocks `/v1/token` with 503 pending full private acceptance and
@@ -83,8 +138,9 @@ old image for rollback. Do not rerun `init-staging.py` on this configured stack.
 - LiveKit TURN and public media ports are not enabled. The bridge-network
   configuration is for private signaling validation only. Production needs
   separately reviewed host networking, advertised IP, TLS and media ingress.
-- No API, queue worker, or health timer for Checker is enabled. Do not connect
-  a second worker to the original source database during migration.
+- The Checker API and single worker are enabled only against the migrated
+  private database after queue acceptance below. The old health timer and
+  public proxy route remain disabled. Never connect this worker to the source.
 
 ## Isolated Checker Preparation
 
@@ -158,8 +214,11 @@ stored database archive is not a successful database restore.
 - The authenticated voice API subsequently passed real password and anonymous
   Auth, owner/guest/superuser access, other-room denial, identity-spoofing and
   new-token revocation checks before and after API restart. Temporary fixtures
-  were cleaned up. The proxy token route remains blocked; no media call or
-  active-participant eviction has been validated.
+  were cleaned up. The subsequent access-guard probe confirmed server-driven
+  participant removal after guest/role revocation and room deletion, including
+  API restart and original/refreshed-token denial. LiveKit's removal reason
+  and participant absence were checked. The proxy token route remains blocked;
+  no browser or media call has been validated.
 - Rootless Checker imported with all nine layers matching the local image.
   A 5,509,617-byte source ZIP completed in 3.35 seconds under the existing
   2 CPU / 4 GiB / network-none runner, without OOM or input modification.

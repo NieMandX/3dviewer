@@ -110,9 +110,20 @@ The source database is never used by the staging queue worker.
 The voice token endpoint now verifies Supabase Auth and room access under the
 requesting user's RLS identity; it does not trust client identity or metadata.
 The staging proxy still deliberately blocks it. Run the isolated authorization
-probe in the voice staging procedure before publication. Denying new tokens
-after membership revocation is not equivalent to removing already connected
-participants; active-session eviction and real media acceptance remain gates.
+probe in the voice staging procedure before publication. The private guard now
+reauthorizes signaling/reconnect requests against current database rights and
+periodically removes unauthorized LiveKit participants. A service-role-only
+RPC reuses existing room policy helpers; it was applied only to the target
+after a database backup. Real staging control/signaling tests verified guest
+revocation after API restart, removal of a superuser role, room deletion and
+denial of both original and LiveKit-refreshed tokens. Removal was confirmed by
+LiveKit's administrative-removal log and participant absence, not merely a
+closed socket. The tests do not establish ICE/media, browser reconnect or
+two-device voice readiness. Previously issued JWTs are not cryptographically
+revoked; they are rejected while the participant lacks current room rights.
+Keep direct LiveKit control/signaling private so reconnect cannot bypass the
+gate. Database failures fail closed; unavailable LiveKit control can delay
+active removal. See the staging procedure for restart, cleanup and rollback.
 
 ## Private Backend HTTPS
 

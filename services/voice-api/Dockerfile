@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.mjs gis-service.mjs voice-service.mjs ./
+COPY server.mjs gis-service.mjs voice-service.mjs voice-access-guard.mjs ./
 
 ENV NODE_ENV=production
 ENV PORT=8080

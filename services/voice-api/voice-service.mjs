@@ -10,7 +10,7 @@ export class VoiceServiceError extends Error {
 
 export function createVoiceService({
     supabaseUrl = '', serviceRoleKey = '', wsUrl = '', signToken,
-    fetchImpl = globalThis.fetch, timeoutMs = 10000,
+    fetchImpl = globalThis.fetch, timeoutMs = 10000, authorizeJoin,
 } = {}) {
     const base = String(supabaseUrl).replace(/\/+$/, '');
 
@@ -66,6 +66,7 @@ export function createVoiceService({
             source: 'lpmview', roomId, projectId: room.project_id,
             registered: user.is_anonymous === false && !!user.email,
         });
+        await authorizeJoin?.(roomId, identity);
         const token = await signToken({ identity, name, metadata }, {
             roomJoin: true, room: roomName, ...permissions, canUpdateOwnMetadata: false,
         });

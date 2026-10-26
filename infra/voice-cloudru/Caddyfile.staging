@@ -1,14 +1,33 @@
 {
     admin off
     auto_https off
+    log {
+        format filter {
+            wrap json
+            fields {
+                request>uri query {
+                    delete access_token
+                }
+                request>headers>X-Forwarded-Uri delete
+                request>headers>Authorization delete
+            }
+        }
+    }
 }
 
 http://:8090 {
-    @rtc path /rtc /rtc/* /twirp/*
+    @private path /internal /internal/* /twirp /twirp/*
+    handle @private {
+        respond "Not found" 404
+    }
+    @rtc path /rtc /rtc/*
     handle @rtc {
+        forward_auth voice-api:8080 {
+            uri /internal/voice/admit
+        }
         reverse_proxy livekit:7880
     }
-    # The legacy token API has no room-membership check. Do not publish it.
+    # Keep application entrypoints closed until full browser/media acceptance.
     handle /v1/token {
         respond "Voice authentication is not ready for public access" 503
     }

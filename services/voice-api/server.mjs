@@ -1,7 +1,8 @@
 import http from 'node:http';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient, TokenVerifier } from 'livekit-server-sdk';
 import { createFixedWindowRateLimiter, createGisService, GisServiceError } from './gis-service.mjs';
 import { createVoiceService, VoiceServiceError } from './voice-service.mjs';
+import { createVoiceAccessGuard, extractVoiceToken } from './voice-access-guard.mjs';
 
 const PORT = Number.parseInt(process.env.PORT || '8080', 10);
 const LIVEKIT_API_KEY = String(process.env.LIVEKIT_API_KEY || '').trim();
@@ -100,10 +101,20 @@ function readJsonBody(request) {
     });
 }
 
+const guardEnabled = process.env.VOICE_ACCESS_GUARD === '1';
+if (guardEnabled && !process.env.LIVEKIT_HTTP_URL) throw new Error('LIVEKIT_HTTP_URL is required for the voice guard');
+const voiceGuard = guardEnabled ? createVoiceAccessGuard({
+    supabaseUrl: SUPABASE_URL, serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+    roomClient: new RoomServiceClient(process.env.LIVEKIT_HTTP_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { requestTimeout: 5 }),
+    verifyToken: token => new TokenVerifier(LIVEKIT_API_KEY, LIVEKIT_API_SECRET).verify(token, 0),
+}) : null;
+voiceGuard?.start();
+
 const voiceService = createVoiceService({
     supabaseUrl: SUPABASE_URL,
     serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
     wsUrl: LIVEKIT_WS_URL,
+    authorizeJoin: voiceGuard?.authorizeJoin,
     signToken: async (participant, grants) => {
         const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
             ...participant, ttl: TOKEN_TTL,
@@ -120,6 +131,7 @@ const gisService = createGisService({
 const consumeCatalogRequest = createFixedWindowRateLimiter({ limit: 40 });
 const consumeAdminRequest = createFixedWindowRateLimiter({ limit: 30 });
 const consumeVoiceRequest = createFixedWindowRateLimiter({ limit: 60 });
+const consumeAdmissionRequest = createFixedWindowRateLimiter({ limit: 120 });
 
 function enforceRateLimit(request, response, consume) {
     const result = consume(getClientIp(request));
@@ -146,13 +158,33 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === 'GET' && url.pathname === '/healthz') {
-        sendJson(request, response, 200, {
-            ok: true,
+        const guard = voiceGuard?.state();
+        sendJson(request, response, !guard || guard.ready ? 200 : 503, {
+            ok: !guard || guard.ready,
             service: 'voice-api',
             wsUrl: LIVEKIT_WS_URL,
             gisBackendConfigured: gisService.isBackendConfigured(),
+            voiceGuard: guard || { enabled: false },
             timestamp: new Date().toISOString(),
         });
+        return;
+    }
+
+    // Accessible only to the private proxy. The proxy must block /internal/*
+    // externally and overwrite the original URI/method headers.
+    if (method === 'GET' && url.pathname === '/internal/voice/admit') {
+        response.setHeader('Cache-Control', 'no-store');
+        if (!isAllowedRequestOrigin(request)) { sendJson(request, response, 403, { ok: false }); return; }
+        if (!enforceRateLimit(request, response, consumeAdmissionRequest)) return;
+        try {
+            if (!voiceGuard) throw new VoiceServiceError(503, 'Voice guard is unavailable.');
+            const token = extractVoiceToken(request.headers['x-forwarded-uri'], request.headers.authorization,
+                request.headers['x-forwarded-method']);
+            await voiceGuard.admit(token);
+            sendJson(request, response, 200, { ok: true });
+        } catch (error) {
+            sendJson(request, response, error instanceof VoiceServiceError ? error.status : 503, { ok: false });
+        }
         return;
     }
 
@@ -232,3 +264,10 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`voice-api listening on :${PORT}`);
 });
+
+async function shutdown() {
+    server.close(); server.closeIdleConnections();
+    await voiceGuard?.dispose();
+}
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
