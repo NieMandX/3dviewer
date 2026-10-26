@@ -139,8 +139,9 @@ acceptance; those remain publication gates.
   configuration is for private signaling validation only. Production needs
   separately reviewed host networking, advertised IP, TLS and media ingress.
 - The Checker API and single worker are enabled only against the migrated
-  private database after queue acceptance below. The old health timer and
-  public proxy route remain disabled. Never connect this worker to the source.
+  private database after queue acceptance below. Its health timer uses the
+  loopback listener; the public proxy route remains disabled. Never connect
+  this worker to the source.
 
 ## Isolated Checker Preparation
 
@@ -189,9 +190,44 @@ baseline data counts separately before enabling the accepted services on boot.
 
 The private API listens only on `127.0.0.1:8081`. The staging proxy still returns
 503 for `/model-check`; no browser runtime URL or ingress changes are implied.
-Keep the existing health timer disabled until its old Yandex bridge target has
-been adapted. Save the new mode-600 credentials and unit overrides in protected
-server/local backups outside Git.
+Set the health service's `MODEL_CHECK_HEALTH_URL` to
+`http://127.0.0.1:8081/health` using a Cloud.ru-only systemd drop-in. Install the
+updated `services/model-checker/deploy/healthcheck.py`, back up its previous
+version and any override, reload systemd and run the health service manually.
+Enable the existing health timer only after that check succeeds. The script's
+default remains the old Yandex listener; do not deploy this override there.
+Save the mode-600 credentials and unit overrides in protected server/local
+backups outside Git. The timer logs failures locally; it does not send alerts.
+
+### Running Cancellation And Recovery
+
+`probe-checker-lifecycle.mjs` is a destructive **private fixture** test, not a
+production health check. Run it as root with `LPM_STAGING_PROBE=1` and the pinned
+`NODE_EXTRA_CA_CERTS`, under `/run/lock/lpm-cloudru-migration.lock`, only after
+the initial queue acceptance. It requires an empty queue/leases, one enabled
+matching engine, an active single worker and empty workspace. It never registers
+or changes an engine. Do not run it concurrently with another migration/test.
+
+Pass a protected JSON file as its first argument with `path`, `name`, `bytes`
+and `sha256` of an existing target Storage ZIP (100 MiB to 2 GiB). `path` is its
+canonical `projects/<uuid>/<filename>.zip` key; `name` is the original basename.
+The original 5.5 MB control fixture must still be in the private probes folder.
+No credentials belong in this JSON or in command-line arguments.
+
+The probe copies the large object into a temporary owner's project, verifies
+its hash and runs completion, cancellation after the Blender stage is observed,
+invalid ZIP rejection and SIGKILL of the single Node worker. It verifies lease
+expiry, systemd restart and completion of the next queued control ZIP, without
+manually starting a second worker. Incomplete/cancelled jobs must not expose a
+completed report. Container identity/isolation, source integrity and workspace
+cleanup are checked. Per-job `seconds` measures only that terminal polling
+window, not total execution time when other jobs are already being observed.
+
+Reports and fixture IDs are saved under `/var/backups/lpmview-migration/` before
+mutation. The probe deletes only its own fixture data and restarts the worker
+after clean teardown. If cleanup fails it deliberately leaves the worker stopped:
+inspect the protected report and recorded IDs before resuming or retrying.
+Check baseline database counts and retained artifacts independently afterward.
 
 ## Storage And Backups
 
@@ -228,9 +264,16 @@ stored database archive is not a successful database restore.
   rights, room-scoped reads, concurrent deduplication, queued cancellation and
   report SHA-256/engine identity were checked. The source ZIP was unchanged;
   test fixtures, jobs, leases and containers were removed. API and worker are
-  enabled only in private staging; the existing health timer remains disabled.
-  Large ZIPs, cancellation during an active Blender job and browser acceptance
-  are not covered by this small-fixture test.
+  enabled only in private staging.
+- The subsequent lifecycle probe processed a 238,948,040-byte ZIP in 38.856 s
+  from its first queue poll, verified the report provenance and original hash,
+  and cancelled an active Blender run in 1.619 s. A damaged ZIP became
+  `incomplete`, without an accessible report. After SIGKILL of the worker, its
+  lease expired (`worker_lease_expired`) and the next queued 5.5 MB control ZIP
+  completed automatically. Fixtures, containers and temporary directories were
+  removed. The health timer is enabled against the loopback API and its first
+  check passed. This is one large archive, not a 2 GiB limit, long-duration load,
+  whole-VM outage, browser or physical-device acceptance test.
 - A 220,777,893-byte Storage object downloaded directly to the VM in 11.328
   seconds (155.91 Mbit/s); its SHA-256 matched the local source. The earlier
   laptop download failure and Supabase Storage integration remain unresolved.
@@ -242,10 +285,10 @@ The owner stopped support polling on 2026-10-26 and prohibited further messages
 to support. Continue using the verified private SSH path through the voice VM;
 do not recreate the polling automation or contact support without new approval.
 
-Still required: GIS acceptance, broader Checker failure/large-file tests and
-health monitoring, active voice-session revocation, TLS/public media
-connectivity, two-device calls, full viewer staging tests, offsite backup/restore
-validation, and separately approved DNS cutover.
+Still required: GIS acceptance, prolonged/concurrent load and whole-VM recovery,
+external alerts, TLS/public media connectivity, two-device calls, full viewer
+staging tests, offsite backup/restore validation, and separately approved DNS
+cutover.
 
 References: [LiveKit deployment](https://docs.livekit.io/transport/self-hosting/deployment/),
 [Docker installation](https://docs.docker.com/engine/install/ubuntu/),

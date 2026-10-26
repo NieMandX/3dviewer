@@ -152,9 +152,20 @@ must remain disabled until the engine identity and queue tests pass. On
 2026-10-26 these checks passed against the restored target using the original
 5.5 MB ZIP fixture. The API and worker now run in private staging, with the API
 bound to loopback and `/model-check` still blocked by the staging proxy. Test
-records were removed and the original data counts rechecked. This is not a
-large-file, browser, running-cancellation or full regulatory acceptance test.
-The old health timer remains off pending adaptation to the new private listener.
+records were removed and the original data counts rechecked. The subsequent
+private lifecycle probe completed a 238,948,040-byte ZIP with verified source
+and engine identity, cancelled an active Blender run, rejected a damaged ZIP
+and processed the next queued job after the Node worker was killed and restarted
+by systemd. The interrupted job was marked incomplete after lease expiry, not
+completed. Temporary objects/jobs/containers were cleaned up. This does not
+establish whole-VM recovery, maximum-size throughput, browser or regulatory
+compliance. See the staging procedure for the probe's prerequisites and cleanup.
+
+The existing health timer is now enabled only on the new VM, with a service
+override targeting `http://127.0.0.1:8081/health`. It checks services, free
+workspace and a bounded JSON health response, without redirects or proxies.
+The Yandex default remains unchanged. Failures are recorded in systemd/journal;
+external notifications are still an acceptance gap.
 
 Validate the actual Caddy config before activation. Verify TLS with the pinned
 CA, verify failure without it, test allowed API paths from voice and denied

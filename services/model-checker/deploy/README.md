@@ -78,6 +78,16 @@ It checks process availability, the API endpoint and minimum free space; it is
 not an external alerting service or proof of full queue processing. Local Docker
 logs are bounded (2 x 10 MiB per container); containers are removed after a job.
 
+The default health endpoint remains `http://172.18.0.1:8081/health`. On the
+separate Cloud.ru staging VM, set `MODEL_CHECK_HEALTH_URL` to
+`http://127.0.0.1:8081/health` in a health-service systemd drop-in, then reload
+systemd and run the service before enabling its timer. Only these two local
+listeners are accepted; proxies and redirects are disabled and the response
+must be bounded JSON with `ok: true`. This override must not be deployed to
+the existing Yandex host. Credentials are neither needed nor read by the probe.
+`python3 -B deploy/healthcheck_test.py` runs its isolated tests; root CI also
+runs them through `healthcheck.test.mjs`.
+
 Restart the worker after restarting its rootless Docker daemon, so its socket
 bind is recreated. Stop the worker before maintenance of its filesystem or
 before manually cleaning temporary files. Never use system Docker prune.
