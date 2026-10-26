@@ -209,6 +209,46 @@ model bytes, voice/Checker configuration and the private TLS CA. Ongoing model
 backups, a separate failure domain, full-server recovery and external failure
 notifications remain open. See [backup operation and limits](../infra/supabase-cloudru/BACKUPS.md).
 
+## Private Browser Acceptance
+
+On 2026-10-26 an isolated desktop Chrome connected to the migrated Cloud.ru
+Auth, REST, Storage and Realtime APIs through strict-key SSH tunnels. Only the
+local test server's runtime-config response was overridden; the repository's
+runtime configuration, DNS, public ingress and published site were unchanged.
+The backend responses were real, not mocked. Playwright was used because the
+Browser plugin was unavailable.
+
+The same flow passed in actual WebGPU and explicit WebGL modes:
+
+- Registered owner password login and anonymous room-invite entry.
+- A 5,509,617-byte ZIP loaded through private Storage; orbit changed both the
+  camera position and rendered screenshot pixels.
+- Two clients exchanged chat messages; a guest-created camera and annotation
+  appeared for the owner and persisted after reload and invite re-entry.
+- Forced offline/online recovery retained model and triangle counts and
+  resumed message delivery. The open chat and unsent draft were preserved.
+- Switching to an empty room cleared the scene; switching back reloaded it.
+- App disposal left zero loaded models and zero Realtime subscriptions.
+
+The check exposed a same-room reconnect bug that closed the chat and rebuilt
+its history. Reconnect now retains the panel's open/hidden state, history,
+deduplication state and contributor filters. Normal exit/disposal still clears
+them, and initial entry still hides chat. The CI regression also exercises a
+failed reconnect followed by retry, retained draft/history-node identity,
+duplicate prevention and a chat kept hidden through another reconnect.
+
+During deliberate network interruption, the channel error and failed first
+reconnect are logged before automatic recovery. There were no page exceptions
+or unrelated browser errors. Existing FBX unsupported-map warnings and the
+Three.js Source rename warning remain. Reload-by-invite still requires the
+normal entry confirmation; this is not automatic registered-session recovery.
+
+This was a small-model desktop acceptance check, not a large-room benchmark or
+physical iPad test. Mobile-sized screenshots do not establish device support.
+Public HTTPS/WebSocket/ICE, two-device voice, GIS and the Checker browser UI
+remain separate gates. Protected evidence and fixture-cleanup counts belong
+in the private migration checkpoint, not in this public repository.
+
 ## Acceptance Before Cutover
 
 - All containers healthy after reboot; no public database or admin-console ports.

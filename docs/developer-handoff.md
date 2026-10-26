@@ -11,6 +11,12 @@ Cloud.ru database backups now run daily with an isolated restore check and
 encrypted off-VM copy; a downloaded encrypted copy also passed restoration.
 This does not cover ongoing model-file backups or full-server disaster recovery.
 See `infra/supabase-cloudru/BACKUPS.md` for limits and recovery requirements.
+Private browser acceptance now covers real owner/guest entry, ZIP loading,
+chat/camera/annotation delivery, offline recovery, room switching and disposal
+in desktop Chrome WebGPU/WebGL. Same-room reconnect preserves an open chat
+and its history/draft. These SSH-tunneled checks do not establish public TLS,
+two-device voice, GIS, Checker UI or physical-mobile readiness; see the migration
+runbook and private checkpoint for evidence and cleanup verification.
 
 This document transfers engineering context, not credentials. Secret values
 must be transferred through personal account access or a password manager,

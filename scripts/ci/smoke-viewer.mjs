@@ -1836,7 +1836,10 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
                 }
                 if (this.table === 'room_cameras') return { data: [], error: null };
                 if (this.table === 'annotations') return { data: [], error: null };
-                if (this.table === 'messages') return { data: [], error: null };
+                if (this.table === 'messages') return { data: [{
+                    id: 'resume-message', author_id: user.id, author_name: 'Resume User',
+                    body: 'Preserved chat history', created_at: '2026-01-01T00:00:00Z',
+                }], error: null };
                 return { data: [], error: null };
             }
             async maybeSingle() {
@@ -1954,6 +1957,19 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
         roomSelect.value = 'room-1';
         roomSelect.dispatchEvent(new Event('change', { bubbles: true }));
         await waitFor(() => (globalThis.__lpmResumeSmoke?.roomChannelCreates || 0) >= 1);
+        await waitFor(() => globalThis.__LPMVIEW_DIAGNOSTICS?.getSnapshot?.().collab?.autoResumeEnabled);
+        const chatPanel = document.querySelector('#collabChatPanel');
+        const chatInput = document.querySelector('#collabChatInput');
+        const chatLog = document.querySelector('#collabChatLog');
+        const initiallyHidden = chatPanel.hidden;
+        document.querySelector('#collabChatToggleBtn').click();
+        chatInput.value = 'Unsent reconnect draft';
+        const historyNode = chatLog.firstElementChild;
+        let chatClosedDuringReconnect = false;
+        const observer = new MutationObserver(() => {
+            if (chatPanel.hidden) chatClosedDuringReconnect = true;
+        });
+        observer.observe(chatPanel, { attributes: true, attributeFilter: ['hidden'] });
 
         const THREE = await import('three');
         const root = new THREE.Group();
@@ -1995,9 +2011,26 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
             removeChannel: globalThis.__lpmResumeSmoke.removeChannel,
             connected: collabDiagnostics?.connected === true,
             realtimeChannels: Number(collabDiagnostics?.totalRealtimeChannels || 0),
+            initiallyHidden,
+            chatVisible: !chatPanel.hidden,
+            chatClosedDuringReconnect,
+            historyNodePreserved: !!historyNode && historyNode === chatLog.firstElementChild,
+            historyRows: chatLog.children.length,
+            draft: chatInput.value,
         };
-
+        observer.disconnect();
+        document.querySelector('#collabChatToggleBtn').click();
+        const channelCount = globalThis.__lpmResumeSmoke.roomChannelCreates;
+        window.dispatchEvent(new Event('offline'));
+        window.dispatchEvent(new Event('online'));
+        const hiddenRecovered = await waitFor(() => (
+            globalThis.__lpmResumeSmoke.roomChannelCreates > channelCount
+            && globalThis.__LPMVIEW_DIAGNOSTICS?.getSnapshot?.().collab?.connected
+            && !globalThis.__LPMVIEW_DIAGNOSTICS?.getSnapshot?.().collab?.autoResumeInFlight
+        ));
+        after.hiddenChatStayedHidden = hiddenRecovered && chatPanel.hidden;
         await globalThis.viewerApp.dispose();
+        after.chatClearedOnDispose = chatPanel.hidden && chatLog.children.length === 0;
         return {
             before,
             after,
@@ -2017,6 +2050,14 @@ async function runCollabAutoResumeKeepsModelsSmoke(browser, baseUrl) {
     assert.equal(result.after.loadedCount, 1, 'Collab auto-resume smoke: reconnect removed loaded room model');
     assert.equal(result.after.preservedRecord, true, 'Collab auto-resume smoke: loaded model record was not preserved');
     assert.equal(result.after.inScene, true, 'Collab auto-resume smoke: loaded room model was removed from scene');
+    assert.equal(result.after.initiallyHidden, true, 'Collab auto-resume smoke: initial chat must remain hidden');
+    assert.equal(result.after.chatVisible, true, 'Collab auto-resume smoke: open chat was closed');
+    assert.equal(result.after.chatClosedDuringReconnect, false, 'Collab auto-resume smoke: chat flickered closed');
+    assert.equal(result.after.historyNodePreserved, true, 'Collab auto-resume smoke: chat history was rebuilt');
+    assert.equal(result.after.historyRows, 1, 'Collab auto-resume smoke: duplicate history after reconnect');
+    assert.equal(result.after.draft, 'Unsent reconnect draft', 'Collab auto-resume smoke: draft was lost');
+    assert.equal(result.after.hiddenChatStayedHidden, true, 'Collab auto-resume smoke: hidden chat reopened');
+    assert.equal(result.after.chatClearedOnDispose, true, 'Collab auto-resume smoke: chat survived disposal');
     diagnostics.assertNoErrors('Collab auto-resume keeps models smoke');
     await page.close();
 }

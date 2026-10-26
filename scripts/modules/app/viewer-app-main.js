@@ -2069,13 +2069,16 @@ export class ViewerApp {
             setCollabConnectionState(false, preserveAutoResume ? 'reconnect' : 'session-closed');
             setCollabStatus('off');
             updateCollabStatusButton();
-            setChatPanelAvailability(false);
             setRoomContentOpen(false);
             updateRoomContentButton();
-            seenChatMessageIds.clear();
-            if (collabChatLogEl) collabChatLogEl.innerHTML = '';
-            collabContributors.clear();
-            if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
+            // Reconnecting the same room must not close chat or discard its history.
+            if (!preserveAutoResume) {
+                setChatPanelAvailability(false);
+                seenChatMessageIds.clear();
+                if (collabChatLogEl) collabChatLogEl.innerHTML = '';
+                collabContributors.clear();
+                if (collabChatParticipantsEl) collabChatParticipantsEl.innerHTML = '';
+            }
 
             roomCameraCount = 0;
             if (!preserveAutoResume) {
