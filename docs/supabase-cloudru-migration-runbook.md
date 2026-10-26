@@ -245,9 +245,47 @@ normal entry confirmation; this is not automatic registered-session recovery.
 
 This was a small-model desktop acceptance check, not a large-room benchmark or
 physical iPad test. Mobile-sized screenshots do not establish device support.
-Public HTTPS/WebSocket/ICE, two-device voice, GIS and the Checker browser UI
-remain separate gates. Protected evidence and fixture-cleanup counts belong
+Public HTTPS/WebSocket/ICE, two-device voice and GIS provider data remain
+separate gates. The Checker browser check is recorded below. Protected evidence
+and fixture-cleanup counts belong
 in the private migration checkpoint, not in this public repository.
+
+### Checker And GIS Browser Checks
+
+On 2026-10-26 a second isolated desktop Chrome session, using actual WebGPU,
+tested the Checker panel against the private Cloud.ru API and worker. The
+loopback test origin matched the services' existing allowed origin; no server
+allowlist, runtime configuration in Git, public ingress or DNS was changed.
+The local proxy reached the Checker API through SSH, not through the staging
+Caddy `/model-check` route, which remains deliberately blocked.
+
+A temporary owner loaded a stored 5,509,617-byte ZIP and submitted it from the
+viewer. The real worker completed the job; the JSON report matched the source
+SHA256, pinned engine revision and immutable image identity. Report details
+expanded, JSON content was retrieved, both export links were present, and
+closing/reopening the panel loaded the persisted report. A 390x844 viewport
+had no horizontal report overflow; this was not a physical mobile-device test.
+The invited guest could read the report but could not submit a job either from
+the UI or by direct API request (403). Unauthenticated report access returned
+401. Disposal left zero models and Realtime subscriptions. The fixture report
+contained 40 passed, 4 warning and 28 not-checked items; successful execution
+does not mean full regulatory compliance or project acceptance.
+
+The migrated demo database currently has no `2gis_api_key` setting. The public
+status endpoint correctly returned `configured: false`, and a real surroundings
+request returned 503 with the viewer's missing-administrator-key message. The
+toggle reset and loading indicator cleared. Unauthenticated administration was
+denied (401). No provider geometry, road contours or height lookup was verified.
+Enter a current key with the required Places API permissions through the
+superuser administration connected to the **new Cloud.ru target**, then repeat
+the real surroundings test. Do not infer that the published viewer's runtime
+already points there, and do not recover old keys from chat or commit them.
+
+There were no page exceptions. The expected 401/403/503 responses and existing
+FBX unsupported-map/Three.js Source warnings were recorded separately. Temporary
+users, project, Storage object and Checker job were removed after completion.
+Full-size ZIP, cancellation and worker restart have separate server-side
+evidence; this browser run does not repeat or extend those claims.
 
 ## Acceptance Before Cutover
 

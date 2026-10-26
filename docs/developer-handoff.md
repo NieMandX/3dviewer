@@ -14,9 +14,13 @@ See `infra/supabase-cloudru/BACKUPS.md` for limits and recovery requirements.
 Private browser acceptance now covers real owner/guest entry, ZIP loading,
 chat/camera/annotation delivery, offline recovery, room switching and disposal
 in desktop Chrome WebGPU/WebGL. Same-room reconnect preserves an open chat
-and its history/draft. These SSH-tunneled checks do not establish public TLS,
-two-device voice, GIS, Checker UI or physical-mobile readiness; see the migration
-runbook and private checkpoint for evidence and cleanup verification.
+and its history/draft. The private Checker UI also passed real job submission,
+worker completion, report retrieval and owner/guest access checks in Chrome
+WebGPU. The migrated demo database has no configured 2GIS key; the missing-key
+message and loader recovery passed, but real provider data remains untested.
+These SSH-tunneled checks do not establish public TLS, two-device voice or
+physical-mobile readiness; see the migration runbook and private checkpoint
+for evidence and cleanup verification.
 
 This document transfers engineering context, not credentials. Secret values
 must be transferred through personal account access or a password manager,
