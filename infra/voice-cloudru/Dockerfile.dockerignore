@@ -5,3 +5,4 @@
 !services/voice-api/package-lock.json
 !services/voice-api/server.mjs
 !services/voice-api/gis-service.mjs
+!services/voice-api/voice-service.mjs

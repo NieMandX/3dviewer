@@ -26,6 +26,7 @@ export function createVoiceController(options = {}) {
     const voiceApiUrl = normalizeApiUrl(options.voiceApiUrl);
     const audioMountEl = options.audioMountEl || null;
     const onState = typeof options.onState === 'function' ? options.onState : () => {};
+    const getAccessToken = typeof options.getAccessToken === 'function' ? options.getAccessToken : async () => '';
 
     if (!voiceApiUrl) {
         throw new Error('Voice API URL is missing.');
@@ -200,10 +201,15 @@ export function createVoiceController(options = {}) {
         roomEventCleanups.set(nextRoom, cleanups);
     }
 
-    async function requestToken(session, signal = null) {
+    async function requestToken(session, signal, generation) {
+        const accessToken = await getAccessToken();
+        signal?.throwIfAborted();
+        if (disposed || generation !== lifecycleGeneration) throw new Error('Voice connection cancelled.');
+        if (!accessToken) throw new Error('Voice session is required. Rejoin the room.');
         const response = await fetch(`${voiceApiUrl}/v1/token`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+            cache: 'no-store',
             body: JSON.stringify(session),
             signal: signal || undefined,
         });
@@ -225,7 +231,7 @@ export function createVoiceController(options = {}) {
         try {
             sdk = sdk || await loadLiveKitClient();
             if (disposed || generation !== lifecycleGeneration) return;
-            const tokenPayload = await requestToken(session, tokenAbortController?.signal || null);
+            const tokenPayload = await requestToken(session, tokenAbortController?.signal || null, generation);
             if (disposed || generation !== lifecycleGeneration) return;
             nextRoom = new sdk.Room();
             room = nextRoom;

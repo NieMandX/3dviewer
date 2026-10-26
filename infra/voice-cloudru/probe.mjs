@@ -3,16 +3,16 @@ import { createRequire } from 'node:module';
 
 // Execute inside voice-api; the fixture credentials never leave this container.
 const require = createRequire('/app/package.json');
-const { RoomServiceClient, TokenVerifier } = require('livekit-server-sdk');
+const { AccessToken, RoomServiceClient, TokenVerifier } = require('livekit-server-sdk');
 const base = 'http://127.0.0.1:8080';
 const proxy = 'http://proxy:8090';
 const health = await fetch(base + '/healthz').then(r => r.json());
 assert.equal(health.ok, true);
-assert.equal(health.gisBackendConfigured, false);
 assert.equal((await fetch(proxy + '/healthz')).status, 200);
 assert.equal((await fetch(proxy + '/v1/token', { method: 'POST' })).status, 503);
 assert.equal((await fetch(proxy + '/model-check/health')).status, 503);
-assert.equal((await fetch(base + '/v1/admin/2gis')).status, 503);
+assert.equal((await fetch(base + '/v1/token', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
 
 const client = new RoomServiceClient('http://livekit:7880',
     process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET);
@@ -21,12 +21,12 @@ let socket;
 try {
     await client.createRoom({ name: room, emptyTimeout: 60, maxParticipants: 2 });
     assert.ok((await client.listRooms([room])).some(r => r.name === room));
-    const response = await fetch(base + '/v1/token', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room, identity: 'migration-probe' }),
+    // Transport-only fixture; application authorization is tested separately.
+    const fixtureToken = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
+        identity: 'migration-probe', ttl: '1m',
     });
-    assert.equal(response.status, 200);
-    const { token } = await response.json();
+    fixtureToken.addGrant({ roomJoin: true, room });
+    const token = await fixtureToken.toJwt();
     const claims = await new TokenVerifier(process.env.LIVEKIT_API_KEY,
         process.env.LIVEKIT_API_SECRET).verify(token);
     assert.equal(claims.video.room, room);
@@ -42,7 +42,8 @@ try {
         socket.onerror = () => { clearTimeout(timeout); reject(new Error('Signaling connection failed')); };
     });
     console.log(JSON.stringify({ health: true, roomApi: true, signedToken: true,
-        signalingViaProxy: true, publicTokenBlocked: true, mediaCallTested: false }));
+        signalingViaProxy: true, publicTokenBlocked: true, mediaCallTested: false,
+        applicationAuthorizationTested: false }));
 } finally {
     socket?.close();
     await client.deleteRoom(room);

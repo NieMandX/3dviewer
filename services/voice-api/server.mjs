@@ -1,13 +1,13 @@
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { AccessToken } from 'livekit-server-sdk';
 import { createFixedWindowRateLimiter, createGisService, GisServiceError } from './gis-service.mjs';
+import { createVoiceService, VoiceServiceError } from './voice-service.mjs';
 
 const PORT = Number.parseInt(process.env.PORT || '8080', 10);
 const LIVEKIT_API_KEY = String(process.env.LIVEKIT_API_KEY || '').trim();
 const LIVEKIT_API_SECRET = String(process.env.LIVEKIT_API_SECRET || '').trim();
 const LIVEKIT_WS_URL = String(process.env.LIVEKIT_WS_URL || 'wss://rtc.agr.vision').trim();
-const TOKEN_TTL = String(process.env.VOICE_TOKEN_TTL || '6h').trim();
+const TOKEN_TTL = String(process.env.VOICE_TOKEN_TTL || '10m').trim();
 const SUPABASE_URL = String(process.env.SUPABASE_URL || 'https://supabase.agr.vision').trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const ALLOWED_ORIGINS = String(process.env.VOICE_API_ALLOWED_ORIGINS
@@ -100,77 +100,18 @@ function readJsonBody(request) {
     });
 }
 
-function normalizeRoom(value) {
-    const room = String(value || '').trim();
-    if (!room || room.length > 128) return '';
-    return room;
-}
-
-function normalizeIdentity(value) {
-    const identity = String(value || '').trim();
-    if (!identity) return `guest-${randomUUID()}`;
-    return identity.slice(0, 128);
-}
-
-function normalizeName(value, fallback) {
-    const name = String(value || '').trim();
-    if (!name) return fallback;
-    return name.slice(0, 128);
-}
-
-function normalizeMetadata(value) {
-    if (value == null) return '{}';
-    if (typeof value === 'string') return value;
-    try {
-        return JSON.stringify(value);
-    } catch (_) {
-        return '{}';
-    }
-}
-
-async function createJoinToken(body) {
-    const room = normalizeRoom(body.room);
-    if (!room) {
-        throw new Error('Field "room" is required');
-    }
-
-    const identity = normalizeIdentity(body.identity);
-    const name = normalizeName(body.name, identity);
-    const metadata = normalizeMetadata(body.metadata);
-    const canPublish = body?.permissions?.canPublish !== false;
-    const canSubscribe = body?.permissions?.canSubscribe !== false;
-    const canPublishData = body?.permissions?.canPublishData !== false;
-
-    const accessToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-        identity,
-        name,
-        metadata,
-        ttl: TOKEN_TTL,
-    });
-
-    accessToken.addGrant({
-        roomJoin: true,
-        room,
-        canPublish,
-        canSubscribe,
-        canPublishData,
-    });
-
-    const token = await accessToken.toJwt();
-
-    return {
-        token,
-        wsUrl: LIVEKIT_WS_URL,
-        room,
-        identity,
-        name,
-        permissions: {
-            canPublish,
-            canSubscribe,
-            canPublishData,
-        },
-    };
-}
+const voiceService = createVoiceService({
+    supabaseUrl: SUPABASE_URL,
+    serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+    wsUrl: LIVEKIT_WS_URL,
+    signToken: async (participant, grants) => {
+        const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+            ...participant, ttl: TOKEN_TTL,
+        });
+        token.addGrant(grants);
+        return token.toJwt();
+    },
+});
 
 const gisService = createGisService({
     supabaseUrl: SUPABASE_URL,
@@ -178,6 +119,7 @@ const gisService = createGisService({
 });
 const consumeCatalogRequest = createFixedWindowRateLimiter({ limit: 40 });
 const consumeAdminRequest = createFixedWindowRateLimiter({ limit: 30 });
+const consumeVoiceRequest = createFixedWindowRateLimiter({ limit: 60 });
 
 function enforceRateLimit(request, response, consume) {
     const result = consume(getClientIp(request));
@@ -260,14 +202,22 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === 'POST' && url.pathname === '/v1/token') {
+        response.setHeader('Cache-Control', 'no-store');
+        if (!isAllowedRequestOrigin(request)) {
+            sendJson(request, response, 403, { ok: false, error: 'Origin is not allowed' });
+            return;
+        }
+        if (!enforceRateLimit(request, response, consumeVoiceRequest)) return;
         try {
-            const body = await readJsonBody(request);
-            const payload = await createJoinToken(body);
+            const body = await readJsonBody(request).catch(() => {
+                throw new VoiceServiceError(400, 'Invalid JSON body');
+            });
+            const payload = await voiceService.createJoinToken(request.headers.authorization, body);
             sendJson(request, response, 200, payload);
         } catch (error) {
-            sendJson(request, response, 400, {
+            sendJson(request, response, error instanceof VoiceServiceError ? error.status : 503, {
                 ok: false,
-                error: error instanceof Error ? error.message : 'Token generation failed',
+                error: error instanceof VoiceServiceError ? error.message : 'Voice token generation failed.',
             });
         }
         return;

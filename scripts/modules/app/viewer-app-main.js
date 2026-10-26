@@ -1220,6 +1220,11 @@ export class ViewerApp {
             voiceController = createVoiceController({
                 voiceApiUrl,
                 audioMountEl: voiceAudioMountEl,
+                getAccessToken: async () => {
+                    const result = await collabController?.supabase?.auth?.getSession();
+                    if (result?.error) throw new Error('Voice session is unavailable. Rejoin the room.');
+                    return result?.data?.session?.access_token || '';
+                },
                 onState: applyVoiceState,
             });
             return voiceController;

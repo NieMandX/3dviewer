@@ -9123,6 +9123,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             const states = [];
             const controller = createVoiceController({
                 voiceApiUrl: 'https://voice.example',
+                getAccessToken: async () => 'session-token',
                 onState: (state) => states.push({
                     connected: !!state.connected,
                     connecting: !!state.connecting,
@@ -9158,6 +9159,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             const tokenAbortRoomCountBefore = roomInstances.length;
             const tokenAbortController = createVoiceController({
                 voiceApiUrl: 'https://voice.example',
+                getAccessToken: async () => 'session-token',
                 onState: () => {},
             });
             const tokenAbortResultPromise = tokenAbortController
@@ -9185,6 +9187,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             let staleRejectDetachCalls = 0;
             const staleRejectController = createVoiceController({
                 voiceApiUrl: 'https://voice.example',
+                getAccessToken: async () => 'session-token',
                 audioMountEl: staleRejectAudioMount,
                 onState: () => {},
             });
@@ -9219,6 +9222,7 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             let attachCalls = 0;
             const controllerWithAudio = createVoiceController({
                 voiceApiUrl: 'https://voice.example',
+                getAccessToken: async () => 'session-token',
                 audioMountEl: audioMount,
                 onState: () => {},
             });
@@ -9242,7 +9246,50 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
             await controllerWithAudio.dispose();
             const audioRoomHandlersAfterDispose = audioRoom?.handlerCount?.() ?? -1;
 
+            const authRequests = [];
+            globalThis.fetch = async (_url, options) => {
+                authRequests.push(options);
+                return resolvingTokenFetch();
+            };
+            let authCalls = 0;
+            const authController = createVoiceController({
+                voiceApiUrl: 'https://voice.example',
+                getAccessToken: async () => `fresh-session-${++authCalls}`,
+            });
+            await authController.connect({ room: 'room:auth' });
+            await authController.disconnect();
+            await authController.connect({ room: 'room:auth' });
+            await authController.dispose();
+            const authHeaders = authRequests.map(request => request.headers.Authorization);
+            const sessionTokenInBody = authRequests.some(request => request.body.includes('fresh-session'));
+            const requestsBeforeStaleAuth = authRequests.length;
+
+            let releaseSession;
+            let signalSessionStarted;
+            const sessionStarted = new Promise(resolve => { signalSessionStarted = resolve; });
+            const staleAuthController = createVoiceController({
+                voiceApiUrl: 'https://voice.example',
+                getAccessToken: () => {
+                    signalSessionStarted();
+                    return new Promise(resolve => { releaseSession = resolve; });
+                },
+            });
+            const staleAuthConnection = staleAuthController.connect({ room: 'room:old' });
+            await sessionStarted;
+            await staleAuthController.dispose();
+            releaseSession('stale-session');
+            await staleAuthConnection;
+            const requestsAfterStaleAuth = authRequests.length;
+
+            const missingAuthController = createVoiceController({ voiceApiUrl: 'https://voice.example' });
+            const missingAuthResult = await missingAuthController.connect({ room: 'room:missing' })
+                .then(() => 'resolved', error => error.message);
+            await missingAuthController.dispose();
+            const requestsAfterMissingAuth = authRequests.length;
+
             return {
+                authHeaders, sessionTokenInBody, requestsBeforeStaleAuth, requestsAfterStaleAuth,
+                missingAuthResult, requestsAfterMissingAuth,
                 connectResult,
                 statesAfterRace,
                 staleDisconnectCalls: staleRoom?.disconnectCalls || 0,
@@ -9272,6 +9319,11 @@ async function runVoiceControllerLifecycleSmoke(browser, baseUrl) {
     });
 
     assert.equal(result.connectResult, 'resolved', 'Voice controller smoke: cancelled connect rejected');
+    assert.deepEqual(result.authHeaders, ['Bearer fresh-session-1', 'Bearer fresh-session-2']);
+    assert.equal(result.sessionTokenInBody, false, 'Voice session leaked into request body');
+    assert.equal(result.requestsAfterStaleAuth, result.requestsBeforeStaleAuth, 'Stale session triggered a voice request');
+    assert.equal(result.requestsAfterMissingAuth, result.requestsBeforeStaleAuth, 'Missing session triggered a voice request');
+    assert.match(result.missingAuthResult, /Voice session is required/);
     assert.equal(result.staleDisconnectCalls >= 1, true, 'Voice controller smoke: stale connecting room was not disconnected');
     assert.equal(result.staleHandlersAfterDisconnect, 0, 'Voice controller smoke: stale room event handlers leaked after disconnect');
     assert.deepEqual(result.staleMicCalls, [], 'Voice controller smoke: stale connect enabled the microphone');

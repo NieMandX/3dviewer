@@ -34,16 +34,52 @@ voice API source files; it excludes local environment files and credentials.
 
 The protocol probe creates and deletes its own temporary room. It verifies
 the Room API, signed tokens, and a signaling response through Caddy. It does
-not publish audio or establish a two-device WebRTC media call.
+not test application authorization, publish audio or establish a two-device
+WebRTC media call.
+
+## Application Voice Authorization
+
+`POST /v1/token` now requires a Supabase user bearer token. The API verifies
+the user through Auth and reads the requested `room:<uuid>` using that same
+user's JWT and existing room RLS. Project owners, superusers and room-scoped
+invite members are admitted; missing/expired sessions and inaccessible rooms
+fail closed. Identity and project/room metadata come from verified backend
+records, not client fields. The viewer obtains a fresh session before each
+join and cancels stale requests after disconnect/dispose.
+
+The default join-token TTL is ten minutes; staging also sets ten minutes.
+This restricts initial token use, not the duration of an established call.
+Revoking DB membership blocks new token issuance; it does **not** forcibly
+disconnect an already joined LiveKit participant or invalidate a previously
+issued token. Active-session eviction/reconnect policy remains a publication
+gate. See [LiveKit token lifecycle](https://docs.livekit.io/frontends/reference/tokens-grants/).
+
+Keep the existing Caddy `/v1/token` block. Under the migration lock, run the
+authorization probe only against the private migrated demo backend:
+
+```sh
+docker compose exec -T -e LPM_STAGING_PROBE=1 voice-api node --input-type=module < probe-authorization.mjs
+```
+
+The probe refuses any backend other than the private Cloud.ru endpoint. It
+creates temporary registered/anonymous users, a project and two rooms; tests
+real password login, invite isolation, superuser access, revocation and
+identity spoofing; verifies signed claims and signaling; then removes its
+own fixture IDs. Save its output in a protected log for cleanup auditing.
+It never changes existing users or projects and does not prove media works.
+
+For API-only upgrades, build a new image and set `VOICE_API_IMAGE` in the
+protected staging `.env` to its immutable image ID. Preserve `SOURCE_REVISION`
+for Caddy, existing LiveKit keys, private CA and Compose TLS override. Back up
+the old source/config first and use `up --no-deps --wait voice-api`; keep the
+old image for rollback. Do not rerun `init-staging.py` on this configured stack.
 
 ## Deliberately Disabled Features
 
-- The existing `/v1/token` application handler trusts a supplied room/identity
-  without checking database membership. Caddy blocks this route with 503.
-  Direct API access is loopback-only and used solely by the internal probe.
-  Add JWT/session verification and room-membership checks before publication;
-  CORS alone does not authorize access to a voice room.
-- GIS has no database service key. Its public/admin operations fail closed.
+- Caddy still blocks `/v1/token` with 503 pending full private acceptance and
+  separately approved publication. Direct API access is loopback-only.
+- GIS uses the migrated backend through the pinned private CA. Provider-key
+  validity and actual 2GIS requests still require separate verification.
 - LiveKit TURN and public media ports are not enabled. The bridge-network
   configuration is for private signaling validation only. Production needs
   separately reviewed host networking, advertised IP, TLS and media ingress.
@@ -88,6 +124,11 @@ stored database archive is not a successful database restore.
 - Docker 29.9.2 / Compose 5.6.1 installed on the new voice VM.
 - LiveKit 1.13.11, API and Caddy are healthy, read-only and loopback-only;
   the room/token/signaling probe passed before and after container restart.
+- The authenticated voice API subsequently passed real password and anonymous
+  Auth, owner/guest/superuser access, other-room denial, identity-spoofing and
+  new-token revocation checks before and after API restart. Temporary fixtures
+  were cleaned up. The proxy token route remains blocked; no media call or
+  active-participant eviction has been validated.
 - Rootless Checker imported with all nine layers matching the local image.
   A 5,509,617-byte source ZIP completed in 3.35 seconds under the existing
   2 CPU / 4 GiB / network-none runner, without OOM or input modification.
@@ -95,14 +136,14 @@ stored database archive is not a successful database restore.
 - A 220,777,893-byte Storage object downloaded directly to the VM in 11.328
   seconds (155.91 Mbit/s); its SHA-256 matched the local source. The earlier
   laptop download failure and Supabase Storage integration remain unresolved.
-- A database export copy and viewer 0.97.17 candidate are staged privately;
-  neither database restoration nor production promotion has occurred.
+- The demo database and all 30 Storage objects were subsequently restored on
+  the backend and verified. See the migration runbook and private checkpoint.
+  The viewer candidate remains private; production promotion has not occurred.
 
-Still required: backend SSH recovery, database restore/incremental migrations,
-destination Storage API transfer and verification, GIS credentials, Checker
-engine registration/queue test, authenticated voice membership, TLS/public
-media connectivity, two-device calls, full viewer staging tests, offsite
-backup/restore validation, and separately approved DNS cutover.
+Still required: public backend SSH recovery, GIS acceptance, Checker engine
+registration/queue test, active voice-session revocation, TLS/public media
+connectivity, two-device calls, full viewer staging tests, offsite backup/restore
+validation, and separately approved DNS cutover.
 
 References: [LiveKit deployment](https://docs.livekit.io/transport/self-hosting/deployment/),
 [Docker installation](https://docs.docker.com/engine/install/ubuntu/),

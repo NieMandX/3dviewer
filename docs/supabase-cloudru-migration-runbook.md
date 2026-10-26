@@ -107,9 +107,12 @@ installation, passed checks, retained artifacts and explicit activation gates.
 No DNS, production release, public ingress or source database was changed.
 The source database is not used by the staging queue worker, which stays off.
 
-The current voice token endpoint lacks a room-membership check. The staging
-proxy deliberately blocks it; fixing authorization is a publication gate, not
-a reason to open the legacy endpoint while migration proceeds.
+The voice token endpoint now verifies Supabase Auth and room access under the
+requesting user's RLS identity; it does not trust client identity or metadata.
+The staging proxy still deliberately blocks it. Run the isolated authorization
+probe in the voice staging procedure before publication. Denying new tokens
+after membership revocation is not equivalent to removing already connected
+participants; active-session eviction and real media acceptance remain gates.
 
 ## Private Backend HTTPS
 

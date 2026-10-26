@@ -28,7 +28,7 @@ services:
 
   voice-api:
     <<: *runtime
-    image: lpmview-voice-api:${SOURCE_REVISION:?Source revision required}
+    image: ${VOICE_API_IMAGE:-lpmview-voice-api:${SOURCE_REVISION:?Source revision required}}
     build:
       context: ../..
       dockerfile: infra/voice-cloudru/Dockerfile
