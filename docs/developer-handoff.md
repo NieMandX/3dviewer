@@ -2,6 +2,16 @@
 
 Last verified (viewer runtime): 2026-10-02; infrastructure inventory: 2026-09-11.
 
+Migration update (2026-10-26): the owner reports the Yandex-hosted `agr.vision`
+is unavailable and intends to retire Yandex in favor of Cloud.ru for the entire
+viewer. The Yandex inventory below is historical, not a claim of a working
+production site. Follow `docs/supabase-cloudru-migration-runbook.md` and the
+private migration checkpoint for current readiness and remaining cutover gates.
+Cloud.ru database backups now run daily with an isolated restore check and
+encrypted off-VM copy; a downloaded encrypted copy also passed restoration.
+This does not cover ongoing model-file backups or full-server disaster recovery.
+See `infra/supabase-cloudru/BACKUPS.md` for limits and recovery requirements.
+
 This document transfers engineering context, not credentials. Secret values
 must be transferred through personal account access or a password manager,
 never through Git, chat or an AI prompt.
@@ -670,7 +680,9 @@ For each completed change:
 - Large model downloads depend on the Envoy Storage timeout patch.
 - Physical Storage object deletion after project/room removal is still
   best-effort in parts of the administration flow.
-- Offsite Supabase backups and a tested clean restore remain required.
+- Cloud.ru database backups and an isolated clean restore are verified; ongoing
+  model/voice backup coverage, an independent failure domain and full-server
+  recovery remain required. Historical Yandex backup status is not current proof.
 - Invitation rotation, member revocation, delete audit log and ownership
   transfer need explicit product and permission design.
 - GLB support does not yet include external `.gltf` packages or KTX2.

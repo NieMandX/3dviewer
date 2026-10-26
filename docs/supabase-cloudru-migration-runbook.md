@@ -4,6 +4,13 @@ Started: 2026-10-25. This is a parallel migration, not a production release.
 The owner approved a monthly ceiling of RUB 17,000, including capacity for
 1 TB of model objects. Recheck traffic and retained backup charges before cutover.
 
+On 2026-10-26 the owner clarified that the Yandex-hosted `agr.vision` is already
+unavailable. Cloud.ru is intended to replace the whole Yandex installation,
+not remain a second test site. This is an owner-reported availability statement,
+not a new endpoint measurement. Preserve old resources and recovery copies until
+the replacement passes acceptance; DNS cutover and Yandex deletion are separate
+actions, neither authorized by a routine continuation of private testing.
+
 ## Sources And Safety
 
 - The owner explicitly accepted the hosted Supabase demo dataset
@@ -91,7 +98,9 @@ The seven missing application migrations and eight-table Realtime publication
 were applied on the destination only. Read-only RLS checks and a two-client
 Realtime broadcast probe passed; these do not replace real login, room-event,
 voice or end-to-end browser tests. A post-transfer database archive was created
-and its archive index checked; an independent restore test remains required.
+and its archive index checked. A newer two-database backup passed the independent
+restore procedure below; do not treat that as a restore test of the earlier
+single-database archive.
 
 The provider displayed an Object Storage upload restriction notice at setup.
 Do not treat successful bucket creation or one upload as a passed Storage test.
@@ -175,6 +184,31 @@ Record deployed hashes, CA fingerprint, security group ID and test results in
 the private migration checkpoint. Configuration files alone are not proof of
 successful deployment.
 
+## Verified Database Backups
+
+On 2026-10-26 a fresh backup of `postgres`, `_supabase`, roles and backend
+configuration was restored into a disposable, networkless PostgreSQL cluster.
+All 71 selected tables matched their source snapshot row hashes; all 48 policies
+and RLS flags matched. The encrypted off-VM copy was downloaded from Object
+Storage and restored independently a second time with the same result. The
+restore containers were removed; no source database/volume was modified.
+
+The installed `lpmview-cloudru-backup.service` then completed a separate full
+backup, isolated restore and encrypted upload. Its daily timer is enabled for
+03:15 UTC plus up to ten minutes of jitter. All 11 Supabase containers remained
+healthy with their published ports still loopback-only. The baseline remained
+191 Auth users, 13 projects, 22 rooms, 27 models, 154 annotations, 21 cameras
+and 30 Storage metadata records. Reports, local archives, recovery-key copy,
+installed hashes and encrypted snapshot IDs are recorded in the private
+migration checkpoint, never in the public repository.
+
+This closes the database restore/scheduling checks, not the complete disaster
+recovery requirement. The encrypted copy is in the same Cloud.ru account and
+bucket, not an independent provider or immutable storage. The job excludes
+model bytes, voice/Checker configuration and the private TLS CA. Ongoing model
+backups, a separate failure domain, full-server recovery and external failure
+notifications remain open. See [backup operation and limits](../infra/supabase-cloudru/BACKUPS.md).
+
 ## Acceptance Before Cutover
 
 - All containers healthy after reboot; no public database or admin-console ports.
@@ -185,6 +219,9 @@ successful deployment.
 - Voice/LiveKit, GIS integration and isolated Checker are deployed and tested.
 - Latest viewer passes CI and browser checks against staging without changing
   production endpoints; no physical-mobile claim without a real device test.
-- Scheduled local and offsite backups exist, with a successful restore test.
+- Database scheduled local/off-VM backups and independent restore have passed;
+  ongoing model/voice backup coverage and full-server recovery remain required.
 - HTTPS and WebSocket routing are validated before a controlled DNS cutover;
-  the previous provider and release remain available for rollback.
+  retain the old provider's resources/release and recovery copies, without
+  assuming the owner-reported unavailable Yandex installation is a working
+  rollback target. Prepare a tested recovery path before decommissioning it.

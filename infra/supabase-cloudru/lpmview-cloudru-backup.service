@@ -1,0 +1,16 @@
+[Unit]
+Description=Verified and encrypted Cloud.ru database backup
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -B /opt/lpmview/backup/daily-backup.py
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+TimeoutStartSec=1h
+MemoryMax=768M
+NoNewPrivileges=yes
+PrivateTmp=yes
