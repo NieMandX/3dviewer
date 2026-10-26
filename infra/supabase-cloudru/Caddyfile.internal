@@ -1,0 +1,26 @@
+{
+    admin off
+    auto_https disable_redirects
+    skip_install_trust
+    servers {
+        protocols h1 h2
+    }
+}
+
+https://{$LPM_BACKEND_PRIVATE_IP}:8443 {
+    bind {$LPM_BACKEND_PRIVATE_IP}
+    tls internal
+
+    @voice_api {
+        remote_ip {$LPM_VOICE_PRIVATE_IP}
+        path /auth/v1/* /rest/v1/* /storage/v1/* /realtime/v1/*
+    }
+    handle @voice_api {
+        reverse_proxy 127.0.0.1:8000 {
+            flush_interval -1
+        }
+    }
+    handle {
+        respond "Forbidden" 403
+    }
+}

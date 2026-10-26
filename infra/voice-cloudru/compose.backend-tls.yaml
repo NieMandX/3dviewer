@@ -1,0 +1,6 @@
+services:
+  voice-api:
+    environment:
+      NODE_EXTRA_CA_CERTS: /etc/lpmview-ca/backend-root.crt
+    volumes:
+      - /etc/lpmview-ca/backend-root.crt:/etc/lpmview-ca/backend-root.crt:ro

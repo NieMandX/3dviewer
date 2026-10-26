@@ -1,0 +1,40 @@
+[Unit]
+Description=LPMVIEW private backend HTTPS
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=lpmview-backend-tls
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/lpmview-backend-tls
+Environment=XDG_DATA_HOME=/var/lib/lpmview-backend-tls/data
+Environment=XDG_CONFIG_HOME=/var/lib/lpmview-backend-tls/config
+EnvironmentFile=/etc/lpmview-backend-tls/proxy.env
+ExecStart=/usr/local/bin/lpmview-backend-caddy run --config /etc/lpmview-backend-tls/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+MemoryMax=192M
+CPUQuota=50%
+TasksMax=128
+UMask=0077
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=100
+
+[Install]
+WantedBy=multi-user.target

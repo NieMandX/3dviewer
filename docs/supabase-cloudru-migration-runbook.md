@@ -30,8 +30,9 @@ The model service account has only `s3e.viewer` and `s3e.editor` on this bucket.
 Its non-expiring key was explicitly approved by the owner; revoke and replace it
 if compromised. There are no account-wide administrative rights on this key.
 
-Initial VM ingress is SSH from the owner's current IPv4 `/32` only, with
-password login disabled. Outbound IPv4 is allowed for package installation,
+Initial VM ingress was SSH from the owner's current IPv4 `/32` only. On
+2026-10-26 the owner separately approved TCP 22 from any IPv4 on both VMs;
+password, keyboard-interactive and root login remain disabled. Outbound IPv4 is allowed for package installation,
 metadata, DHCP and backend dependencies. Public application ports and private
 inter-service rules must be reviewed separately before enabling services.
 
@@ -74,6 +75,24 @@ prevents the 30-second total timeout from truncating large downloads.
 5. Verify object counts, byte counts and SHA-256 through the destination API.
    Keep both the hosted source and local copies through stabilization.
 
+Storage's `update_objects_updated_at` trigger overrides restored timestamps.
+When restoring metadata, disable only this trigger inside the same transaction,
+restore the original timestamps and SQL NULL user metadata, then re-enable the
+trigger before committing. Do not replace the target object version or disable
+foreign-key checks. Compare all ownership fields and timestamps after the update.
+
+On 2026-10-26 the accepted demo dataset was restored into private staging:
+191 Auth users (7 registered), 13 projects, 22 rooms, 27 model records,
+154 annotations and 21 cameras. All 30 Storage objects, totaling 2,623,488,072
+bytes, were uploaded through the target API and downloaded again for SHA-256
+verification. Ownership and timestamps match the source inventory. Two of these
+objects are existing empty-folder placeholders, not missing models.
+The seven missing application migrations and eight-table Realtime publication
+were applied on the destination only. Read-only RLS checks and a two-client
+Realtime broadcast probe passed; these do not replace real login, room-event,
+voice or end-to-end browser tests. A post-transfer database archive was created
+and its archive index checked; an independent restore test remains required.
+
 The provider displayed an Object Storage upload restriction notice at setup.
 Do not treat successful bucket creation or one upload as a passed Storage test.
 Test large upload/download integrity from both a VM and a client before deciding
@@ -91,6 +110,39 @@ The source database is not used by the staging queue worker, which stays off.
 The current voice token endpoint lacks a room-membership check. The staging
 proxy deliberately blocks it; fixing authorization is a publication gate, not
 a reason to open the legacy endpoint while migration proceeds.
+
+## Private Backend HTTPS
+
+The owner separately approved backend TCP 8443 from the voice VM's private
+address only on 2026-10-26. This does not authorize public application ingress.
+Keep the gateway and database pooler on loopback. Add a separate backend-only
+security group permitting TCP 8443 from the voice private `/32`, without
+replacing the existing SSH group or enabling all intra-group protocols.
+
+`infra/supabase-cloudru/Caddyfile.internal` binds only the backend private IP,
+requires the voice source IP, and proxies only Auth, REST, Storage and Realtime.
+It disables HTTP redirects, HTTP/3 and the Caddy admin listener. Set
+`LPM_BACKEND_PRIVATE_IP` and `LPM_VOICE_PRIVATE_IP` in a root-owned
+`/etc/lpmview-backend-tls/proxy.env`; install the config at that directory's
+`Caddyfile`. Use the supplied `lpmview-backend-tls.service` with a verified Caddy
+binary at `/usr/local/bin/lpmview-backend-caddy`. Do not replace production Caddy.
+
+Caddy's internal CA stays in the service's protected state directory. Transfer
+only `data/caddy/pki/authorities/local/root.crt` to the voice VM as
+`/etc/lpmview-ca/backend-root.crt`; the CA private key never leaves the backend.
+The certificate is public information and can be mode 0644. Append
+`compose.backend-tls.yaml` to the voice staging Compose files and set the
+target-only Supabase URL/key in its protected environment file. Checker can
+use the same public certificate through `NODE_EXTRA_CA_CERTS`, but its worker
+must remain disabled until the engine identity and queue tests pass.
+
+Validate the actual Caddy config before activation. Verify TLS with the pinned
+CA, verify failure without it, test allowed API paths from voice and denied
+administrative paths, and verify that neither TCP 8443 from other sources nor
+UDP 8443 is exposed. Never use `curl -k` or disable certificate verification.
+Record deployed hashes, CA fingerprint, security group ID and test results in
+the private migration checkpoint. Configuration files alone are not proof of
+successful deployment.
 
 ## Acceptance Before Cutover
 
